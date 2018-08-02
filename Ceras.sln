@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27703.2018
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ceras", "Ceras\Ceras.csproj", "{F246878A-DA0D-4177-9625-915091427FCB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test", "Test\Test.csproj", "{1494F621-2CD9-4CF9-B297-A5820578D75D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F246878A-DA0D-4177-9625-915091427FCB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F246878A-DA0D-4177-9625-915091427FCB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F246878A-DA0D-4177-9625-915091427FCB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F246878A-DA0D-4177-9625-915091427FCB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1494F621-2CD9-4CF9-B297-A5820578D75D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1494F621-2CD9-4CF9-B297-A5820578D75D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1494F621-2CD9-4CF9-B297-A5820578D75D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1494F621-2CD9-4CF9-B297-A5820578D75D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {CD3F58FB-923B-4483-AD03-D21BEFE0C653}
+	EndGlobalSection
+EndGlobal
