@@ -18,17 +18,28 @@
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteInt16Fixed(ref byte[] buffer, ref int offset, short value)
 		{
-			EnsureCapacity(ref buffer, offset, 2 + 1);
+			EnsureCapacity(ref buffer, offset, 2);
 
-			var zigZag = EncodeZigZag((long)value, 16);
-			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
+			fixed (byte* pBuffer = buffer)
+			{
+				*((short*)(pBuffer + offset)) = value;
+			}
+
+			offset += 2;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static short ReadInt16Fixed(byte[] buffer, ref int offset)
 		{
-			var zigZag = ReadVarInt(buffer, ref offset, 16);
-			return (short)DecodeZigZag(zigZag);
+			short value;
+
+			fixed (byte* pBuffer = buffer)
+			{
+				value = *((short*)(pBuffer + offset));
+			}
+
+			offset += 2;
+			return value;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
