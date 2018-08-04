@@ -87,6 +87,10 @@ namespace Ceras
 			var typeFormatter = new CacheFormatter<Type>(new TypeFormatter(this), this, _typeCache);
 			_formatters.Add(typeof(Type), typeFormatter);
 
+			if (Config.KnownTypes.Count > 0)
+				if (Config.SealTypesWhenUsingKnownTypes)
+					typeFormatter.Seal();
+
 			_cacheStringFormatter = new CacheFormatter<string>((IFormatter<string>)GetFormatter(typeof(string), false), this, GetObjectCache());
 
 			_typeFormatter = (IFormatter<Type>)GetFormatter(typeof(Type), false, true);
@@ -196,7 +200,7 @@ namespace Ceras
 		public void Deserialize<T>(ref T value, byte[] buffer, int offset, int expectedReadLength = -1)
 		{
 			var formatter = (IFormatter<T>)GetFormatter(typeof(T));
-			
+
 			formatter.Deserialize(buffer, ref offset, ref value);
 
 			if (expectedReadLength != -1)
@@ -226,7 +230,7 @@ namespace Ceras
 			Type t = null;
 			int offset = 0;
 			_typeFormatter.Deserialize(buffer, ref offset, ref t);
-			
+
 			return t;
 		}
 
@@ -248,7 +252,7 @@ namespace Ceras
 				}
 			}
 
-			if(type.IsPrimitive)
+			if (type.IsPrimitive)
 				allowDynamicResolver = false;
 
 			// Can we build a dynamic resolver?
@@ -324,6 +328,18 @@ namespace Ceras
 		public Func<FieldInfo, bool> ShouldSerializeField { get; set; } = null;
 
 		public IExternalObjectResolver ExternalObjectResolver { get; set; }
+
+		/// <summary>
+		/// Defaults to true to protect against unintended usage. 
+		/// Which means that when KnownTypes has any entries the TypeFormatter will be sealed to prevent adding more types.
+		/// The idea is that when someone uses KnownTypes, they have a fixed list of types
+		/// they want to serialize (to minimize overhead from serializing type names initially), which is usually done in networking scenarios;
+		/// While working on a project you might add more types or add new fields or things like that, and a common mistake is accidentally adding a new type (or even whole graph!)
+		/// to the object graph that was not intended; which is obviously extremely problematic (super risky if sensitive 
+		/// stuff gets suddenly dragged into the serialization; or might even just crash when encountering types that can't even be serialized correctly; ...).
+		/// Don't disable this unless you know what you're doing.
+		/// </summary>
+		public bool SealTypesWhenUsingKnownTypes { get; set; } = true;
 	}
 
 	public class KnownTypesCollection : ICollection<Type>
@@ -359,7 +375,7 @@ namespace Ceras
 		 * 
 		 */
 
-		
+
 		// public string KnownTypeHash
 
 		// Means that the collection is now "sealed" and can't be changed anymore

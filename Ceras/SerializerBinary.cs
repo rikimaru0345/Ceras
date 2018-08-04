@@ -59,6 +59,21 @@
 		}
 
 
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteUInt32(ref byte[] buffer, ref int offset, uint value)
+		{
+			EnsureCapacity(ref buffer, offset, 4 + 1);
+
+			WriteVarInt(ref buffer, ref offset, (ulong)value);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static uint ReadUInt32(byte[] buffer, ref int offset)
+		{
+			return (uint)ReadVarInt(buffer, ref offset, 32);
+		}
+
+
 		#region Specialized
 
 		//
@@ -250,7 +265,7 @@
 			return d;
 		}
 
-		
+
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteDouble64Fixed(ref byte[] buffer, ref int offset, double value)
 		{
@@ -278,6 +293,35 @@
 			return d;
 		}
 
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteGuid(ref byte[] buffer, ref int offset, Guid value)
+		{
+			EnsureCapacity(ref buffer, offset, 16);
+
+			fixed (byte* dst = &buffer[offset])
+			{
+				var src = &value;
+				*(Guid*)dst = *src;
+			}
+
+			offset += 16;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static Guid ReadGuid(byte[] buffer, ref int offset)
+		{
+			Guid guid;
+
+			fixed (byte* src = &buffer[offset])
+			{
+				guid = *(Guid*)src;
+			}
+
+			offset += 16;
+
+			return guid;
+		}
 
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]

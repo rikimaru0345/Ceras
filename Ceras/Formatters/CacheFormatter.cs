@@ -1,5 +1,6 @@
 ﻿namespace Ceras.Formatters
 {
+	using System;
 	using System.Collections.Generic;
 	using Helpers;
 	using Resolvers;
@@ -81,6 +82,8 @@
 		readonly CerasSerializer _serializer;
 		readonly ObjectCache _objectCache;
 
+		public bool IsSealed { get; private set; }
+
 		public CacheFormatter(IFormatter<T> innerFormatter, CerasSerializer serializer, ObjectCache objectCache)
 		{
 			_innerFormatter = innerFormatter;
@@ -116,6 +119,11 @@
 			}
 			else
 			{
+				if (IsSealed)
+				{
+					throw new InvalidOperationException($"Trying to add '{value.ToString()}' (type '{typeof(T).FullName}') to a sealed cache formatter.");
+				}
+
 				// New value
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewValue, Bias);
 
@@ -199,6 +207,17 @@
 			// Something we already know
 			value = _objectCache.GetExistingObject<T>(objId);
 		}
+
+		/// <summary>
+		/// Set IsSealed, and will throw an exception whenever a new value is encountered.
+		/// Intended to be used when serializing Types (inner formatter is 'TypeFormatter') and using KnownTypes.
+		/// The idea is that you populate KnownTypes in advance, then call Seal(), so you'll be notified *before* something goes wrong (a new, unintended, type getting serialized)
+		/// </summary>
+		public void Seal()
+		{
+			IsSealed = true;
+		}
+
 	}
 
 

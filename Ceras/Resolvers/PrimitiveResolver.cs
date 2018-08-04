@@ -6,10 +6,11 @@
 
 	class PrimitiveResolver : IFormatterResolver
 	{
-		IFormatter _intFormatter = new IntFormatter();
 		IFormatter _byteFormatter = new ByteFormatter();
 		IFormatter _int16Formatter = new Int16Formatter();
 		IFormatter _boolFormatter = new BoolFormatter();
+		IFormatter _intFormatter = new IntFormatter();
+		IFormatter _uintFormatter = new UIntFormatter();
 		IFormatter _floatFormatter = new FloatFormatter();
 		IFormatter _doubleFormatter = new DoubleFormatter();
 		IFormatter _int64Formatter = new Int64Formatter();
@@ -19,6 +20,8 @@
 		{
 			if (type == typeof(int))
 				return _intFormatter;
+			if (type == typeof(uint))
+				return _uintFormatter;
 			if (type == typeof(bool))
 				return _boolFormatter;
 			if (type == typeof(byte))
@@ -87,6 +90,18 @@
 			public void Deserialize(byte[] buffer, ref int offset, ref int value)
 			{
 				value = SerializerBinary.ReadInt32(buffer, ref offset);
+			}
+		}
+		class UIntFormatter : IFormatter<uint>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, uint value)
+			{
+				SerializerBinary.WriteUInt32(ref buffer, ref offset, value);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref uint value)
+			{
+				value = SerializerBinary.ReadUInt32(buffer, ref offset);
 			}
 		}
 		class FloatFormatter : IFormatter<float>

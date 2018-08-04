@@ -23,6 +23,7 @@
 				var dynamicFormatterType = typeof(DynamicObjectFormatter<>).MakeGenericType(type);
 				formatter = (IFormatter)Activator.CreateInstance(dynamicFormatterType, _serializer);
 
+				// todo: maybe allow a setting where we can disable caching completely, that way we don't have to clear buffers, and we won't use more bytes than needed. Could be cool for networking. But no more circular references, and also no de-duplication (if a list contains the same class multiple times...)
 				// Dynamic formatter without caching doesn't help us much
 				// As soon as there are circular references, self-references or any other sort of loops in the object graph
 				// we'll get a stack-overflow

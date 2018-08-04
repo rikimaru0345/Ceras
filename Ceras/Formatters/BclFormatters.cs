@@ -1,6 +1,7 @@
 ﻿namespace Ceras.Formatters
 {
 	using System;
+	using static SerializerBinary;
 
 	public class BclFormatterResolver : Resolvers.IFormatterResolver
 	{
@@ -25,12 +26,12 @@
 		public void Serialize(ref byte[] buffer, ref int offset, DateTime value)
 		{
 			var v = value.ToBinary();
-			SerializerBinary.WriteInt64Fixed(ref buffer, ref offset, v);
+			WriteInt64Fixed(ref buffer, ref offset, v);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref DateTime value)
 		{
-			var v = SerializerBinary.ReadInt64Fixed(buffer, ref offset);
+			var v = ReadInt64Fixed(buffer, ref offset);
 			value = DateTime.FromBinary(v);
 		}
 	}
@@ -40,13 +41,12 @@
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Guid value)
 		{
-			SerializerBinary.WriteString(ref buffer, ref offset, value.ToString("N"));
+			WriteGuid(ref buffer, ref offset, value);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Guid value)
 		{
-			var guidStr = SerializerBinary.ReadString(buffer, ref offset);
-			value = Guid.ParseExact(guidStr, "N");
+			value = ReadGuid(buffer, ref offset);
 		}
 	}
 }
