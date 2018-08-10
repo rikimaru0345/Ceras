@@ -6,6 +6,7 @@ namespace Ceras
 	using System.Collections.Generic;
 	using System.Linq;
 	using System.Reflection;
+	using Exceptions;
 	using Formatters;
 	using Helpers;
 	using Resolvers;
@@ -98,14 +99,6 @@ namespace Ceras
 
 
 
-		/// <summary>
-		/// Use the generic version if you can
-		/// </summary>
-		public byte[] SerializeObject(object obj)
-		{
-			return Serialize<object>(obj);
-		}
-
 		/// <summary>Simple usage, but will obviously allocate an array for you, use the other overload for better performance!</summary>
 		public byte[] Serialize<T>(T obj)
 		{
@@ -173,14 +166,6 @@ namespace Ceras
 
 
 		/// <summary>
-		/// Convenience method for Deserialize&lt;object&gt;()
-		/// </summary>
-		public object DeserializeObject(byte[] data)
-		{
-			return Deserialize<object>(data);
-		}
-
-		/// <summary>
 		/// Convenience method that will most likely allocate a T to return (using 'new T()'). Unless the data says the object really is null, in that case no instance of T is allocated.
 		/// It would be smart to not use this method and instead use the (ref T value, byte[] buffer) overload with an object you have cached. 
 		/// That way the deserializer will set/populate the object you've provided. Obviously this only works if you can overwrite/reuse objects like this! (which, depending on what you're doing, might not be possible at all)
@@ -201,14 +186,21 @@ namespace Ceras
 		{
 			var formatter = (IFormatter<T>)GetFormatter(typeof(T));
 
+			int offsetBeforeRead = offset;
+
 			formatter.Deserialize(buffer, ref offset, ref value);
 
 			if (expectedReadLength != -1)
-				if (offset != expectedReadLength)
+			{
+				int bytesActuallyRead = offset - offsetBeforeRead;
+
+				if (bytesActuallyRead != expectedReadLength)
 				{
-					throw new InvalidOperationException("The deserialization has completed, but not all of the given bytes were consumed. " +
-														" Maybe you tried to deserialize something directly from a larger byte-array?");
+					throw new UnexpectedBytesConsumedException("The deserialization has completed, but not all of the given bytes were consumed. " +
+														" Maybe you tried to deserialize something directly from a larger byte-array?",
+															   expectedReadLength, bytesActuallyRead, offsetBeforeRead, offset);
 				}
+			}
 
 			// todo: instead of clearing and re-adding the known types, the type-cache should have a fallback cache inside it
 			// todo: .. that gets used when the ID is out of range. So outside is the dynamic stuff (with an offset of where IDs will start), and inside are the
@@ -235,7 +227,7 @@ namespace Ceras
 		}
 
 
-		internal IFormatter GetFormatter(Type type, bool allowDynamicResolver = true, bool throwIfNoneFound = true)
+		public IFormatter GetFormatter(Type type, bool allowDynamicResolver = true, bool throwIfNoneFound = true, string extraErrorInformation = null)
 		{
 			IFormatter formatter;
 			if (_formatters.TryGetValue(type, out formatter))
@@ -266,7 +258,7 @@ namespace Ceras
 			}
 
 			if (throwIfNoneFound)
-				throw new Exception("There's no formatter that can handle the type " + type.FullName);
+				throw new NotSupportedException($"Ceras could not find any IFormatter<T> for the type '{type.FullName}'. {extraErrorInformation}");
 
 			return null;
 		}
@@ -325,9 +317,14 @@ namespace Ceras
 
 		public Func<Type, object> ObjectFactoryMethod { get; set; } = null;
 
+		// todo: a function to call when there's an existing instance that we don't want (wrong type, or non-null); the user can give us a function where he can recycle the object
+
 		public Func<FieldInfo, bool> ShouldSerializeField { get; set; } = null;
 
 		public IExternalObjectResolver ExternalObjectResolver { get; set; }
+
+		// todo: settings per-type: ShouldRecylce
+		// todo: settings per-field: Formatter<> to override
 
 		/// <summary>
 		/// Defaults to true to protect against unintended usage. 

@@ -333,6 +333,12 @@
 				return;
 			}
 
+
+			// todo: guess how long the result will be approximately and write with that offset (leaving 1, 2 or 3 bytes for the length, depending on the guess)
+			// when we wrote the data and we know how much it really was, we can still move the data around
+			// we can use the last overload of GetBytes
+
+			
 			var bytes = Encoding.UTF8.GetBytes(value);
 			EnsureCapacity(ref buffer, offset, bytes.Length + 5); // 5 bytes space for the varint
 

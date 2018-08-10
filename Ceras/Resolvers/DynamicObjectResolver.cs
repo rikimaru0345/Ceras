@@ -27,8 +27,14 @@
 				// Dynamic formatter without caching doesn't help us much
 				// As soon as there are circular references, self-references or any other sort of loops in the object graph
 				// we'll get a stack-overflow
-				var cacheFormatterType = typeof(CacheFormatter<>).MakeGenericType(type);
-				formatter = (IFormatter) Activator.CreateInstance(cacheFormatterType, formatter, _serializer, _serializer.GetObjectCache());
+
+				if (!type.IsValueType)
+				{
+					// Only do this for reference types, we can't cache value types
+					// We could have special value-type caches for really large structs, but that'd go to far...
+					var cacheFormatterType = typeof(CacheFormatter<>).MakeGenericType(type);
+					formatter = (IFormatter)Activator.CreateInstance(cacheFormatterType, formatter, _serializer, _serializer.GetObjectCache());
+				}
 
 				_dynamicFormatters[type] = formatter;
 			}

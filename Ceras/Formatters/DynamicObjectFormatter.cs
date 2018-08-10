@@ -26,7 +26,7 @@ namespace Ceras.Formatters
 		public DynamicObjectFormatter(CerasSerializer serializer)
 		{
 			_serializer = serializer;
-			_typeFormatter = (IFormatter<Type>)serializer.GetFormatter(typeof(Type));
+			_typeFormatter = (IFormatter<Type>)serializer.GetFormatter(typeof(Type), extraErrorInformation: "DynamicObjectFormatter.TypeFormatter");
 		}
 
 
@@ -69,13 +69,13 @@ namespace Ceras.Formatters
 				foreach (var fieldInfo in fields)
 				{
 					// Get the formatter and its Serialize method
-					var formatter = _serializer.GetFormatter(fieldInfo.FieldType);
+					var formatter = _serializer.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
 					var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
 
 					// Access the field that we want to serialize
 					var fieldExp = Expression.Field(valAsSpecific, fieldInfo);
 
-					
+
 					Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter");
 
 					// Call "Serialize"
@@ -188,9 +188,9 @@ namespace Ceras.Formatters
 					// - Force ignore caching (for ref types) (value types cannot be ref-saved)
 					// - Persistent object caching per type or field
 
-					var formatter = _serializer.GetFormatter(fieldInfo.FieldType);
+					var formatter = _serializer.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
 					var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
-					
+
 					Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
 
 					var fieldExp = Expression.Field(valAsSpecific, fieldInfo);
