@@ -64,6 +64,7 @@
     <Compile Include="Resolvers\PrimitiveResolver.cs" />
     <Compile Include="Resolvers\StandardResolver.cs" />
     <Compile Include="CerasSerializer.cs" />
+    <Compile Include="Resolvers\UserFormatterResolver.cs" />
     <Compile Include="SerializerBinary.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

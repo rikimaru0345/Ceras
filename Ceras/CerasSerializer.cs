@@ -69,6 +69,8 @@ namespace Ceras
 				_typeCache.AddKnownType(t);   // For deserialization
 			}
 
+			if (Config.UserFormatters.UserFormatterCount > 0)
+				Resolvers.Add(Config.UserFormatters);
 
 			// Int, Float, Enum, String
 			Resolvers.Add(new PrimitiveResolver());
@@ -173,16 +175,18 @@ namespace Ceras
 		public T Deserialize<T>(byte[] buffer)
 		{
 			T value = default(T);
-			Deserialize(ref value, buffer, 0);
+			int offset = 0;
+			Deserialize(ref value, buffer, ref offset);
 			return value;
 		}
 
 		public void Deserialize<T>(ref T value, byte[] buffer)
 		{
-			Deserialize(ref value, buffer, 0, -1);
+			int offset = 0;
+			Deserialize(ref value, buffer, ref offset, -1);
 		}
 
-		public void Deserialize<T>(ref T value, byte[] buffer, int offset, int expectedReadLength = -1)
+		public void Deserialize<T>(ref T value, byte[] buffer, ref int offset, int expectedReadLength = -1)
 		{
 			var formatter = (IFormatter<T>)GetFormatter(typeof(T));
 
@@ -324,7 +328,11 @@ namespace Ceras
 		public IExternalObjectResolver ExternalObjectResolver { get; set; }
 
 		// todo: settings per-type: ShouldRecylce
+
 		// todo: settings per-field: Formatter<> to override
+
+		public UserFormatterResolver UserFormatters { get; } = new UserFormatterResolver();
+
 
 		/// <summary>
 		/// Defaults to true to protect against unintended usage. 
