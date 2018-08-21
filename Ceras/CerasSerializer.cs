@@ -6,6 +6,7 @@ namespace Ceras
 	using System.Collections.Generic;
 	using System.Linq;
 	using System.Reflection;
+	using System.Text;
 	using Exceptions;
 	using Formatters;
 	using Helpers;
@@ -28,6 +29,8 @@ namespace Ceras
 	public class CerasSerializer
 	{
 		internal readonly SerializerConfig Config;
+		public ProtocolChecksum ProtocolChecksum { get; } = new ProtocolChecksum();
+		
 		readonly IFormatter<string> _cacheStringFormatter;
 		// A special resolver. It creates instances of the "dynamic formatter", the DynamicObjectFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
 		// for a given object type.
@@ -58,22 +61,22 @@ namespace Ceras
 		{
 			Config = config ?? new SerializerConfig();
 
+			// Check if the config is even valid
+			if (Config.EmbedChecksum && !Config.GenerateChecksum)
+				throw new InvalidOperationException($"{nameof(Config.GenerateChecksum)} must be true if {nameof(Config.EmbedChecksum)} is true!");
+			if (Config.EmbedChecksum && Config.PersistTypeCache)
+				throw new InvalidOperationException($"You can't have '{nameof(Config.EmbedChecksum)}' and also have '{nameof(Config.PersistTypeCache)}' because adding new types changes the checksum. You can use '{nameof(Config.GenerateChecksum)}' alone, but the checksum might change after every serialization call...");
+
+
 			if (Config.ExternalObjectResolver == null)
 				Config.ExternalObjectResolver = new ErrorResolver();
 
-			// todo: callback "configure known types" so we can also generate serializers, and they also tell us about fields and stuff, that we then hash and update a rolling hash
-			Config.KnownTypes.Seal();
-			foreach (var t in Config.KnownTypes)
-			{
-				_typeCache.RegisterObject(t); // For serialization
-				_typeCache.AddKnownType(t);   // For deserialization
-			}
 
 			if (Config.UserFormatters.UserFormatterCount > 0)
 				Resolvers.Add(Config.UserFormatters);
 
 			// Int, Float, Enum, String
-			Resolvers.Add(new PrimitiveResolver());
+			Resolvers.Add(new PrimitiveResolver(this));
 
 			Resolvers.Add(new ReflectionTypesFormatterResolver(this));
 			Resolvers.Add(new KeyValuePairFormatterResolver(this));
@@ -97,6 +100,54 @@ namespace Ceras
 			_cacheStringFormatter = new CacheFormatter<string>((IFormatter<string>)GetFormatter(typeof(string), false), this, GetObjectCache());
 
 			_typeFormatter = (IFormatter<Type>)GetFormatter(typeof(Type), false, true);
+
+
+			//
+			// Basic setup is done
+			// Now we're adding our "known types"
+			// generating serializers and updating the protocol checksum
+			//
+
+			Config.KnownTypes.Seal();
+			foreach (var t in Config.KnownTypes)
+			{
+				_typeCache.RegisterObject(t); // For serialization
+				_typeCache.AddKnownType(t);   // For deserialization
+				
+				if (Config.GenerateChecksum)
+				{
+					ProtocolChecksum.Add(t.FullName);
+
+					if (t.IsEnum)
+					{
+						// Enums are a special case, they are classes internally, but they only have one field ("__value")
+						// We're always serializing them in binary with their underlying type, so there's no reason changes like Adding/Removing/Renaming
+						// enum-members could ever cause any binary incompatibility
+						//
+						// A change in the base-type however WILL cause problems!
+						//
+						// Note, even without this if() everything would be ok, since the code below also writes the field-type
+						// but it is better to *explicitly* do this here and explain why we're doing it!
+						ProtocolChecksum.Add(t.GetEnumUnderlyingType().FullName);
+
+						continue;
+					}
+
+
+					var fields = DynamicObjectFormatter<object>.GetSerializableFields(t);
+					foreach (var f in fields)
+					{
+						ProtocolChecksum.Add(f.FieldType.FullName);
+						ProtocolChecksum.Add(f.Name);
+
+						foreach (var a in f.GetCustomAttributes(true))
+							ProtocolChecksum.Add(a.ToString());
+					}
+				}
+			}
+
+			if(Config.GenerateChecksum)
+				ProtocolChecksum.Finish();
 		}
 
 
@@ -122,6 +173,12 @@ namespace Ceras
 			if (_serializationInProgress)
 				throw new InvalidOperationException("Nested serialization will not work. Keep track of objects to serialize in a HashSet<T> or so and then serialize those later...");
 			_serializationInProgress = true;
+
+			if (Config.EmbedChecksum)
+			{
+				SerializerBinary.WriteInt32Fixed(ref targetByteArray, ref offset, ProtocolChecksum.Checksum);
+			}
+
 
 			try
 			{
@@ -191,6 +248,13 @@ namespace Ceras
 			var formatter = (IFormatter<T>)GetFormatter(typeof(T));
 
 			int offsetBeforeRead = offset;
+			
+			if (Config.EmbedChecksum)
+			{
+				var checksum = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
+				if (checksum != ProtocolChecksum.Checksum)
+					throw new InvalidOperationException($"Checksum does not match embedded checksum (Serializer={ProtocolChecksum.Checksum}, Data={checksum})");
+			}
 
 			formatter.Deserialize(buffer, ref offset, ref value);
 
@@ -316,9 +380,6 @@ namespace Ceras
 		public bool PersistObjectCache { get; set; } = false;
 
 
-		public KnownTypesCollection KnownTypes { get; } = new KnownTypesCollection();
-
-
 		public Func<Type, object> ObjectFactoryMethod { get; set; } = null;
 
 		// todo: a function to call when there's an existing instance that we don't want (wrong type, or non-null); the user can give us a function where he can recycle the object
@@ -333,6 +394,9 @@ namespace Ceras
 
 		public UserFormatterResolver UserFormatters { get; } = new UserFormatterResolver();
 
+		
+
+		public KnownTypesCollection KnownTypes { get; } = new KnownTypesCollection();
 
 		/// <summary>
 		/// Defaults to true to protect against unintended usage. 
@@ -345,6 +409,66 @@ namespace Ceras
 		/// Don't disable this unless you know what you're doing.
 		/// </summary>
 		public bool SealTypesWhenUsingKnownTypes { get; set; } = true;
+
+	
+
+		/// <summary>
+		/// If true, the serializer will generate dynamic object formatters early (in the constructor).
+		/// This can obviously only work if you use sealed KnownTypes (meaning you put all your types into KnownTypes and then have the serializer seal it at construction time).
+		/// Then it is assured that no new types will be added dynamically, which in turn means that the "protocol hash" will not change.
+		/// </summary>
+		public bool GenerateChecksum { get; set; } = true;
+
+		/// <summary>
+		/// Embed protocol/serializer checksum at the start of any serialized data, and read it back when deserializing to make sure we're not reading incompatible data on accident
+		/// </summary>
+		public bool EmbedChecksum { get; set; } = false;
+	}
+
+	/// <summary>
+	/// A class that the serializer uses to keep track of the "checksum" of its internal state.
+	/// Why? What for?
+	/// Since we have absolutely no "backwards compatibility" or "versioning" in the binary data,
+	/// the serializer/deserializer has to be exactly the same, meaning the same classes with the same type-codes
+	/// in exactly the same order. Each class must have the same fields in the same order, with the same types and attributes.
+	/// To make all this easier, the serializer simply puts all the information into this class.
+	/// - constructs the dynamic serializers directly when the serializer gets created
+	/// - optionally emits a checksum into the binary (just 1 int)
+	/// </summary>
+	public class ProtocolChecksum
+	{
+		xxHash _hash = new xxHash();
+		bool _isClosed;
+
+		bool _useDebugString = true;
+		string _debugString = "";
+
+		int _checksum;
+		public int Checksum => _isClosed ? _checksum : throw new InvalidOperationException("not yet computed");
+
+		internal ProtocolChecksum()
+		{
+			// ReSharper disable once RedundantArgumentDefaultValue
+			_hash.Init(0);
+		}
+
+		internal void Add(string name)
+		{
+			if (_isClosed)
+				throw new InvalidOperationException("IsClosed");
+
+			if (_useDebugString)
+				_debugString += "\r\n" + name;
+
+			var bytes = Encoding.UTF8.GetBytes(name);
+			_hash.Update(bytes, bytes.Length);
+		}
+
+		internal void Finish()
+		{
+			_isClosed = true;
+			_checksum = (int)_hash.Digest();
+		}
 	}
 
 	public class KnownTypesCollection : ICollection<Type>

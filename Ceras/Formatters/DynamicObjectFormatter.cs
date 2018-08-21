@@ -239,11 +239,12 @@ namespace Ceras.Formatters
 			// Or maybe it's just the specific type itself, but we can't know that here, as the following could be possible as well:
 			// class UserClassA {}
 			// class UserClassB : UserClassA {}
-			// If the field-type is UserClassA, then there could either an A or an B inside the field (because A is not abstract!), so we'll have to write the type anyway.
+			// If the field-type is UserClassA, then there could either an A or an B inside the field (because A is not abstract!), so we'll have to write the type anyway,
+			// since at deserialization time we need to know which one of the two was present. (maybe we could avoid this specific special case eventually, but it's likely not worth the effort)
 			DynamicSerializer serializer;
 			if (!_specificSerializers.TryGetValue(type, out serializer))
 			{
-				var fields = GetSerializableFields(type);
+				var fields = GetSerializableFields(type, _serializer.Config.ShouldSerializeField);
 				serializer = GenerateSerializer(fields, type);
 				_specificSerializers[type] = serializer;
 			}
@@ -268,7 +269,7 @@ namespace Ceras.Formatters
 			DynamicDeserializer deserializer;
 			if (!_specificDeserializers.TryGetValue(type, out deserializer))
 			{
-				var fields = GetSerializableFields(type);
+				var fields = GetSerializableFields(type, _serializer.Config.ShouldSerializeField);
 				deserializer = GenerateDeserializer(fields, type);
 				_specificDeserializers[type] = deserializer;
 			}
@@ -277,10 +278,8 @@ namespace Ceras.Formatters
 		}
 
 
-		List<FieldInfo> GetSerializableFields(Type type)
+		internal static List<FieldInfo> GetSerializableFields(Type type, Func<FieldInfo, bool> fieldFilter = null)
 		{
-			var userFilter = _serializer.Config.ShouldSerializeField;
-
 			List<FieldInfo> fields = new List<FieldInfo>();
 			foreach (var f in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
 			{
@@ -288,9 +287,9 @@ namespace Ceras.Formatters
 				if (f.IsInitOnly)
 					continue;
 
-				if (userFilter != null)
+				if (fieldFilter != null)
 				{
-					if (!userFilter(f))
+					if (!fieldFilter(f))
 						continue;
 				}
 				else

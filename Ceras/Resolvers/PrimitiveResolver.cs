@@ -1,11 +1,13 @@
 ﻿namespace Ceras.Resolvers
 {
+	using Formatters;
 	using System;
 	using System.Linq.Expressions;
-	using Formatters;
 
 	class PrimitiveResolver : IFormatterResolver
 	{
+		readonly CerasSerializer _serializer;
+
 		IFormatter _byteFormatter = new ByteFormatter();
 		IFormatter _int16Formatter = new Int16Formatter();
 		IFormatter _boolFormatter = new BoolFormatter();
@@ -15,6 +17,11 @@
 		IFormatter _doubleFormatter = new DoubleFormatter();
 		IFormatter _int64Formatter = new Int64Formatter();
 		IFormatter _stringFormatter = new StringFormatter();
+
+		public PrimitiveResolver(CerasSerializer serializer)
+		{
+			_serializer = serializer;
+		}
 
 		public IFormatter GetFormatter(Type type)
 		{
@@ -39,7 +46,7 @@
 				return _stringFormatter;
 
 			if (type.IsEnum)
-				return (IFormatter)Activator.CreateInstance(typeof(EnumFormatter<>).MakeGenericType(type));
+				return (IFormatter)Activator.CreateInstance(typeof(EnumFormatter<>).MakeGenericType(type), _serializer);
 
 			return null;
 		}
@@ -150,23 +157,24 @@
 			WriteEnum _enumWriter;
 			ReadEnum _enumReader;
 
-			public EnumFormatter()
+			public EnumFormatter(CerasSerializer serializer)
 			{
 				var refBuffer = Expression.Parameter(typeof(byte[]).MakeByRefType(), "buffer");
 				var refOffset = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
 				var value = Expression.Parameter(typeof(T), "value");
 
 				// Cast to int, write as int32
-				var writeInt32 = typeof(SerializerBinary).GetMethod("WriteInt32");
+				// Todo: get the right formatter from the serializer: for byte, short, int, ...
+				var enumBaseType = typeof(T).GetEnumUnderlyingType();
+				var formatter = serializer.GetFormatter(enumBaseType, false, true, "Enum formatter for baseType");
 
-				var converted = Expression.Convert(value, typeof(int));
-				var writeCall = Expression.Call(writeInt32, refBuffer, refOffset, converted);
+				var write = formatter.GetType().GetMethod("Serialize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+				
+				var converted = Expression.Convert(value, enumBaseType);
+				var writeCall = Expression.Call(instance: Expression.Constant(formatter), method: write, arg0: refBuffer, arg1: refOffset, arg2: converted);
 
 				_enumWriter = Expression.Lambda<WriteEnum>(writeCall, refBuffer, refOffset, value).Compile();
-
-
-
-
+				
 				var buffer = Expression.Parameter(typeof(byte[]), "buffer");
 				var refValue = Expression.Parameter(typeof(T).MakeByRefType(), "value");
 

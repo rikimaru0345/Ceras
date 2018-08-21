@@ -19,6 +19,8 @@ namespace LiveTesting
 			};
 			config.KnownTypes.Add(typeof(SetName));
 			config.KnownTypes.Add(typeof(NewPlayer));
+			config.KnownTypes.Add(typeof(LongEnum));
+			config.KnownTypes.Add(typeof(ByteEnum));
 
 			var msg = new SetName
 			{
@@ -29,12 +31,14 @@ namespace LiveTesting
 			CerasSerializer sender = new CerasSerializer(config);
 			CerasSerializer receiver = new CerasSerializer(config);
 
+			Console.WriteLine("Hash: " + sender.ProtocolChecksum.Checksum);
+
 			var data = sender.Serialize(msg);
 			PrintData(data);
 			data = sender.Serialize(msg);
 			PrintData(data);
 
-			var obj = receiver.DeserializeObject(data);
+			var obj = receiver.Deserialize<object>(data);
 			var clone = (SetName)obj;
 			Console.WriteLine(clone.Type);
 			Console.WriteLine(clone.Name);
@@ -52,10 +56,17 @@ namespace LiveTesting
 			var guidClone = SerializerBinary.ReadGuid(data, ref offset);
 			Console.WriteLine("GUID: " + guidClone + " (clone)");
 
+			//
+			// Enums
+			//
+			var longEnum = LongEnum.b;
+			var byteEnum = ByteEnum.b;
+			var longEnumData = sender.Serialize(longEnum);
+			var byteEnumData = sender.Serialize(byteEnum);
+
 
 
 			Console.ReadLine();
-
 		}
 
 		static void PrintData(byte[] data)
@@ -63,6 +74,18 @@ namespace LiveTesting
 			var text = Encoding.ASCII.GetString(data).Replace("\0", "");
 			Console.WriteLine(data.Length + " bytes: " + text);
 		}
+	}
+	
+	public enum LongEnum : long
+	{
+		a = 1,
+		b = long.MaxValue - 500
+	}
+
+	public enum ByteEnum : byte
+	{
+		a = 1,
+		b = 200,
 	}
 
 	class SetName
