@@ -33,6 +33,7 @@ In short until the guide is done:
 - Very fast serialization, very small binary output
 - *Full* support for circular references (including object caching)
 - *Full* support for polymorphism / inheritance / interfaces
+- Can serialize objects into parts as "ExtenalObjects" (very useful for usage as a micro database)
 
 #### Other Features
 - Serializes public fields, optionally also private ones (you can even filter fields on a case-by-case basis)
@@ -52,8 +53,11 @@ Built-in support for many commonly used .NET types: Primitives(`int`, `string`, 
 
 ## Features (Details)
 
-Ceras will never write a long type name like `MyApplicatoin.MyNamespace.MyClass.MyNestedClass. ...` multiple times (unless you specifically want that). It will reuse previously written type-names (and if you want to even complete object-graphs!)
+Ceras will never write a long type name like `MyApplicatoin.MyNamespace.MyClass.MyNestedClass. ...` multiple times (unless you specifically want that), and will reuse previously written type-names.
+The same mechanism that enables this also enables serialization of object-references; and can even be used to "cache" whole objects across serialization calls! If, for example, you'd have a chat-application, Ceras could automatically cache the user-names for you, so they only get sent once over the network, and future messages will just contain a lookup-index instead of the full user-name.
 
+
+(todo: expand this section)
 
 
 
@@ -63,10 +67,11 @@ The two primary intentions for creating this serializer were easy object persist
 Thus these scenarios are where Ceras really shines.
 
 - Saving objects to disk quickly without much trouble
-  - Save-games
-  - Settings
+  - settings, savegames (pretty much zero config)
+  - as object DB; using `IExternalRootObject` (see [External Objects Guide]())
 - Network communication
-  For example for a game, where you absolutely need both fast serialization/deserialization, as well as small message/packet sizes.
+  For example for a game, when you absolutely need both fast serialization/deserialization, as well as small message/packet sizes.
+  see [Network Example Guide]()
 
 ## When should I not use this?
 
@@ -79,10 +84,16 @@ Thus these scenarios are where Ceras really shines.
 For the majority of use-cases this should not be an issue since you can just performa a so called "data-upgrade".
 For more details about this see the data-upgrade guide where this potential issue is also explained in more detail.
 
-Ceras does not have any functionality to deal with "missing" fields or data. For example if you use Ceras to serialize application settings and some day you decide to remove or add a field, then binaries saved (serialized) using the old classes can't be desrialized anymore; To deal with this you can simply do a "data-upgrade" (converting the old data to the new format so it can be loaded again). For an example of this see the [data-upgrade guide (TODO]().   
+Ceras does not have any functionality to deal with "missing" fields or data. For example if you use Ceras to serialize application settings and some day you decide to remove or add a field, then binaries saved (serialized) using the old classes can't be desrialized anymore; To deal with this you can simply do a "data-upgrade" (converting the old data to the new format so it can be loaded again). For an example of this see the [data-upgrade guide (TODO)]().   
 
 There are plans to address this in an automatic way in the future.
 
 4) Ceras does not serialize Properties yet. Support for that is already planned though.
+
+
+## Planned features
+
+- serialization of properties
+- serializing readonly collections
 
 
