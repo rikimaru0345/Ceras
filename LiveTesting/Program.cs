@@ -1,17 +1,72 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace LiveTesting
 {
-	using System.Diagnostics;
 	using Ceras;
+	using System.Diagnostics;
 
 	class Program
 	{
+		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
+
 		static void Main(string[] args)
+		{
+			new Tutorial.Tutorial().Step7_DataUpgrade();
+
+			NetworkTest();
+
+			GuidTest();
+
+			EnumTest();
+
+			ComplexTest();
+		}
+
+		static void ComplexTest()
+		{
+			var s = new CerasSerializer();
+
+			var c = new ComplexClass();
+			var complexClassData = s.Serialize(c);
+
+			var clone = s.Deserialize<ComplexClass>(complexClassData);
+
+			Debug.Assert(!ReferenceEquals(clone, c));
+			Debug.Assert(c.Num == clone.Num);
+			Debug.Assert(c.SetName.Name == clone.SetName.Name);
+			Debug.Assert(c.SetName.Type == clone.SetName.Type);
+		}
+
+		static void EnumTest()
+		{
+			var s = new CerasSerializer();
+
+			var longEnum = LongEnum.b;
+
+			var longEnumData = s.Serialize(longEnum);
+			var cloneLong = s.Deserialize<LongEnum>(longEnumData);
+			Debug.Assert(cloneLong == longEnum);
+
+
+			var byteEnum = ByteEnum.b;
+			var cloneByte = s.Deserialize<ByteEnum>(s.Serialize(byteEnum));
+			Debug.Assert(byteEnum == cloneByte);
+		}
+
+		static void GuidTest()
+		{
+			var s = new CerasSerializer();
+
+			var g = staticGuid;
+			Console.WriteLine("GUID: " + g);
+			var guidData = s.Serialize(g);
+			Debug.Assert(guidData.Length == 16);
+			PrintData(guidData);
+			var guidClone = s.Deserialize<Guid>(guidData);
+			Debug.Assert(g == guidClone);
+		}
+
+		static void NetworkTest()
 		{
 			var config = new SerializerConfig
 			{
@@ -21,6 +76,8 @@ namespace LiveTesting
 			config.KnownTypes.Add(typeof(NewPlayer));
 			config.KnownTypes.Add(typeof(LongEnum));
 			config.KnownTypes.Add(typeof(ByteEnum));
+			config.KnownTypes.Add(typeof(ComplexClass));
+			config.KnownTypes.Add(typeof(Complex2));
 
 			var msg = new SetName
 			{
@@ -43,39 +100,15 @@ namespace LiveTesting
 			Console.WriteLine(clone.Type);
 			Console.WriteLine(clone.Name);
 
-			data = sender.Serialize(new NewPlayer());
-			PrintData(data);
-
-			var g = Guid.NewGuid();
-			int offset = 0;
-			Console.WriteLine("GUID: " + g);
-			SerializerBinary.WriteGuid(ref data, ref offset, g);
-			Debug.Assert(offset == 16);
-			PrintData(data);
-			offset = 0;
-			var guidClone = SerializerBinary.ReadGuid(data, ref offset);
-			Console.WriteLine("GUID: " + guidClone + " (clone)");
-
-			//
-			// Enums
-			//
-			var longEnum = LongEnum.b;
-			var byteEnum = ByteEnum.b;
-			var longEnumData = sender.Serialize(longEnum);
-			var byteEnumData = sender.Serialize(byteEnum);
-
-
-
-			Console.ReadLine();
 		}
 
 		static void PrintData(byte[] data)
 		{
-			var text = Encoding.ASCII.GetString(data).Replace("\0", "");
+			var text = BitConverter.ToString(data);
 			Console.WriteLine(data.Length + " bytes: " + text);
 		}
 	}
-	
+
 	public enum LongEnum : long
 	{
 		a = 1,
@@ -102,5 +135,41 @@ namespace LiveTesting
 	class NewPlayer
 	{
 		public string Guid;
+	}
+
+	interface IComplexInterface { }
+	interface IComplexA : IComplexInterface { }
+	interface IComplexB : IComplexInterface { }
+	interface IComplexX : IComplexA, IComplexB { }
+
+	class Complex2 : IComplexX
+	{
+		public IComplexB Self;
+		public ComplexClass Parent;
+	}
+
+	class ComplexClass : IComplexA
+	{
+		static Random rng = new Random(9);
+
+		public int Num;
+		public IComplexA RefA;
+		public IComplexB RefB;
+		public SetName SetName;
+
+		public ComplexClass()
+		{
+			Num = rng.Next(0, 10);
+			if (Num < 8)
+			{
+				RefA = new ComplexClass();
+
+				var c2 = new Complex2 { Parent = this };
+				c2.Self = c2;
+				RefB = c2;
+
+				SetName = new SetName { Type = SetName.SetNameType.Change, Name = "asd" };
+			}
+		}
 	}
 }

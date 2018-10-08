@@ -36,6 +36,7 @@ namespace Ceras
 		// for a given object type.
 		readonly IFormatterResolver _dynamicResolver;
 
+		// todo: make this private,
 		// The primary list of resolvers. A resolver is a class that somehow (by instantiating, or finding it somewhere, ...) comes up with a formatter for a requested type
 		// If a resolver can't fulfill the request for a specific formatter, it returns null.
 		public List<IFormatterResolver> Resolvers = new List<IFormatterResolver>();
@@ -48,6 +49,7 @@ namespace Ceras
 		readonly ObjectCache _objectCache = new ObjectCache();
 		readonly ObjectCache _typeCache = new ObjectCache();
 
+		// todo: allow the user to provide their own binder. So they can serialize a type-name however they want
 		public readonly ITypeBinder TypeBinder = new NaiveTypeBinder();
 
 		IFormatter<Type> _typeFormatter;
@@ -382,7 +384,14 @@ namespace Ceras
 
 		public Func<Type, object> ObjectFactoryMethod { get; set; } = null;
 
-		// todo: a function to call when there's an existing instance that we don't want (wrong type, or non-null); the user can give us a function where he can recycle the object
+		/// <summary>
+		/// Set this to a function you provide. Ceras will call it when an object instance is no longer needed.
+		/// For example you want to populate an existing object with data, and one of the fields already has a value,
+		/// but the data says that the field should be 'null', then this method will be called so you can recycle the object (maybe return it to your object-pool)
+		/// </summary>
+		// todo: not implemented yet
+		Action<object> DiscardObjectMethod { get; set; } = null;
+
 
 		public Func<FieldInfo, bool> ShouldSerializeField { get; set; } = null;
 

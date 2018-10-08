@@ -163,28 +163,44 @@
 				var refOffset = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
 				var value = Expression.Parameter(typeof(T), "value");
 
-				// Cast to int, write as int32
-				// Todo: get the right formatter from the serializer: for byte, short, int, ...
+
+				//
+				// Generate writer, previously we wrote as int32, but now we use the real underyling type
 				var enumBaseType = typeof(T).GetEnumUnderlyingType();
 				var formatter = serializer.GetFormatter(enumBaseType, false, true, "Enum formatter for baseType");
 
-				var write = formatter.GetType().GetMethod("Serialize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
-				
+				var writeMethod = formatter.GetType().GetMethod("Serialize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+
 				var converted = Expression.Convert(value, enumBaseType);
-				var writeCall = Expression.Call(instance: Expression.Constant(formatter), method: write, arg0: refBuffer, arg1: refOffset, arg2: converted);
+				var writeCall = Expression.Call(instance: Expression.Constant(formatter), method: writeMethod, arg0: refBuffer, arg1: refOffset, arg2: converted);
 
 				_enumWriter = Expression.Lambda<WriteEnum>(writeCall, refBuffer, refOffset, value).Compile();
-				
+
+
+				//
+				// Generate reader
+				// First figure out what kind of reader we need and then use it (just the exact inverse of writing)
+
 				var buffer = Expression.Parameter(typeof(byte[]), "buffer");
 				var refValue = Expression.Parameter(typeof(T).MakeByRefType(), "value");
 
-				var readInt32 = typeof(SerializerBinary).GetMethod("ReadInt32");
+				// Deserialize(byte[] buffer, ref int offset, ref T value)
+				var readMethod = formatter.GetType().GetMethod("Deserialize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
 
-				var readCall = Expression.Call(readInt32, buffer, refOffset);
-				var convertBack = Expression.Convert(readCall, typeof(T));
-				var assignment = Expression.Assign(refValue, convertBack);
+				// We write/read different types. The 'T' we're serializing is (for example) "MyCoolEnum", but we actually write the base type, which is (in this example) "System.Int32"
+				// That's why we need a local variable, into which we deserialize, and then we convert and write-back the deserialized value to the refValue parameter
+				var tempLocal = Expression.Variable(enumBaseType, "temp");
 
-				_enumReader = Expression.Lambda<ReadEnum>(assignment, buffer, refOffset, refValue).Compile();
+				var readCall = Expression.Call(instance: Expression.Constant(formatter), method: readMethod, arg0: buffer, arg1: refOffset, arg2: tempLocal);
+				var convertBack = Expression.Convert(tempLocal, typeof(T));
+				var backAssignment = Expression.Assign(refValue, convertBack);
+
+				BlockExpression deserializationBlock = Expression.Block(
+																		variables: new ParameterExpression[] { tempLocal },
+																		expressions: new Expression[] { readCall, backAssignment }
+																		);
+
+				_enumReader = Expression.Lambda<ReadEnum>(deserializationBlock, buffer, refOffset, refValue).Compile();
 			}
 
 			public void Serialize(ref byte[] buffer, ref int offset, T value)

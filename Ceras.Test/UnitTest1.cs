@@ -1,5 +1,4 @@
-﻿using System;
-using Xunit;
+﻿using Xunit;
 
 namespace Ceras.Test
 {
@@ -56,18 +55,17 @@ namespace Ceras.Test
 		[Fact]
 		public void Roundtrip()
 		{
-			var data = new List<int> {6, 32, 573, 246, 24, 2};
+			var data = new List<int> { 6, 32, 573, 246, 24, 2 };
 
 			var serialized = _s.Serialize(data);
-			var clone =  _s.Deserialize<List<int>>(serialized);
-			
+			var clone = _s.Deserialize<List<int>>(serialized);
+
 			Assert.Equal(data.Count, clone.Count);
 			for (int i = 0; i < data.Count; i++)
 				Assert.Equal(data[i], clone[i]);
 
 
-
-			var serializedAsObject =  _s.Serialize<object>(data);
+			var serializedAsObject = _s.Serialize<object>(data);
 			var cloneObject = _s.Deserialize<object>(serializedAsObject);
 
 			// Serializing 'object' will serialize the type earlier; as part of the cache formatter
@@ -77,14 +75,13 @@ namespace Ceras.Test
 			Assert.Equal(serialized.Length + 1 + 1, serializedAsObject.Length);
 
 			Assert.Equal(data.Count, ((List<int>)cloneObject).Count);
-			
+
 			for (int i = 0; i < data.Count; i++)
 				Assert.Equal(data[i], ((List<int>)cloneObject)[i]);
 		}
-		
+
 		// todo: ignoreField, Caching, KeyValuePairs, Dictionaries, Typing, interfaces,
 		// todo: RootObjects, reusing (overwriting) objects, arrays
 		// todo: known types, hash checks for known types, assured mismatch when another type is added
-
 	}
 }

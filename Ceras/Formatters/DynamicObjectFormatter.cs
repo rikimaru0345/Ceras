@@ -1,4 +1,7 @@
-﻿// ReSharper disable ArgumentsStyleOther
+﻿
+//#define FAST_EXP
+
+// ReSharper disable ArgumentsStyleOther
 // ReSharper disable ArgumentsStyleNamedExpression
 namespace Ceras.Formatters
 {
@@ -8,13 +11,17 @@ namespace Ceras.Formatters
 	using System.Linq.Expressions;
 	using System.Reflection;
 
+#if FAST_EXP
+	using FastExpressionCompiler;
+#endif
+
 	public class DynamicObjectFormatter<T> : IFormatter<T>
 	{
 		delegate void DynamicSerializer(ref byte[] buffer, ref int offset, T value);
 		delegate void DynamicDeserializer(byte[] buffer, ref int offset, ref T value);
 
 		static FieldComparer _fieldComparer = new FieldComparer();
-
+		
 		IFormatter<Type> _typeFormatter;
 
 		Dictionary<Type, DynamicSerializer> _specificSerializers = new Dictionary<Type, DynamicSerializer>();
@@ -60,7 +67,11 @@ namespace Ceras.Formatters
 				block.Add(Expression.Call(Expression.Constant(specificFormatter), serialize, refBufferArg, refOffsetArg, valAsSpecific));
 
 				var serializeBlock = Expression.Block(variables: new[] { valAsSpecific }, expressions: block);
+#if FAST_EXP
+				return Expression.Lambda<DynamicSerializer>(serializeBlock, refBufferArg, refOffsetArg, valueArg).CompileFast(true);
+#else
 				return Expression.Lambda<DynamicSerializer>(serializeBlock, refBufferArg, refOffsetArg, valueArg).Compile();
+#endif
 			}
 			else
 			{
@@ -75,7 +86,6 @@ namespace Ceras.Formatters
 					// Access the field that we want to serialize
 					var fieldExp = Expression.Field(valAsSpecific, fieldInfo);
 
-
 					Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter");
 
 					// Call "Serialize"
@@ -84,7 +94,12 @@ namespace Ceras.Formatters
 				}
 
 				var serializeBlock = Expression.Block(variables: new[] { valAsSpecific }, expressions: block);
+
+#if FAST_EXP
+				return Expression.Lambda<DynamicSerializer>(serializeBlock, refBufferArg, refOffsetArg, valueArg).CompileFast(true);
+#else
 				return Expression.Lambda<DynamicSerializer>(serializeBlock, refBufferArg, refOffsetArg, valueArg).Compile();
+#endif
 			}
 		}
 
@@ -115,7 +130,11 @@ namespace Ceras.Formatters
 				block.Add(Expression.Assign(refValueArg, Expression.Convert(localVal, typeof(T))));
 
 				var serializeBlock = Expression.Block(variables: new[] { localVal }, expressions: block);
+#if FAST_EXP
+				return Expression.Lambda<DynamicDeserializer>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
+#else
 				return Expression.Lambda<DynamicDeserializer>(serializeBlock, bufferArg, refOffsetArg, refValueArg).Compile();
+#endif
 			}
 			else
 			{
@@ -207,7 +226,11 @@ namespace Ceras.Formatters
 
 
 				var serializeBlock = Expression.Block(variables: new[] { valAsSpecific }, expressions: block);
+#if FAST_EXP
+				return Expression.Lambda<DynamicDeserializer>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
+#else
 				return Expression.Lambda<DynamicDeserializer>(serializeBlock, bufferArg, refOffsetArg, refValueArg).Compile();
+#endif
 			}
 		}
 
