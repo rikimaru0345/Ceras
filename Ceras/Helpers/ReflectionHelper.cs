@@ -15,6 +15,12 @@
 					return f.GetGenericTypeDefinition() == openGeneric;
 				}, null);
 
+				// In the case of interfaces, it can not only be the case where an interface inherits another interface, 
+				// but there can also be the case where the interface itself is already the type we are looking for!
+				if (type.IsGenericType)
+					if (type.GetGenericTypeDefinition() == openGeneric)
+						return type;
+
 				if (collectionInterfaces.Length > 0)
 				{
 					return collectionInterfaces[0];
