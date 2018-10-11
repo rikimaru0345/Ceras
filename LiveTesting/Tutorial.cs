@@ -4,8 +4,10 @@ using Ceras;
 namespace Tutorial
 {
 	using Ceras.Formatters;
-	using System;
+	using Ceras.Resolvers;
 	using Newtonsoft.Json.Linq;
+	using System;
+	using System.Collections.Generic;
 
 	class Person
 	{
@@ -14,12 +16,38 @@ namespace Tutorial
 		public Person BestFriend;
 	}
 
+	/*
+	 * all todos:
+	 * = make users able to provide their own resolvers so they can use onStart or something
+	 * = custom formatters, through callback
+	 * = only one user-provider thing in config "OnUserResolveFormatter(serializer, type)"
+	 * = wrap user-formatters into cache-formatters if they are a reference type ofc!
+	 * = recursive serialization solved with DI
+	 *
+	 * - who creates object instances?
+	 *   - type: should stay null, the TypeFormatter populates it
+	 *   - personFormatter: cacheFormatter should do it for us, because it also deals with the type, so it knows if its null or not
+	 *
+	 * - discard object
+	 * - network game example
+	 * - game database example
+	 * 
+	 * - attributes:
+	 * [CerasConfig(publicField, privateField, publicProp, privateProp, ...)]
+	 * [Ceras.Ignore]
+	 * [Ceras.Include]
+	 *
+		// todo: allow the user to provide their own binder. So they can serialize a type-name however they want
+		todo: cache in static generic https://github.com/neuecc/MessagePack-CSharp/blob/209f301e2e595ed366408624011ba2e856d23429/src/MessagePack/Resolvers/StandardResolver.cs
+	 */
+
 	class Tutorial
 	{
 		public void Step1_SimpleUsage()
 		{
 			//
 			// 1.) Simple usage
+			// aka. "I'm here for the cool features! I want to optimize for max-performance later"
 			//
 			var person = new Person { Name = "riki", Health = 100 };
 
@@ -48,12 +76,13 @@ namespace Tutorial
 
 			//
 			// 3.) Circular references
-			// Circular references are a problem for many serializers, not so for Ceras.
-			// There's literally nothing to do or configure, it just works out of the box.
+			// Serializers commonly have trouble serializing circular references.
+			// Ceras supports every possible object-graph, and there's literally
+			// nothing to do or configure, it just works out of the box.
 			// Lets make an example anyway...
 
-			var personA = new Person { Name = "a" };
-			var personB = new Person { Name = "b" };
+			var personA = new Person { Name = "alice" };
+			var personB = new Person { Name = "bob" };
 
 			personA.BestFriend = personB;
 			personB.BestFriend = personA;
@@ -103,48 +132,63 @@ namespace Tutorial
 
 			var serializer = new CerasSerializer();
 
-			byte[] buffer = null; // Lets assume we already got a network buffer and now we just have to read it.
-			Person recycledPerson = new Person();
-			serializer.Deserialize<Person>(ref recycledPerson, buffer);
+			Person recycledPerson = new Person { Health = 35, Name = "test" };
+			byte[] buffer = serializer.Serialize(recycledPerson); // Lets assume we already got a network buffer and now we just have to read it.
 
+			for (int i = 0; i < 100; i++)
+			{
+				// No person object will be allocated, the fields
+				// of 'recycledPerson' will just be overwritten
+				serializer.Deserialize<Person>(ref recycledPerson, buffer);
+			}
 
 
 
 			//
-			// Now, assuming we even got our own object-pooling solution going,
-			// lets tell Ceras to use that.
+			// Now we'll use some extremely simple object-pooling solution to reduce GC pressure.
+			// The 'MyVerySimplePool' is obviously just for illustration, in something like Unity3D you would
+			// of course make something much more elaborate...
+			//
+			// If the data in the buffer tells us "it's a 'null' object" then Ceras will of course set 'recycledPerson' to null.
+			// But now you might wonder what happens to the instance that was previously inside 'recycledPerson'.
+			// Normally the answer would be that the object would be simply lost (and eventually its space would be reclaimed by the .NET "garbage-collector").
+			//
+			// In some scenarios (games) we don't want this because garbage-collections often cause stutters.
+			// A common solution to this is object-pooling.
+			// Ceras supports that by allowing you to "catch" unused objects, so you can return them to your object-pool.
+
+			MyVerySimplePool<Person> pool = new MyVerySimplePool<Person>();
 
 			SerializerConfig config = new SerializerConfig();
 			config.ObjectFactoryMethod = type =>
 			{
-				// In this example we have no pool, so create directly
-				var obj = Activator.CreateInstance(type);
+				if (type != typeof(Person))
+					return null;
 
-				// Instead we could have done:
-				//    var obj = myPool.RentObject(type);
-
-				return obj;
+				return pool.GetFromPool();
 			};
-
-			// !! TODO !!
-			// The next part is not complete yet
-			//
-			// If the data in the buffer tells us "it's a 'null' object" then Ceras will of course set 'recycledPerson' to null.
-			// But now you might wonder what happens to the instance that was previously inside 'recycledPerson'.
-			// The answer is obviously that it would be lost, in other words it becomes "garbage" and will eventually be collected by the .NET GC.
-			// In some scenarios (games) we don't want this, since garbage-collections can cause stutters.
-			// A common solution to this is object-pooling, Ceras supports that by allowing you to "catch" unused objects, so you can return them to your object-pool.
-			// Like this:
-
-			/* todo: this will work after object recycling gets implemented fully
-			var config = new Ceras.SerializerConfig();
 			config.DiscardObjectMethod = obj =>
 			{
-				Console.WriteLine($"Object '{obj.ToString()}' is no longer needed, we can return it to our pool.");
+				pool.ReturnToPool((Person)obj);
 			};
 
+
 			serializer = new CerasSerializer(config);
+
+			// todo: the example is not fully done yet
+
+			/* 
+			var personA = new Person { Name = "a", Health = 1 };
+			var personB = new Person { Name = "b", Health = 2 };
+			var personC = new Person { Name = "c", Health = 3 };
+
+			personA.BestFriend = personB;
+			personB.BestFriend = personC;
+			personC.BestFriend = personA;
+
+			serializer.Serialize();
 			*/
+
 
 		}
 
@@ -190,47 +234,128 @@ namespace Tutorial
 		{
 			/*
 			 * Scenario:
-			 * - An object is somehow special an needs to be serialized ina very special way
+			 * - An object is somehow special an needs to be serialized in a very special way
 			 * - Simply writing out the fields is not enough, maybe some meta-data is also needed or whatever...
+			 * - Ceras' dynamic serializer (code generator) is not enough to deal with the object
 			 *
 			 * Solution:
-			 * Write your own formatter!
+			 * - Provide a specialized formatter
 			 *
 			 * I hear you: "what the hell is a formatter??"
 			 * It's actually just a simple class that inherits from IFormatter<YourTypeHere>
 			 * and it simply takes over the serialization completely.
 			 */
 
-			// todo: provide OnStart callbacks, or let the serializer instantiate the formatter-type
-			//		 ceras solves this for its built-in serializers by having "Resolvers" (classes that given a type return a formatter for that type)
-			//		 it would be a good idea to let users provide their own full resolvers, instead of just the formatters
+			/*
+			 * "OK where do I start?"
+			 * 1.) Just inherit from IFormatter<YourTypeHere>
+			 * 2.) Give an instance of your formatter to Ceras when it asks for one through the callback in config
+			 *
+			 */
 
 			SerializerConfig config = new SerializerConfig();
-			config.UserFormatters.AddFormatter(new MyCustomPersonFormatter());
+			config.OnResolveFormatter = (s, t) =>
+			{
+				if (t == typeof(Person))
+					return new MyCustomPersonFormatter();
+				return null;
+			};
 
 			var serializer = new CerasSerializer(config);
 
-
 			var p = new Person { Name = "riki", Health = 100 };
-			// todo: if p.BestFriend = p; it will crash for now, but only because we can't obtain a the internal formatter for Person from the serializer.
-			// the intended (future) solution is simple: let MyCustomPersonFormatter have a reference to the serializer, so it can call GetFormatter<Person>,
-			// which will return a CacheFormatter, that enables reference-loops!
-			// right now this is not possible, but will be done soon!
- 
+			p.BestFriend = p;
+
 			var customSerializedData = serializer.Serialize(p);
 
 			var clone = serializer.Deserialize<Person>(customSerializedData);
-
 		}
-		
+
 		public void Step5_NetworkExample()
 		{
 			// todo: ...
 		}
-		
+
 		public void Step6_GameDatabase()
 		{
-			// todo: ...
+			MyMonster monster = new MyMonster();
+
+			monster.Name = "Skeleton Mage";
+			monster.Health = 250;
+			monster.Mana = 100;
+			monster.Abilities.Add(new MyAbility
+			{
+				Name = "Fireball",
+				ManaCost = 12,
+				Cooldown = 0.5f,
+			});
+			monster.Abilities.Add(new MyAbility
+			{
+				Name = "Ice Lance",
+				ManaCost = 14,
+				Cooldown = 6,
+			});
+
+			// We want to save monsters and abilities in their their own files.
+			// Using other serializers this would be a terribly time-consuming task.
+			// We would have to add attributes or maybe even write custom serializers so the "root objects"
+			// can be ignored. Then we'd need a separate field maybe where we'd save a list of IDs or something....
+			// And then at load(deserialization)-time we would have to manually load that list, and resolve the
+			// objects they stand for...
+			//
+			// And all that for literally every "foreign key" (as it is called in database terms). :puke: !
+			//
+			// Ceras offers a much better approach.
+			// Simply implement IExternalRootObject, telling Ceras the "Id" of your object.
+			// You can generate that Id however you want, most people would proably opt to use some kind of auto-increment counter
+			// from their SQLite/SQL/MongoDB/LiteDB/...
+			//
+			// At load time Ceras will ask you to load the object again given its Id.
+
+			SerializerConfig config = new SerializerConfig();
+			var myGameObjectsResolver = new MyGameObjectsResolver();
+			config.ExternalObjectResolver = myGameObjectsResolver;
+			config.KnownTypes.Add(typeof(MyAbility));
+			config.KnownTypes.Add(typeof(MyMonster));
+			config.KnownTypes.Add(typeof(List<>));
+
+
+			// Ceras will call "OnExternalObject" (if you provide a function).
+			// It can be used to find all the IExternalRootObject's that Ceras encounters while
+			// serializing your object.
+			// 
+			// In this example we just collect them in a list and then serialize them as well
+			List<IExternalRootObject> externalObjects = new List<IExternalRootObject>();
+
+			config.OnExternalObject = obj => { externalObjects.Add(obj); };
+
+			var serializer = new CerasSerializer(config);
+			myGameObjectsResolver.Serializer = serializer;
+
+			var monsterData = serializer.Serialize(monster);
+			// we can write this monster to the "monsters" sql-table now
+			Console.WriteLine("Monster data:");
+			monsterData.VisualizePrint();
+			MyGameDatabase.Monsters[monster.Id] = monsterData;
+
+			// While serializing the monster we found some other external objects as well (the abilities)
+			// Since we have collected them into a list we can serialize them as well.
+			// Note: while in this example the abilities themselves don't reference any other external objects,
+			// it is quite common in a real-world scenario that every object has tons of references, so keep in mind that 
+			// the following serializations would keep adding objects to our 'externalObjects' list.
+			for (var i = 0; i < externalObjects.Count; i++)
+			{
+				var obj = externalObjects[i];
+
+				var abilityData = serializer.Serialize(obj);
+
+				var id = obj.GetReferenceId();
+				MyGameDatabase.Abilities[id] = abilityData;
+
+				Console.WriteLine($"Ability {id} data:");
+				abilityData.VisualizePrint();
+			}
+
 		}
 
 		public void Step7_DataUpgrade()
@@ -276,49 +401,61 @@ namespace Tutorial
 		}
 	}
 
+	static class MyGameDatabase
+	{
+		public static Dictionary<int, byte[]> Monsters = new Dictionary<int, byte[]>();
+		public static Dictionary<int, byte[]> Abilities = new Dictionary<int, byte[]>();
+	}
+
+	class MyGameObjectsResolver : IExternalObjectResolver
+	{
+		// todo: in the future ExternalObject resolvers will also support dependency-injection, so you won't have to set this yourself...
+		public CerasSerializer Serializer;
+
+		public void Resolve<T>(int id, out T value)
+		{
+			byte[] requestedData;
+
+			if (typeof(T) == typeof(MyMonster))
+				requestedData = MyGameDatabase.Monsters[id];
+			else if (typeof(T) == typeof(MyAbility))
+				requestedData = MyGameDatabase.Abilities[id];
+			else
+				throw new Exception("cannot resolve external object type: " + typeof(T).FullName);
+
+			value = Serializer.Deserialize<T>(requestedData);
+		}
+	}
 
 	class MyCustomPersonFormatter : IFormatter<Person>
 	{
+		// Fields are auto-injected by ceras
+		public CerasSerializer Serializer;
+		public IFormatter<Person> PersonFormatter;
+
+
 		public void Serialize(ref byte[] buffer, ref int offset, Person value)
 		{
-			// Just for illustration purposes we'll do exactly the same thing that Ceras would
-			// normally generate for us automatically, but instead we're doing it manually here.
-
-
-			// Write a string: this writes a prefix for the length, and then the UTF8 bytes.
 			SerializerBinary.WriteString(ref buffer, ref offset, value.Name);
-
-			// Write the health: WriteInt32 will automatically ZigZag-encode the number
-			// That means small numbers only take up one byte, instead of 4, only when more bytes are needed, are they actually used!
 			SerializerBinary.WriteInt32(ref buffer, ref offset, value.Health);
+			PersonFormatter.Serialize(ref buffer, ref offset, value.BestFriend);
 
-
-			if (value.BestFriend == null)
-			{
-				SerializerBinary.WriteByte(ref buffer, ref offset, 0);
-			}
-			else
-			{
-				SerializerBinary.WriteByte(ref buffer, ref offset, 1);
-				Serialize(ref buffer, ref offset, value.BestFriend);
-			}
+			// Important: 
+			// You might be tempted to just recursively call Serialize again for 'BestFriend', but that won't work!
+			// Do not think you can manually serialize other instances.
+			// It may look like that the object injected into "PersonFormatter" is just 'MyCustomPersonFormatter' itself again,
+			// but that's not the case!
+			// In fact, what you get is a lot of magic behind the scenes that deals with a ton of edge cases (object references, and reference loop handling, and more)
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Person value)
 		{
 			// Just for illustration purposes we'll do exactly the same thing that Ceras would
 			// normally generate for us automatically, but instead we're doing it manually here.
-			value = new Person(); // todo: usually not needed, this is just a workaround until users can provide their own FormatterResolvers
 
 			value.Name = SerializerBinary.ReadString(buffer, ref offset);
 			value.Health = SerializerBinary.ReadInt32(buffer, ref offset);
-
-			var hasBestFriend = SerializerBinary.ReadByte(buffer, ref offset);
-
-			if (hasBestFriend == 0)
-				return;
-
-			Deserialize(buffer, ref offset, ref value.BestFriend);
+			PersonFormatter.Deserialize(buffer, ref offset, ref value.BestFriend);
 		}
 	}
 
@@ -331,26 +468,68 @@ namespace Tutorial
 
 	class SettingsNew
 	{
-		// Removed
+		// Removed:
 		// public bool Bool1;
 
-		// Renamed from Int1
+		// Renamed: from Int1
 		public int Int2;
 
+		// This one stays as it is
 		public string String1;
 
-		// Newly added
+		// Newly added:
 		public string String2;
 	}
 
+	class MyVerySimplePool<T> where T : new()
+	{
+		Stack<T> _stack = new Stack<T>();
+
+		public int Count => _stack.Count;
+
+		public T GetFromPool()
+		{
+			if (_stack.Count == 0)
+				return new T();
+
+			return _stack.Pop();
+		}
+
+		public void ReturnToPool(T obj)
+		{
+			_stack.Push(obj);
+		}
+	}
+
+	class MyAbility : IExternalRootObject
+	{
+		static int _autoIncrementId;
+		public int Id = ++_autoIncrementId;
+		int IExternalRootObject.GetReferenceId() => Id;
+
+		public string Name;
+		public float Cooldown;
+		public int ManaCost;
+	}
+
+	class MyMonster : IExternalRootObject
+	{
+		static int _autoIncrementId;
+		public int Id = ++_autoIncrementId;
+		int IExternalRootObject.GetReferenceId() => Id;
+
+		public string Name;
+		public int Health;
+		public int Mana;
+		public List<MyAbility> Abilities = new List<MyAbility>();
+
+	}
+
 	/*
+	 *
 	 * Features
 	 * - forigen keys and object loading!! usage as a database
-	 */
-
-
-	/*
-	 
+	 *
 	 * - NetworkProtocol:
 	 *		- known types
 	 *      - protocol checksum

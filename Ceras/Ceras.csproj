@@ -45,6 +45,7 @@
     <Compile Include="Exceptions\CerasException.cs" />
     <Compile Include="Exceptions\UnexpectedBytesConsumedException.cs" />
     <Compile Include="Helpers\FastExpressionCompiler.cs" />
+    <Compile Include="Helpers\FieldOrProp.cs" />
     <Compile Include="Helpers\ObjectCache.cs" />
     <Compile Include="Helpers\ObjectPool.cs" />
     <Compile Include="Helpers\xxHash.cs" />

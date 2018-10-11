@@ -3,6 +3,7 @@
 	using System;
 	using System.Collections.Generic;
 	using Formatters;
+	using Helpers;
 
 	class DynamicObjectFormatterResolver : IFormatterResolver
 	{
@@ -30,16 +31,23 @@
 
 				if (!type.IsValueType)
 				{
-					// Only do this for reference types, we can't cache value types
-					// We could have special value-type caches for really large structs, but that'd go to far...
-					var cacheFormatterType = typeof(CacheFormatter<>).MakeGenericType(type);
-					formatter = (IFormatter)Activator.CreateInstance(cacheFormatterType, formatter, _serializer, _serializer.GetObjectCache());
+					formatter = WrapInCache(type, formatter, _serializer);
 				}
 
 				_dynamicFormatters[type] = formatter;
 			}
 
 			return formatter;
+		}
+
+		public static IFormatter WrapInCache(Type typeToBeFormatted, IFormatter innerFormatter, CerasSerializer serializer)
+		{
+			// Only do this for reference types, since value types obviously cannot be "cached"
+			if (typeToBeFormatted.IsValueType)
+				throw new InvalidOperationException("Cannot create a cache-wrapper for value-types, they cannot be cached by definition");
+
+			var cacheFormatterType = typeof(CacheFormatter<>).MakeGenericType(typeToBeFormatted);
+			return (IFormatter)Activator.CreateInstance(cacheFormatterType, innerFormatter, serializer, serializer.GetObjectCache());
 		}
 	}
 }

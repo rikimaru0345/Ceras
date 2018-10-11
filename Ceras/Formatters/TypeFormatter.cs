@@ -1,6 +1,7 @@
 ﻿namespace Ceras.Formatters
 {
 	using System;
+	using Helpers;
 
 	/*
 	 * The idea here is that we have a map of "known types" that we use when possible to encode a type as just one number
@@ -14,10 +15,12 @@
 	 */
 	class TypeFormatter : IFormatter<Type>
 	{
-		ITypeBinder _typeBinder;
+		readonly ObjectCache _typeCache;
+		readonly ITypeBinder _typeBinder;
 
-		public TypeFormatter(CerasSerializer serializer)
+		public TypeFormatter(CerasSerializer serializer, ObjectCache typeCache)
 		{
+			_typeCache = typeCache;
 			_typeBinder = serializer.TypeBinder;
 		}
 		

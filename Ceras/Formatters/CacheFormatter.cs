@@ -1,9 +1,12 @@
 ﻿namespace Ceras.Formatters
 {
-	using System;
-	using System.Collections.Generic;
 	using Helpers;
 	using Resolvers;
+	using System;
+	using System.Collections.Generic;
+	using System.Linq;
+	using System.Reflection;
+	using System.Reflection.Emit;
 
 	/*
 	 This is a thing intended to be used with STRING or OBJECT for T.
@@ -64,7 +67,12 @@
 
 */
 
-	public class CacheFormatter<T> : IFormatter<T>
+	interface ICacheFormatter
+	{
+		IFormatter GetInnerFormatter();
+	}
+
+	public class CacheFormatter<T> : IFormatter<T>, ICacheFormatter
 	{
 		// -3: For external objects that the user has to resolve
 		// -2: New Value/Object that we've never seen before
@@ -82,6 +90,8 @@
 		readonly CerasSerializer _serializer;
 		readonly ObjectCache _objectCache;
 
+		static Func<T> _createInstance;
+
 		public bool IsSealed { get; private set; }
 
 		public CacheFormatter(IFormatter<T> innerFormatter, CerasSerializer serializer, ObjectCache objectCache)
@@ -90,6 +100,17 @@
 			_serializer = serializer;
 			_objectCache = objectCache;
 		}
+
+		static CacheFormatter()
+		{
+			var t = typeof(T);
+			var ctor = t.GetConstructors(BindingFlags.Public | BindingFlags.Instance).FirstOrDefault(c => c.GetParameters().Length == 0);
+
+			if(ctor != null)
+				_createInstance = (Func<T>)CreateDelegate(ctor, typeof(Func<T>));
+		}
+
+		IFormatter ICacheFormatter.GetInnerFormatter() => _innerFormatter;
 
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
@@ -108,6 +129,9 @@
 
 					var refId = externalObj.GetReferenceId();
 					SerializerBinary.WriteInt32(ref buffer, ref offset, refId);
+
+					_serializer.Config.OnExternalObject?.Invoke(externalObj);
+
 					return;
 				}
 			}
@@ -142,6 +166,12 @@
 			if (objId == Null)
 			{
 				// Null
+
+				// Ok the data tells us that value should be null.
+				// But maybe we're recycling an object and it still contains an instance.
+				// Lets return it to the user
+				_serializer.Config.DiscardObjectMethod?.Invoke(value);
+
 				value = default(T);
 				return;
 			}
@@ -150,35 +180,55 @@
 			{
 				// New object
 
-				// !! Important !!
-				// When we're deserializing any nested types (ex: Literal<float>)
-				// then we're writing Literal`1 as 0, and System.Single as 1
-				// but while reading, we're recursively descending, so System.Single would get read first (as 0)
-				// which would throw off everything.
-				// Solution: 
-				// Reserve some space (inserting <null>) into the list before actually reading, so all the nested things will just append to the list as intended.
-				// and then just overwrite the inserted placeholder with the actual value once we're done
+				/*
+				 !!Important !!
+			     When we're deserializing any nested types (ex: Literal<float>)
+				 then we're writing Literal`1 as 0, and System.Single as 1
+				 but while reading, we're recursively descending, so System.Single would get read first (as 0)
+				 which would throw off everything.
+				 Solution: 
+				 Reserve some space(inserting < null >) into the object-cache - list before actually reading, so all the nested things will just append to the list as intended.
+				 and then just overwrite the inserted placeholder with the actual value once we're done
 
-				// Problem:
-				// If there's a root object that has a field that simply references the root object
-				// then we will write it correctly, but since we only update the reference after the object is FULLY deserialized, we end up with nulls.
-				//
-				// Solution:
-				// Right when the object is created, it has to be immediately put into the _deserializationCache
-				// So child fields (like '.Self') can properly resolve the reference.
+				   Problem:
+				 If there's a root object that has a field that simply references the root object
+				 then we will write it correctly, but since we only update the reference after the object is FULLY deserialized, we end up with nulls.
 
-				// Problem:
-				// How to even do that?
-				// So when the object is created (but its fields are not yet fully populated) we must get a reference to
-				// it immediately, before any member-field is deserialized! (Because one of those fields could be a self-refernce)
-				// How can we intercept this assignment/object creation?
-				//
-				// Solution:
-				// We pass a reference to a proxy. If we'd just have a List<T> we would not be able to use "ref" (like: deserialize(... ref list[x]) )
-				// So instead we'll pass the reference to a proxy object. 
-				// The proxy objects are small, but spamming them for every deserialization is still not cool.
-				// So we use a very simple pool for them.
+				   Solution:
+				 Right when the object is created, it has to be immediately put into the _deserializationCache
+				 So child fields(like for example a '.Self' field)
+				 can properly resolve the reference.
 
+				   Problem:
+				 How to even do that?
+				 So when the object is created (but its fields are not yet fully populated) we must get a reference to
+				 it immediately, before any member-field is deserialized!(Because one of those fields could be a refernce to the object itself again)
+				 How can we intercept this assignment / object creation?
+
+				   Solution:
+				 We pass a reference to a proxy.If we'd just have a List<T> we would not be able to use "ref" (like: deserialize(... ref list[x]) )
+				 So instead we'll pass the reference to a proxy object. 
+				 The proxy objects are small, but spamming them for every deserialization is still not cool.
+				 So we use a very simple pool for them.
+				 */
+
+
+				// At this point we know that the 'value' will have value, so if 'value' (the variable) is null we need to create an instance
+				// todo: investigate if there is a way to do this better,
+				// todo: is the generic code optimized in the jit? si this check is never even done?
+				if (value == null && 
+				    (typeof(T) != typeof(string) && typeof(T) != typeof(Type)))
+				{
+					if (typeof(T).IsAbstract || typeof(T).IsInterface)
+						throw new Exception("todo: fix instantiating T");
+
+					var factory = _serializer.Config.ObjectFactoryMethod;
+					if (factory != null)
+						value = (T)_serializer.Config.ObjectFactoryMethod(typeof(T));
+
+					if (value == null)
+						value = _createInstance();
+				}
 
 
 				var objectProxy = _objectCache.CreateDeserializationProxy<T>();
@@ -207,6 +257,79 @@
 			// Something we already know
 			value = _objectCache.GetExistingObject<T>(objId);
 		}
+
+		public static Delegate CreateDelegate(ConstructorInfo constructor, Type delegateType)
+		{
+			if (constructor == null)
+				throw new ArgumentNullException(nameof(constructor));
+
+			if (delegateType == null)
+				throw new ArgumentNullException(nameof(delegateType));
+
+
+			MethodInfo delMethod = delegateType.GetMethod("Invoke");
+			if (delMethod.ReturnType != constructor.DeclaringType)
+				throw new InvalidOperationException("The return type of the delegate must match the constructors delclaring type");
+
+
+			// Validate the signatures
+			ParameterInfo[] delParams = delMethod.GetParameters();
+			ParameterInfo[] constructorParam = constructor.GetParameters();
+			if (delParams.Length != constructorParam.Length)
+			{
+				throw new InvalidOperationException("The delegate signature does not match that of the constructor");
+			}
+			for (int i = 0; i < delParams.Length; i++)
+			{
+				if (delParams[i].ParameterType != constructorParam[i].ParameterType ||  // Probably other things we should check ??
+					delParams[i].IsOut)
+				{
+					throw new InvalidOperationException("The delegate signature does not match that of the constructor");
+				}
+			}
+			// Create the dynamic method
+			DynamicMethod method =
+				new DynamicMethod(
+					string.Format("{0}__{1}", constructor.DeclaringType.Name, Guid.NewGuid().ToString().Replace("-", "")),
+					constructor.DeclaringType,
+					Array.ConvertAll<ParameterInfo, Type>(constructorParam, p => p.ParameterType),
+					true
+					);
+
+
+			// Create the il
+			ILGenerator gen = method.GetILGenerator();
+			for (int i = 0; i < constructorParam.Length; i++)
+			{
+				if (i < 4)
+				{
+					switch (i)
+					{
+						case 0:
+						gen.Emit(OpCodes.Ldarg_0);
+						break;
+						case 1:
+						gen.Emit(OpCodes.Ldarg_1);
+						break;
+						case 2:
+						gen.Emit(OpCodes.Ldarg_2);
+						break;
+						case 3:
+						gen.Emit(OpCodes.Ldarg_3);
+						break;
+					}
+				}
+				else
+				{
+					gen.Emit(OpCodes.Ldarg_S, i);
+				}
+			}
+			gen.Emit(OpCodes.Newobj, constructor);
+			gen.Emit(OpCodes.Ret);
+
+			return method.CreateDelegate(delegateType);
+		}
+
 
 		/// <summary>
 		/// Set IsSealed, and will throw an exception whenever a new value is encountered.

@@ -15,7 +15,11 @@ namespace Ceras.Formatters
 	using FastExpressionCompiler;
 #endif
 
-	public class DynamicObjectFormatter<T> : IFormatter<T>
+	interface IDynamicFormatterMarker { }
+
+	// todo 1: check if FastExpressionCompiler works without crashing now (a lot of work has been put into it recently)
+	// todo 2: cache formatters in a static-generic instead of dict? we need to know exactly how much we'd save; the static-ctor can just generate the corrosponding serializers
+	public class DynamicObjectFormatter<T> : IFormatter<T>, IDynamicFormatterMarker
 	{
 		delegate void DynamicSerializer(ref byte[] buffer, ref int offset, T value);
 		delegate void DynamicDeserializer(byte[] buffer, ref int offset, ref T value);
@@ -49,7 +53,6 @@ namespace Ceras.Formatters
 
 			var valAsSpecific = Expression.Variable(specificType, "valAsSpecific");
 			block.Add(Expression.Assign(valAsSpecific, Expression.Convert(valueArg, specificType)));
-
 
 			var specificFormatter = _serializer.GetFormatter(specificType, false, false);
 			if (specificFormatter != null)
@@ -245,10 +248,11 @@ namespace Ceras.Formatters
 		{
 			Type type = null;
 			if (value != null)
-				type = value.GetType();
+				type = value.GetType(); // value might not be of type T. (Just think that T is an abstract class, and value is a concrete implementation. They're different types, and we might get all sorts of things that all inherit from T)
 
-			// todo: we can avoid writing the type in full if it is exactly like the field type.
-			// todo: .. so we could have another special code like "-4" to encode "the object that follows, is exactly the field type, no additional info needed"
+			// todo: we can avoid writing the type in full if it is exactly equal to T already (and not derived)
+			// todo: .. so we could have another special code like "-4" to encode
+			//		 "the type of the object that follows, is T, no extra type information needed"
 
 			_typeFormatter.Serialize(ref buffer, ref offset, type);
 
@@ -304,7 +308,7 @@ namespace Ceras.Formatters
 		internal static List<FieldInfo> GetSerializableFields(Type type, Func<FieldInfo, bool> fieldFilter = null)
 		{
 			List<FieldInfo> fields = new List<FieldInfo>();
-			foreach (var f in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+			foreach (var f in type.GetFields(BindingFlags.Instance | BindingFlags.Public))
 			{
 				// No readonly, it never works!
 				if (f.IsInitOnly)

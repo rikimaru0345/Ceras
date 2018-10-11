@@ -11,7 +11,13 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			new Tutorial.Tutorial().Step7_DataUpgrade();
+			var tutorial = new Tutorial.Tutorial();
+			tutorial.Step1_SimpleUsage();
+			tutorial.Step2_Recycling();
+			tutorial.Step3_KnownTypes();
+			tutorial.Step4_CustomFormatters();
+			tutorial.Step6_GameDatabase();
+
 
 			NetworkTest();
 

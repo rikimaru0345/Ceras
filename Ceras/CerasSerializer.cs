@@ -1,16 +1,16 @@
 ﻿// ReSharper disable RedundantTypeArgumentsOfMethod
 namespace Ceras
 {
+	using Exceptions;
+	using Formatters;
+	using Helpers;
+	using Resolvers;
 	using System;
 	using System.Collections;
 	using System.Collections.Generic;
 	using System.Linq;
 	using System.Reflection;
 	using System.Text;
-	using Exceptions;
-	using Formatters;
-	using Helpers;
-	using Resolvers;
 
 	// Todo: 
 	/*
@@ -30,16 +30,18 @@ namespace Ceras
 	{
 		internal readonly SerializerConfig Config;
 		public ProtocolChecksum ProtocolChecksum { get; } = new ProtocolChecksum();
-		
+
 		readonly IFormatter<string> _cacheStringFormatter;
 		// A special resolver. It creates instances of the "dynamic formatter", the DynamicObjectFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
 		// for a given object type.
 		readonly IFormatterResolver _dynamicResolver;
 
-		// todo: make this private,
+		// The user provided resolver, will always be queried first
+		readonly FormatterResolverCallback _userResolver;
+
 		// The primary list of resolvers. A resolver is a class that somehow (by instantiating, or finding it somewhere, ...) comes up with a formatter for a requested type
 		// If a resolver can't fulfill the request for a specific formatter, it returns null.
-		public List<IFormatterResolver> Resolvers = new List<IFormatterResolver>();
+		List<IFormatterResolver> _resolvers = new List<IFormatterResolver>();
 
 		// The specific formatters we have. For example a formatter that knows how to read/write 'List<int>'. This will never contain
 		// unspecific formatters (for example for types like 'object' or 'List<>')
@@ -49,8 +51,8 @@ namespace Ceras
 		readonly ObjectCache _objectCache = new ObjectCache();
 		readonly ObjectCache _typeCache = new ObjectCache();
 
-		// todo: allow the user to provide their own binder. So they can serialize a type-name however they want
-		public readonly ITypeBinder TypeBinder = new NaiveTypeBinder();
+		// todo: allow the user to provide their own binder. So they can serialize a type-name however they want; but then again they could override the TypeFormatter anyway, so what's the point? maybe it would be best to completely remove the typeBinder (merging it into the default TypeFormatter)?
+		internal readonly ITypeBinder TypeBinder = new NaiveTypeBinder();
 
 		IFormatter<Type> _typeFormatter;
 
@@ -74,25 +76,24 @@ namespace Ceras
 				Config.ExternalObjectResolver = new ErrorResolver();
 
 
-			if (Config.UserFormatters.UserFormatterCount > 0)
-				Resolvers.Add(Config.UserFormatters);
+			_userResolver = Config.OnResolveFormatter;
 
 			// Int, Float, Enum, String
-			Resolvers.Add(new PrimitiveResolver(this));
+			_resolvers.Add(new PrimitiveResolver(this));
 
-			Resolvers.Add(new ReflectionTypesFormatterResolver(this));
-			Resolvers.Add(new KeyValuePairFormatterResolver(this));
-			Resolvers.Add(new CollectionFormatterResolver(this));
+			_resolvers.Add(new ReflectionTypesFormatterResolver(this));
+			_resolvers.Add(new KeyValuePairFormatterResolver(this));
+			_resolvers.Add(new CollectionFormatterResolver(this));
 
 			// DateTime, Guid
-			Resolvers.Add(new BclFormatterResolver());
+			_resolvers.Add(new BclFormatterResolver());
 
 			// DynamicObjectResolver is a special case, so it is not in the resolver-list
 			// That is because we only want to have specific resolvers in the resolvers-list
 			_dynamicResolver = new DynamicObjectFormatterResolver(this);
 
 			// Type formatter is the basis for all complex objects
-			var typeFormatter = new CacheFormatter<Type>(new TypeFormatter(this), this, _typeCache);
+			var typeFormatter = new TypeFormatter(this, _typeCache);
 			_formatters.Add(typeof(Type), typeFormatter);
 
 			if (Config.KnownTypes.Count > 0)
@@ -115,7 +116,7 @@ namespace Ceras
 			{
 				_typeCache.RegisterObject(t); // For serialization
 				_typeCache.AddKnownType(t);   // For deserialization
-				
+
 				if (Config.GenerateChecksum)
 				{
 					ProtocolChecksum.Add(t.FullName);
@@ -148,7 +149,7 @@ namespace Ceras
 				}
 			}
 
-			if(Config.GenerateChecksum)
+			if (Config.GenerateChecksum)
 				ProtocolChecksum.Finish();
 		}
 
@@ -203,6 +204,7 @@ namespace Ceras
 				//
 				// After we're done, we probably have to clear all our caches!
 				// Only very rarely can we avoid that
+				// todo: would it be more efficient to have one static and one dynamic dictionary?
 				if (!Config.PersistTypeCache)
 				{
 					_typeCache.ClearSerializationCache();
@@ -247,10 +249,13 @@ namespace Ceras
 
 		public void Deserialize<T>(ref T value, byte[] buffer, ref int offset, int expectedReadLength = -1)
 		{
+			if (buffer == null)
+				throw new ArgumentNullException("Must provide a buffer to deserialize from!");
+
 			var formatter = (IFormatter<T>)GetFormatter(typeof(T));
 
 			int offsetBeforeRead = offset;
-			
+
 			if (Config.EmbedChecksum)
 			{
 				var checksum = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
@@ -300,12 +305,67 @@ namespace Ceras
 		public IFormatter GetFormatter(Type type, bool allowDynamicResolver = true, bool throwIfNoneFound = true, string extraErrorInformation = null)
 		{
 			IFormatter formatter;
-			if (_formatters.TryGetValue(type, out formatter))
-				return formatter;
 
-			for (int i = 0; i < Resolvers.Count; i++)
+			// 1.) Cache (todo: cache into static-generic fields, but that's only possible if we can guarantee there won't be multiple different instances of a serializer/formatter!) 
+			if (_formatters.TryGetValue(type, out formatter))
 			{
-				var genericFormatter = Resolvers[i].GetFormatter(type);
+				if (!allowDynamicResolver)
+				{
+					// This code is structured a bit weird, because we want to avoid
+					// doing the check below unless the the caller does NOT want a dynamci resolver
+					// todo: could we just instantly return 'null' then? Or is there a situation where we would still want to try the resolvers etc..??
+					bool isDynamic = formatter is IDynamicFormatterMarker ||
+									 (formatter is ICacheFormatter cacheFormatter && cacheFormatter.GetInnerFormatter() is IDynamicFormatterMarker);
+
+					if (isDynamic)
+						formatter = null;
+				}
+
+				if (formatter != null)
+					return formatter;
+			}
+
+			// 2.) User formatter resolver
+			// todo: wrap user resolvers into CacheFormatter<> ?
+			if (_userResolver != null)
+			{
+				formatter = _userResolver(this, type);
+				if (formatter != null)
+				{
+					bool isCacheFormatterAlready = ReflectionHelper.FindClosedType(formatter.GetType(), typeof(CacheFormatter<>)) != null;
+
+					if (!type.IsValueType && !isCacheFormatterAlready)
+					{
+						// Need to wrap the formatter...
+
+						// Create wrapper first
+						var wrapper = DynamicObjectFormatterResolver.WrapInCache(type, formatter, this);
+
+						// Then add the wrapper to the cache
+						_formatters.Add(type, wrapper);
+
+						// Finally inject dependencies into the original
+						InjectDependencies(formatter);
+
+						formatter = wrapper;
+					}
+					else
+					{
+						// No need to wrap the formatter, it can be used as is.
+
+						// Add to formatters, so DI can recursively find this instance
+						_formatters.Add(type, formatter);
+						InjectDependencies(formatter);
+					}
+
+					return formatter;
+				}
+			}
+
+			// 3.) Resolver chain 
+			for (int i = 0; i < _resolvers.Count; i++)
+			{
+				var genericFormatter = _resolvers[i].GetFormatter(type);
 				if (genericFormatter != null)
 				{
 					// put it in before initialization, so other formatters can get a reference already (If we have to call Initialize())
@@ -314,23 +374,52 @@ namespace Ceras
 				}
 			}
 
-			if (type.IsPrimitive)
-				allowDynamicResolver = false;
-
-			// Can we build a dynamic resolver?
-			if (allowDynamicResolver)
+			// 4.) No existing resolver can find a formatter to handle this
+			//	   Maybe we can use code-generation to create one dynamically...
+			if (allowDynamicResolver && !type.IsPrimitive)
 			{
-				// Generate code at runtime for arbitrary objects
 				var dynamicFormatter = _dynamicResolver.GetFormatter(type);
 
 				if (dynamicFormatter != null)
+				{
+					_formatters[type] = dynamicFormatter;
 					return dynamicFormatter;
+				}
 			}
 
 			if (throwIfNoneFound)
 				throw new NotSupportedException($"Ceras could not find any IFormatter<T> for the type '{type.FullName}'. {extraErrorInformation}");
 
 			return null;
+		}
+
+		void InjectDependencies(IFormatter formatter)
+		{
+			// Extremely simple DI system
+
+			// We can inject formatters and the serializer itself
+			var fields = formatter.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance);
+			foreach (var f in fields)
+			{
+				var t = f.FieldType;
+
+				if (t == typeof(CerasSerializer))
+				{
+					f.SetValue(formatter, this);
+					continue;
+				}
+				else
+				{
+					var formatterType = ReflectionHelper.FindClosedType(t, typeof(IFormatter<>));
+					if (formatterType != null)
+					{
+						var formattedType = formatterType.GetGenericArguments()[0];
+						var requestedFormatter = GetFormatter(formattedType);
+
+						f.SetValue(formatter, requestedFormatter);
+					}
+				}
+			}
 		}
 
 		// Some formatters might want to write lots of strings, and if they think that many strings might appear multiple times, then
@@ -386,24 +475,29 @@ namespace Ceras
 
 		/// <summary>
 		/// Set this to a function you provide. Ceras will call it when an object instance is no longer needed.
-		/// For example you want to populate an existing object with data, and one of the fields already has a value,
-		/// but the data says that the field should be 'null', then this method will be called so you can recycle the object (maybe return it to your object-pool)
+		/// For example you want to populate an existing object with data, and one of the fields already has a value (a left-over from the last time it was used),
+		/// but the current data says that the field should be 'null'. That's when Ceras will call this this method so you can recycle the object (maybe return it to your object-pool)
 		/// </summary>
-		// todo: not implemented yet
-		Action<object> DiscardObjectMethod { get; set; } = null;
+		public Action<object> DiscardObjectMethod { get; set; } = null;
 
 
 		public Func<FieldInfo, bool> ShouldSerializeField { get; set; } = null;
 
 		public IExternalObjectResolver ExternalObjectResolver { get; set; }
 
-		// todo: settings per-type: ShouldRecylce
+		/// <summary>
+		/// If one of the objects in the graph implements IExternalRootObject, Ceras will only write its ID and then call this function. 
+		/// This is useful in case you want to also serialize the external objects as well.
+		/// </summary>
+		public Action<IExternalRootObject> OnExternalObject { get; set; } = null;
 
+		// todo: settings per-type: ShouldRecylce
 		// todo: settings per-field: Formatter<> to override
 
-		public UserFormatterResolver UserFormatters { get; } = new UserFormatterResolver();
+		public FormatterResolverCallback OnResolveFormatter { get; set; } = null;
 
-		
+		//public UserFormatterResolver UserFormatters { get; } = new UserFormatterResolver();
+
 
 		public KnownTypesCollection KnownTypes { get; } = new KnownTypesCollection();
 
@@ -419,7 +513,7 @@ namespace Ceras
 		/// </summary>
 		public bool SealTypesWhenUsingKnownTypes { get; set; } = true;
 
-	
+
 
 		/// <summary>
 		/// If true, the serializer will generate dynamic object formatters early (in the constructor).
@@ -433,6 +527,8 @@ namespace Ceras
 		/// </summary>
 		public bool EmbedChecksum { get; set; } = false;
 	}
+
+	public delegate IFormatter FormatterResolverCallback(CerasSerializer ceras, Type typeToBeFormatted);
 
 	/// <summary>
 	/// A class that the serializer uses to keep track of the "checksum" of its internal state.

@@ -3,7 +3,7 @@
 	using System;
 	using Formatters;
 
-	public interface IFormatterResolver
+	interface IFormatterResolver
 	{
 		IFormatter GetFormatter(Type type);
 	}
