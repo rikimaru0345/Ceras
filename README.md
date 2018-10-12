@@ -2,10 +2,9 @@
 ###### Universal binary serializer for a wide variety of scenarios
 
 ## What is this?
-Ceras is binary serializer, vaguely inspired by [MessagePack](https://github.com/neuecc/MessagePack-CSharp),
-but designed from the ground up with specific needs in mind that MessagePack-CSharp (or rather the message-pack format itself) can simply not provide.
+Ceras is binary serializer, inspired by [MsgPack](https://github.com/neuecc/MessagePack-CSharp) but intended to fix some of the major pain-points I've experienced using it; along with a lot of extra features.
 
-For example dealing with circular object-references, large/complicated inheritnace chains and interfaces, ...
+Support for reference loops, large/complicated inheritnace chains, "external" objects, ...
 
 ## Getting started (Quick start)
 
@@ -20,11 +19,7 @@ var s = new CerasSerializer();
 var bytes = s.Serialize(p);
 ```
 
-This kind of usage is already pretty efficient, but if you really need performance there are a few easy things you can change to get the most out of Ceras. See here: [Detailed Usage Guide (TODO)]()
-In short until the guide is done:
-- Use the `ref byte[] ` overload so Ceras does not have to allocate the byte-array for you
-- Be extremely careful about what generic type you call Serialize and Deserialize with. They **must** be the same on both ends. When in doubt, you can use `Serialize<object>` and `Deserialize<object>` on both ends. (but you should use the concrete type whenever possible!)
-- Make use of the config and all its settings (a parameter in the constructor of CerasSerializer)
+-> Check out the [Detailed Usage Guide (TODO)]()
 
 
 ## Features (Overview)
@@ -33,23 +28,27 @@ In short until the guide is done:
 - Very fast serialization, very small binary output
 - *Full* support for circular references (including object caching)
 - *Full* support for polymorphism / inheritance / interfaces
-- Can serialize objects into parts as "ExtenalObjects" (very useful for usage as a micro database)
+- Can serialize objects into parts as "ExtenalObjects" (very useful for usage with databases)
 
 #### Other Features
-- Serializes public fields, optionally also private ones (you can even filter fields on a case-by-case basis)
-- Efficient serialization for the `Type`-type
-- Can embed type information to serialize `object`-fields correctly
+- Serializes public fields, optionally also private ones (properties planned soon)
+- VarInt & Zig-Zag encoding for integers (example: values up to 128 only take 1 byte instead of 4...)
+- Efficient serialization for the `Type`-type, information is only written once and re-used whenever possible!
+- Embeds type information only when needed! (When using the `<object>` overload, or for abstract types)
 - No allocations; can be used in a mode that generates next to no "garbage" (garbage-collector pressure) by recycling objects. Especially useful for use as a network protocol or in games. Can also recycle output buffers for serialization.
-- Can remember objects (including strings) over multiple serialization calls to save space
+- Can remember objects, including strings, and typing information over multiple serialization calls to save even more space
 - Can be used as an extremely efficient binary network protocol
-- Can be used with `KnownTypes` to further reduce the size of the binary output
-- Generates a checksum of types, fields, attributes, ... which can be used to ensure bianry compatability
-- Type-information is only serialized once
+- You can add your types to a `KnownTypes` collection in order to further reduce the size of the binary output
+- Generates a checksum of types, fields, attributes, ... which can be used to ensure binary compatability
 - Very easy to add new "Formatters" (the things that the serializer uses to actually read/write an object)
+- Various Attributes like `[Config]`, `[Ignore]`, `[Include]`
+- Easy control over what gets serialized: ShouldSerialize callback > Member Attribute > Class Attrib > Global Default
+
 
 #### Built-in types
 Built-in support for many commonly used .NET types: Primitives(`int`, `string`, ...), `Enum`, `DateTime`, `Guid`, `Array[]`, `KeyValuePair<,>`, everything that implements `ICollection<>` so `List<>`, `Dictionary<,>`, ... 
 
+- Planned: Will include an (optional!) set of formatters for Unity3D objects in the next version.
 
 ## Features (Details)
 
@@ -66,12 +65,10 @@ The same mechanism that enables this also enables serialization of object-refere
 The two primary intentions for creating this serializer were easy object persistance and network communication.
 Thus these scenarios are where Ceras really shines.
 
-- Saving objects to disk quickly without much trouble
-  - settings, savegames (pretty much zero config)
-  - as object DB; using `IExternalRootObject` (see [External Objects Guide]())
-- Network communication
-  For example for a game, when you absolutely need both fast serialization/deserialization, as well as small message/packet sizes.
-  see [Network Example Guide]()
+Example Scenarios:
+- Saving objects to disk quickly without much trouble: settings, savegames (pretty much zero config)
+- As object DB by using `IExternalRootObject` (see [External Objects Guide]())
+- Network communication, with Ceras doing the majority of the work to implement a very efficient protocol (see [Network Example Guide]())
 
 ## When should I not use this?
 
@@ -79,21 +76,17 @@ Thus these scenarios are where Ceras really shines.
 
 2) You plan to use this on a platform that does not support code generation. Serializers for custom types obviously have to be created at runtime through code-generation, so Ceras won't be able to generate arbitrary object-formatters on platforms that do not support this (for example iOS). Built-in types will still work though. Maybe I'll fix this in the future (no concrete plans there yet though!)
 
-3) Ceras was made without "version tolerance" in mind, but there are some easy work arounds. If however you need "version tolerant" binaryata **and** you cannot afford a so called "data upgrade" for some reason, then Ceras is not for you.
-
-For the majority of use-cases this should not be an issue since you can just performa a so called "data-upgrade".
-For more details about this see the data-upgrade guide where this potential issue is also explained in more detail.
-
-Ceras does not have any functionality to deal with "missing" fields or data. For example if you use Ceras to serialize application settings and some day you decide to remove or add a field, then binaries saved (serialized) using the old classes can't be desrialized anymore; To deal with this you can simply do a "data-upgrade" (converting the old data to the new format so it can be loaded again). For an example of this see the [data-upgrade guide (TODO)]().   
-
-There are plans to address this in an automatic way in the future.
-
-4) Ceras does not serialize Properties yet. Support for that is already planned though.
-
 
 ## Planned features
 
-- serialization of properties
-- serializing readonly collections
+- Support for version tolerance is planned for one of the next versions and pretty high up on the priority list.
+For now, Ceras is made without versioning support, but there are some easy work arounds.
+For more details about this see the data-upgrade guide where this is explained in more detail.
+
+- Ceras does not serialize Properties yet. Support for that is coming soon!
+
+- Support for more built-in types, including common Unity3D types.
+
+- Support for readonly collections
 
 
