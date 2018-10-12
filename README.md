@@ -1,8 +1,9 @@
 # Ceras
-###### Universal binary serializer for a wide variety of scenarios
+###### Universal binary serializer for a wide variety of scenarios, lots of features, and tuned for performance 
 
 ## What is this?
-Ceras is binary serializer, inspired by [MsgPack](https://github.com/neuecc/MessagePack-CSharp) but intended to fix some of the major pain-points I've experienced using it; along with a lot of extra features.
+Ceras is a binary serializer, inspired by [MsgPack](https://github.com/neuecc/MessagePack-CSharp) and intended to not only fix the pain-points I've experienced using it, but also add a lot of extra features.
+Ceras implements its own format and is not at all compatible with the "MsgPack" format.
 
 Support for reference loops, large/complicated inheritnace chains, "external" objects, ...
 
@@ -25,13 +26,13 @@ var bytes = s.Serialize(p);
 ## Features (Overview)
 
 ### Major Features
-- Very fast serialization, very small binary output
+- Very fast, very small binary output
 - *Full* support for circular references (including object caching)
 - *Full* support for polymorphism / inheritance / interfaces
 - Can serialize objects into parts as "ExtenalObjects" (very useful for usage with databases)
 
 #### Other Features
-- Serializes public fields, optionally also private ones (properties planned soon)
+- Serializes public fields, optionally also private ones (properties to be added soon)
 - VarInt & Zig-Zag encoding for integers (example: values up to 128 only take 1 byte instead of 4...)
 - Efficient serialization for the `Type`-type, information is only written once and re-used whenever possible!
 - Embeds type information only when needed! (When using the `<object>` overload, or for abstract types)
@@ -48,13 +49,14 @@ var bytes = s.Serialize(p);
 #### Built-in types
 Built-in support for many commonly used .NET types: Primitives(`int`, `string`, ...), `Enum`, `DateTime`, `Guid`, `Array[]`, `KeyValuePair<,>`, everything that implements `ICollection<>` so `List<>`, `Dictionary<,>`, ... 
 
+Automatically generates optimized formatters for your types! No attributes or anything needed, everything fully automatic.
+
 - Planned: Will include an (optional!) set of formatters for Unity3D objects in the next version.
 
 ## Features (Details)
 
 Ceras will never write a long type name like `MyApplicatoin.MyNamespace.MyClass.MyNestedClass. ...` multiple times (unless you specifically want that), and will reuse previously written type-names.
 The same mechanism that enables this also enables serialization of object-references; and can even be used to "cache" whole objects across serialization calls! If, for example, you'd have a chat-application, Ceras could automatically cache the user-names for you, so they only get sent once over the network, and future messages will just contain a lookup-index instead of the full user-name.
-
 
 (todo: expand this section)
 
