@@ -47,7 +47,7 @@
 				throw new InvalidOperationException("Cannot create a cache-wrapper for value-types, they cannot be cached by definition");
 
 			var cacheFormatterType = typeof(CacheFormatter<>).MakeGenericType(typeToBeFormatted);
-			return (IFormatter)Activator.CreateInstance(cacheFormatterType, innerFormatter, serializer, serializer.GetObjectCache());
+			return (IFormatter)Activator.CreateInstance(cacheFormatterType, innerFormatter, serializer);
 		}
 	}
 }

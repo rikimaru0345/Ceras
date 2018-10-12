@@ -52,7 +52,6 @@
 	public class CollectionFormatter<TCollection, TItem> : IFormatter<TCollection> where TCollection : ICollection<TItem>
 	{
 		IFormatter<TItem> _itemFormatter;
-		IFormatter<Type> _typeFormatter;
 
 		// Possible scenarios:
 		// We have an existing collection, should we new() a new one anyway?
@@ -66,25 +65,13 @@
 		public CollectionFormatter(CerasSerializer serializer)
 		{
 			_itemFormatter = (IFormatter<TItem>)serializer.GetFormatter(typeof(TItem));
-			_typeFormatter = (IFormatter<Type>)serializer.GetFormatter(typeof(Type));
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TCollection value)
 		{
-			if (value == null)
-			{
-				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, -1, 1);
-				return;
-			}
-
 			// Write how many items do we have
-			SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, value.Count, 1);
-
-			// Write the type of the collection
-			var collectionType = value.GetType();
-			_typeFormatter.Serialize(ref buffer, ref offset, collectionType);
-
-
+			SerializerBinary.WriteUInt32(ref buffer, ref offset, (uint)value.Count);
+			
 			// Write each item
 			foreach (var item in value)
 				_itemFormatter.Serialize(ref buffer, ref offset, item);
@@ -93,25 +80,9 @@
 		public void Deserialize(byte[] buffer, ref int offset, ref TCollection value)
 		{
 			// How many items?
-			var itemCount = SerializerBinary.ReadUInt32Bias(buffer, ref offset, 1);
+			var itemCount = SerializerBinary.ReadUInt32(buffer, ref offset);
 
-			if (itemCount == -1)
-			{
-				// Always overwrite with null if the buffer says so
-				value = default(TCollection);
-				return;
-			}
-
-			// What type of collection?
-			Type collectionType = null;
-			_typeFormatter.Deserialize(buffer, ref offset, ref collectionType);
-
-			// Create an instance if we have to, or maybe just clear the existing one
-			if (value == null || value.GetType() != collectionType)
-				value = (TCollection)Activator.CreateInstance(collectionType);
-			else
-				value.Clear();
-
+			value.Clear();
 
 			for (int i = 0; i < itemCount; i++)
 			{

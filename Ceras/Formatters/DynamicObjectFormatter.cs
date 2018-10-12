@@ -26,8 +26,6 @@ namespace Ceras.Formatters
 
 		static FieldComparer _fieldComparer = new FieldComparer();
 		
-		IFormatter<Type> _typeFormatter;
-
 		Dictionary<Type, DynamicSerializer> _specificSerializers = new Dictionary<Type, DynamicSerializer>();
 		Dictionary<Type, DynamicDeserializer> _specificDeserializers = new Dictionary<Type, DynamicDeserializer>();
 
@@ -37,7 +35,6 @@ namespace Ceras.Formatters
 		public DynamicObjectFormatter(CerasSerializer serializer)
 		{
 			_serializer = serializer;
-			_typeFormatter = (IFormatter<Type>)serializer.GetFormatter(typeof(Type), extraErrorInformation: "DynamicObjectFormatter.TypeFormatter");
 		}
 
 
@@ -155,6 +152,8 @@ namespace Ceras.Formatters
 
 				if (!specificType.IsValueType)
 				{
+					/*
+
 					// ReferenceType / Object
 					var ctor = specificType.GetConstructor(Type.EmptyTypes);
 					if (ctor == null)
@@ -185,6 +184,8 @@ namespace Ceras.Formatters
 						// Existing -> new()
 						newObj = Expression.Coalesce(refValueArg, createNew);
 					}
+
+					*/
 				}
 				else
 				{
@@ -193,7 +194,7 @@ namespace Ceras.Formatters
 				}
 
 
-				block.Add(Expression.Assign(refValueArg, newObj));
+				//block.Add(Expression.Assign(refValueArg, newObj));
 
 
 				// Cast it to the specific type we actually need (so we can assign the specific fields)
@@ -246,21 +247,9 @@ namespace Ceras.Formatters
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
-			Type type = null;
-			if (value != null)
-				type = value.GetType(); // value might not be of type T. (Just think that T is an abstract class, and value is a concrete implementation. They're different types, and we might get all sorts of things that all inherit from T)
-
-			// todo: we can avoid writing the type in full if it is exactly equal to T already (and not derived)
-			// todo: .. so we could have another special code like "-4" to encode
-			//		 "the type of the object that follows, is T, no extra type information needed"
-
-			_typeFormatter.Serialize(ref buffer, ref offset, type);
-
-			if (type == null)
-				// value is null, so is type, nothing to do...
-				// the typeFormatter already wrote its null-value, so at deserialization time the deserializer will we know what to deserialize to (which is nothing)
-				return;
-
+			// value might not be of type T. (Just think that T is an abstract class, and value is a concrete implementation. They're different types, and we might get all sorts of things that all inherit from T)
+			Type type = value.GetType();
+			
 			// Now serialize this closed/specific object
 			// typeof(T) is likely some abstract thing, maybe "Object" or "IMyCommonInterface"
 			// Or maybe it's just the specific type itself, but we can't know that here, as the following could be possible as well:
@@ -281,17 +270,8 @@ namespace Ceras.Formatters
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
-			Type type = null;
-			_typeFormatter.Deserialize(buffer, ref offset, ref type);
-
-			if (type == null)
-			{
-				value = default(T);
-				return;
-			}
-
-			// todo: maybe check if 'type' is assignable to 'T' at all!
-
+			Type type = value.GetType();
+			
 			// Now serialize this closed/specific object
 			DynamicDeserializer deserializer;
 			if (!_specificDeserializers.TryGetValue(type, out deserializer))

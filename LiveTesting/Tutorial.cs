@@ -48,23 +48,34 @@ namespace Tutorial
 			//
 			// 1.) Simple usage
 			// aka. "I'm here for the cool features! I want to optimize for max-performance later"
-			//
 			var person = new Person { Name = "riki", Health = 100 };
 
 			var serializer = new CerasSerializer();
 
 			var data = serializer.Serialize(person);
-			data.VisualizePrint();
+			data.VisualizePrint("Simple Person");
 
 			var clone1 = serializer.Deserialize<Person>(data);
 			Console.WriteLine($"Clone: Name={clone1.Name}, Health={clone1.Health}");
 
 
+
+			// 2.) Types
+			// You can also serialize as <object>.
+			// In that case the type information will be included. 
+			// If a type is written it will only be written ONCE, so a List<Person> will not suddenly waste a
+			// ton of space by continously writing the type-names
+			var objectData = serializer.Serialize<object>(person);
+			objectData.VisualizePrint("Person as <object>");
+			var objectClone = serializer.Deserialize<object>(objectData);
+			
+
+
+
 			//
-			// 2.) Improvement:
+			// 3.) Improvement:
 			// Recycle the serialization buffer by keeping the reference to it around.
 			// Optionally we can even let Ceras create (or resize) the buffer for us.
-
 			byte[] buffer = null;
 			int writtenBytes = serializer.Serialize(person, ref buffer);
 
@@ -88,15 +99,14 @@ namespace Tutorial
 			personB.BestFriend = personA;
 
 			var dataWithCircularReferences = serializer.Serialize(personA);
-			Console.WriteLine("Circular references data: ");
-			dataWithCircularReferences.VisualizePrint();
+			dataWithCircularReferences.VisualizePrint("Circular references data");
 
 			var cloneA = serializer.Deserialize<Person>(dataWithCircularReferences);
 
 			if (cloneA.BestFriend.BestFriend.BestFriend.BestFriend.BestFriend.BestFriend == cloneA)
 				Console.WriteLine("Circular reference serialization working as intended!");
 			else
-				Console.WriteLine("There was some problem!");
+				throw new Exception("There was some problem!");
 
 
 		}
@@ -207,8 +217,7 @@ namespace Tutorial
 
 			var data = serializer.Serialize(person);
 
-			Console.WriteLine("Data serialized using KnownTypes:");
-			data.VisualizePrint();
+			data.VisualizePrint("Data serialized using KnownTypes");
 
 			var clone1 = serializer.Deserialize<Person>(data);
 			Console.WriteLine($"Clone (using KnownTypes): Name={clone1.Name}, Health={clone1.Health}");
@@ -334,8 +343,7 @@ namespace Tutorial
 
 			var monsterData = serializer.Serialize(monster);
 			// we can write this monster to the "monsters" sql-table now
-			Console.WriteLine("Monster data:");
-			monsterData.VisualizePrint();
+			monsterData.VisualizePrint("Monster data");
 			MyGameDatabase.Monsters[monster.Id] = monsterData;
 
 			// While serializing the monster we found some other external objects as well (the abilities)
@@ -352,10 +360,41 @@ namespace Tutorial
 				var id = obj.GetReferenceId();
 				MyGameDatabase.Abilities[id] = abilityData;
 
-				Console.WriteLine($"Ability {id} data:");
-				abilityData.VisualizePrint();
+				abilityData.VisualizePrint($"Ability {id} data:");
 			}
 
+			// Problems:
+			/*
+			 * 1.) 
+			 * Cannot deserialize recursively
+			 * we'd overwrite our object cache, Ids would go out of order, ...
+			 * Example: A nested object tells us "yea, this is object ID 5 again", while 5 is already some other object (because its the wrong context!)
+			 *
+			 * -> Need to make it so the serializer has Stack<>s of object- and type-caches.
+			 * 
+			 *
+			 * 2.)
+			 * Keep in mind that we can NOT share a deserialization buffer!!
+			 * If we load from Monster1.bin, and then require Spell5.bin, that'd overwrite our shared buffer,
+			 * and then when the spell is done and we want to continue with the monster, the data will have changed!
+			 *
+			 * -> debug helper: "The data has changed while deserializing, this must be a bug on your end!"
+			 *
+			 * 3.)
+			 * while deserializing objects, we need to create them, add to cache, then populate.
+			 * otherwise we might get into a situation where we want to load an ability that points to a monster (the one we're already loading)
+			 * and then we end up with two monsters (and if they code continues to run, infinite, and we get a stackoverflow)
+			 * In other words: Objects that are still being deserialized, need to already be in the cache, so they can be used by other stuff!
+			 *
+			 * -> create helper class that deals with deserializing object graphs?
+			 *
+			 */
+
+			// Load the data again:
+			var loadedMonster = serializer.Deserialize<MyMonster>(MyGameDatabase.Monsters[1]);
+			
+			var ability1 = serializer.Deserialize<MyAbility>(MyGameDatabase.Abilities[1]);
+			var ability2 = serializer.Deserialize<MyAbility>(MyGameDatabase.Abilities[2]);
 		}
 
 		public void Step7_DataUpgrade()

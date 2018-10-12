@@ -25,6 +25,8 @@ namespace Ceras
 		sometimes it makes sense to ref-serialize arrays and collections as well
 
 		omit type information (serialize as "infer from target" code) if the specific type is exactly equal to the target type
+
+		todo: change all internal IDs to uint (object cache, external object, ...)
 	*/
 	public class CerasSerializer
 	{
@@ -39,6 +41,9 @@ namespace Ceras
 		// The user provided resolver, will always be queried first
 		readonly FormatterResolverCallback _userResolver;
 
+		// todo: allow the user to provide their own binder. So they can serialize a type-name however they want; but then again they could override the TypeFormatter anyway, so what's the point? maybe it would be best to completely remove the typeBinder (merging it into the default TypeFormatter)?
+		internal readonly ITypeBinder TypeBinder = new NaiveTypeBinder();
+
 		// The primary list of resolvers. A resolver is a class that somehow (by instantiating, or finding it somewhere, ...) comes up with a formatter for a requested type
 		// If a resolver can't fulfill the request for a specific formatter, it returns null.
 		List<IFormatterResolver> _resolvers = new List<IFormatterResolver>();
@@ -47,18 +52,14 @@ namespace Ceras
 		// unspecific formatters (for example for types like 'object' or 'List<>')
 		Dictionary<Type, IFormatter> _formatters = new Dictionary<Type, IFormatter>();
 
-		// Stores objects while serializing/deserializing
-		readonly ObjectCache _objectCache = new ObjectCache();
-		readonly ObjectCache _typeCache = new ObjectCache();
-
-		// todo: allow the user to provide their own binder. So they can serialize a type-name however they want; but then again they could override the TypeFormatter anyway, so what's the point? maybe it would be best to completely remove the typeBinder (merging it into the default TypeFormatter)?
-		internal readonly ITypeBinder TypeBinder = new NaiveTypeBinder();
-
 		IFormatter<Type> _typeFormatter;
 
-		internal IExternalRootObject CurrentRoot;
 
-		bool _serializationInProgress;
+		readonly FactoryPool<InstanceData> _instanceDataPool;
+		readonly Stack<InstanceData> _recursionStack = new Stack<InstanceData>();
+		internal InstanceData InstanceData;
+		int _recursionDepth = 0;
+		RecursionMode _mode = RecursionMode.Idle; // while in one mode we cannot enter the others
 
 
 		public CerasSerializer(SerializerConfig config = null)
@@ -93,14 +94,14 @@ namespace Ceras
 			_dynamicResolver = new DynamicObjectFormatterResolver(this);
 
 			// Type formatter is the basis for all complex objects
-			var typeFormatter = new TypeFormatter(this, _typeCache);
+			var typeFormatter = new TypeFormatter(this);
 			_formatters.Add(typeof(Type), typeFormatter);
 
-			if (Config.KnownTypes.Count > 0)
-				if (Config.SealTypesWhenUsingKnownTypes)
-					typeFormatter.Seal();
+			//if (Config.KnownTypes.Count > 0)
+			//	if (Config.SealTypesWhenUsingKnownTypes)
+			//		typeFormatter.Seal();
 
-			_cacheStringFormatter = new CacheFormatter<string>((IFormatter<string>)GetFormatter(typeof(string), false), this, GetObjectCache());
+			_cacheStringFormatter = new CacheFormatter<string>((IFormatter<string>)GetFormatter(typeof(string), false), this);
 
 			_typeFormatter = (IFormatter<Type>)GetFormatter(typeof(Type), false, true);
 
@@ -114,9 +115,6 @@ namespace Ceras
 			Config.KnownTypes.Seal();
 			foreach (var t in Config.KnownTypes)
 			{
-				_typeCache.RegisterObject(t); // For serialization
-				_typeCache.AddKnownType(t);   // For deserialization
-
 				if (Config.GenerateChecksum)
 				{
 					ProtocolChecksum.Add(t.FullName);
@@ -151,6 +149,26 @@ namespace Ceras
 
 			if (Config.GenerateChecksum)
 				ProtocolChecksum.Finish();
+
+			//
+			// Finally we need "instance data"
+			_instanceDataPool = new FactoryPool<InstanceData>(p =>
+			{
+				var d = new InstanceData();
+				d.CurrentRoot = null;
+				d.ObjectCache = new ObjectCache();
+				d.TypeCache = new ObjectCache();
+
+				foreach (var t in Config.KnownTypes)
+				{
+					d.TypeCache.RegisterObject(t); // For serialization
+					d.TypeCache.AddKnownType(t);   // For deserialization
+				}
+
+				return d;
+			});
+			InstanceData = _instanceDataPool.RentObject();
+
 		}
 
 
@@ -173,9 +191,7 @@ namespace Ceras
 		/// </summary>
 		public int Serialize<T>(T obj, ref byte[] targetByteArray, int offset = 0)
 		{
-			if (_serializationInProgress)
-				throw new InvalidOperationException("Nested serialization will not work. Keep track of objects to serialize in a HashSet<T> or so and then serialize those later...");
-			_serializationInProgress = true;
+			EnterRecursive(RecursionMode.Serialization);
 
 			if (Config.EmbedChecksum)
 			{
@@ -189,7 +205,7 @@ namespace Ceras
 				// Root object is the IExternalObject we're serializing (if any)
 				// We have to keep track of it so the CacheFormatter knows what NOT to skip
 				// otherwise we'd obviously only write one byte lol (the external ID) and nothing else.
-				CurrentRoot = obj as IExternalRootObject;
+				InstanceData.CurrentRoot = obj as IExternalRootObject;
 
 
 				var formatter = (IFormatter<T>)GetFormatter(typeof(T));
@@ -207,13 +223,13 @@ namespace Ceras
 				// todo: would it be more efficient to have one static and one dynamic dictionary?
 				if (!Config.PersistTypeCache)
 				{
-					_typeCache.ClearSerializationCache();
+					InstanceData.TypeCache.ClearSerializationCache();
 					foreach (var t in Config.KnownTypes)
-						_typeCache.RegisterObject(t);
+						InstanceData.TypeCache.RegisterObject(t);
 				}
 
 				if (!Config.PersistObjectCache)
-					_objectCache.ClearSerializationCache();
+					InstanceData.ObjectCache.ClearSerializationCache();
 
 
 				return offsetAfterWrite - offsetBeforeWrite;
@@ -222,8 +238,7 @@ namespace Ceras
 			{
 				//
 				// Clear the root object again
-				CurrentRoot = null;
-				_serializationInProgress = false;
+				LeaveRecursive(RecursionMode.Serialization);
 			}
 		}
 
@@ -252,44 +267,53 @@ namespace Ceras
 			if (buffer == null)
 				throw new ArgumentNullException("Must provide a buffer to deserialize from!");
 
-			var formatter = (IFormatter<T>)GetFormatter(typeof(T));
+			EnterRecursive(RecursionMode.Deserialization);
 
-			int offsetBeforeRead = offset;
-
-			if (Config.EmbedChecksum)
+			try
 			{
-				var checksum = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
-				if (checksum != ProtocolChecksum.Checksum)
-					throw new InvalidOperationException($"Checksum does not match embedded checksum (Serializer={ProtocolChecksum.Checksum}, Data={checksum})");
-			}
+				var formatter = (IFormatter<T>)GetFormatter(typeof(T));
 
-			formatter.Deserialize(buffer, ref offset, ref value);
+				int offsetBeforeRead = offset;
 
-			if (expectedReadLength != -1)
-			{
-				int bytesActuallyRead = offset - offsetBeforeRead;
-
-				if (bytesActuallyRead != expectedReadLength)
+				if (Config.EmbedChecksum)
 				{
-					throw new UnexpectedBytesConsumedException("The deserialization has completed, but not all of the given bytes were consumed. " +
-														" Maybe you tried to deserialize something directly from a larger byte-array?",
-															   expectedReadLength, bytesActuallyRead, offsetBeforeRead, offset);
+					var checksum = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
+					if (checksum != ProtocolChecksum.Checksum)
+						throw new InvalidOperationException($"Checksum does not match embedded checksum (Serializer={ProtocolChecksum.Checksum}, Data={checksum})");
 				}
-			}
 
-			// todo: instead of clearing and re-adding the known types, the type-cache should have a fallback cache inside it
-			// todo: .. that gets used when the ID is out of range. So outside is the dynamic stuff (with an offset of where IDs will start), and inside are the
-			// todo: .. known elements, and if we're given an ID that is too low, we defer to the inner cache.
-			// Very important to clear out caches and stuff that is only valid for this call
-			if (!Config.PersistTypeCache)
+				formatter.Deserialize(buffer, ref offset, ref value);
+
+				if (expectedReadLength != -1)
+				{
+					int bytesActuallyRead = offset - offsetBeforeRead;
+
+					if (bytesActuallyRead != expectedReadLength)
+					{
+						throw new UnexpectedBytesConsumedException("The deserialization has completed, but not all of the given bytes were consumed. " +
+															" Maybe you tried to deserialize something directly from a larger byte-array?",
+																   expectedReadLength, bytesActuallyRead, offsetBeforeRead, offset);
+					}
+				}
+
+				// todo: instead of clearing and re-adding the known types, the type-cache should have a fallback cache inside it
+				// todo: .. that gets used when the ID is out of range. So outside is the dynamic stuff (with an offset of where IDs will start), and inside are the
+				// todo: .. known elements, and if we're given an ID that is too low, we defer to the inner cache.
+				// Very important to clear out caches and stuff that is only valid for this call
+				if (!Config.PersistTypeCache)
+				{
+					InstanceData.TypeCache.ClearDeserializationCache();
+					foreach (var t in Config.KnownTypes)
+						InstanceData.TypeCache.AddKnownType(t);
+
+				}
+				if (!Config.PersistObjectCache)
+					InstanceData.ObjectCache.ClearDeserializationCache();
+			}
+			finally
 			{
-				_typeCache.ClearDeserializationCache();
-				foreach (var t in Config.KnownTypes)
-					_typeCache.AddKnownType(t);
-
+				LeaveRecursive(RecursionMode.Deserialization);
 			}
-			if (!Config.PersistObjectCache)
-				_objectCache.ClearDeserializationCache();
 		}
 
 		public Type PeekType(byte[] buffer)
@@ -432,10 +456,59 @@ namespace Ceras
 			return _cacheStringFormatter;
 		}
 
-		internal ObjectCache GetObjectCache()
+		void EnterRecursive(RecursionMode enteringMode)
 		{
-			return _objectCache;
+			_recursionDepth++;
+
+			if (_recursionDepth == 1)
+			{
+				// First level, just use the existing data block
+				_mode = enteringMode;
+			}
+			else
+			{
+				if (_mode != enteringMode)
+					throw new InvalidOperationException("Cannot start a serialization call while a deserialization is still in progress (and vice versa)");
+
+				// Next level of recursion
+				_recursionStack.Push(InstanceData);
+				InstanceData = _instanceDataPool.RentObject();
+			}
 		}
+
+		void LeaveRecursive(RecursionMode leavingMode)
+		{
+			_recursionDepth--;
+
+			if (_recursionDepth == 0)
+			{
+				// Leave the data as it is, we'll use it for the next call
+				_mode = RecursionMode.Idle;
+			}
+			else
+			{
+				// We need to restore the previous data
+				_instanceDataPool.ReturnObject(InstanceData);
+				InstanceData = _recursionStack.Pop();
+			}
+		}
+
+	}
+
+	// In order to support recursive serialization/deserialization, we need to "instantiate"
+	// some values for each call.
+	struct InstanceData
+	{
+		public ObjectCache TypeCache;
+		public ObjectCache ObjectCache;
+		public IExternalRootObject CurrentRoot;
+	}
+
+	enum RecursionMode
+	{
+		Idle,
+		Serialization,
+		Deserialization,
 	}
 
 	sealed class ErrorResolver : IExternalObjectResolver

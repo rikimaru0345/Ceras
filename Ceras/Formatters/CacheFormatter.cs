@@ -81,24 +81,27 @@
 		//  1: The previously seen item with index 1
 		//  2: The previously seen item with index 2
 		// ...
-		const int Bias = 3;
-		const int ExternalObject = -3;
+		const int Bias = 4;
+		const int ExternalObject = -4;
+		const int NewValueSameType = -3;
 		const int NewValue = -2;
 		const int Null = -1;
 
+		IFormatter<Type> _typeFormatter;
 		readonly IFormatter<T> _innerFormatter;
 		readonly CerasSerializer _serializer;
-		readonly ObjectCache _objectCache;
+
 
 		static Func<T> _createInstance;
 
 		public bool IsSealed { get; private set; }
 
-		public CacheFormatter(IFormatter<T> innerFormatter, CerasSerializer serializer, ObjectCache objectCache)
+		public CacheFormatter(IFormatter<T> innerFormatter, CerasSerializer serializer)
 		{
 			_innerFormatter = innerFormatter;
 			_serializer = serializer;
-			_objectCache = objectCache;
+
+			_typeFormatter = (IFormatter<Type>)serializer.GetFormatter(typeof(Type), extraErrorInformation: "DynamicObjectFormatter.TypeFormatter");
 		}
 
 		static CacheFormatter()
@@ -106,7 +109,7 @@
 			var t = typeof(T);
 			var ctor = t.GetConstructors(BindingFlags.Public | BindingFlags.Instance).FirstOrDefault(c => c.GetParameters().Length == 0);
 
-			if(ctor != null)
+			if (ctor != null)
 				_createInstance = (Func<T>)CreateDelegate(ctor, typeof(Func<T>));
 		}
 
@@ -121,7 +124,7 @@
 				return;
 			}
 
-			if (!object.ReferenceEquals(_serializer.CurrentRoot, value))
+			if (!object.ReferenceEquals(_serializer.InstanceData.CurrentRoot, value))
 			{
 				if (value is IExternalRootObject externalObj)
 				{
@@ -136,7 +139,7 @@
 				}
 			}
 
-			if (_objectCache.TryGetExistingObjectId(value, out int id))
+			if (_serializer.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id))
 			{
 				// Existing value
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, id, Bias);
@@ -148,11 +151,20 @@
 					throw new InvalidOperationException($"Trying to add '{value.ToString()}' (type '{typeof(T).FullName}') to a sealed cache formatter.");
 				}
 
-				// New value
-				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewValue, Bias);
-
 				// Important: Insert the ID for this value into our dictionary BEFORE calling SerializeFirstTime, as that might recursively call us again (maybe with the same value!)
-				_objectCache.RegisterObject(value);
+				_serializer.InstanceData.ObjectCache.RegisterObject(value);
+
+				// New value
+				var specificType = value.GetType();
+				if (typeof(T) == specificType)
+				{
+					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewValueSameType, Bias);
+				}
+				else
+				{
+					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewValue, Bias);
+					_typeFormatter.Serialize(ref buffer, ref offset, specificType);
+				}
 
 				// Write the object normally
 				_innerFormatter.Serialize(ref buffer, ref offset, value);
@@ -170,77 +182,17 @@
 				// Ok the data tells us that value should be null.
 				// But maybe we're recycling an object and it still contains an instance.
 				// Lets return it to the user
-				_serializer.Config.DiscardObjectMethod?.Invoke(value);
+				if (value != null)
+					_serializer.Config.DiscardObjectMethod?.Invoke(value);
 
 				value = default(T);
 				return;
 			}
 
-			if (objId == NewValue)
+			if (objId >= 0)
 			{
-				// New object
-
-				/*
-				 !!Important !!
-			     When we're deserializing any nested types (ex: Literal<float>)
-				 then we're writing Literal`1 as 0, and System.Single as 1
-				 but while reading, we're recursively descending, so System.Single would get read first (as 0)
-				 which would throw off everything.
-				 Solution: 
-				 Reserve some space(inserting < null >) into the object-cache - list before actually reading, so all the nested things will just append to the list as intended.
-				 and then just overwrite the inserted placeholder with the actual value once we're done
-
-				   Problem:
-				 If there's a root object that has a field that simply references the root object
-				 then we will write it correctly, but since we only update the reference after the object is FULLY deserialized, we end up with nulls.
-
-				   Solution:
-				 Right when the object is created, it has to be immediately put into the _deserializationCache
-				 So child fields(like for example a '.Self' field)
-				 can properly resolve the reference.
-
-				   Problem:
-				 How to even do that?
-				 So when the object is created (but its fields are not yet fully populated) we must get a reference to
-				 it immediately, before any member-field is deserialized!(Because one of those fields could be a refernce to the object itself again)
-				 How can we intercept this assignment / object creation?
-
-				   Solution:
-				 We pass a reference to a proxy.If we'd just have a List<T> we would not be able to use "ref" (like: deserialize(... ref list[x]) )
-				 So instead we'll pass the reference to a proxy object. 
-				 The proxy objects are small, but spamming them for every deserialization is still not cool.
-				 So we use a very simple pool for them.
-				 */
-
-
-				// At this point we know that the 'value' will have value, so if 'value' (the variable) is null we need to create an instance
-				// todo: investigate if there is a way to do this better,
-				// todo: is the generic code optimized in the jit? si this check is never even done?
-				if (value == null && 
-				    (typeof(T) != typeof(string) && typeof(T) != typeof(Type)))
-				{
-					if (typeof(T).IsAbstract || typeof(T).IsInterface)
-						throw new Exception("todo: fix instantiating T");
-
-					var factory = _serializer.Config.ObjectFactoryMethod;
-					if (factory != null)
-						value = (T)_serializer.Config.ObjectFactoryMethod(typeof(T));
-
-					if (value == null)
-						value = _createInstance();
-				}
-
-
-				var objectProxy = _objectCache.CreateDeserializationProxy<T>();
-
-				// Make sure that the deserializer can make use of an already existing object (if there is one)
-				objectProxy.Value = value;
-
-				_innerFormatter.Deserialize(buffer, ref offset, ref objectProxy.Value);
-
-				// Write back the actual value
-				value = objectProxy.Value;
-
+				// Something we already know
+				value = _serializer.InstanceData.ObjectCache.GetExistingObject<T>(objId);
 				return;
 			}
 
@@ -254,8 +206,42 @@
 				return;
 			}
 
-			// Something we already know
-			value = _objectCache.GetExistingObject<T>(objId);
+
+			// New object, see Note#1
+			Type specificType = null;
+			if (objId == NewValue)
+				_typeFormatter.Deserialize(buffer, ref offset, ref specificType);
+			else // if (objId == NewValueSameType) commented out, its the only possible remaining case
+				specificType = typeof(T);
+
+			// At this point we know that the 'value' will have value, so if 'value' (the variable) is null we need to create an instance
+			// todo: investigate if there is a way to do this better,
+			// todo: is the generic code optimized in the jit? is this check is never even done in the ASM?
+			// todo: have the recent fixes made these checks obsolete? What if someone forces serialization of private fields in a type that cannot be directly instantiated?
+			// todo: enforce all types to have a parameterless constructor
+			if (value == null &&
+				(typeof(T) != typeof(string) && typeof(T) != typeof(Type)))
+			{
+				var factory = _serializer.Config.ObjectFactoryMethod;
+				if (factory != null)
+					value = (T)_serializer.Config.ObjectFactoryMethod(specificType);
+
+				if (value == null)
+					// todo: can we optimize this? The specific type might be different, we cannot use "CreateInstance<T>" or "new T()"
+					//		 so is there a way we can quickly instantiate a new object given just the type? (sure there are lots of ways but any FAST ones??)
+					value = (T)Activator.CreateInstance(specificType);
+			}
+
+
+			var objectProxy = _serializer.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
+
+			// Make sure that the deserializer can make use of an already existing object (if there is one)
+			objectProxy.Value = value;
+
+			_innerFormatter.Deserialize(buffer, ref offset, ref objectProxy.Value);
+
+			// Write back the actual value
+			value = objectProxy.Value;
 		}
 
 		public static Delegate CreateDelegate(ConstructorInfo constructor, Type delegateType)
@@ -345,3 +331,37 @@
 
 
 }
+
+/* Note #1
+			
+	!!Important !!
+	When we're deserializing any nested types (ex: Literal<float>)
+	then we're writing Literal`1 as 0, and System.Single as 1
+	but while reading, we're recursively descending, so System.Single would get read first (as 0)
+	which would throw off everything.
+	Solution: 
+	Reserve some space(inserting < null >) into the object-cache - list before actually reading, so all the nested things will just append to the list as intended.
+	and then just overwrite the inserted placeholder with the actual value once we're done
+
+	Problem:
+	If there's a root object that has a field that simply references the root object
+	then we will write it correctly, but since we only update the reference after the object is FULLY deserialized, we end up with nulls.
+
+	Solution:
+	Right when the object is created, it has to be immediately put into the _deserializationCache
+	So child fields(like for example a '.Self' field)
+	can properly resolve the reference.
+
+	Problem:
+	How to even do that?
+	So when the object is created (but its fields are not yet fully populated) we must get a reference to
+	it immediately, before any member-field is deserialized!(Because one of those fields could be a refernce to the object itself again)
+	How can we intercept this assignment / object creation?
+
+	Solution:
+	We pass a reference to a proxy.If we'd just have a List<T> we would not be able to use "ref" (like: deserialize(... ref list[x]) )
+	So instead we'll pass the reference to a proxy object. 
+	The proxy objects are small, but spamming them for every deserialization is still not cool.
+	So we use a very simple pool for them.
+				 
+ */

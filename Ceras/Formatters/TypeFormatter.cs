@@ -1,7 +1,7 @@
 ﻿namespace Ceras.Formatters
 {
-	using System;
 	using Helpers;
+	using System;
 
 	/*
 	 * The idea here is that we have a map of "known types" that we use when possible to encode a type as just one number
@@ -13,57 +13,151 @@
 	 *				 for us to fix it anymore. Once the "configuration" of known types is lost, all data serialized by this serializer will be very hard to recover.
 	 * Only really a problem if writing to files. Not a problem when dealing with networking (since messages are not saved and discarded after reading and processing)
 	 */
+	/*
+	 * Important:
+	 * For a long time this was wrapped into a CacheFormatter, but that had a problem.
+	 * Assuming we've added List<> and MyObj to KnownTypes, then List<MyObj> was still not known, which is bad!
+	 * The cache formatter only deals with concrete values and can't know that List<MyObj> can be built from two already existing "primitives".
+	 * That's why we changed it so now TypeFormatter does its own caching.
+	 */
 	class TypeFormatter : IFormatter<Type>
 	{
-		readonly ObjectCache _typeCache;
+		readonly CerasSerializer _serializer;
 		readonly ITypeBinder _typeBinder;
 
-		public TypeFormatter(CerasSerializer serializer, ObjectCache typeCache)
+		const int Bias = 3;
+		const int Null = -1;
+		const int NewComposite = -2;
+		const int NewSingle = -3;
+
+
+		public TypeFormatter(CerasSerializer serializer)
 		{
-			_typeCache = typeCache;
+			_serializer = serializer;
 			_typeBinder = serializer.TypeBinder;
 		}
-		
+
 		public void Serialize(ref byte[] buffer, ref int offset, Type type)
 		{
-			var typeName = _typeBinder.GetBaseName(type);
-			var genericArgs = type.GetGenericArguments();
+			// Null
+			if (type == null)
+			{
+				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, Null, Bias);
+				return;
+			}
 
-			// Name
-			SerializerBinary.WriteString(ref buffer, ref offset, typeName);
+			var typeCache = _serializer.InstanceData.TypeCache;
+
+			// Existing
+			if (typeCache.TryGetExistingObjectId(type, out int id))
+			{
+				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, id, Bias);
+				return;
+			}
 			
-			// Number of generic args
-			SerializerBinary.WriteInt32(ref buffer, ref offset, genericArgs.Length);
+			
+			// Mode: New
 
-			// Generic Args (possibly recursive)
-			for (int i = 0; i < genericArgs.Length; i++)
-				Serialize(ref buffer, ref offset, genericArgs[i]);
+
+			// Is it a composite type that we have to split into its parts? (aka any generic)
+			bool isClosed = !type.ContainsGenericParameters;
+
+			if (isClosed && type.IsGenericType)
+			{
+				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewComposite, Bias);
+
+				// Split and write
+
+				// Base
+				var baseType = type.GetGenericTypeDefinition();
+				Serialize(ref buffer, ref offset, baseType);
+				
+
+				// Args
+				var genericArgs = type.GetGenericArguments();
+				
+				SerializerBinary.WriteByte(ref buffer, ref offset, (byte)(genericArgs.Length)); // We need count. Ex: Action<T1> and Action<T1, T2> share the name.
+				for (int i = 0; i < genericArgs.Length; i++)
+					Serialize(ref buffer, ref offset, genericArgs[i]);
+
+				
+				// Register composite type
+				typeCache.RegisterObject(type);
+			}
+			else
+			{
+				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewSingle, Bias);
+
+				// Open generic, something that can be serialized alone
+				
+				var typeName = _typeBinder.GetBaseName(type);
+			
+				// Name
+				SerializerBinary.WriteString(ref buffer, ref offset, typeName);
+
+				
+				// Register single type
+				typeCache.RegisterObject(type);
+			}
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Type value)
 		{
-			string baseTypeName = SerializerBinary.ReadString(buffer, ref offset);
+			int mode = SerializerBinary.ReadUInt32Bias(buffer, ref offset, Bias);
 
-			// Get generic args to the type
-			int numGenericArgs = SerializerBinary.ReadInt32(buffer, ref offset);
-
-			if (numGenericArgs == 0)
+			// Null
+			if (mode == Null)
 			{
-				// Return type as it is
-				value = _typeBinder.GetTypeFromBase(baseTypeName);
+				value = null;
 				return;
 			}
 
-			Type[] genericArgs = new Type[numGenericArgs];
-			for (int i = 0; i < numGenericArgs; i++)
+			var typeCache = _serializer.InstanceData.TypeCache;
+
+			// Existing
+			if (mode >= 0)
 			{
-				Type genericArgument = null;
-				Deserialize(buffer, ref offset, ref genericArgument);
-				genericArgs[i] = genericArgument;
+				var id = mode;
+				value = typeCache.GetExistingObject<Type>(id);
+				return;
 			}
 
-			// Get base type
-			value = _typeBinder.GetTypeFromBaseAndAgruments(baseTypeName, genericArgs);
+
+			bool isComposite = mode == NewComposite;
+
+			if (isComposite) // composite aka "closed generic"
+			{
+				// Read main type
+				var compositeProxy = typeCache.CreateDeserializationProxy<Type>();
+
+				Type baseType = value;
+				Deserialize(buffer, ref offset, ref baseType);
+
+				
+				// Read count
+				var argCount = SerializerBinary.ReadByte(buffer, ref offset);
+				Type[] genericArgs = new Type[argCount];
+				for (int i = 0; i < argCount; i++)
+				{
+					var genericArgProxy = typeCache.CreateDeserializationProxy<Type>();
+
+					Deserialize(buffer, ref offset, ref genericArgProxy.Value);
+
+					genericArgs[i] = genericArgProxy.Value;
+				}
+
+				value = _typeBinder.GetTypeFromBaseAndAgruments(baseType.FullName, genericArgs);
+				compositeProxy.Value = value; // make it available for future deserializations
+			}
+			else
+			{
+				var proxy = typeCache.CreateDeserializationProxy<Type>();
+
+				string baseTypeName = SerializerBinary.ReadString(buffer, ref offset);
+				value = _typeBinder.GetTypeFromBase(baseTypeName);
+
+				proxy.Value = value;
+			}			
 		}
 	}
 }
