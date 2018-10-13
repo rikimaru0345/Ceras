@@ -25,7 +25,7 @@ namespace Ceras.Formatters
 		delegate void DynamicDeserializer(byte[] buffer, ref int offset, ref T value);
 
 		static FieldComparer _fieldComparer = new FieldComparer();
-		
+
 		Dictionary<Type, DynamicSerializer> _specificSerializers = new Dictionary<Type, DynamicSerializer>();
 		Dictionary<Type, DynamicDeserializer> _specificDeserializers = new Dictionary<Type, DynamicDeserializer>();
 
@@ -249,7 +249,7 @@ namespace Ceras.Formatters
 		{
 			// value might not be of type T. (Just think that T is an abstract class, and value is a concrete implementation. They're different types, and we might get all sorts of things that all inherit from T)
 			Type type = value.GetType();
-			
+
 			// Now serialize this closed/specific object
 			// typeof(T) is likely some abstract thing, maybe "Object" or "IMyCommonInterface"
 			// Or maybe it's just the specific type itself, but we can't know that here, as the following could be possible as well:
@@ -271,7 +271,7 @@ namespace Ceras.Formatters
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
 			Type type = value.GetType();
-			
+
 			// Now serialize this closed/specific object
 			DynamicDeserializer deserializer;
 			if (!_specificDeserializers.TryGetValue(type, out deserializer))
@@ -285,28 +285,85 @@ namespace Ceras.Formatters
 		}
 
 
-		internal static List<FieldInfo> GetSerializableFields(Type type, Func<FieldInfo, bool> fieldFilter = null)
+		internal static List<FieldInfo> GetSerializableFields(Type type, Func<FieldInfo, SerializationOverride> fieldFilter = null)
 		{
 			List<FieldInfo> fields = new List<FieldInfo>();
-			foreach (var f in type.GetFields(BindingFlags.Instance | BindingFlags.Public))
+
+			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+			var classConfig = type.GetCustomAttribute<CerasConfig>();
+
+
+			foreach (var f in type.GetFields(flags))
 			{
-				// No readonly, it never works!
+				// Skip readonly
 				if (f.IsInitOnly)
 					continue;
 
+				//
+				// 1.) Use filter if there is one
 				if (fieldFilter != null)
 				{
-					if (!fieldFilter(f))
+					var filterResult = fieldFilter(f);
+
+					if (filterResult == SerializationOverride.ForceInclude)
+					{
+						fields.Add(f);
 						continue;
-				}
-				else
-				{
-					var ignore = f.GetCustomAttribute<IgnoreFieldAttribute>(true);
-					if (ignore != null)
+					}
+					else if (filterResult == SerializationOverride.ForceSkip)
+					{
 						continue;
+					}
 				}
 
-				fields.Add(f);
+				//
+				// 2.) Use attribute
+				var ignore = f.GetCustomAttribute<Ignore>(true) != null;
+				var include = f.GetCustomAttribute<Include>(true) != null;
+
+				if (ignore && include)
+					throw new Exception($"Field '{f.Name}' on type '{type.Name}' has both [Ignore] and [Include]!");
+
+				if (ignore)
+				{
+					continue;
+				}
+
+				if (include)
+				{
+					fields.Add(f);
+					continue;
+				}
+
+				//
+				// 3.) Use class attributes
+				if (classConfig != null)
+				{
+					if (classConfig.IncludePrivate == false)
+						if (f.IsPublic == false)
+							continue;
+					
+					if (classConfig.MemberSerialization == MemberSerialization.OptIn)
+					{
+						// If we are here, that means that fields that have not already been added get skipped.
+						continue;
+					}
+
+					if (classConfig.MemberSerialization == MemberSerialization.OptOut)
+					{
+						// Add everything, if there is an [Ignore] we wouldn't be here
+						fields.Add(f);
+						continue;
+					}
+				}
+
+				//
+				// 4.) Use global defaults
+				// Which is simply "is it a public field?"
+				
+				if(f.IsPublic)
+					fields.Add(f);
 			}
 
 			fields.Sort(_fieldComparer);

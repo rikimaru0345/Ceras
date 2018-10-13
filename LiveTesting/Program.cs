@@ -4,6 +4,7 @@ namespace LiveTesting
 {
 	using Ceras;
 	using System.Diagnostics;
+	using Tutorial;
 
 	class Program
 	{
@@ -11,12 +12,15 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			var tutorial = new Tutorial.Tutorial();
-			//tutorial.Step1_SimpleUsage();
-			//tutorial.Step2_Recycling();
-			//tutorial.Step3_KnownTypes();
-			//tutorial.Step4_CustomFormatters();
-			tutorial.Step6_GameDatabase();
+			var tutorial = new Tutorial();
+
+			tutorial.Step1_SimpleUsage();
+			tutorial.Step2_Attributes();
+			tutorial.Step3_Recycling();
+			tutorial.Step4_KnownTypes();
+			tutorial.Step5_CustomFormatters();
+
+			tutorial.Step7_GameDatabase();
 
 
 			NetworkTest();
@@ -34,6 +38,7 @@ namespace LiveTesting
 
 			var c = new ComplexClass();
 			var complexClassData = s.Serialize(c);
+			complexClassData.VisualizePrint("Complex Data");
 
 			var clone = s.Deserialize<ComplexClass>(complexClassData);
 
@@ -96,9 +101,9 @@ namespace LiveTesting
 
 			Console.WriteLine("Hash: " + sender.ProtocolChecksum.Checksum);
 
-			var data = sender.Serialize(msg);
+			var data = sender.Serialize<object>(msg);
 			PrintData(data);
-			data = sender.Serialize(msg);
+			data = sender.Serialize<object>(msg);
 			PrintData(data);
 
 			var obj = receiver.Deserialize<object>(data);

@@ -519,6 +519,7 @@ namespace Ceras
 		}
 	}
 
+	// todo: make it so settings cannot be changed after instantiating a serializer. Maybe copy the values? Or implement a "freezable" pattern?
 	public class SerializerConfig
 	{
 		/// <summary>
@@ -554,7 +555,7 @@ namespace Ceras
 		public Action<object> DiscardObjectMethod { get; set; } = null;
 
 
-		public Func<FieldInfo, bool> ShouldSerializeField { get; set; } = null;
+		public Func<FieldInfo, SerializationOverride> ShouldSerializeField { get; set; } = null;
 
 		public IExternalObjectResolver ExternalObjectResolver { get; set; }
 
@@ -568,9 +569,6 @@ namespace Ceras
 		// todo: settings per-field: Formatter<> to override
 
 		public FormatterResolverCallback OnResolveFormatter { get; set; } = null;
-
-		//public UserFormatterResolver UserFormatters { get; } = new UserFormatterResolver();
-
 
 		public KnownTypesCollection KnownTypes { get; } = new KnownTypesCollection();
 

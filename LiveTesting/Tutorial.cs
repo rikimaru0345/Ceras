@@ -68,7 +68,7 @@ namespace Tutorial
 			var objectData = serializer.Serialize<object>(person);
 			objectData.VisualizePrint("Person as <object>");
 			var objectClone = serializer.Deserialize<object>(objectData);
-			
+
 
 
 
@@ -111,7 +111,27 @@ namespace Tutorial
 
 		}
 
-		public void Step2_Recycling()
+		public void Step2_Attributes()
+		{
+			/*
+			 * Attributes are completely optional.
+			 *
+			 * Ceras has Attributes to include or skip fields. (todo: and later to set optional names/keys...)
+			 *
+			 */
+			CerasSerializer ceras = new CerasSerializer();
+
+			var obj = new SomeAttributeExample();
+			var data = ceras.Serialize(obj);
+
+			data.VisualizePrint("Attribute Example");
+
+
+			data = ceras.Serialize(new SomeAttributeExample2());
+			data.VisualizePrint("Attribute Example 2");
+		}
+
+		public void Step3_Recycling()
 		{
 			/*
 			 * Scenario:
@@ -202,7 +222,7 @@ namespace Tutorial
 
 		}
 
-		public void Step3_KnownTypes()
+		public void Step4_KnownTypes()
 		{
 			/*
 			 * Assuming we want to reduce the used space to an absolute minimum, we can tell Ceras what types will be present throughout a serialization.
@@ -239,7 +259,7 @@ namespace Tutorial
 			 */
 		}
 
-		public void Step4_CustomFormatters()
+		public void Step5_CustomFormatters()
 		{
 			/*
 			 * Scenario:
@@ -280,24 +300,51 @@ namespace Tutorial
 			var clone = serializer.Deserialize<Person>(customSerializedData);
 		}
 
-		public void Step5_NetworkExample()
+		public void Step6_NetworkExample()
 		{
 			// todo: ...
+
+			/*
+			 * If you cannot wait for the guide, then take a look at those properties
+			 * and read the XML documentation for them (hover over their names or press F12 on them) 
+			 */
+			 
+			/*
+			SerializerConfig config = new SerializerConfig();
+
+			config.GenerateChecksum = true;
+			config.KnownTypes.Add();
+			config.PersistTypeCache = true;
+
+			config.ObjectFactoryMethod = ...;
+			config.DiscardObjectMethod = ...;
+
+			*/
 		}
 
-		public void Step6_GameDatabase()
+		public void Step7_GameDatabase()
 		{
-			MyMonster monster = new MyMonster();
+			/*
+			 * Scenario:
+			 * We have "MyMonster" and "MyAbility" for a game.
+			 * We want to be able to easily serialize the whole graph, but we also
+			 * want MyMonster and MyAbility instances to be saved in their own files!
+			 *
+			 * Lets first take a look at the classes we're working with:
+			 */
 
+			MyMonster monster = new MyMonster();
 			monster.Name = "Skeleton Mage";
 			monster.Health = 250;
 			monster.Mana = 100;
+
 			monster.Abilities.Add(new MyAbility
 			{
 				Name = "Fireball",
 				ManaCost = 12,
 				Cooldown = 0.5f,
 			});
+
 			monster.Abilities.Add(new MyAbility
 			{
 				Name = "Ice Lance",
@@ -308,18 +355,21 @@ namespace Tutorial
 			// We want to save monsters and abilities in their their own files.
 			// Using other serializers this would be a terribly time-consuming task.
 			// We would have to add attributes or maybe even write custom serializers so the "root objects"
-			// can be ignored. Then we'd need a separate field maybe where we'd save a list of IDs or something....
+			// can be when they are referenced in another object..
+			// Then we'd need a separate field maybe where we'd save a list of IDs or something....
 			// And then at load(deserialization)-time we would have to manually load that list, and resolve the
 			// objects they stand for...
 			//
 			// And all that for literally every "foreign key" (as it is called in database terms). :puke: !
 			//
+			//
 			// Ceras offers a much better approach.
-			// Simply implement IExternalRootObject, telling Ceras the "Id" of your object.
+			// You can implement IExternalRootObject, telling Ceras the "Id" of your object.
 			// You can generate that Id however you want, most people would proably opt to use some kind of auto-increment counter
 			// from their SQLite/SQL/MongoDB/LiteDB/...
 			//
 			// At load time Ceras will ask you to load the object again given its Id.
+			//
 
 			SerializerConfig config = new SerializerConfig();
 			var myGameObjectsResolver = new MyGameObjectsResolver();
@@ -392,34 +442,41 @@ namespace Tutorial
 
 			// Load the data again:
 			var loadedMonster = serializer.Deserialize<MyMonster>(MyGameDatabase.Monsters[1]);
-			
+
 			var ability1 = serializer.Deserialize<MyAbility>(MyGameDatabase.Abilities[1]);
 			var ability2 = serializer.Deserialize<MyAbility>(MyGameDatabase.Abilities[2]);
+
 		}
 
-		public void Step7_DataUpgrade()
+		public void Step8_DataUpgrade()
 		{
 			/*
-			 * So you have a settings class or something,
-			 * and now you have done 3 types of changes:
+			 * So you have a settings class or something, and now you have done 3 types of changes:
 			 * - removed a field
 			 * - added a new field
 			 * - renamed a field
 			 *
-			 * Since Ceras trades off versioning support for speed and binary-size, this is not directly supported.
+			 * For now Ceras trades off versioning support for speed and binary-size, so this is not directly supported.
 			 * You can still load the old data using the old class (maybe move it into a separate namepace, or an extra .dll)
 			 *
-			 * In this example I'm just using JObject (from Newtonsoft.Json) for easy editting and transfer.
-			 * However you can also do it fully manually, but personally I find working with JObject compfortable.
+ 			 *
+			 * Note:
+			 * - In a future version I'll most likely add an option to serialize
+			 *   by name / integer-keys and support for automatic conversion from older formats.
+			 *
 			 *
 			 */
 
+
+
+			// In this example I'm just using JObject (from Newtonsoft.Json) for easy editting and transfer.
+			// However you can also do it fully manually, but personally I find working with JObject pretty easy.
 			var settings = new SettingsOld { Bool1 = true, Int1 = 5, String1 = "test" };
 
 			var serializer = new CerasSerializer();
 			var oldData = serializer.Serialize(settings);
 
-			// Now we have some data in the old format,
+			// Now we have some data in the old format
 			var oldLoaded = serializer.Deserialize<SettingsOld>(oldData);
 			JObject jObj = JObject.FromObject(oldLoaded);
 
@@ -562,6 +619,35 @@ namespace Tutorial
 		public int Mana;
 		public List<MyAbility> Abilities = new List<MyAbility>();
 
+	}
+
+	[CerasConfig(IncludePrivate = true, MemberSerialization = MemberSerialization.OptOut)]
+	class SomeAttributeExample
+	{
+		int _privateNumber = 5;
+
+		public int PublicNumber = 7;
+
+		[Ignore]
+		string _privateString = "this will not get serialized";
+
+		[Ignore]
+		public string PublicString = "and neither will this...";
+	}
+
+	
+	[CerasConfig(MemberSerialization = MemberSerialization.OptIn)]
+	class SomeAttributeExample2
+	{
+		[Include]
+		int _private1 = 5;
+		
+		string _privateString = "this will not get serialized";
+		
+		public int Public1 = 7;
+
+		[Include]
+		public string Public2 = "this will be serialized";
 	}
 
 	/*
