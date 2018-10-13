@@ -16,31 +16,6 @@ namespace Tutorial
 		public Person BestFriend;
 	}
 
-	/*
-	 * all todos:
-	 * = make users able to provide their own resolvers so they can use onStart or something
-	 * = custom formatters, through callback
-	 * = only one user-provider thing in config "OnUserResolveFormatter(serializer, type)"
-	 * = wrap user-formatters into cache-formatters if they are a reference type ofc!
-	 * = recursive serialization solved with DI
-	 *
-	 * - who creates object instances?
-	 *   - type: should stay null, the TypeFormatter populates it
-	 *   - personFormatter: cacheFormatter should do it for us, because it also deals with the type, so it knows if its null or not
-	 *
-	 * - discard object
-	 * - network game example
-	 * - game database example
-	 * 
-	 * - attributes:
-	 * [CerasConfig(publicField, privateField, publicProp, privateProp, ...)]
-	 * [Ceras.Ignore]
-	 * [Ceras.Include]
-	 *
-		// todo: allow the user to provide their own binder. So they can serialize a type-name however they want
-		todo: cache in static generic https://github.com/neuecc/MessagePack-CSharp/blob/209f301e2e595ed366408624011ba2e856d23429/src/MessagePack/Resolvers/StandardResolver.cs
-	 */
-
 	class Tutorial
 	{
 		public void Step1_SimpleUsage()
