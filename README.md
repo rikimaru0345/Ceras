@@ -1,4 +1,4 @@
-﻿# Ceras
+# Ceras
 ###### Universal binary serializer for a wide variety of scenarios, lots of features, and tuned for performance 
 
 ## What is this?
@@ -20,7 +20,7 @@ var s = new CerasSerializer();
 var bytes = s.Serialize(p);
 ```
 
--> Check out the [Detailed Usage Guide (TODO)]()
+-> Check out the [**Detailed Usage Guide**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs) for examples on all features.
 
 
 ## Features (Overview)
@@ -68,18 +68,20 @@ The two primary intentions for creating this serializer were easy object persist
 Thus these scenarios are where Ceras really shines.
 
 Example Scenarios:
-- Saving objects to disk quickly without much trouble: settings, savegames (pretty much zero config)
-- As object DB by using `IExternalRootObject` (see [External Objects Guide]())
-- Network communication, with Ceras doing the majority of the work to implement a very efficient protocol (see [Network Example Guide]())
+- Saving objects to disk quickly without much trouble: settings, savegames (pretty much zero config) (see steps 1 and 2 in the [Usage Guide](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L21) )
+- As object DB by using `IExternalRootObject` (see [External Objects Guide (Game DB example))](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L300))
+- Network communication, with Ceras doing the majority of the work to implement a very efficient protocol (see [Network Example Guide](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L278))
 
 ## When should I not use this?
 
-1) If you need human readable output for some reason. For example a settings file that you want to be able to edit in an editor-application) then JSON or XML are likely better suited
+1) If you need human readable output for some reason. For example some file that you want to be able to edit in a text-editor. For those usages JSON or XML are likely better suited.
 
 2) You plan to use this on a platform that does not support code generation. Serializers for custom types obviously have to be created at runtime through code-generation, so Ceras won't be able to generate arbitrary object-formatters on platforms that do not support this (for example iOS). Built-in types will still work though. Maybe I'll fix this in the future (no concrete plans there yet though!)
 
 
 ## Planned features
+
+- nuget integration
 
 - Support for version tolerance is planned for one of the next versions and pretty high up on the priority list.
 For now, Ceras is made without versioning support, but there are some easy work arounds.
