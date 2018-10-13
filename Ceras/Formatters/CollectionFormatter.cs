@@ -14,7 +14,11 @@
 
 		public ArrayFormatter(CerasSerializer serializer)
 		{
-			_itemFormatter = (IFormatter<TItem>)serializer.GetFormatter(typeof(TItem));
+			var itemType = typeof(TItem);
+			if (itemType.IsValueType)
+				_itemFormatter = (IFormatter<TItem>) serializer.GetSpecificFormatter(itemType);
+			else
+				_itemFormatter = (IFormatter<TItem>) serializer.GetGenericFormatter(itemType);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TItem[] ar)
@@ -53,18 +57,19 @@
 	{
 		IFormatter<TItem> _itemFormatter;
 
-		// Possible scenarios:
-		// We have an existing collection, should we new() a new one anyway?
-		// The existing collection is not the type that the buffer says it should be, should we use what's already there? Or new() the right collection?
-		// There is no data in the buffer, do we null the existing data? Or clear it? Or do nothing? 
-		// Should we ignore the data in the buffer if the existing collection is not null? Or what if it is null, then skip the deserialization of the collection and leave it as null?
-
-		// There are many ways this can go... 
-
-
 		public CollectionFormatter(CerasSerializer serializer)
 		{
-			_itemFormatter = (IFormatter<TItem>)serializer.GetFormatter(typeof(TItem));
+			// What do we use as item formatter?
+			// - specific formatter (only writes data directly)
+			//   use when the type is known
+			// - generic formatter (writes type if needed)
+			//   use when types can be polymorphic
+
+			var itemType = typeof(TItem);
+			if (itemType.IsValueType)
+				_itemFormatter = (IFormatter<TItem>) serializer.GetSpecificFormatter(itemType);
+			else
+				_itemFormatter = (IFormatter<TItem>) serializer.GetGenericFormatter(itemType);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TCollection value)

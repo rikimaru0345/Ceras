@@ -9,8 +9,8 @@
 
 		public KeyValuePairFormatter(CerasSerializer serializer)
 		{
-			_keyFormatter = (IFormatter<TKey>)serializer.GetFormatter(typeof(TKey));
-			_valueFormatter = (IFormatter<TValue>)serializer.GetFormatter(typeof(TValue));
+			_keyFormatter = (IFormatter<TKey>)serializer.GetFormatter<TKey>();
+			_valueFormatter = (IFormatter<TValue>)serializer.GetFormatter<TValue>();
 		}
 
 

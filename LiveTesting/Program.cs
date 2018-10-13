@@ -2,9 +2,11 @@
 
 namespace LiveTesting
 {
+	using System.Collections.Generic;
 	using Ceras;
 	using System.Diagnostics;
 	using Tutorial;
+	using Xunit;
 
 	class Program
 	{
@@ -12,6 +14,33 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			var data = new List<int> { 6, 32, 573, 246, 24, 2,9 };
+
+			var s = new CerasSerializer();
+
+			var p = new Person() { Name = "abc", Health = 30 };
+			var pData = s.Serialize<object>(p);
+			pData.VisualizePrint("person data");
+			var pClone = s.Deserialize<object>(pData);
+
+			var serialized = s.Serialize(data);
+			var clone = s.Deserialize<List<int>>(serialized);
+			Assert.Equal(data.Count, clone.Count);
+			for (int i = 0; i < data.Count; i++)
+				Assert.Equal(data[i], clone[i]);
+
+
+			var serializedAsObject = s.Serialize<object>(data);
+			var cloneObject = s.Deserialize<object>(serializedAsObject);
+
+			Assert.Equal(data.Count, ((List<int>)cloneObject).Count);
+
+			for (int i = 0; i < data.Count; i++)
+				Assert.Equal(data[i], ((List<int>)cloneObject)[i]);
+
+
+
+
 			var tutorial = new Tutorial();
 
 			tutorial.Step1_SimpleUsage();

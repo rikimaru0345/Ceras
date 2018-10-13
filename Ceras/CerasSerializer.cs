@@ -32,8 +32,7 @@ namespace Ceras
 	{
 		internal readonly SerializerConfig Config;
 		public ProtocolChecksum ProtocolChecksum { get; } = new ProtocolChecksum();
-
-		readonly IFormatter<string> _cacheStringFormatter;
+		
 		// A special resolver. It creates instances of the "dynamic formatter", the DynamicObjectFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
 		// for a given object type.
 		readonly IFormatterResolver _dynamicResolver;
@@ -50,7 +49,9 @@ namespace Ceras
 
 		// The specific formatters we have. For example a formatter that knows how to read/write 'List<int>'. This will never contain
 		// unspecific formatters (for example for types like 'object' or 'List<>')
-		Dictionary<Type, IFormatter> _formatters = new Dictionary<Type, IFormatter>();
+		Dictionary<Type, IFormatter> _referenceFormatters = new Dictionary<Type, IFormatter>();
+		Dictionary<Type, IFormatter> _specificFormatters = new Dictionary<Type, IFormatter>();
+
 
 		IFormatter<Type> _typeFormatter;
 
@@ -71,7 +72,6 @@ namespace Ceras
 				throw new InvalidOperationException($"{nameof(Config.GenerateChecksum)} must be true if {nameof(Config.EmbedChecksum)} is true!");
 			if (Config.EmbedChecksum && Config.PersistTypeCache)
 				throw new InvalidOperationException($"You can't have '{nameof(Config.EmbedChecksum)}' and also have '{nameof(Config.PersistTypeCache)}' because adding new types changes the checksum. You can use '{nameof(Config.GenerateChecksum)}' alone, but the checksum might change after every serialization call...");
-
 
 			if (Config.ExternalObjectResolver == null)
 				Config.ExternalObjectResolver = new ErrorResolver();
@@ -95,15 +95,13 @@ namespace Ceras
 
 			// Type formatter is the basis for all complex objects
 			var typeFormatter = new TypeFormatter(this);
-			_formatters.Add(typeof(Type), typeFormatter);
+			_specificFormatters.Add(typeof(Type), typeFormatter);
 
 			//if (Config.KnownTypes.Count > 0)
 			//	if (Config.SealTypesWhenUsingKnownTypes)
 			//		typeFormatter.Seal();
-
-			_cacheStringFormatter = new CacheFormatter<string>((IFormatter<string>)GetFormatter(typeof(string), false), this);
-
-			_typeFormatter = (IFormatter<Type>)GetFormatter(typeof(Type), false, true);
+			
+			_typeFormatter = (IFormatter<Type>)GetSpecificFormatter(typeof(Type));
 
 
 			//
@@ -208,7 +206,7 @@ namespace Ceras
 				InstanceData.CurrentRoot = obj as IExternalRootObject;
 
 
-				var formatter = (IFormatter<T>)GetFormatter(typeof(T));
+				var formatter = (IFormatter<T>)GetGenericFormatter(typeof(T));
 
 				//
 				// The actual serialization
@@ -271,7 +269,7 @@ namespace Ceras
 
 			try
 			{
-				var formatter = (IFormatter<T>)GetFormatter(typeof(T));
+				var formatter = (IFormatter<T>)GetGenericFormatter(typeof(T));
 
 				int offsetBeforeRead = offset;
 
@@ -326,8 +324,75 @@ namespace Ceras
 		}
 
 
-		public IFormatter GetFormatter(Type type, bool allowDynamicResolver = true, bool throwIfNoneFound = true, string extraErrorInformation = null)
+		// todo: what if a value-type gets serialized? we can't wrap value-types into reference-serializers.
+		// We only need reference-serialization when the inner type is actually a reference type
+
+		public IFormatter<T> GetFormatter<T>()
 		{
+			if (typeof(T).IsValueType)
+				return (IFormatter<T>)GetSpecificFormatter(typeof(T));
+			else
+				return (IFormatter<T>)GetGenericFormatter(typeof(T));
+		}
+
+		public IFormatter GetGenericFormatter(Type type)
+		{
+			// 1.) Cache
+			if (_referenceFormatters.TryGetValue(type, out var formatter))
+				return formatter;
+
+			// 2.) Get specific & wrap
+			var generic = DynamicObjectFormatterResolver.WrapInCache(type, this);
+			_referenceFormatters[type] = generic;
+
+
+			return generic;
+		}
+
+		public IFormatter GetSpecificFormatter(Type type)
+		{
+			// 1.) Cache - todo: maybe do static-generic caching
+			if (_specificFormatters.TryGetValue(type, out var formatter))
+				return formatter;
+
+			// 2.) User
+			if (_userResolver != null)
+			{
+				formatter = _userResolver(this, type);
+				if (formatter != null)
+				{
+					_specificFormatters[type] = formatter;
+					InjectDependencies(formatter);
+					return formatter;
+				}
+			}
+
+			// 3.) Built-in
+			for (int i = 0; i < _resolvers.Count; i++)
+			{
+				formatter = _resolvers[i].GetFormatter(type);
+				if (formatter != null)
+				{
+					_specificFormatters[type] = formatter;
+					return formatter;
+				}
+			}
+
+			// 4.) Dynamic
+			formatter = _dynamicResolver.GetFormatter(type);
+			if (formatter != null)
+			{
+				_specificFormatters[type] = formatter;
+				return formatter;
+			}
+
+
+			throw new NotSupportedException($"Ceras could not find any IFormatter<T> for the type '{type.FullName}'. Maybe exclude that field/prop from serializaion or write a custom formatter for it.");
+		}
+
+		public IFormatter GetFormatterOld(Type type, bool allowDynamicResolver = true, bool throwIfNoneFound = true, string extraErrorInformation = null)
+		{
+			/*
 			IFormatter formatter;
 
 			// 1.) Cache (todo: cache into static-generic fields, but that's only possible if we can guarantee there won't be multiple different instances of a serializer/formatter!) 
@@ -356,7 +421,7 @@ namespace Ceras
 				formatter = _userResolver(this, type);
 				if (formatter != null)
 				{
-					bool isCacheFormatterAlready = ReflectionHelper.FindClosedType(formatter.GetType(), typeof(CacheFormatter<>)) != null;
+					bool isCacheFormatterAlready = ReflectionHelper.FindClosedType(formatter.GetType(), typeof(ReferenceFormatter<>)) != null;
 
 					if (!type.IsValueType && !isCacheFormatterAlready)
 					{
@@ -413,7 +478,7 @@ namespace Ceras
 
 			if (throwIfNoneFound)
 				throw new NotSupportedException($"Ceras could not find any IFormatter<T> for the type '{type.FullName}'. {extraErrorInformation}");
-
+			*/
 			return null;
 		}
 
@@ -438,22 +503,12 @@ namespace Ceras
 					if (formatterType != null)
 					{
 						var formattedType = formatterType.GetGenericArguments()[0];
-						var requestedFormatter = GetFormatter(formattedType);
+						var requestedFormatter = GetGenericFormatter(formattedType);
 
 						f.SetValue(formatter, requestedFormatter);
 					}
 				}
 			}
-		}
-
-		// Some formatters might want to write lots of strings, and if they think that many strings might appear multiple times, then
-		// they should use the CacheStringFormatter (which writes IDs for already seen strings)
-		// However, if there are multiple Formatters who want to do this, then they'd have to instantiate their own CacheStringFormatter, which is of course not efficient
-		// So the serializer has one central CacheStringFormatter that everyone can use.
-		// If this is a bad idea for whatever reason, we can change it later. But for now the idea makes sense.
-		public IFormatter<string> GetCacheStringFormatter()
-		{
-			return _cacheStringFormatter;
 		}
 
 		void EnterRecursive(RecursionMode enteringMode)
@@ -494,6 +549,7 @@ namespace Ceras
 		}
 
 	}
+
 
 	// In order to support recursive serialization/deserialization, we need to "instantiate"
 	// some values for each call.

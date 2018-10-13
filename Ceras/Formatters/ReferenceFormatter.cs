@@ -1,10 +1,11 @@
 ﻿namespace Ceras.Formatters
 {
-	using Helpers;
 	using Resolvers;
 	using System;
 	using System.Collections.Generic;
+	using System.Diagnostics;
 	using System.Linq;
+	using System.Linq.Expressions;
 	using System.Reflection;
 	using System.Reflection.Emit;
 
@@ -67,12 +68,8 @@
 
 */
 
-	interface ICacheFormatter
-	{
-		IFormatter GetInnerFormatter();
-	}
 
-	public class CacheFormatter<T> : IFormatter<T>, ICacheFormatter
+	public class ReferenceFormatter<T> : IFormatter<T>
 	{
 		// -3: For external objects that the user has to resolve
 		// -2: New Value/Object that we've never seen before
@@ -88,23 +85,28 @@
 		const int Null = -1;
 
 		IFormatter<Type> _typeFormatter;
-		readonly IFormatter<T> _innerFormatter;
 		readonly CerasSerializer _serializer;
+
+
+		delegate void DynamicSerializer(ref byte[] buffer, ref int offset, T value);
+		delegate void DynamicDeserializer(byte[] buffer, ref int offset, ref T value);
+
+		Dictionary<Type, DynamicSerializer> _specificSerializers = new Dictionary<Type, DynamicSerializer>();
+		Dictionary<Type, DynamicDeserializer> _specificDeserializers = new Dictionary<Type, DynamicDeserializer>();
 
 
 		static Func<T> _createInstance;
 
 		public bool IsSealed { get; private set; }
 
-		public CacheFormatter(IFormatter<T> innerFormatter, CerasSerializer serializer)
+		public ReferenceFormatter(CerasSerializer serializer)
 		{
-			_innerFormatter = innerFormatter;
 			_serializer = serializer;
 
-			_typeFormatter = (IFormatter<Type>)serializer.GetFormatter(typeof(Type), extraErrorInformation: "DynamicObjectFormatter.TypeFormatter");
+			_typeFormatter = (IFormatter<Type>)serializer.GetSpecificFormatter(typeof(Type));
 		}
 
-		static CacheFormatter()
+		static ReferenceFormatter()
 		{
 			var t = typeof(T);
 			var ctor = t.GetConstructors(BindingFlags.Public | BindingFlags.Instance).FirstOrDefault(c => c.GetParameters().Length == 0);
@@ -113,7 +115,6 @@
 				_createInstance = (Func<T>)CreateDelegate(ctor, typeof(Func<T>));
 		}
 
-		IFormatter ICacheFormatter.GetInnerFormatter() => _innerFormatter;
 
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
@@ -124,9 +125,9 @@
 				return;
 			}
 
-			if (!object.ReferenceEquals(_serializer.InstanceData.CurrentRoot, value))
+			if (value is IExternalRootObject externalObj)
 			{
-				if (value is IExternalRootObject externalObj)
+				if (!object.ReferenceEquals(_serializer.InstanceData.CurrentRoot, value))
 				{
 					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, ExternalObject, Bias);
 
@@ -154,20 +155,21 @@
 				// Important: Insert the ID for this value into our dictionary BEFORE calling SerializeFirstTime, as that might recursively call us again (maybe with the same value!)
 				_serializer.InstanceData.ObjectCache.RegisterObject(value);
 
-				// New value
 				var specificType = value.GetType();
 				if (typeof(T) == specificType)
 				{
+					// New value (same type)
 					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewValueSameType, Bias);
 				}
 				else
 				{
+					// New value (type included)
 					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewValue, Bias);
 					_typeFormatter.Serialize(ref buffer, ref offset, specificType);
 				}
 
 				// Write the object normally
-				_innerFormatter.Serialize(ref buffer, ref offset, value);
+				GetSpecificSerializerCall(specificType)(ref buffer, ref offset, value);
 			}
 		}
 
@@ -238,11 +240,109 @@
 			// Make sure that the deserializer can make use of an already existing object (if there is one)
 			objectProxy.Value = value;
 
-			_innerFormatter.Deserialize(buffer, ref offset, ref objectProxy.Value);
+
+			// Read the object
+			GetSpecificDeserializerCall(specificType)(buffer, ref offset, ref objectProxy.Value);
 
 			// Write back the actual value
 			value = objectProxy.Value;
 		}
+
+
+		DynamicSerializer GetSpecificSerializerCall(Type type)
+		{
+			if (_specificSerializers.TryGetValue(type, out var f))
+				return f;
+
+			// What does this method do?
+			// It creates a cast+call dynamically
+			// Why is that needed?
+			// See this example:
+			// We have a field of type 'object' containing a 'Person' instance.
+			//   IFormatter<object> formatter = new ReferenceFormatter<Person>();
+			// The line of code above obviously does not work since the types do not match, which is what this method fixes.
+
+			IFormatter formatter;
+
+			//if (type.IsValueType)
+				formatter = _serializer.GetSpecificFormatter(type);
+			//else
+			//	formatter = _serializer.GetGenericFormatter(type);
+
+			var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
+			Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter");
+
+			// What we want to emulate:
+			/*
+			 * (buffer, offset, T value) => {
+			 *	  formatter.Serialize(buffer, offset, (specificType)value);
+			 */
+
+			var refBufferArg = Expression.Parameter(typeof(byte[]).MakeByRefType(), "buffer");
+			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
+			var valueArg = Expression.Parameter(typeof(T), "value");
+
+			var body = Expression.Block(
+										Expression.Call(Expression.Constant(formatter), serializeMethod,
+														arg0: refBufferArg,
+														arg1: refOffsetArg,
+														arg2: Expression.Convert(valueArg, type))
+										);
+
+			f = Expression.Lambda<DynamicSerializer>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).Compile();
+			_specificSerializers[type] = f;
+
+			return f;
+		}
+
+		DynamicDeserializer GetSpecificDeserializerCall(Type type)
+		{
+			if (_specificDeserializers.TryGetValue(type, out var f))
+				return f;
+
+			IFormatter formatter;
+
+			//if (type.IsValueType)
+				formatter = _serializer.GetSpecificFormatter(type);
+			//else
+			//	formatter = _serializer.GetGenericFormatter(type);
+
+			var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
+			Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
+
+			// What we want to emulate:
+			/*
+			 * (buffer, offset, T value) => {
+			 *    (specificType) obj = (specificType)value;
+			 *	  formatter.Deserialize(buffer, offset, ref obj);
+			 *    value = (specificType)obj;
+			 */
+
+			var bufferArg = Expression.Parameter(typeof(byte[]), "buffer");
+			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
+			var refValueArg = Expression.Parameter(typeof(T).MakeByRefType(), "value");
+
+			var valAsSpecific = Expression.Variable(type, "valAsSpecific");
+
+			var body = Expression.Block(variables: new[] { valAsSpecific },
+										expressions: new Expression[]
+										{
+											Expression.Assign(valAsSpecific, Expression.Convert(refValueArg, type)),
+
+											Expression.Call(Expression.Constant(formatter), deserializeMethod,
+															arg0: bufferArg,
+															arg1: refOffsetArg,
+															arg2: valAsSpecific),
+
+											Expression.Assign(refValueArg, valAsSpecific)
+										});
+
+			f = Expression.Lambda<DynamicDeserializer>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).Compile();
+			_specificDeserializers[type] = f;
+
+			return f;
+		}
+
 
 		public static Delegate CreateDelegate(ConstructorInfo constructor, Type delegateType)
 		{

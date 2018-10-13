@@ -92,6 +92,9 @@
 				var formatterType = typeof(ArrayFormatter<>).MakeGenericType(itemType);
 
 				existingInstance = (IFormatter)Activator.CreateInstance(formatterType, _serializer);
+				
+				//existingInstance = DynamicObjectFormatterResolver.WrapInCache(type, existingInstance, _serializer);
+
 				_formatterInstances[type] = existingInstance;
 				return existingInstance;
 			}
@@ -112,6 +115,9 @@
 				var formatterType = typeof(CollectionFormatter<,>).MakeGenericType(type, itemType);
 
 				existingInstance = (IFormatter)Activator.CreateInstance(formatterType, _serializer);
+
+				//existingInstance = DynamicObjectFormatterResolver.WrapInCache(type, existingInstance, _serializer);
+
 				_formatterInstances[type] = existingInstance;
 				return existingInstance;
 			}

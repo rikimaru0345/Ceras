@@ -53,7 +53,7 @@
     <Compile Include="Resolvers\IExternalRootObject.cs" />
     <Compile Include="Attributes\CerasAttributes.cs" />
     <Compile Include="Formatters\BclFormatters.cs" />
-    <Compile Include="Formatters\CacheFormatter.cs" />
+    <Compile Include="Formatters\ReferenceFormatter.cs" />
     <Compile Include="Formatters\CollectionFormatter.cs" />
     <Compile Include="Formatters\DynamicObjectFormatter.cs" />
     <Compile Include="Formatters\IFormatter.cs" />

@@ -167,7 +167,7 @@
 				//
 				// Generate writer, previously we wrote as int32, but now we use the real underyling type
 				var enumBaseType = typeof(T).GetEnumUnderlyingType();
-				var formatter = serializer.GetFormatter(enumBaseType, false, true, "Enum formatter for baseType");
+				var formatter = serializer.GetSpecificFormatter(enumBaseType);
 
 				var writeMethod = formatter.GetType().GetMethod("Serialize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
 

@@ -67,13 +67,7 @@ namespace Ceras.Test
 
 			var serializedAsObject = _s.Serialize<object>(data);
 			var cloneObject = _s.Deserialize<object>(serializedAsObject);
-
-			// Serializing 'object' will serialize the type earlier; as part of the cache formatter
-			// writing "new object" takes one byte.
-			// And later on, we can re-use the already written type definition, so that should only use another additional
-			// byte (instead of repeating the whole list type name)
-			Assert.Equal(serialized.Length + 1 + 1, serializedAsObject.Length);
-
+			
 			Assert.Equal(data.Count, ((List<int>)cloneObject).Count);
 
 			for (int i = 0; i < data.Count; i++)

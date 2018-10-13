@@ -10,8 +10,8 @@
 
 		public MemberInfoFormatter(CerasSerializer serializer)
 		{
-			_stringFormatter = (IFormatter<string>)serializer.GetFormatter(typeof(string));
-			_typeFormatter = (IFormatter<Type>)serializer.GetFormatter(typeof(Type));
+			_stringFormatter = serializer.GetFormatter<string>();
+			_typeFormatter = (IFormatter<Type>)serializer.GetSpecificFormatter(typeof(Type));
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, T member)
