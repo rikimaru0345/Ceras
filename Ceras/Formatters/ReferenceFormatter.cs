@@ -229,9 +229,18 @@
 					value = (T)_serializer.Config.ObjectFactoryMethod(specificType);
 
 				if (value == null)
-					// todo: can we optimize this? The specific type might be different, we cannot use "CreateInstance<T>" or "new T()"
-					//		 so is there a way we can quickly instantiate a new object given just the type? (sure there are lots of ways but any FAST ones??)
-					value = (T)Activator.CreateInstance(specificType);
+				{
+					try
+					{
+						// todo: can we optimize this? The specific type might be different, we cannot use "CreateInstance<T>" or "new T()"
+						//		 so is there a way we can quickly instantiate a new object given just the type? (sure there are lots of ways but any FAST ones??)
+						value = (T)Activator.CreateInstance(specificType);
+					}
+					catch (MissingMethodException e)
+					{
+						throw new Exception($"Cannot create an instance of type '{specificType.FullName}'", e);
+					}
+				}
 			}
 
 
@@ -265,7 +274,7 @@
 			IFormatter formatter;
 
 			//if (type.IsValueType)
-				formatter = _serializer.GetSpecificFormatter(type);
+			formatter = _serializer.GetSpecificFormatter(type);
 			//else
 			//	formatter = _serializer.GetGenericFormatter(type);
 
@@ -303,7 +312,7 @@
 			IFormatter formatter;
 
 			//if (type.IsValueType)
-				formatter = _serializer.GetSpecificFormatter(type);
+			formatter = _serializer.GetSpecificFormatter(type);
 			//else
 			//	formatter = _serializer.GetGenericFormatter(type);
 

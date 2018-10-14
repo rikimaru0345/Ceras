@@ -14,8 +14,7 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			PropertyTest();
-
+			CtorTest();
 
 
 
@@ -30,6 +29,8 @@ namespace LiveTesting
 			tutorial.Step7_GameDatabase();
 
 
+			PropertyTest();
+
 			NetworkTest();
 
 			GuidTest();
@@ -39,6 +40,28 @@ namespace LiveTesting
 			ComplexTest();
 
 			ListTest();
+		}
+
+		static void CtorTest()
+		{
+			var obj = new ConstructorTest(5);
+			var ceras = new CerasSerializer();
+			var data = ceras.Serialize(obj);
+
+			// This is expected to throw an exception
+			try
+			{
+				var clone = ceras.Deserialize<ConstructorTest>(data);
+
+				Debug.Assert(false, "deserialization was expected to fail, but it didn't.");
+			}
+			catch (Exception e)
+			{
+				// This is ok and expected!
+				// The object does not have a parameterless constructor on purpose.
+
+				// Support for that is already on the todo list.
+			}
 		}
 
 		static void PropertyTest()
@@ -187,6 +210,16 @@ namespace LiveTesting
 		}
 	}
 
+	class ConstructorTest
+	{
+		public int x;
+
+		public ConstructorTest(int x)
+		{
+			this.x = x;
+		}
+	}
+
 	public enum LongEnum : long
 	{
 		a = 1,
@@ -207,6 +240,11 @@ namespace LiveTesting
 		public enum SetNameType
 		{
 			Initial, Change, Join
+		}
+
+		public SetName()
+		{
+			
 		}
 	}
 
