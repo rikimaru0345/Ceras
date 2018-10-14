@@ -2,21 +2,37 @@
 {
 	using Formatters;
 	using System;
+	using System.Collections.Generic;
 	using System.Linq.Expressions;
 
 	class PrimitiveResolver : IFormatterResolver
 	{
 		readonly CerasSerializer _serializer;
 
-		IFormatter _byteFormatter = new ByteFormatter();
-		IFormatter _int16Formatter = new Int16Formatter();
-		IFormatter _boolFormatter = new BoolFormatter();
-		IFormatter _intFormatter = new IntFormatter();
-		IFormatter _uintFormatter = new UIntFormatter();
-		IFormatter _floatFormatter = new FloatFormatter();
-		IFormatter _doubleFormatter = new DoubleFormatter();
-		IFormatter _int64Formatter = new Int64Formatter();
-		IFormatter _stringFormatter = new StringFormatter();
+		static Dictionary<Type, IFormatter> _primitiveFormatters = new Dictionary<Type, IFormatter>
+		{
+			[typeof(bool)] = new BoolFormatter(),
+
+			[typeof(byte)] = new ByteFormatter(),
+			[typeof(sbyte)] = new SByteFormatter(),
+
+			[typeof(char)] = new CharFormatter(),
+
+			[typeof(Int16)] = new Int16Formatter(),
+			[typeof(UInt16)] = new UInt16Formatter(),
+
+			[typeof(Int32)] = new Int32Formatter(),
+			[typeof(UInt32)] = new UInt32Formatter(),
+
+			[typeof(Int64)] = new Int64Formatter(),
+			[typeof(UInt64)] = new UInt64Formatter(),
+
+			[typeof(float)] = new FloatFormatter(),
+			[typeof(double)] = new DoubleFormatter(),
+
+			[typeof(string)] = new StringFormatter(),
+		};
+
 
 		public PrimitiveResolver(CerasSerializer serializer)
 		{
@@ -25,25 +41,8 @@
 
 		public IFormatter GetFormatter(Type type)
 		{
-			if (type == typeof(int))
-				return _intFormatter;
-			if (type == typeof(uint))
-				return _uintFormatter;
-			if (type == typeof(bool))
-				return _boolFormatter;
-			if (type == typeof(byte))
-				return _byteFormatter;
-			if (type == typeof(short))
-				return _int16Formatter;
-			if (type == typeof(float))
-				return _floatFormatter;
-			if (type == typeof(double))
-				return _doubleFormatter;
-			if (type == typeof(long))
-				return _int64Formatter;
-
-			if (type == typeof(string))
-				return _stringFormatter;
+			if (_primitiveFormatters.TryGetValue(type, out var f))
+				return f;
 
 			if (type.IsEnum)
 				return (IFormatter)Activator.CreateInstance(typeof(EnumFormatter<>).MakeGenericType(type), _serializer);
@@ -63,6 +62,18 @@
 				value = SerializerBinary.ReadByte(buffer, ref offset);
 			}
 		}
+		class SByteFormatter : IFormatter<sbyte>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, sbyte value)
+			{
+				SerializerBinary.WriteByte(ref buffer, ref offset, (byte)value);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref sbyte value)
+			{
+				value = (sbyte)SerializerBinary.ReadByte(buffer, ref offset);
+			}
+		}
 		class BoolFormatter : IFormatter<bool>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, bool value)
@@ -73,6 +84,18 @@
 			public void Deserialize(byte[] buffer, ref int offset, ref bool value)
 			{
 				value = SerializerBinary.ReadInt32(buffer, ref offset) != 0;
+			}
+		}
+		class CharFormatter : IFormatter<char>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, char value)
+			{
+				SerializerBinary.WriteInt16Fixed(ref buffer, ref offset, (short)value);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref char value)
+			{
+				value = (char)SerializerBinary.ReadInt16Fixed(buffer, ref offset);
 			}
 		}
 		class Int16Formatter : IFormatter<short>
@@ -87,7 +110,19 @@
 				value = SerializerBinary.ReadInt16Fixed(buffer, ref offset);
 			}
 		}
-		class IntFormatter : IFormatter<int>
+		class UInt16Formatter : IFormatter<ushort>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, ushort value)
+			{
+				SerializerBinary.WriteInt16Fixed(ref buffer, ref offset, (short)value);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref ushort value)
+			{
+				value = (ushort)SerializerBinary.ReadInt16Fixed(buffer, ref offset);
+			}
+		}
+		class Int32Formatter : IFormatter<int>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, int value)
 			{
@@ -99,7 +134,7 @@
 				value = SerializerBinary.ReadInt32(buffer, ref offset);
 			}
 		}
-		class UIntFormatter : IFormatter<uint>
+		class UInt32Formatter : IFormatter<uint>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, uint value)
 			{
@@ -145,6 +180,18 @@
 			public void Deserialize(byte[] buffer, ref int offset, ref long value)
 			{
 				value = SerializerBinary.ReadInt64Fixed(buffer, ref offset);
+			}
+		}
+		class UInt64Formatter : IFormatter<ulong>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, ulong value)
+			{
+				SerializerBinary.WriteInt64Fixed(ref buffer, ref offset, (long)value);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref ulong value)
+			{
+				value = (ulong)SerializerBinary.ReadInt64Fixed(buffer, ref offset);
 			}
 		}
 
