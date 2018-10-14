@@ -91,5 +91,7 @@ For more details about this see the data-upgrade guide where this is explained i
 
 - Support for more built-in types, including common Unity3D types.
 
-- Support for readonly collections
+- More DynamicSerializer variants to support extra use cases like immutable objects, readonly collections, generally being able to have serialization-constructors...
+
+- Better exceptions (actual exception types instead of the generic `Exception`)
 
