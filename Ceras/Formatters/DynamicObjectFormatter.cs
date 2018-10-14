@@ -1,6 +1,4 @@
 ﻿
-//#define FAST_EXP
-
 // ReSharper disable ArgumentsStyleOther
 // ReSharper disable ArgumentsStyleNamedExpression
 namespace Ceras.Formatters
@@ -92,7 +90,7 @@ namespace Ceras.Formatters
 			var serializeBlock = Expression.Block(expressions: block);
 
 #if FAST_EXP
-				return Expression.Lambda<DynamicSerializer>(serializeBlock, refBufferArg, refOffsetArg, valueArg).CompileFast(true);
+			return Expression.Lambda<DynamicSerializer>(serializeBlock, refBufferArg, refOffsetArg, valueArg).CompileFast(true);
 #else
 			return Expression.Lambda<DynamicSerializer>(serializeBlock, refBufferArg, refOffsetArg, valueArg).Compile();
 #endif

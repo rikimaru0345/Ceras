@@ -53,7 +53,7 @@ namespace LiveTesting
 			{
 				var clone = ceras.Deserialize<ConstructorTest>(data);
 
-				Debug.Assert(false, "deserialization was expected to fail, but it didn't.");
+				Debug.Assert(false, "deserialization was supposed to fail, but it didn't!");
 			}
 			catch (Exception e)
 			{
@@ -159,12 +159,22 @@ namespace LiveTesting
 			var s = new CerasSerializer();
 
 			var g = staticGuid;
-			Console.WriteLine("GUID: " + g);
+
+			// As real type (generic call)
 			var guidData = s.Serialize(g);
 			Debug.Assert(guidData.Length == 16);
-			PrintData(guidData);
+
 			var guidClone = s.Deserialize<Guid>(guidData);
 			Debug.Assert(g == guidClone);
+
+			// As Object
+			var guidAsObjData = s.Serialize<object>(g);
+			Debug.Assert(guidAsObjData.Length > 16); // now includes type-data, so it has to be larger
+			var objClone = s.Deserialize<object>(guidAsObjData);
+			var objCloneCasted = (Guid)objClone;
+
+			Debug.Assert(objCloneCasted == g);
+
 		}
 
 		static void NetworkTest()
@@ -198,9 +208,9 @@ namespace LiveTesting
 
 			var obj = receiver.Deserialize<object>(data);
 			var clone = (SetName)obj;
-			Console.WriteLine(clone.Type);
-			Console.WriteLine(clone.Name);
-
+			
+			Debug.Assert(clone.Name == msg.Name);
+			Debug.Assert(clone.Type == msg.Type);
 		}
 
 		static void PrintData(byte[] data)

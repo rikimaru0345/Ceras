@@ -27,15 +27,5 @@
 
 			return formatter;
 		}
-
-		public static IFormatter WrapInCache(Type typeToBeFormatted, CerasSerializer serializer)
-		{
-			// Only do this for reference types, since value types obviously cannot be "cached"
-			if (typeToBeFormatted.IsValueType)
-				throw new InvalidOperationException("Cannot create a cache-wrapper for value-types, they cannot be cached by definition");
-
-			var cacheFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(typeToBeFormatted);
-			return (IFormatter)Activator.CreateInstance(cacheFormatterType, serializer);
-		}
 	}
 }

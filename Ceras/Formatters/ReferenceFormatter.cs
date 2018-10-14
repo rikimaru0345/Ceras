@@ -9,6 +9,10 @@
 	using System.Reflection;
 	using System.Reflection.Emit;
 
+#if FAST_EXP
+	using FastExpressionCompiler;
+#endif
+
 	/*
 	 This is a thing intended to be used with STRING or OBJECT for T.
 	 It saves seen instances into dict/list while serializing
@@ -87,6 +91,7 @@
 		IFormatter<Type> _typeFormatter;
 		readonly CerasSerializer _serializer;
 
+		static Dictionary<Type, Func<object>> _objectConstructors = new Dictionary<Type, Func<object>>();
 
 		delegate void DynamicSerializer(ref byte[] buffer, ref int offset, T value);
 		delegate void DynamicDeserializer(byte[] buffer, ref int offset, ref T value);
@@ -95,7 +100,6 @@
 		Dictionary<Type, DynamicDeserializer> _specificDeserializers = new Dictionary<Type, DynamicDeserializer>();
 
 
-		static Func<T> _createInstance;
 
 		public bool IsSealed { get; private set; }
 
@@ -105,17 +109,6 @@
 
 			_typeFormatter = (IFormatter<Type>)serializer.GetSpecificFormatter(typeof(Type));
 		}
-
-		static ReferenceFormatter()
-		{
-			var t = typeof(T);
-			var ctor = t.GetConstructors(BindingFlags.Public | BindingFlags.Instance).FirstOrDefault(c => c.GetParameters().Length == 0);
-
-			if (ctor != null)
-				_createInstance = (Func<T>)CreateDelegate(ctor, typeof(Func<T>));
-		}
-
-
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
@@ -169,7 +162,7 @@
 				}
 
 				// Write the object normally
-				GetSpecificSerializerCall(specificType)(ref buffer, ref offset, value);
+				GetSpecificSerializerDispatcher(specificType)(ref buffer, ref offset, value);
 			}
 		}
 
@@ -222,6 +215,7 @@
 			// todo: have the recent fixes made these checks obsolete? What if someone forces serialization of private fields in a type that cannot be directly instantiated?
 			// todo: enforce all types to have a parameterless constructor
 			if (value == null &&
+				!specificType.IsValueType && // value types have no ctor
 				(typeof(T) != typeof(string) && typeof(T) != typeof(Type)))
 			{
 				var factory = _serializer.Config.ObjectFactoryMethod;
@@ -230,16 +224,15 @@
 
 				if (value == null)
 				{
-					try
-					{
-						// todo: can we optimize this? The specific type might be different, we cannot use "CreateInstance<T>" or "new T()"
-						//		 so is there a way we can quickly instantiate a new object given just the type? (sure there are lots of ways but any FAST ones??)
-						value = (T)Activator.CreateInstance(specificType);
-					}
-					catch (MissingMethodException e)
-					{
-						throw new Exception($"Cannot create an instance of type '{specificType.FullName}'", e);
-					}
+					// todo:
+					// we can easily merge this null-check and the instantiation into the generated code below
+					// which would let us avoid one dictionary lookup, the type check, checking if a factory method is set, ...
+					// directly using Expression.New() will likely be faster as well
+					// todo 2:
+					// in fact, we can even *directly* inline the serializer sometimes!
+					// if the specific serializer is a DynamicSerializer, we could just take the expression-tree it generates, and directly inline it here.
+					// that would avoid even more overhead!
+					value = (T)GetConstructor(specificType)();
 				}
 			}
 
@@ -251,14 +244,14 @@
 
 
 			// Read the object
-			GetSpecificDeserializerCall(specificType)(buffer, ref offset, ref objectProxy.Value);
+			GetSpecificDeserializerDispatcher(specificType)(buffer, ref offset, ref objectProxy.Value);
 
 			// Write back the actual value
 			value = objectProxy.Value;
 		}
 
 
-		DynamicSerializer GetSpecificSerializerCall(Type type)
+		DynamicSerializer GetSpecificSerializerDispatcher(Type type)
 		{
 			if (_specificSerializers.TryGetValue(type, out var f))
 				return f;
@@ -268,15 +261,10 @@
 			// Why is that needed?
 			// See this example:
 			// We have a field of type 'object' containing a 'Person' instance.
-			//   IFormatter<object> formatter = new ReferenceFormatter<Person>();
+			//    IFormatter<object> formatter = new ReferenceFormatter<Person>();
 			// The line of code above obviously does not work since the types do not match, which is what this method fixes.
 
-			IFormatter formatter;
-
-			//if (type.IsValueType)
-			formatter = _serializer.GetSpecificFormatter(type);
-			//else
-			//	formatter = _serializer.GetGenericFormatter(type);
+			var formatter = _serializer.GetSpecificFormatter(type);
 
 			var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
 			Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter");
@@ -298,23 +286,22 @@
 														arg2: Expression.Convert(valueArg, type))
 										);
 
+#if FAST_EXP
+			f = Expression.Lambda<DynamicSerializer>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).CompileFast(true);
+#else
 			f = Expression.Lambda<DynamicSerializer>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).Compile();
+#endif
 			_specificSerializers[type] = f;
 
 			return f;
 		}
 
-		DynamicDeserializer GetSpecificDeserializerCall(Type type)
+		DynamicDeserializer GetSpecificDeserializerDispatcher(Type type)
 		{
 			if (_specificDeserializers.TryGetValue(type, out var f))
 				return f;
 
-			IFormatter formatter;
-
-			//if (type.IsValueType)
-			formatter = _serializer.GetSpecificFormatter(type);
-			//else
-			//	formatter = _serializer.GetGenericFormatter(type);
+			var formatter = _serializer.GetSpecificFormatter(type);
 
 			var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 			Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
@@ -333,27 +320,68 @@
 
 			var valAsSpecific = Expression.Variable(type, "valAsSpecific");
 
+			Expression intro;
+			if (type.IsValueType && !typeof(T).IsValueType)
+			{
+				// Handle boxing, if we get 'null' we use 'default(T)'
+				intro = Expression.IfThenElse(Expression.ReferenceEqual(refValueArg, Expression.Constant(null)),
+											  ifTrue: Expression.Default(type),
+											  ifFalse: Expression.Unbox(refValueArg, type));
+			}
+			else if(typeof(T) != type)
+			{
+				// Some kind of casting. Maybe the field type is 'object', or an interface.
+				intro = Expression.Assign(valAsSpecific, Expression.Convert(refValueArg, type));
+			}
+			else
+			{
+				// Same type, the best case
+				intro = Expression.Assign(valAsSpecific, refValueArg);
+			}
+
+
+			// todo: convert calls can be skipped when the type matches
 			var body = Expression.Block(variables: new[] { valAsSpecific },
 										expressions: new Expression[]
 										{
-											Expression.Assign(valAsSpecific, Expression.Convert(refValueArg, type)),
+											intro,
 
 											Expression.Call(Expression.Constant(formatter), deserializeMethod,
 															arg0: bufferArg,
 															arg1: refOffsetArg,
 															arg2: valAsSpecific),
 
-											Expression.Assign(refValueArg, valAsSpecific)
+											Expression.Assign(refValueArg, Expression.Convert(valAsSpecific, typeof(T)))
 										});
 
+#if FAST_EXP
+			f = Expression.Lambda<DynamicDeserializer>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).CompileFast(true);
+#else
 			f = Expression.Lambda<DynamicDeserializer>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).Compile();
+#endif
 			_specificDeserializers[type] = f;
 
 			return f;
 		}
 
 
-		public static Delegate CreateDelegate(ConstructorInfo constructor, Type delegateType)
+		static Func<object> GetConstructor(Type type)
+		{
+			if (_objectConstructors.TryGetValue(type, out var f))
+				return f;
+
+			var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+						   .FirstOrDefault(c => c.GetParameters().Length == 0);
+
+			if (ctor == null)
+				throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
+
+			f = (Func<object>)CreateConstructorDelegate(ctor, typeof(Func<object>));
+			_objectConstructors[type] = f;
+			return f;
+		}
+
+		static Delegate CreateConstructorDelegate(ConstructorInfo constructor, Type delegateType)
 		{
 			if (constructor == null)
 				throw new ArgumentNullException(nameof(constructor));
@@ -363,8 +391,8 @@
 
 
 			MethodInfo delMethod = delegateType.GetMethod("Invoke");
-			if (delMethod.ReturnType != constructor.DeclaringType)
-				throw new InvalidOperationException("The return type of the delegate must match the constructors delclaring type");
+			//if (delMethod.ReturnType != constructor.DeclaringType)
+			//	throw new InvalidOperationException("The return type of the delegate must match the constructors delclaring type");
 
 
 			// Validate the signatures

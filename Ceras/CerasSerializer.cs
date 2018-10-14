@@ -32,7 +32,7 @@ namespace Ceras
 	{
 		internal readonly SerializerConfig Config;
 		public ProtocolChecksum ProtocolChecksum { get; } = new ProtocolChecksum();
-		
+
 		// A special resolver. It creates instances of the "dynamic formatter", the DynamicObjectFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
 		// for a given object type.
 		readonly IFormatterResolver _dynamicResolver;
@@ -100,7 +100,7 @@ namespace Ceras
 			//if (Config.KnownTypes.Count > 0)
 			//	if (Config.SealTypesWhenUsingKnownTypes)
 			//		typeFormatter.Seal();
-			
+
 			_typeFormatter = (IFormatter<Type>)GetSpecificFormatter(typeof(Type));
 
 
@@ -337,16 +337,21 @@ namespace Ceras
 
 		public IFormatter GetGenericFormatter(Type type)
 		{
+			if (type.IsValueType)
+			{
+				// Value types are not reference types, so they are not wrapped
+				return GetSpecificFormatter(type);
+			}
+
 			// 1.) Cache
 			if (_referenceFormatters.TryGetValue(type, out var formatter))
 				return formatter;
 
-			// 2.) Get specific & wrap
-			var generic = DynamicObjectFormatterResolver.WrapInCache(type, this);
-			_referenceFormatters[type] = generic;
-
-
-			return generic;
+			// 2.) Create a reference formatter (which internally obtains the matching specific one)
+			var refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
+			var referenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
+			_referenceFormatters[type] = referenceFormatter;
+			return referenceFormatter;
 		}
 
 		public IFormatter GetSpecificFormatter(Type type)
