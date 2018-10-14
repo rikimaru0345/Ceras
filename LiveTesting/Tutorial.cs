@@ -637,7 +637,7 @@ namespace Tutorial
 	}
 
 
-	[MemberConfig(TargetMember.All)]
+	[MemberConfig(TargetMember.None)]
 	class SomeAttributeExample2
 	{
 		[Include]
@@ -651,24 +651,5 @@ namespace Tutorial
 		public string Public2 = "this will be serialized";
 	}
 
-	/*
-	 *
-	 * Features
-	 * - forigen keys and object loading!! usage as a database
-	 *
-	 * - NetworkProtocol:
-	 *		- known types
-	 *      - protocol checksum
-	 *		- recycling objects
-	 *
-	 * - GameDB: IExternalRootObject
-	 *		- usage as a game database for objects
-	 *		- saving and loading stuff
-	 *
-	 * - DataUpgrade guide
-	 *      - just load old data using old classes
-	 *        serialize to Json, adjust stuff, serialize to new object format
-	 *		  serialize using ceras again.
-	 */
 
 }
