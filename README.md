@@ -32,7 +32,7 @@ var bytes = s.Serialize(p);
 - Can serialize objects into parts as "ExtenalObjects" (very useful for usage with databases)
 
 #### Other Features
-- Serializes public fields, optionally also private ones (properties to be added soon)
+- Can serialize Fields and Properties (Check out the [**tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs) to see all the different configuration options)
 - VarInt & Zig-Zag encoding for integers (example: values up to 128 only take 1 byte instead of 4...)
 - Efficient serialization for the `Type`-type, information is only written once and re-used whenever possible!
 - Embeds type information only when needed! (When using the `<object>` overload, or for abstract types)
@@ -81,13 +81,13 @@ Example Scenarios:
 
 ## Planned features
 
-- nuget integration
+- ~~Ceras does not serialize Properties yet. Support for that is coming soon!~~ **Ceras supports properties and fields now**
+
+- Making Ceras available as a nuget package
 
 - Support for version tolerance is planned for one of the next versions and pretty high up on the priority list.
 For now, Ceras is made without versioning support, but there are some easy work arounds.
 For more details about this see the data-upgrade guide where this is explained in more detail.
-
-- Ceras does not serialize Properties yet. Support for that is coming soon!
 
 - Support for more built-in types, including common Unity3D types.
 
