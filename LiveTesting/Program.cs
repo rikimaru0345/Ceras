@@ -2,8 +2,8 @@
 
 namespace LiveTesting
 {
-	using System.Collections.Generic;
 	using Ceras;
+	using System.Collections.Generic;
 	using System.Diagnostics;
 	using Tutorial;
 	using Xunit;
@@ -14,29 +14,7 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			var data = new List<int> { 6, 32, 573, 246, 24, 2,9 };
-
-			var s = new CerasSerializer();
-
-			var p = new Person() { Name = "abc", Health = 30 };
-			var pData = s.Serialize<object>(p);
-			pData.VisualizePrint("person data");
-			var pClone = s.Deserialize<object>(pData);
-
-			var serialized = s.Serialize(data);
-			var clone = s.Deserialize<List<int>>(serialized);
-			Assert.Equal(data.Count, clone.Count);
-			for (int i = 0; i < data.Count; i++)
-				Assert.Equal(data[i], clone[i]);
-
-
-			var serializedAsObject = s.Serialize<object>(data);
-			var cloneObject = s.Deserialize<object>(serializedAsObject);
-
-			Assert.Equal(data.Count, ((List<int>)cloneObject).Count);
-
-			for (int i = 0; i < data.Count; i++)
-				Assert.Equal(data[i], ((List<int>)cloneObject)[i]);
+			PropertyTest();
 
 
 
@@ -59,6 +37,66 @@ namespace LiveTesting
 			EnumTest();
 
 			ComplexTest();
+
+			ListTest();
+		}
+
+		static void PropertyTest()
+		{
+			var p = new PropertyClass
+			{
+				Name = "qweqrwetwr",
+				Num = 348765213,
+				Other = new OtherPropertyClass()
+			};
+			p.Other.Other = p;
+			p.Other.PropertyClasses.Add(p);
+			p.Other.PropertyClasses.Add(p);
+
+
+			var config = new SerializerConfig();
+			config.DefaultTargets = TargetMember.All;
+
+			var ceras = new CerasSerializer();
+			var data = ceras.Serialize(p);
+			data.VisualizePrint("Property Test");
+			var clone = ceras.Deserialize<PropertyClass>(data);
+
+			Debug.Assert(p.Name == clone.Name);
+			Debug.Assert(p.Num == clone.Num);
+			Debug.Assert(p.Other.PropertyClasses.Count == 2);
+			Debug.Assert(p.Other.PropertyClasses[0] == p.Other.PropertyClasses[1]);
+
+		}
+
+		static void ListTest()
+		{
+			var data = new List<int> { 6, 32, 573, 246, 24, 2, 9 };
+
+			var s = new CerasSerializer();
+
+			var p = new Person() { Name = "abc", Health = 30 };
+			var pData = s.Serialize<object>(p);
+			pData.VisualizePrint("person data");
+			var pClone = (Person)s.Deserialize<object>(pData);
+			Assert.Equal(p.Health, pClone.Health);
+			Assert.Equal(p.Name, pClone.Name);
+
+
+			var serialized = s.Serialize(data);
+			var clone = s.Deserialize<List<int>>(serialized);
+			Assert.Equal(data.Count, clone.Count);
+			for (int i = 0; i < data.Count; i++)
+				Assert.Equal(data[i], clone[i]);
+
+
+			var serializedAsObject = s.Serialize<object>(data);
+			var cloneObject = s.Deserialize<object>(serializedAsObject);
+
+			Assert.Equal(data.Count, ((List<int>)cloneObject).Count);
+
+			for (int i = 0; i < data.Count; i++)
+				Assert.Equal(data[i], ((List<int>)cloneObject)[i]);
 		}
 
 		static void ComplexTest()
@@ -212,4 +250,20 @@ namespace LiveTesting
 			}
 		}
 	}
+	
+	[MemberConfig(TargetMembers = TargetMember.All)]
+	class PropertyClass
+	{
+		public string Name { get; set; } = "abcdef";
+		public int Num { get; set; } = 6235;
+		public OtherPropertyClass Other { get; set; }
+	}
+	
+	[MemberConfig(TargetMembers = TargetMember.All)]
+	class OtherPropertyClass
+	{
+		public PropertyClass Other { get; set; }
+		public List<PropertyClass> PropertyClasses { get; set; } = new List<PropertyClass>();
+	}
+
 }

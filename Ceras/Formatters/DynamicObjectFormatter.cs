@@ -5,11 +5,14 @@
 // ReSharper disable ArgumentsStyleNamedExpression
 namespace Ceras.Formatters
 {
+	using Helpers;
 	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
+	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using System.Runtime.CompilerServices;
 
 #if FAST_EXP
 	using FastExpressionCompiler;
@@ -21,7 +24,7 @@ namespace Ceras.Formatters
 	// todo 2: cache formatters in a static-generic instead of dict? we need to know exactly how much we'd save; the static-ctor can just generate the corrosponding serializers
 	public class DynamicObjectFormatter<T> : IFormatter<T>, IDynamicFormatterMarker
 	{
-		static FieldComparer _fieldComparer = new FieldComparer();
+		static MemberComparer _memberComparer = new MemberComparer();
 
 		delegate void DynamicSerializer(ref byte[] buffer, ref int offset, T value);
 		delegate void DynamicDeserializer(byte[] buffer, ref int offset, ref T value);
@@ -38,14 +41,22 @@ namespace Ceras.Formatters
 			var type = typeof(T);
 			ThrowIfNonspecific(type);
 
-			var fields = GetSerializableFields(type, _ceras.Config.ShouldSerializeField);
+			var members = GetSerializableMembers(type, _ceras.Config.DefaultTargets, _ceras.Config.ShouldSerializeMember);
 
-			_dynamicSerializer = GenerateSerializer(fields);
-			_dynamicDeserializer = GenerateDeserializer(fields);
+			if (members.Count > 0)
+			{
+				_dynamicSerializer = GenerateSerializer(members);
+				_dynamicDeserializer = GenerateDeserializer(members);
+			}
+			else
+			{
+				_dynamicSerializer = (ref byte[] buffer, ref int offset, T value) => { };
+				_dynamicDeserializer = (byte[] buffer, ref int offset, ref T value) => { };
+			}
 		}
 
 
-		DynamicSerializer GenerateSerializer(List<FieldInfo> fields)
+		DynamicSerializer GenerateSerializer(List<SerializedMember> members)
 		{
 			var refBufferArg = Expression.Parameter(typeof(byte[]).MakeByRefType(), "buffer");
 			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
@@ -54,11 +65,11 @@ namespace Ceras.Formatters
 			List<Expression> block = new List<Expression>();
 
 
-			foreach (var fieldInfo in fields)
+			foreach (var member in members)
 			{
 				IFormatter formatter;
 
-				var type = fieldInfo.FieldType;
+				var type = member.MemberType;
 
 				if (type.IsValueType)
 					formatter = _ceras.GetSpecificFormatter(type);
@@ -71,7 +82,7 @@ namespace Ceras.Formatters
 				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter");
 
 				// Access the field that we want to serialize
-				var fieldExp = Expression.Field(valueArg, fieldInfo);
+				var fieldExp = Expression.MakeMemberAccess(valueArg, member.MemberInfo);
 
 				// Call "Serialize"
 				var serializeCall = Expression.Call(Expression.Constant(formatter), serializeMethod, refBufferArg, refOffsetArg, fieldExp);
@@ -88,7 +99,7 @@ namespace Ceras.Formatters
 
 		}
 
-		DynamicDeserializer GenerateDeserializer(List<FieldInfo> fields)
+		DynamicDeserializer GenerateDeserializer(List<SerializedMember> members)
 		{
 			var bufferArg = Expression.Parameter(typeof(byte[]), "buffer");
 			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
@@ -97,7 +108,7 @@ namespace Ceras.Formatters
 			List<Expression> block = new List<Expression>();
 
 			// Go through all fields and assign them
-			foreach (var fieldInfo in fields)
+			foreach (var member in members)
 			{
 				// todo: what about Field attributes that tell us to:
 				// - use a specific formatter? (HalfFloat, Int32Fixed, MyUserFormatter) 
@@ -105,7 +116,7 @@ namespace Ceras.Formatters
 				// - Force ignore caching (for ref types) (value types cannot be ref-saved)
 				// - Persistent object caching per type or field
 
-				var type = fieldInfo.FieldType;
+				var type = member.MemberType;
 
 				IFormatter formatter;
 
@@ -113,17 +124,17 @@ namespace Ceras.Formatters
 					formatter = _ceras.GetSpecificFormatter(type);
 				else
 					formatter = _ceras.GetGenericFormatter(type);
-				
+
 				//var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
 				var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
 
-				var fieldExp = Expression.Field(refValueArg, fieldInfo);
+				var fieldExp = Expression.MakeMemberAccess(refValueArg, member.MemberInfo);
 
 				var serializeCall = Expression.Call(Expression.Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, fieldExp);
 				block.Add(serializeCall);
 			}
-			
+
 
 			var serializeBlock = Expression.Block(expressions: block);
 #if FAST_EXP
@@ -152,30 +163,57 @@ namespace Ceras.Formatters
 		}
 
 
-		internal static List<FieldInfo> GetSerializableFields(Type type, Func<FieldInfo, SerializationOverride> fieldFilter = null)
+		internal static List<SerializedMember> GetSerializableMembers(Type type, TargetMember defaultTargetMembers, Func<SerializedMember, SerializationOverride> fieldFilter = null)
 		{
-			List<FieldInfo> fields = new List<FieldInfo>();
+			List<SerializedMember> members = new List<SerializedMember>();
 
 			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-			var classConfig = type.GetCustomAttribute<CerasConfig>();
+			var classConfig = type.GetCustomAttribute<MemberConfig>();
 
-
-			foreach (var f in type.GetFields(flags))
+			foreach (var m in type.GetFields(flags).Cast<MemberInfo>().Concat(type.GetProperties(flags)))
 			{
-				// Skip readonly
-				if (f.IsInitOnly)
+				bool isPublic;
+				bool isField = false, isProp = false;
+
+				if (m is FieldInfo f)
+				{
+					// Skip readonly
+					if (f.IsInitOnly)
+						continue;
+
+					// Skip property backing fields
+					if (f.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
+						continue;
+
+					isPublic = f.IsPublic;
+					isField = true;
+				}
+				else if (m is PropertyInfo p)
+				{
+					if (!p.CanRead || !p.CanWrite)
+						continue;
+					if (p.GetIndexParameters().Length != 0)
+						continue;
+
+					isPublic = p.GetMethod.IsPublic;
+					isProp = true;
+				}
+				else
 					continue;
+
+				var serializedMember = FieldOrProp.Create(m);
+
 
 				//
 				// 1.) Use filter if there is one
 				if (fieldFilter != null)
 				{
-					var filterResult = fieldFilter(f);
+					var filterResult = fieldFilter(serializedMember);
 
 					if (filterResult == SerializationOverride.ForceInclude)
 					{
-						fields.Add(f);
+						members.Add(serializedMember);
 						continue;
 					}
 					else if (filterResult == SerializationOverride.ForceSkip)
@@ -186,11 +224,11 @@ namespace Ceras.Formatters
 
 				//
 				// 2.) Use attribute
-				var ignore = f.GetCustomAttribute<Ignore>(true) != null;
-				var include = f.GetCustomAttribute<Include>(true) != null;
+				var ignore = m.GetCustomAttribute<Ignore>(true) != null;
+				var include = m.GetCustomAttribute<Include>(true) != null;
 
 				if (ignore && include)
-					throw new Exception($"Field '{f.Name}' on type '{type.Name}' has both [Ignore] and [Include]!");
+					throw new Exception($"Member '{m.Name}' on type '{type.Name}' has both [Ignore] and [Include]!");
 
 				if (ignore)
 				{
@@ -199,7 +237,7 @@ namespace Ceras.Formatters
 
 				if (include)
 				{
-					fields.Add(f);
+					members.Add(serializedMember);
 					continue;
 				}
 
@@ -207,46 +245,69 @@ namespace Ceras.Formatters
 				// 3.) Use class attributes
 				if (classConfig != null)
 				{
-					if (classConfig.IncludePrivate == false)
-						if (f.IsPublic == false)
-							continue;
-
-					if (classConfig.MemberSerialization == MemberSerialization.OptIn)
+					if (IsMatch(isField, isProp, isPublic, classConfig.TargetMembers))
 					{
-						// If we are here, that means that fields that have not already been added get skipped.
-						continue;
-					}
-
-					if (classConfig.MemberSerialization == MemberSerialization.OptOut)
-					{
-						// Add everything, if there is an [Ignore] we wouldn't be here
-						fields.Add(f);
+						members.Add(serializedMember);
 						continue;
 					}
 				}
 
 				//
 				// 4.) Use global defaults
-				// Which is simply "is it a public field?"
-
-				if (f.IsPublic)
-					fields.Add(f);
+				if (IsMatch(isField, isProp, isPublic, defaultTargetMembers))
+				{
+					members.Add(serializedMember);
+					continue;
+				}
 			}
 
-			fields.Sort(_fieldComparer);
+			members.Sort(_memberComparer);
 
-			return fields;
+			return members;
 		}
 
-		class FieldComparer : IComparer<FieldInfo>
+		static bool IsMatch(bool isField, bool isProp, bool isPublic, TargetMember targetMembers)
 		{
-			public int Compare(FieldInfo x, FieldInfo y)
+			if (isField)
 			{
-				if (x == null || y == null)
-					return 0;
+				if (isPublic)
+				{
+					if ((targetMembers & TargetMember.PublicFields) != 0)
+						return true;
+				}
+				else
+				{
+					if ((targetMembers & TargetMember.PrivateFields) != 0)
+						return true;
+				}
+			}
 
-				var name1 = x.FieldType.FullName + x.Name;
-				var name2 = y.FieldType.FullName + y.Name;
+			if (isProp)
+			{
+				if (isPublic)
+				{
+					if ((targetMembers & TargetMember.PublicProperties) != 0)
+						return true;
+				}
+				else
+				{
+					if ((targetMembers & TargetMember.PrivateProperties) != 0)
+						return true;
+				}
+			}
+
+			return false;
+		}
+
+
+		class MemberComparer : IComparer<SerializedMember>
+		{
+			static string Prefix(SerializedMember m) => m.IsField ? "f" : "p";
+
+			public int Compare(SerializedMember x, SerializedMember y)
+			{
+				var name1 = Prefix(x) + x.MemberType.FullName + x.Name;
+				var name2 = Prefix(y) + y.MemberType.FullName + y.Name;
 
 				return string.Compare(name1, name2, StringComparison.Ordinal);
 			}

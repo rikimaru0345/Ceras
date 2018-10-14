@@ -133,13 +133,13 @@ namespace Ceras
 					}
 
 
-					var fields = DynamicObjectFormatter<object>.GetSerializableFields(t);
-					foreach (var f in fields)
+					var members = DynamicObjectFormatter<object>.GetSerializableMembers(t, Config.DefaultTargets, Config.ShouldSerializeMember);
+					foreach (var m in members)
 					{
-						ProtocolChecksum.Add(f.FieldType.FullName);
-						ProtocolChecksum.Add(f.Name);
+						ProtocolChecksum.Add(m.MemberType.FullName);
+						ProtocolChecksum.Add(m.Name);
 
-						foreach (var a in f.GetCustomAttributes(true))
+						foreach (var a in m.MemberInfo.GetCustomAttributes(true))
 							ProtocolChecksum.Add(a.ToString());
 					}
 				}
@@ -611,7 +611,7 @@ namespace Ceras
 		public Action<object> DiscardObjectMethod { get; set; } = null;
 
 
-		public Func<FieldInfo, SerializationOverride> ShouldSerializeField { get; set; } = null;
+		public Func<SerializedMember, SerializationOverride> ShouldSerializeMember { get; set; } = null;
 
 		public IExternalObjectResolver ExternalObjectResolver { get; set; }
 
@@ -653,6 +653,11 @@ namespace Ceras
 		/// Embed protocol/serializer checksum at the start of any serialized data, and read it back when deserializing to make sure we're not reading incompatible data on accident
 		/// </summary>
 		public bool EmbedChecksum { get; set; } = false;
+
+		/// <summary>
+		/// If all the other things (ShouldSerializeMember and all the attributes) yield no result, then this setting is used to determine if a member should be included.
+		/// </summary>
+		public TargetMember DefaultTargets { get; set; } = TargetMember.PublicFields;
 	}
 
 	public delegate IFormatter FormatterResolverCallback(CerasSerializer ceras, Type typeToBeFormatted);

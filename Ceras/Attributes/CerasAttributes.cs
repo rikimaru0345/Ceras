@@ -2,10 +2,10 @@
 {
 	using System;
 
-	
+
 	[AttributeUsage(AttributeTargets.Field)]
 	public sealed class Ignore : Attribute { }
-	
+
 	[AttributeUsage(AttributeTargets.Field)]
 	public sealed class Include : Attribute { }
 
@@ -18,28 +18,41 @@
 	}
 
 
+	/// <summary>
+	/// Configure what members to include by default in this type.
+	/// Note: 1) If the attribute is missing, the setting from the config will be used.
+	/// Note: 2) Ceras checks the ShouldSerializeMember method first, then Ignore/Include attributes on the members, then the CerasConfig attribute, and last the default setting from the SerializerConfig.
+	/// </summary>
 	[AttributeUsage(AttributeTargets.Class)]
-	public sealed class CerasConfig : Attribute
+	public sealed class MemberConfig : Attribute
 	{
-		public MemberSerialization MemberSerialization { get; set; }
-		public bool IncludePrivate { get; set; }
+		public TargetMember TargetMembers { get; set; }
+
+		public MemberConfig(TargetMember targetMembers = TargetMember.PublicFields)
+		{
+			TargetMembers = targetMembers;
+		}
 	}
 
-	public enum MemberSerialization
+	[Flags]
+	public enum TargetMember
 	{
-		OptOut,
-		OptIn,
+		None = 0,
+
+		PublicFields = 1 << 0,
+		PrivateFields = 1 << 1,
+		PublicProperties = 1 << 2,
+		PrivateProperties = 1 << 3,
+
+		AllPublic = PublicFields | PublicProperties,
+		AllPrivate = PrivateFields | PrivateProperties,
+
+		AllFields = PublicFields | PrivateFields,
+		AllProperties = PublicProperties | PrivateProperties,
+
+		All = PublicFields | PrivateFields | PublicProperties | PrivateProperties
 	}
-
-	enum IncludeOptions
-	{
-		None,
-		NonPublic = 1 << 0,
-		Protected = 1 << 1,
-		Public = 1 << 2,
-	}
-
-
+	
 	[AttributeUsage(AttributeTargets.Field)]
 	sealed class Member : Attribute
 	{

@@ -283,7 +283,7 @@ namespace Tutorial
 			 * If you cannot wait for the guide, then take a look at those properties
 			 * and read the XML documentation for them (hover over their names or press F12 on them) 
 			 */
-			 
+
 			/*
 			SerializerConfig config = new SerializerConfig();
 
@@ -596,7 +596,7 @@ namespace Tutorial
 
 	}
 
-	[CerasConfig(IncludePrivate = true, MemberSerialization = MemberSerialization.OptOut)]
+	[MemberConfig(TargetMember.All)]
 	class SomeAttributeExample
 	{
 		int _privateNumber = 5;
@@ -610,15 +610,15 @@ namespace Tutorial
 		public string PublicString = "and neither will this...";
 	}
 
-	
-	[CerasConfig(MemberSerialization = MemberSerialization.OptIn)]
+
+	[MemberConfig(TargetMember.All)]
 	class SomeAttributeExample2
 	{
 		[Include]
 		int _private1 = 5;
-		
+
 		string _privateString = "this will not get serialized";
-		
+
 		public int Public1 = 7;
 
 		[Include]
