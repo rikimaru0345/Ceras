@@ -61,7 +61,35 @@ namespace Tutorial
 
 
 			//
-			// 3.) Circular references
+			// 4.) 
+			// Deciding what gets serialized
+			// There are multiple ways to configure what members to serialize
+			// Ceras determines member inclusion in this order:
+			//
+			//  - a. Using the result of "ShouldSerializeMember".
+			//       This method can always override everything else.
+			//       If it returns "NoOverride" or the method is not set
+			//       the search for a decision continues.
+			//   
+			//  - b. [Ignore] and [Include] attributes on individual members
+			//     
+			//  - c. [MemberConfig] attribute	  
+			//
+			//  - d. "DefaultTargets" setting in the SerializerConfig
+			//       which defaults to 'TargetMember.PublicFields'
+			//
+
+			SerializerConfig config = new SerializerConfig();
+
+			config.DefaultTargets = TargetMember.PublicProperties | TargetMember.PrivateFields;
+
+			config.ShouldSerializeMember = m => SerializationOverride.NoOverride;
+
+
+
+
+			//
+			// 5.) Circular references
 			// Serializers commonly have trouble serializing circular references.
 			// Ceras supports every possible object-graph, and there's literally
 			// nothing to do or configure, it just works out of the box.
@@ -82,8 +110,6 @@ namespace Tutorial
 				Console.WriteLine("Circular reference serialization working as intended!");
 			else
 				throw new Exception("There was some problem!");
-
-
 		}
 
 		public void Step2_Attributes()
