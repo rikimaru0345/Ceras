@@ -15,6 +15,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			NullableTest();
+
 			ErrorOnDirectEnumerable();
 
 			CtorTest();
@@ -43,6 +45,35 @@ namespace LiveTesting
 
 			tutorial.Step7_GameDatabase();
 
+		}
+
+		static void NullableTest()
+		{
+			var ceras = new CerasSerializer();
+
+			var obj = new NullableTestClass
+			{
+				A = 12.00000476M,
+				B = 13.000001326M,
+				C = 14,
+				D = 15
+			};
+			
+			var data = ceras.Serialize(obj);
+			var clone = ceras.Deserialize<NullableTestClass>(data);
+			
+			Debug.Assert(obj.A == clone.A);
+			Debug.Assert(obj.B == clone.B);
+			Debug.Assert(obj.C == clone.C);
+			Debug.Assert(obj.D == clone.D);
+		}
+
+		class NullableTestClass
+		{
+			public decimal A;
+			public decimal? B;
+			public byte C;
+			public byte? D;
 		}
 
 		static void ErrorOnDirectEnumerable()

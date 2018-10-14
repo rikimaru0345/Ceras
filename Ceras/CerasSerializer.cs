@@ -87,7 +87,7 @@ namespace Ceras
 			_resolvers.Add(new CollectionFormatterResolver(this));
 
 			// DateTime, Guid
-			_resolvers.Add(new BclFormatterResolver());
+			_resolvers.Add(new BclFormatterResolver(this));
 
 			// DynamicObjectResolver is a special case, so it is not in the resolver-list
 			// That is because we only want to have specific resolvers in the resolvers-list

@@ -13,7 +13,15 @@
 			[typeof(DateTimeOffset)] = new DateTimeOffsetFormatter(),
 			[typeof(TimeSpan)] = new TimeSpanFormatter(),
 			[typeof(Guid)] = new GuidFormatter(),
+			[typeof(decimal)] = new DecimalFormatter(),
 		};
+
+		CerasSerializer _serializer;
+
+		public BclFormatterResolver(CerasSerializer serializer)
+		{
+			_serializer = serializer;
+		}
 
 		public IFormatter GetFormatter(Type type)
 		{
@@ -22,13 +30,13 @@
 
 			if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
 			{
-				var formatterType = typeof(NullableFormatter<>).MakeGenericType(type);
-				return (IFormatter)Activator.CreateInstance(formatterType);
+				var innerType = type.GetGenericArguments()[0];
+				var formatterType = typeof(NullableFormatter<>).MakeGenericType(innerType);
+				return (IFormatter)Activator.CreateInstance(formatterType, _serializer);
 			}
 
 			return null;
 		}
-
 
 		public class DateTimeFormatter : IFormatter<DateTime>
 		{
@@ -88,9 +96,58 @@
 			}
 		}
 
+		public unsafe class DecimalFormatter : IFormatter<decimal>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, decimal value)
+			{
+				fixed (byte* dst = &buffer[offset])
+				{
+					var src = &value;
+
+					*(decimal*)(dst) = *src;
+
+					offset += 16;
+				}
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref decimal value)
+			{
+				fixed (byte* src = &buffer[offset])
+				{
+					value = *(decimal*)(src);
+					offset += 16;
+				}
+			}
+		}
+
+
+		/*
+		public class TupleFormatter<T1, T2> : IFormatter<Tuple<T1, T2>>
+		{
+			IFormatter<T1> _f1;
+			IFormatter<T2> _f2;
+
+			public TupleFormatter(CerasSerializer serializer)
+			{
+				_f1 = (IFormatter<T1>)serializer.GetSpecificFormatter(typeof(T1));
+				_f2 = (IFormatter<T2>)serializer.GetSpecificFormatter(typeof(T2));
+			}
+
+
+			public void Serialize(ref byte[] buffer, ref int offset, Tuple<T1, T2> value)
+			{
+
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref Tuple<T1, T2> value)
+			{
+			}
+		}
+		*/
+
 
 		[SuppressMessage("ReSharper", "ConvertNullableToShortForm")]
-		class NullableFormatter<T> : IFormatter<Nullable<T>> where T : struct
+		public class NullableFormatter<T> : IFormatter<Nullable<T>> where T : struct
 		{
 			IFormatter<T> _specificFormatter;
 
