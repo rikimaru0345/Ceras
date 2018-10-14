@@ -31,12 +31,31 @@ namespace Ceras.Formatters
 		DynamicSerializer _dynamicSerializer;
 		DynamicDeserializer _dynamicDeserializer;
 
+		struct BannedType
+		{
+			public readonly Type Type;
+			public readonly string BanReason;
+			public readonly bool AlsoCheckInherit;
+
+			public BannedType(Type type, string banReason, bool alsoCheckInherit)
+			{
+				Type = type;
+				BanReason = banReason;
+				AlsoCheckInherit = alsoCheckInherit;
+			}
+		}
+		static List<BannedType> _bannedTypes = new List<BannedType>
+		{
+				new BannedType(typeof(System.Collections.IEnumerator), "Enumerators are potentially infinite, and also most likely have no way to be instantiated at deserialization-time. If you think this is a mistake, report it as a github issue or provide a custom IFormatter for this case.", true),
+		};
 
 		public DynamicObjectFormatter(CerasSerializer serializer)
 		{
 			_ceras = serializer;
 
 			var type = typeof(T);
+
+			ThrowIfBanned(type);
 			ThrowIfNonspecific(type);
 
 			var members = GetSerializableMembers(type, _ceras.Config.DefaultTargets, _ceras.Config.ShouldSerializeMember);
@@ -50,6 +69,31 @@ namespace Ceras.Formatters
 			{
 				_dynamicSerializer = (ref byte[] buffer, ref int offset, T value) => { };
 				_dynamicDeserializer = (byte[] buffer, ref int offset, ref T value) => { };
+			}
+		}
+
+		static void ThrowIfBanned(Type type)
+		{
+			// todo: in order to be REALLY useful we need to catch this further up (reference serializer) and wrap it in another exception so we can include what field/prop caused this and where that was defined.
+
+			for (var i = 0; i < _bannedTypes.Count; i++)
+			{
+				var ban = _bannedTypes[i];
+
+				bool isBanned = false;
+				if (ban.AlsoCheckInherit)
+				{
+					if (ban.Type.IsAssignableFrom(type))
+						isBanned = true;
+				}
+				else
+				{
+					if (type == ban.Type)
+						isBanned = true;
+				}
+
+				if (isBanned)
+					throw new Exception($"The type '{type.FullName}' cannot be serialized. Reason: {ban.BanReason}");
 			}
 		}
 

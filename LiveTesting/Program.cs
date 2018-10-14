@@ -5,6 +5,7 @@ namespace LiveTesting
 	using Ceras;
 	using System.Collections.Generic;
 	using System.Diagnostics;
+	using System.Linq;
 	using Tutorial;
 	using Xunit;
 
@@ -14,7 +15,21 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			ErrorOnDirectEnumerable();
+
 			CtorTest();
+
+			PropertyTest();
+
+			NetworkTest();
+
+			GuidTest();
+
+			EnumTest();
+
+			ComplexTest();
+
+			ListTest();
 
 
 
@@ -28,18 +43,29 @@ namespace LiveTesting
 
 			tutorial.Step7_GameDatabase();
 
+		}
 
-			PropertyTest();
+		static void ErrorOnDirectEnumerable()
+		{
+			// Enumerables obviously cannot be serialized
+			// Would we resolve it into a list? Or serialize the "description" / linq-projection it represents??
+			// What if its a network-stream? Its just not feasible.
 
-			NetworkTest();
+			var ar = new[] { 1, 2, 3, 4 };
+			IEnumerable<int> enumerable = ar.Select(x => x + 1);
 
-			GuidTest();
 
-			EnumTest();
+			try
+			{
+				var ceras = new CerasSerializer();
+				var data = ceras.Serialize(enumerable);
 
-			ComplexTest();
-
-			ListTest();
+				Debug.Assert(false, "Serialization of IEnumerator is supposed to fail, but it did not!");
+			}
+			catch (Exception e)
+			{
+				// All good, we WANT an exception
+			}
 		}
 
 		static void CtorTest()
@@ -208,7 +234,7 @@ namespace LiveTesting
 
 			var obj = receiver.Deserialize<object>(data);
 			var clone = (SetName)obj;
-			
+
 			Debug.Assert(clone.Name == msg.Name);
 			Debug.Assert(clone.Type == msg.Type);
 		}
@@ -254,7 +280,7 @@ namespace LiveTesting
 
 		public SetName()
 		{
-			
+
 		}
 	}
 
@@ -298,7 +324,7 @@ namespace LiveTesting
 			}
 		}
 	}
-	
+
 	[MemberConfig(TargetMembers = TargetMember.All)]
 	class PropertyClass
 	{
@@ -306,7 +332,7 @@ namespace LiveTesting
 		public int Num { get; set; } = 6235;
 		public OtherPropertyClass Other { get; set; }
 	}
-	
+
 	[MemberConfig(TargetMembers = TargetMember.All)]
 	class OtherPropertyClass
 	{
