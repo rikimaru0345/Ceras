@@ -32,12 +32,15 @@ var bytes = s.Serialize(p);
 #### Other Features
 - Can serialize Fields and Properties (Check out the [**Tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs) to see all the different configuration options)
   - `ShouldSerialize` Callback > Member-Attribute > Class-Attribute > Global Default
+- No need to place attributes on members
+  - Serialization is still completely "stable", since members are sorted by MemberTypeName+MemberName
 - Efficient:
   - By default no versioning-, type- or other meta-data is written, only what is strictly needed.
   - Utilizes both VarInt & Zig-Zag encoding (example: values up to 128 only take 1 byte instead of 4...)
   - Encodes type-information in just 1 byte in most cases.
    - In case you don't want to use `KnownTypes`, Ceras writes type-information only when needed and only once (gets reused)
   - No type lookups! (except for polymorphic types of course)
+- Can serialize an object graph into multiple "fragments" and automatically reassemble everything at deserialization time.
 - No allocations
   - Generates no "garbage" (garbage-collector pressure) by recycling objects.
   - Integrates with user provided object-pools through `ObjectFactory` and `DiscardObject` methods. Especially useful for use as a network protocol or in games.
@@ -50,7 +53,7 @@ var bytes = s.Serialize(p);
 
 
 #### Built-in types
-Built-in support for many commonly used .NET types: Primitives(`int`, `string`, ...), `Enum`, `DateTime`, `Guid`, `Array[]`, `KeyValuePair<,>`, everything that implements `ICollection<>` so `List<>`, `Dictionary<,>`, ... 
+Built-in support for many commonly used .NET types: Primitives(`int`, `string`, ...), `Enum`, `decimal`, `DateTime`, `TimeSpan`, `DateTimeOffset`, `Guid`, `Array[]`, `KeyValuePair<,>`, `Nullable<>`, everything that implements `ICollection<>` so `List<>`, `Dictionary<,>`, ... 
 
 Automatically generates optimized formatters for your types! No attributes or anything needed, everything fully automatic.
 
@@ -117,7 +120,7 @@ For more details about this see the data-upgrade guide where this is explained i
 - More DynamicSerializer variants to support extra use cases like immutable objects, readonly collections, generally being able to have serialization-constructors...
 
 ### Done
-- ~~Ceras does not serialize Properties yet. Support for that is coming soon!~~ **Ceras supports properties and fields now**
+- **Ceras supports properties and fields now** ~~Ceras does not serialize Properties yet. Support for that is coming soon!~~ 
 
 
 
