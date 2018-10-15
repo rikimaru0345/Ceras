@@ -106,14 +106,10 @@ namespace Ceras
 
 			//
 			// Basic setup is done
-			// Now we're adding our "known types"
-			// generating serializers and updating the protocol checksum
-			//
-
+			// Now calculate the protocol checksum
 			Config.KnownTypes.Seal();
-			foreach (var t in Config.KnownTypes)
-			{
-				if (Config.GenerateChecksum)
+			if (Config.GenerateChecksum)
+				foreach (var t in Config.KnownTypes)
 				{
 					ProtocolChecksum.Add(t.FullName);
 
@@ -132,7 +128,6 @@ namespace Ceras
 						continue;
 					}
 
-
 					var members = DynamicObjectFormatter<object>.GetSerializableMembers(t, Config.DefaultTargets, Config.ShouldSerializeMember);
 					foreach (var m in members)
 					{
@@ -143,10 +138,20 @@ namespace Ceras
 							ProtocolChecksum.Add(a.ToString());
 					}
 				}
-			}
 
 			if (Config.GenerateChecksum)
 				ProtocolChecksum.Finish();
+
+
+			//
+			// We can already pre-warm formatters
+			// - dynamic serializers generate their code
+			// - reference formatters generate their wrappers
+			foreach (var t in Config.KnownTypes)
+				if(!t.ContainsGenericParameters)
+					GetGenericFormatter(t);
+
+
 
 			//
 			// Finally we need "instance data"
@@ -324,8 +329,6 @@ namespace Ceras
 		}
 
 
-		// todo: what if a value-type gets serialized? we can't wrap value-types into reference-serializers.
-		// We only need reference-serialization when the inner type is actually a reference type
 
 		public IFormatter<T> GetFormatter<T>()
 		{
@@ -395,97 +398,6 @@ namespace Ceras
 			throw new NotSupportedException($"Ceras could not find any IFormatter<T> for the type '{type.FullName}'. Maybe exclude that field/prop from serializaion or write a custom formatter for it.");
 		}
 
-		public IFormatter GetFormatterOld(Type type, bool allowDynamicResolver = true, bool throwIfNoneFound = true, string extraErrorInformation = null)
-		{
-			/*
-			IFormatter formatter;
-
-			// 1.) Cache (todo: cache into static-generic fields, but that's only possible if we can guarantee there won't be multiple different instances of a serializer/formatter!) 
-			if (_formatters.TryGetValue(type, out formatter))
-			{
-				if (!allowDynamicResolver)
-				{
-					// This code is structured a bit weird, because we want to avoid
-					// doing the check below unless the the caller does NOT want a dynamci resolver
-					// todo: could we just instantly return 'null' then? Or is there a situation where we would still want to try the resolvers etc..??
-					bool isDynamic = formatter is IDynamicFormatterMarker ||
-									 (formatter is ICacheFormatter cacheFormatter && cacheFormatter.GetInnerFormatter() is IDynamicFormatterMarker);
-
-					if (isDynamic)
-						formatter = null;
-				}
-
-				if (formatter != null)
-					return formatter;
-			}
-
-			// 2.) User formatter resolver
-			// todo: wrap user resolvers into CacheFormatter<> ?
-			if (_userResolver != null)
-			{
-				formatter = _userResolver(this, type);
-				if (formatter != null)
-				{
-					bool isCacheFormatterAlready = ReflectionHelper.FindClosedType(formatter.GetType(), typeof(ReferenceFormatter<>)) != null;
-
-					if (!type.IsValueType && !isCacheFormatterAlready)
-					{
-						// Need to wrap the formatter...
-
-						// Create wrapper first
-						var wrapper = DynamicObjectFormatterResolver.WrapInCache(type, formatter, this);
-
-						// Then add the wrapper to the cache
-						_formatters.Add(type, wrapper);
-
-						// Finally inject dependencies into the original
-						InjectDependencies(formatter);
-
-						formatter = wrapper;
-					}
-					else
-					{
-						// No need to wrap the formatter, it can be used as is.
-
-						// Add to formatters, so DI can recursively find this instance
-						_formatters.Add(type, formatter);
-						InjectDependencies(formatter);
-					}
-
-					return formatter;
-				}
-			}
-
-			// 3.) Resolver chain 
-			for (int i = 0; i < _resolvers.Count; i++)
-			{
-				var genericFormatter = _resolvers[i].GetFormatter(type);
-				if (genericFormatter != null)
-				{
-					// put it in before initialization, so other formatters can get a reference already (If we have to call Initialize())
-					_formatters[type] = genericFormatter;
-					return genericFormatter;
-				}
-			}
-
-			// 4.) No existing resolver can find a formatter to handle this
-			//	   Maybe we can use code-generation to create one dynamically...
-			if (allowDynamicResolver && !type.IsPrimitive)
-			{
-				var dynamicFormatter = _dynamicResolver.GetFormatter(type);
-
-				if (dynamicFormatter != null)
-				{
-					_formatters[type] = dynamicFormatter;
-					return dynamicFormatter;
-				}
-			}
-
-			if (throwIfNoneFound)
-				throw new NotSupportedException($"Ceras could not find any IFormatter<T> for the type '{type.FullName}'. {extraErrorInformation}");
-			*/
-			return null;
-		}
 
 		void InjectDependencies(IFormatter formatter)
 		{
@@ -552,7 +464,6 @@ namespace Ceras
 				InstanceData = _recursionStack.Pop();
 			}
 		}
-
 	}
 
 

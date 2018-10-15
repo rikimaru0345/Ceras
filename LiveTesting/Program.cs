@@ -15,6 +15,10 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			PerfTest();
+
+			TupleTest();
+
 			NullableTest();
 
 			ErrorOnDirectEnumerable();
@@ -45,6 +49,96 @@ namespace LiveTesting
 
 			tutorial.Step7_GameDatabase();
 
+		}
+
+		static void PerfTest()
+		{
+			// todo: compare against msgpack
+
+			// 1.) Primitives
+			// Compare encoding of a mix of small and large numbers to test var-int encoding speed
+			var rng = new Random();
+			
+			List<int> numbers = new List<int>();
+			for (int i = 0; i < 200; i++)
+				numbers.Add(i);
+			for (int i = 1000; i < 1200; i++)
+				numbers.Add(i);
+			for (int i = short.MaxValue + 1000; i < short.MaxValue + 1200; i++)
+				numbers.Add(i);
+			numbers = numbers.OrderBy(n => rng.Next(1000)).ToList();
+
+			var ceras = new CerasSerializer();
+
+			var cerasData = ceras.Serialize(numbers);
+
+
+			
+			// 2.) Object Data
+			// Many fields/properties, some nesting
+
+
+
+			/*
+			 * todo
+			 *
+			 * - prewarm proxy pool; prewarm 
+			 *
+			 * - would ThreadsafeTypeKeyHashTable actually help for the cases where we need to type switch?
+			 *
+			 * - reference lookups take some time; we could disable them by default and instead let the user manually enable reference serialization per type
+			 *      config.EnableReference(typeof(MyObj));
+			 *
+			 * - directly inline all primitive reader/writer functions. Instead of creating an Int32Formatter the dynamic formatter directly calls the matching method
+			 *
+			 * - potentially improve number encoding speed (varint encoding is naturally not super fast, maybe we can apply some tricks...)
+			 *
+			 * - have DynamicObjectFormatter generate its expressions, but inline the result directly to the reference formatter
+			 *
+			 * - reference proxies: use array instead of a list, don't return references to a pool, just reset them!
+			 *
+			 * - when we're later dealing with version tolerance, we write all the the type definitions first, and have a skip offset in front of each object
+			 *
+			 * - avoid overhead of "Formatter" classes for all primitives and directly use them, they can also be accessed through a static generic
+			 *
+			 * - would a specialized formatter for List<> help? maybe, we'd avoid interfaces vtable calls
+			 *
+			 * - use static generic caching where possible (rarely the case since ceras can be instantiated multiple times with different settings)
+			 *
+			 * - primitive arrays can be cast and blitted directly
+			 *
+			 * - optimize simple properties: serializing the backing field directly, don't call Get/Set (add a setting so it can be deactivated)
+			*/
+		}
+
+		static void TupleTest()
+		{
+			// todo:
+			//
+			// - ValueTuple: can already be serialized as is! We just need to somehow enforce serialization of public fields
+			//	 maybe a predefined list of fixed overrides? An additional step directly after ShouldSerializeMember?
+			//
+			// - Tuple: does not work and (for now) can't be fixed. 
+			//   we'll need support for a different kind of ReferenceSerializer (one that does not create an instance)
+			//   and a different DynamicSerializer (one that collects the values into local variables, then instantiates the object)
+			//
+
+			SerializerConfig config = new SerializerConfig();
+			config.DefaultTargets = TargetMember.AllPublic;
+			var ceras = new CerasSerializer(config);
+
+			var vt = ValueTuple.Create(5, "b", DateTime.Now);
+			
+			var data = ceras.Serialize(vt);
+			var vtClone = ceras.Deserialize<ValueTuple<int, string, DateTime>>(data);
+			
+			Debug.Assert(vt.Item1 == vtClone.Item1);
+			Debug.Assert(vt.Item2 == vtClone.Item2);
+			Debug.Assert(vt.Item3 == vtClone.Item3);
+
+			//var t = Tuple.Create(5, "b", DateTime.Now);
+			//data = ceras.Serialize(vt);
+			//var tClone = ceras.Deserialize<Tuple<int, string, DateTime>>(data);
 		}
 
 		static void NullableTest()
@@ -85,11 +179,24 @@ namespace LiveTesting
 			var ar = new[] { 1, 2, 3, 4 };
 			IEnumerable<int> enumerable = ar.Select(x => x + 1);
 
-
 			try
 			{
 				var ceras = new CerasSerializer();
 				var data = ceras.Serialize(enumerable);
+
+				Debug.Assert(false, "Serialization of IEnumerator is supposed to fail, but it did not!");
+			}
+			catch (Exception e)
+			{
+				// All good, we WANT an exception
+			}
+
+
+			var container = new GenericTest<IEnumerable<int>> { Value = enumerable };
+			try
+			{
+				var ceras = new CerasSerializer();
+				var data = ceras.Serialize(container);
 
 				Debug.Assert(false, "Serialization of IEnumerator is supposed to fail, but it did not!");
 			}
@@ -371,4 +478,8 @@ namespace LiveTesting
 		public List<PropertyClass> PropertyClasses { get; set; } = new List<PropertyClass>();
 	}
 
+	class GenericTest<T>
+	{
+		public T Value;
+	}
 }

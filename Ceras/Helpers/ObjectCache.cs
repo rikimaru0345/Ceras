@@ -3,7 +3,7 @@
 	using System;
 	using System.Collections.Generic;
 
-	// Specially made exclusively for the CacheFormatter, maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
+	// Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
 	public class ObjectCache
 	{
 		readonly Dictionary<object, int> _serializationCache = new Dictionary<object, int>();

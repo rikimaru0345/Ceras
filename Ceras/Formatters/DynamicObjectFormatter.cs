@@ -18,18 +18,15 @@ namespace Ceras.Formatters
 
 	interface IDynamicFormatterMarker { }
 
-	// todo 1: check if FastExpressionCompiler works without crashing now (a lot of work has been put into it recently)
 	// todo 2: cache formatters in a static-generic instead of dict? we need to know exactly how much we'd save; the static-ctor can just generate the corrosponding serializers
 	public class DynamicObjectFormatter<T> : IFormatter<T>, IDynamicFormatterMarker
 	{
 		static MemberComparer _memberComparer = new MemberComparer();
 
-		delegate void DynamicSerializer(ref byte[] buffer, ref int offset, T value);
-		delegate void DynamicDeserializer(byte[] buffer, ref int offset, ref T value);
 
 		CerasSerializer _ceras;
-		DynamicSerializer _dynamicSerializer;
-		DynamicDeserializer _dynamicDeserializer;
+		SerializeDelegate<T> _dynamicSerializer;
+		DeserializeDelegate<T> _dynamicDeserializer;
 
 		struct BannedType
 		{
@@ -74,8 +71,6 @@ namespace Ceras.Formatters
 
 		static void ThrowIfBanned(Type type)
 		{
-			// todo: in order to be REALLY useful we need to catch this further up (reference serializer) and wrap it in another exception so we can include what field/prop caused this and where that was defined.
-
 			for (var i = 0; i < _bannedTypes.Count; i++)
 			{
 				var ban = _bannedTypes[i];
@@ -93,12 +88,19 @@ namespace Ceras.Formatters
 				}
 
 				if (isBanned)
-					throw new Exception($"The type '{type.FullName}' cannot be serialized. Reason: {ban.BanReason}");
+					throw new BannedTypeException($"The type '{type.FullName}' cannot be serialized. Reason: {ban.BanReason}");
 			}
 		}
 
+		static void ThrowIfNonspecific(Type type)
+		{
+			if (type.IsAbstract || type.IsInterface)
+				throw new InvalidOperationException("Can only generate code for specific types. The type " + type.Name + " is abstract or an interface.");
+		}
 
-		DynamicSerializer GenerateSerializer(List<SerializedMember> members)
+
+
+		SerializeDelegate<T> GenerateSerializer(List<SerializedMember> members)
 		{
 			var refBufferArg = Expression.Parameter(typeof(byte[]).MakeByRefType(), "buffer");
 			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
@@ -109,14 +111,10 @@ namespace Ceras.Formatters
 
 			foreach (var member in members)
 			{
-				IFormatter formatter;
-
 				var type = member.MemberType;
 
-				if (type.IsValueType)
-					formatter = _ceras.GetSpecificFormatter(type);
-				else
-					formatter = _ceras.GetGenericFormatter(type);
+				// todo: have a lookup list to directly get the actual 'SerializerBinary' method. There is no reason to actually use objects like "Int32Formatter"
+				var formatter = _ceras.GetGenericFormatter(type);
 
 				// Get the formatter and its Serialize method
 				// var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
@@ -136,12 +134,12 @@ namespace Ceras.Formatters
 #if FAST_EXP
 			return Expression.Lambda<DynamicSerializer>(serializeBlock, refBufferArg, refOffsetArg, valueArg).CompileFast(true);
 #else
-			return Expression.Lambda<DynamicSerializer>(serializeBlock, refBufferArg, refOffsetArg, valueArg).Compile();
+			return Expression.Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg).Compile();
 #endif
 
 		}
 
-		DynamicDeserializer GenerateDeserializer(List<SerializedMember> members)
+		DeserializeDelegate<T> GenerateDeserializer(List<SerializedMember> members)
 		{
 			var bufferArg = Expression.Parameter(typeof(byte[]), "buffer");
 			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
@@ -182,15 +180,9 @@ namespace Ceras.Formatters
 #if FAST_EXP
 			return Expression.Lambda<DynamicDeserializer>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
 #else
-			return Expression.Lambda<DynamicDeserializer>(serializeBlock, bufferArg, refOffsetArg, refValueArg).Compile();
+			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).Compile();
 #endif
 
-		}
-
-		void ThrowIfNonspecific(Type type)
-		{
-			if (type.IsAbstract || type.IsInterface)
-				throw new InvalidOperationException("Can only generate code for specific types. The type " + type.Name + " is abstract or an interface.");
 		}
 
 
@@ -353,6 +345,14 @@ namespace Ceras.Formatters
 
 				return string.Compare(name1, name2, StringComparison.Ordinal);
 			}
+		}
+	}
+
+	class BannedTypeException : Exception
+	{
+		public BannedTypeException(string message) : base(message)
+		{
+
 		}
 	}
 }

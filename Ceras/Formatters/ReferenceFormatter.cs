@@ -93,11 +93,8 @@
 
 		static Dictionary<Type, Func<object>> _objectConstructors = new Dictionary<Type, Func<object>>();
 
-		delegate void DynamicSerializer(ref byte[] buffer, ref int offset, T value);
-		delegate void DynamicDeserializer(byte[] buffer, ref int offset, ref T value);
-
-		Dictionary<Type, DynamicSerializer> _specificSerializers = new Dictionary<Type, DynamicSerializer>();
-		Dictionary<Type, DynamicDeserializer> _specificDeserializers = new Dictionary<Type, DynamicDeserializer>();
+		Dictionary<Type, SerializeDelegate<T>> _specificSerializers = new Dictionary<Type, SerializeDelegate<T>>();
+		Dictionary<Type, DeserializeDelegate<T>> _specificDeserializers = new Dictionary<Type, DeserializeDelegate<T>>();
 
 
 
@@ -251,7 +248,7 @@
 		}
 
 
-		DynamicSerializer GetSpecificSerializerDispatcher(Type type)
+		SerializeDelegate<T> GetSpecificSerializerDispatcher(Type type)
 		{
 			if (_specificSerializers.TryGetValue(type, out var f))
 				return f;
@@ -279,24 +276,37 @@
 			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
 			var valueArg = Expression.Parameter(typeof(T), "value");
 
+			Expression convertedValueArg;
+
+			if (typeof(T) == type)
+				// Exact match
+				convertedValueArg = valueArg;
+			else if (!type.IsValueType)
+				// Cast general -> derived
+				convertedValueArg = Expression.TypeAs(valueArg, type);
+			else
+				// Unbox
+				convertedValueArg = Expression.Convert(valueArg, type);
+
+
 			var body = Expression.Block(
 										Expression.Call(Expression.Constant(formatter), serializeMethod,
 														arg0: refBufferArg,
 														arg1: refOffsetArg,
-														arg2: Expression.Convert(valueArg, type))
+														arg2: convertedValueArg)
 										);
 
 #if FAST_EXP
 			f = Expression.Lambda<DynamicSerializer>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).CompileFast(true);
 #else
-			f = Expression.Lambda<DynamicSerializer>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).Compile();
+			f = Expression.Lambda<SerializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).Compile();
 #endif
 			_specificSerializers[type] = f;
 
 			return f;
 		}
 
-		DynamicDeserializer GetSpecificDeserializerDispatcher(Type type)
+		DeserializeDelegate<T> GetSpecificDeserializerDispatcher(Type type)
 		{
 			if (_specificDeserializers.TryGetValue(type, out var f))
 				return f;
@@ -320,27 +330,35 @@
 
 			var valAsSpecific = Expression.Variable(type, "valAsSpecific");
 
-			Expression intro;
-			if (type.IsValueType && !typeof(T).IsValueType)
-			{
-				// Handle boxing, if we get 'null' we use 'default(T)'
-				intro = Expression.IfThenElse(Expression.ReferenceEqual(refValueArg, Expression.Constant(null)),
-											  ifTrue: Expression.Default(type),
-											  ifFalse: Expression.Unbox(refValueArg, type));
-			}
-			else if(typeof(T) != type)
-			{
-				// Some kind of casting. Maybe the field type is 'object', or an interface.
-				intro = Expression.Assign(valAsSpecific, Expression.Convert(refValueArg, type));
-			}
-			else
+			Expression intro, outro;
+			if(typeof(T) == type)
 			{
 				// Same type, the best case
 				intro = Expression.Assign(valAsSpecific, refValueArg);
+				outro = Expression.Assign(refValueArg, valAsSpecific);
 			}
+			else if (!typeof(T).IsValueType && type.IsValueType)
+			{
+				// valueType = (castToValueType)object;
 
+				// Handle unboxing: we might have a null-value.
+				intro = Expression.IfThenElse(Expression.ReferenceEqual(refValueArg, Expression.Constant(null)),
+											  ifTrue: Expression.Default(type),
+											  ifFalse: Expression.Unbox(refValueArg, type));
 
-			// todo: convert calls can be skipped when the type matches
+				// Box the value type again
+				outro = Expression.Assign(refValueArg, Expression.Convert(valAsSpecific, typeof(T)));
+			}
+			else
+			{
+				// Types are not equal, but there are no value-types involved.
+				// Some kind of casting. Maybe the field type is an interface or 'object'
+				intro = Expression.Assign(valAsSpecific, Expression.TypeAs(refValueArg, type));
+				// No need to up-cast.
+				outro = Expression.Assign(refValueArg, valAsSpecific);
+			}
+			
+
 			var body = Expression.Block(variables: new[] { valAsSpecific },
 										expressions: new Expression[]
 										{
@@ -351,13 +369,13 @@
 															arg1: refOffsetArg,
 															arg2: valAsSpecific),
 
-											Expression.Assign(refValueArg, Expression.Convert(valAsSpecific, typeof(T)))
+											outro
 										});
 
 #if FAST_EXP
 			f = Expression.Lambda<DynamicDeserializer>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).CompileFast(true);
 #else
-			f = Expression.Lambda<DynamicDeserializer>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).Compile();
+			f = Expression.Lambda<DeserializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).Compile();
 #endif
 			_specificDeserializers[type] = f;
 

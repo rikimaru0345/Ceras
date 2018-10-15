@@ -100,6 +100,7 @@
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, decimal value)
 			{
+				SerializerBinary.EnsureCapacity(ref buffer, offset, 16);
 				fixed (byte* dst = &buffer[offset])
 				{
 					var src = &value;
