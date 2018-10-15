@@ -37,15 +37,17 @@ var bytes = s.Serialize(p);
 - Efficient:
   - By default no versioning-, type- or other meta-data is written, only what is strictly needed.
   - Utilizes both VarInt & Zig-Zag encoding (example: values up to 128 only take 1 byte instead of 4...)
-  - Encodes type-information in just 1 byte in most cases.
-   - In case you don't want to use `KnownTypes`, Ceras writes type-information only when needed and only once (gets reused)
-  - No type lookups! (except for polymorphic types of course)
+  - Encodes type-information in 0 or 1 byte in most cases
+   - If the type already matches no types are written at all (vast majority of cases)
+   - KnownTypes are encoded as 1 byte
+   - Ceras dynamically learns new/unknown types while serializing. New types are written once in compressed form, thus automatically becoming a known type.
+   - No type lookups! (except for polymorphic types of course)
 - Automatic splitting and reassembling. You want to save your `Monster`, `Spell`, and `Player` objects each into their own file? No problem! Ceras can automatically split and reassemble object graphs for you. (See `IExternalRootObject`)
 - No allocations
   - Generates no "garbage" (garbage-collector pressure) by recycling objects.
   - Integrates with user provided object-pools through `ObjectFactory` and `DiscardObject` methods. Especially useful for use as a network protocol or in games.
   - Can also recycle serialization buffers.
-- Advanced caching settings to remember objects and typing information over multiple serialization calls to save even more space when working with "unknown" types (types you didn't provide in `KnownTypes`).
+- Advanced caching settings to remember objects and typing information over multiple serialization calls to save even more space
 - Can be used as an extremely efficient binary network protocol
 - Can generate a checksum of all types, fields, attributes, ... which can be used to ensure binary compatability (very useful for networking where you want to check if the server/client are using the same protocol...)
 - Very easy to add new "Formatters" (the things that the serializer uses to actually read/write an object)
