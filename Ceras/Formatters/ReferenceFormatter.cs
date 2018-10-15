@@ -211,26 +211,32 @@
 			// todo: is the generic code optimized in the jit? is this check is never even done in the ASM?
 			// todo: have the recent fixes made these checks obsolete? What if someone forces serialization of private fields in a type that cannot be directly instantiated?
 			// todo: enforce all types to have a parameterless constructor
-			if (value == null &&
-				!specificType.IsValueType && // value types have no ctor
-				(typeof(T) != typeof(string) && typeof(T) != typeof(Type)))
-			{
-				var factory = _serializer.Config.ObjectFactoryMethod;
-				if (factory != null)
-					value = (T)_serializer.Config.ObjectFactoryMethod(specificType);
+			bool isRefType = !specificType.IsValueType;
+			bool isStringOrType = typeof(T) == typeof(string) || typeof(T) == typeof(Type);
+			
 
-				if (value == null)
+			if (value == null)
+			{
+				if (!isStringOrType && // we can't create instances of String or Type, they are special cases
+					isRefType) // only ref types have a ctor 
 				{
-					// todo:
-					// we can easily merge this null-check and the instantiation into the generated code below
-					// which would let us avoid one dictionary lookup, the type check, checking if a factory method is set, ...
-					// directly using Expression.New() will likely be faster as well
-					// todo 2:
-					// in fact, we can even *directly* inline the serializer sometimes!
-					// if the specific serializer is a DynamicSerializer, we could just take the expression-tree it generates, and directly inline it here.
-					// that would avoid even more overhead!
-					value = (T)GetConstructor(specificType)();
+					value = CreateInstance(specificType);
 				}
+			}
+			else
+			{
+				// There is a value already, but is it the right type?
+				// Maybe the field is 'ICollection<int>' and the data says we should have a List<int>, but there's already a LinkedList<int> present!
+				// What we need to do is throw out the
+				if (isRefType)
+					if (value.GetType() != specificType) // todo: types using a SerializationCtor (in the future) are handled in a different ReferenceFormatter
+					{
+						// Discard the old value
+						_serializer.Config.DiscardObjectMethod?.Invoke(value);
+
+						// Create instance of the right type
+						value = CreateInstance(specificType);
+					}
 			}
 
 
@@ -245,6 +251,26 @@
 
 			// Write back the actual value
 			value = objectProxy.Value;
+		}
+
+		T CreateInstance(Type specificType)
+		{
+			// todo:
+			// we can easily merge null-check (in the caller) and GetConstructor() into GetSpecificDeserializerDispatcher() 
+			// which would let us avoid one dictionary lookup, the type check, checking if a factory method is set, ...
+			// directly using Expression.New() will likely be faster as well
+			// todo 2:
+			// in fact, we can even *directly* inline the serializer sometimes!
+			// if the specific serializer is a DynamicSerializer, we could just take the expression-tree it generates, and directly inline it here.
+			// that would avoid even more overhead!
+
+			T value;
+			var factory = _serializer.Config.ObjectFactoryMethod;
+			if (factory != null)
+				value = (T) _serializer.Config.ObjectFactoryMethod(specificType);
+			else
+				value = (T) GetConstructor(specificType)();
+			return value;
 		}
 
 
@@ -331,7 +357,7 @@
 			var valAsSpecific = Expression.Variable(type, "valAsSpecific");
 
 			Expression intro, outro;
-			if(typeof(T) == type)
+			if (typeof(T) == type)
 			{
 				// Same type, the best case
 				intro = Expression.Assign(valAsSpecific, refValueArg);
@@ -357,7 +383,7 @@
 				// No need to up-cast.
 				outro = Expression.Assign(refValueArg, valAsSpecific);
 			}
-			
+
 
 			var body = Expression.Block(variables: new[] { valAsSpecific },
 										expressions: new Expression[]
