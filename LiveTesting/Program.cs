@@ -15,6 +15,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			WrongRefTypeTest();
+
 			PerfTest();
 
 			TupleTest();
@@ -49,6 +51,42 @@ namespace LiveTesting
 
 			tutorial.Step7_GameDatabase();
 
+		}
+
+		static void WrongRefTypeTest()
+		{
+			var ceras = new CerasSerializer();
+
+			var container = new WrongRefTypeTestClass();
+
+			LinkedList<int> list = new LinkedList<int>();
+			list.AddLast(6);
+			list.AddLast(2);
+			list.AddLast(7);
+			container.Collection = list;
+
+			var data = ceras.Serialize(container);
+			var linkedListClone = ceras.Deserialize<WrongRefTypeTestClass>(data);
+			var listClone = linkedListClone.Collection as LinkedList<int>;
+
+			Debug.Assert(listClone != null);
+			Debug.Assert(listClone.Count == 3);
+			Debug.Assert(listClone.First.Value == 6);
+			
+			// Now the actual test:
+			// We change the type that is actually inside
+			// And next ask to deserialize into the changed instance!
+			// What we expect to happen is that ceras sees that the type is wrong and creates a new object
+			container.Collection = new List<int>();
+
+			ceras.Deserialize(ref container, data);
+
+			Debug.Assert(container.Collection is LinkedList<int>);
+		}
+
+		class WrongRefTypeTestClass
+		{
+			public ICollection<int> Collection;
 		}
 
 		static void PerfTest()
