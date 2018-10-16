@@ -54,13 +54,24 @@
 	}
 	
 	[AttributeUsage(AttributeTargets.Field)]
-	sealed class Member : Attribute
+	public class MemberAttribute : Attribute
 	{
-		readonly int _id;
+		public readonly string[] AlternativeNames;
+		public readonly string Name;
 
-		public Member(int id)
+		public MemberAttribute()
 		{
-			_id = id;
+		}
+
+		public MemberAttribute(string name)
+		{
+			Name = name;
+		}
+
+		public MemberAttribute(string name, string[] alternativeNames)
+		{
+			Name = name;
+			AlternativeNames = alternativeNames;
 		}
 	}
 

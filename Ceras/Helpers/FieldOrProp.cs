@@ -15,10 +15,16 @@ namespace Ceras.Helpers
 		public bool IsField => MemberInfo is FieldInfo;
 		public bool IsProperty => MemberInfo is PropertyInfo;
 
-		public SerializedMember(MemberInfo memberInfo, Type memberType)
+		public SerializedMember(MemberInfo memberInfo)
 		{
 			MemberInfo = memberInfo;
-			MemberType = memberType;
+
+			if(memberInfo is PropertyInfo p)
+				MemberType = p.PropertyType;
+			else if (MemberInfo is FieldInfo f)
+				MemberType = f.FieldType;
+			else
+				throw new Exception("type " + memberInfo.GetType().Name + " can not be used as serializedType");
 
 			Name = memberInfo.Name;
 		}
@@ -29,19 +35,13 @@ namespace Ceras.Helpers
 	{
 		public static SerializedMember Create(MemberInfo memberInfo)
 		{
-			Type memberType;
-
-
 			if (memberInfo is FieldInfo f)
 			{
-				memberType = f.FieldType;
-
 				if (f.IsInitOnly)
 					throw new Exception("field is readonly");
 			}
 			else if (memberInfo is PropertyInfo p)
 			{
-				memberType = p.PropertyType;
 				if (!p.CanRead || !p.CanWrite)
 					throw new Exception("property must be readable and writable");
 			}
@@ -52,7 +52,7 @@ namespace Ceras.Helpers
 			if (declaringType == null)
 				throw new Exception("declaring type is null");
 
-			return new SerializedMember(memberInfo, memberType);
+			return new SerializedMember(memberInfo);
 		}
 
 	}

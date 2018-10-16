@@ -6,15 +6,20 @@ namespace LiveTesting
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Linq;
+	using System.Linq.Expressions;
+	using Ceras.Formatters;
+	using FastExpressionCompiler;
 	using Tutorial;
 	using Xunit;
 
 	class Program
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
-
+		
 		static void Main(string[] args)
 		{
+			VersionToleranceTest();
+
 			WrongRefTypeTest();
 
 			PerfTest();
@@ -53,6 +58,18 @@ namespace LiveTesting
 
 		}
 
+		static void VersionToleranceTest()
+		{
+			var config = new SerializerConfig();
+			config.VersionTolerance = VersionTolerance.AutomaticEmbedded;
+
+			config.TypeBinder = new DebugVersionTypeBinder();
+
+			var ceras = new CerasSerializer(config);
+
+			var p = new Person { };
+		}
+
 		static void WrongRefTypeTest()
 		{
 			var ceras = new CerasSerializer();
@@ -72,7 +89,7 @@ namespace LiveTesting
 			Debug.Assert(listClone != null);
 			Debug.Assert(listClone.Count == 3);
 			Debug.Assert(listClone.First.Value == 6);
-			
+
 			// Now the actual test:
 			// We change the type that is actually inside
 			// And next ask to deserialize into the changed instance!
@@ -96,7 +113,7 @@ namespace LiveTesting
 			// 1.) Primitives
 			// Compare encoding of a mix of small and large numbers to test var-int encoding speed
 			var rng = new Random();
-			
+
 			List<int> numbers = new List<int>();
 			for (int i = 0; i < 200; i++)
 				numbers.Add(i);
@@ -111,7 +128,7 @@ namespace LiveTesting
 			var cerasData = ceras.Serialize(numbers);
 
 
-			
+
 			// 2.) Object Data
 			// Many fields/properties, some nesting
 
@@ -166,10 +183,10 @@ namespace LiveTesting
 			var ceras = new CerasSerializer(config);
 
 			var vt = ValueTuple.Create(5, "b", DateTime.Now);
-			
+
 			var data = ceras.Serialize(vt);
 			var vtClone = ceras.Deserialize<ValueTuple<int, string, DateTime>>(data);
-			
+
 			Debug.Assert(vt.Item1 == vtClone.Item1);
 			Debug.Assert(vt.Item2 == vtClone.Item2);
 			Debug.Assert(vt.Item3 == vtClone.Item3);
@@ -190,10 +207,10 @@ namespace LiveTesting
 				C = 14,
 				D = 15
 			};
-			
+
 			var data = ceras.Serialize(obj);
 			var clone = ceras.Deserialize<NullableTestClass>(data);
-			
+
 			Debug.Assert(obj.A == clone.A);
 			Debug.Assert(obj.B == clone.B);
 			Debug.Assert(obj.C == clone.C);
@@ -420,6 +437,50 @@ namespace LiveTesting
 			var text = BitConverter.ToString(data);
 			Console.WriteLine(data.Length + " bytes: " + text);
 		}
+	}
+
+	class DebugVersionTypeBinder : ITypeBinder
+	{
+		Dictionary<Type, string> _commonNames = new Dictionary<Type, string>
+		{
+				{ typeof(VersionTest1), "*Version" },
+				{ typeof(VersionTest1), "*Version" }
+		};
+
+		public string GetBaseName(Type type)
+		{
+			if (_commonNames.TryGetValue(type, out string v))
+				return v;
+
+			return SimpleTypeBinderHelper.GetBaseName(type);
+		}
+
+		public Type GetTypeFromBase(string baseTypeName)
+		{
+			if (_commonNames.ContainsValue(baseTypeName))
+				return _commonNames.First(kvp => kvp.Value == baseTypeName).Key;
+			
+			return SimpleTypeBinderHelper.GetTypeFromBase(baseTypeName);
+		}
+
+		public Type GetTypeFromBaseAndAgruments(string baseTypeName, params Type[] genericTypeArguments)
+		{
+			return SimpleTypeBinderHelper.GetTypeFromBaseAndAgruments(baseTypeName, genericTypeArguments);
+		}
+	}
+	
+	class VersionTest1
+	{
+		public int A;
+		public int B;
+		public int C;
+	}
+	class VersionTest2
+	{
+		public int A;
+		
+		public int C;
+		public float D;
 	}
 
 	class ConstructorTest

@@ -41,7 +41,7 @@ namespace Ceras
 		readonly FormatterResolverCallback _userResolver;
 
 		// todo: allow the user to provide their own binder. So they can serialize a type-name however they want; but then again they could override the TypeFormatter anyway, so what's the point? maybe it would be best to completely remove the typeBinder (merging it into the default TypeFormatter)?
-		internal readonly ITypeBinder TypeBinder = new NaiveTypeBinder();
+		internal ITypeBinder TypeBinder;
 
 		// The primary list of resolvers. A resolver is a class that somehow (by instantiating, or finding it somewhere, ...) comes up with a formatter for a requested type
 		// If a resolver can't fulfill the request for a specific formatter, it returns null.
@@ -76,6 +76,7 @@ namespace Ceras
 			if (Config.ExternalObjectResolver == null)
 				Config.ExternalObjectResolver = new ErrorResolver();
 
+			TypeBinder = Config.TypeBinder ?? new NaiveTypeBinder();
 
 			_userResolver = Config.OnResolveFormatter;
 
@@ -330,13 +331,7 @@ namespace Ceras
 
 
 
-		public IFormatter<T> GetFormatter<T>()
-		{
-			if (typeof(T).IsValueType)
-				return (IFormatter<T>)GetSpecificFormatter(typeof(T));
-			else
-				return (IFormatter<T>)GetGenericFormatter(typeof(T));
-		}
+		public IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetGenericFormatter(typeof(T));
 
 		public IFormatter GetGenericFormatter(Type type)
 		{
@@ -531,6 +526,8 @@ namespace Ceras
 
 		public IExternalObjectResolver ExternalObjectResolver { get; set; }
 
+		public ITypeBinder TypeBinder { get; set; } = null;
+
 		/// <summary>
 		/// If one of the objects in the graph implements IExternalRootObject, Ceras will only write its ID and then call this function. 
 		/// This is useful in case you want to also serialize the external objects as well.
@@ -557,6 +554,7 @@ namespace Ceras
 		public bool SealTypesWhenUsingKnownTypes { get; set; } = true;
 
 
+		public VersionTolerance VersionTolerance { get; set; } = VersionTolerance.Disabled;
 
 		/// <summary>
 		/// If true, the serializer will generate dynamic object formatters early (in the constructor).
@@ -574,6 +572,12 @@ namespace Ceras
 		/// If all the other things (ShouldSerializeMember and all the attributes) yield no result, then this setting is used to determine if a member should be included.
 		/// </summary>
 		public TargetMember DefaultTargets { get; set; } = TargetMember.PublicFields;
+	}
+
+	public enum VersionTolerance
+	{
+		Disabled,
+		AutomaticEmbedded,
 	}
 
 	public delegate IFormatter FormatterResolverCallback(CerasSerializer ceras, Type typeToBeFormatted);
@@ -745,64 +749,5 @@ namespace Ceras
 		string GetBaseName(Type type);
 		Type GetTypeFromBase(string baseTypeName);
 		Type GetTypeFromBaseAndAgruments(string baseTypeName, params Type[] genericTypeArguments);
-	}
-
-	public class NaiveTypeBinder : ITypeBinder
-	{
-		// todo: do this right. We can't find/resolve types if they don't come from the same assembly.
-		// todo: so we need to provide a way for the user to give us all the assemblies in which types to serialize/deserialize might be
-		public readonly HashSet<Assembly> TypeAssemblies = new HashSet<Assembly>();
-
-		public NaiveTypeBinder()
-		{
-			TypeAssemblies.Add(typeof(int).Assembly);
-			TypeAssemblies.Add(typeof(List<>).Assembly);
-			TypeAssemblies.Add(Assembly.GetCallingAssembly());
-			TypeAssemblies.Add(Assembly.GetEntryAssembly());
-
-			TypeAssemblies.RemoveWhere(a => a == null);
-		}
-
-		// given List<int> it would return "System.Collections.List"
-		public string GetBaseName(Type type)
-		{
-			if (type.IsGenericType)
-				return type.GetGenericTypeDefinition().FullName;
-
-			return type.FullName;
-		}
-
-		public Type GetTypeFromBase(string baseTypeName)
-		{
-			// todo: let the user provide a way!
-			// todo: alternatively, search in ALL loaded assemblies... but that is slow as fuck
-
-			foreach (var a in TypeAssemblies)
-			{
-				var t = a.GetType(baseTypeName);
-				if (t != null)
-					return t;
-			}
-
-			// Oh no... did the user forget to add the right assembly??
-			// Lets search in everything that's loaded...
-			foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
-			{
-				var t = a.GetType(baseTypeName);
-				if (t != null)
-				{
-					TypeAssemblies.Add(a);
-					return t;
-				}
-			}
-
-			throw new Exception("Cannot find type " + baseTypeName + " after searching in all user provided assemblies and all loaded assemblies. Is the type in some plugin-module that was not yet loaded? Or did the assembly that contains the type change (ie the type got removed)?");
-		}
-
-		public Type GetTypeFromBaseAndAgruments(string baseTypeName, params Type[] genericTypeArguments)
-		{
-			var baseType = GetTypeFromBase(baseTypeName);
-			return baseType.MakeGenericType(genericTypeArguments);
-		}
 	}
 }

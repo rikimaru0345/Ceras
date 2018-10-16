@@ -132,7 +132,7 @@ namespace Ceras.Formatters
 			var serializeBlock = Expression.Block(expressions: block);
 
 #if FAST_EXP
-			return Expression.Lambda<DynamicSerializer>(serializeBlock, refBufferArg, refOffsetArg, valueArg).CompileFast(true);
+			return Expression.Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg).CompileFast(true);
 #else
 			return Expression.Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg).Compile();
 #endif
@@ -178,7 +178,7 @@ namespace Ceras.Formatters
 
 			var serializeBlock = Expression.Block(expressions: block);
 #if FAST_EXP
-			return Expression.Lambda<DynamicDeserializer>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
+			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
 #else
 			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).Compile();
 #endif

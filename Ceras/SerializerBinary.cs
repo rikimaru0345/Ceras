@@ -77,13 +77,11 @@
 		#region Specialized
 
 		//
-		// In our formatters we're often using 0-n for someID or count,
-		// and a limited set of negative numbers (often only -2 and -1)
-		// to signify some special cases, like "null" or something like that
+		// In our formatters we're often using 0-n for someID or count, and a limited set of negative numbers (often only -2 and -1) to signify some special cases, like "null" or something like that.
 		// The following method pair optimizes this case a lot.
-		// We can avoid useless ZigZag encoding bc we know the values will never be negative.
+		// We can avoid useless ZigZag encoding because we know the values will never be negative.
 		// And to ensure that a bias is given to the method to move the number into the right range.
-		// This saves both time and memory
+		// This saves both time (no zigzag) and memory (twice the amount of numbers available)
 		//
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteUInt32Bias(ref byte[] buffer, ref int offset, int value, int bias)
