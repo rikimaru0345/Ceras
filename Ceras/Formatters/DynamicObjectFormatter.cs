@@ -21,7 +21,7 @@ namespace Ceras.Formatters
 	// todo 2: cache formatters in a static-generic instead of dict? we need to know exactly how much we'd save; the static-ctor can just generate the corrosponding serializers
 	public class DynamicObjectFormatter<T> : IFormatter<T>, IDynamicFormatterMarker
 	{
-		static MemberComparer _memberComparer = new MemberComparer();
+		static SchemaMemberComparer _schemaMemberComparer = new SchemaMemberComparer();
 
 
 		CerasSerializer _ceras;
@@ -55,12 +55,12 @@ namespace Ceras.Formatters
 			ThrowIfBanned(type);
 			ThrowIfNonspecific(type);
 
-			var members = GetSerializableMembers(type, _ceras.Config.DefaultTargets, _ceras.Config.ShouldSerializeMember);
+			var schema = GetSerializationSchema(type, _ceras.Config.DefaultTargets, _ceras.Config.ShouldSerializeMember);
 
-			if (members.Count > 0)
+			if (schema.Members.Count > 0)
 			{
-				_dynamicSerializer = GenerateSerializer(members);
-				_dynamicDeserializer = GenerateDeserializer(members);
+				_dynamicSerializer = GenerateSerializer(schema.Members);
+				_dynamicDeserializer = GenerateDeserializer(schema.Members);
 			}
 			else
 			{
@@ -100,7 +100,7 @@ namespace Ceras.Formatters
 
 
 
-		SerializeDelegate<T> GenerateSerializer(List<SerializedMember> members)
+		SerializeDelegate<T> GenerateSerializer(List<SchemaMember> members)
 		{
 			var refBufferArg = Expression.Parameter(typeof(byte[]).MakeByRefType(), "buffer");
 			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
@@ -109,8 +109,9 @@ namespace Ceras.Formatters
 			List<Expression> block = new List<Expression>();
 
 
-			foreach (var member in members)
+			foreach (var sMember in members)
 			{
+				var member = sMember.Member;
 				var type = member.MemberType;
 
 				// todo: have a lookup list to directly get the actual 'SerializerBinary' method. There is no reason to actually use objects like "Int32Formatter"
@@ -139,7 +140,7 @@ namespace Ceras.Formatters
 
 		}
 
-		DeserializeDelegate<T> GenerateDeserializer(List<SerializedMember> members)
+		DeserializeDelegate<T> GenerateDeserializer(List<SchemaMember> members)
 		{
 			var bufferArg = Expression.Parameter(typeof(byte[]), "buffer");
 			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
@@ -148,8 +149,9 @@ namespace Ceras.Formatters
 			List<Expression> block = new List<Expression>();
 
 			// Go through all fields and assign them
-			foreach (var member in members)
+			foreach (var sMember in members)
 			{
+				var member = sMember.Member;
 				// todo: what about Field attributes that tell us to:
 				// - use a specific formatter? (HalfFloat, Int32Fixed, MyUserFormatter) 
 				// - assume a type, or exception
@@ -197,9 +199,14 @@ namespace Ceras.Formatters
 		}
 
 
-		internal static List<SerializedMember> GetSerializableMembers(Type type, TargetMember defaultTargetMembers, Func<SerializedMember, SerializationOverride> fieldFilter = null)
+		internal static Schema GetSerializationSchema(Type type, TargetMember defaultTargetMembers, Func<SerializedMember, SerializationOverride> fieldFilter = null)
 		{
-			List<SerializedMember> members = new List<SerializedMember>();
+			// todo: verify that names are valid: letters+numbers, must start with a letter
+			// because then we can do a more efficient format 
+
+
+			Schema schema = new Schema();
+			schema.Type = type;
 
 			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
@@ -238,6 +245,20 @@ namespace Ceras.Formatters
 
 				var serializedMember = FieldOrProp.Create(m);
 
+				// should we allow users to provide an formater for each old-name (in case newer versions have changed the type of the element?)
+				var attrib = m.GetCustomAttribute<MemberAttribute>();
+
+				var overrideFormatter = DetermineOverrideFormatter(m);
+
+				var schemaMember = new SchemaMember
+				{
+					IsSkip = false,
+					Member = serializedMember,
+					OverrideFormatter = null, // todo, get from attrib?
+					PersistentName = attrib?.Name ?? m.Name,
+				};
+
+				VerifyName(schemaMember.PersistentName);
 
 				//
 				// 1.) Use filter if there is one
@@ -247,7 +268,7 @@ namespace Ceras.Formatters
 
 					if (filterResult == SerializationOverride.ForceInclude)
 					{
-						members.Add(serializedMember);
+						schema.Members.Add(schemaMember);
 						continue;
 					}
 					else if (filterResult == SerializationOverride.ForceSkip)
@@ -271,7 +292,7 @@ namespace Ceras.Formatters
 
 				if (include)
 				{
-					members.Add(serializedMember);
+					schema.Members.Add(schemaMember);
 					continue;
 				}
 
@@ -281,7 +302,7 @@ namespace Ceras.Formatters
 				{
 					if (IsMatch(isField, isProp, isPublic, classConfig.TargetMembers))
 					{
-						members.Add(serializedMember);
+						schema.Members.Add(schemaMember);
 						continue;
 					}
 				}
@@ -290,14 +311,32 @@ namespace Ceras.Formatters
 				// 4.) Use global defaults
 				if (IsMatch(isField, isProp, isPublic, defaultTargetMembers))
 				{
-					members.Add(serializedMember);
+					schema.Members.Add(schemaMember);
 					continue;
 				}
 			}
 
-			members.Sort(_memberComparer);
+			schema.Members.Sort(_schemaMemberComparer);
 
-			return members;
+			return schema;
+		}
+
+		static IFormatter DetermineOverrideFormatter(MemberInfo memberInfo)
+		{
+			var prevName = memberInfo.GetCustomAttribute<PreviousFormatter>();
+
+		}
+
+		static void VerifyName(string name)
+		{
+			if (string.IsNullOrWhiteSpace(name))
+				throw new Exception("Member name can not be null/empty");
+			if (!char.IsLetter(name[0]))
+				throw new Exception("Name must start with a letter");
+
+			for (int i = 1; i < name.Length; i++)
+				if (!char.IsLetterOrDigit(name[i]))
+					throw new Exception($"The name '{name}' has character '{name[i]}' at index '{i}', which is not allowed. Must be a letter or digit.");
 		}
 
 		static bool IsMatch(bool isField, bool isProp, bool isPublic, TargetMember targetMembers)
@@ -334,14 +373,14 @@ namespace Ceras.Formatters
 		}
 
 
-		class MemberComparer : IComparer<SerializedMember>
+		class SchemaMemberComparer : IComparer<SchemaMember>
 		{
-			static string Prefix(SerializedMember m) => m.IsField ? "f" : "p";
+			static string Prefix(SchemaMember m) => m.Member.IsField ? "f" : "p";
 
-			public int Compare(SerializedMember x, SerializedMember y)
+			public int Compare(SchemaMember x, SchemaMember y)
 			{
-				var name1 = Prefix(x) + x.MemberType.FullName + x.Name;
-				var name2 = Prefix(y) + y.MemberType.FullName + y.Name;
+				var name1 = Prefix(x) + x.Member.MemberType.FullName + x.PersistentName;
+				var name2 = Prefix(y) + y.Member.MemberType.FullName + y.PersistentName;
 
 				return string.Compare(name1, name2, StringComparison.Ordinal);
 			}

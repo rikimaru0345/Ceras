@@ -6,16 +6,15 @@ namespace LiveTesting
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Linq;
-	using System.Linq.Expressions;
-	using Ceras.Formatters;
-	using FastExpressionCompiler;
+	using System.Text;
+	using Newtonsoft.Json;
 	using Tutorial;
 	using Xunit;
 
 	class Program
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
-		
+
 		static void Main(string[] args)
 		{
 			VersionToleranceTest();
@@ -60,6 +59,19 @@ namespace LiveTesting
 
 		static void VersionToleranceTest()
 		{
+			// todo:
+			// - optimize the way schema data is included in the buffer, can we somehow avoid doing a copy?
+			// - cache schema through hash when we read it from data;
+			//    - impossible? how do we know the schema block length?
+			//      maybe we can append the schema data instead, and write a pointer, so we also know its size at the same time?
+			//      no, we don't know where it ends until we read it; because the buffer might be larger still
+			//
+			// - dictionary for schema to dynamic formatter; re-use the formatter if the schma appars again
+			// - efficiently restore the formatters we've overwritten; maybe just have a secondary schema-to-formatter-dictionary,
+			//   because the only alternative is more complicated; keeping track of other formatters, cleaning dictionaries...
+			// - if we feel like we need to add the size; then we can save the "how many schemata are there" variable; because that one will be obvious then
+			//
+
 			var config = new SerializerConfig();
 			config.VersionTolerance = VersionTolerance.AutomaticEmbedded;
 
@@ -67,7 +79,69 @@ namespace LiveTesting
 
 			var ceras = new CerasSerializer(config);
 
-			var p = new Person { };
+			var v1 = new VersionTest1 { A = 33, B = 34, C = 35, D = 36 };
+			var v2 = new VersionTest2 { A = -3,         C = -4, D2 = -6, E = -7 };
+
+			var v1Data = ceras.Serialize(v1);
+			v1Data.VisualizePrint("data with version tolerance");
+			ceras.Deserialize<VersionTest2>(ref v2, v1Data);
+			
+			
+			var v1ObjData = ceras.Serialize<object>(v1);
+			v1ObjData.VisualizePrint("data with version tolerance");
+
+			object obj = null;
+			ceras.Deserialize<object>(ref obj, v1ObjData);
+
+			// todo: encoding is already pretty efficient; what we now need is allow remapping an old type name to a new one by specifying a Formatter!
+			// - NameMatch:
+			//   - Determine field from old names
+			//
+			// - Type:
+			//   - Allow overriding per PrevType or ReaderFormatter (but not both) 
+			//
+
+			Debug.Assert(v2.A == v1.A);
+			Debug.Assert(v2.C == v1.C);
+			Debug.Assert(v2.D2 == v1.D);
+			Debug.Assert(v2.E == -7);
+
+			
+
+			var json1 = JsonConvert.SerializeObject(v1);
+			var jsonBytes = Encoding.UTF8.GetBytes(json1);
+			/* json is a little smaller: Why?
+			 *
+			 * What are the big differences?
+			 * - Json does not encode field-lengths, because it relies on quotes.
+			 *   2 bytes for quotes, plus 2 bytes for comma and colon. -> on average, also ~4 bytes (last element does not have a ',')
+			 *   So that can't be it.
+			 *
+			 * - Json can write very small numbers (up to 9) in 1 char as well (which becomes 1 bytes)
+			 *   Our numbers are larger, so json needs 2 bytes, while we do VarInt encoding (into 1 byte)
+			 *
+			 * - Json does not encode the type name AT ALL! For small tests this is likely the biggest issue.
+			 *   Only when one type occurs multiple times we actually start saving space
+			 *   Encoding the type name as just one symbol brought us below the limit (21 bytes)
+			 *   But then again we Json simply does less, it doesn't tell you the type name, so you HAVE to know it beforehand.
+			 *   - Could there be a way for us to leave out the type name?
+			 *   - Could we define a Schema purely based on content, like json does?
+			 *   - Would that help or be a good idea?
+			 *
+			 * - What about including a very small header?
+			 *   It could tell us about settings, like version tolerance yes no, or if the main type is included, or whatnot.
+			 *   Maybe also about how field sizes are encoded
+			 *
+			 *
+			 *   One major problem here is that we need to reserve space before writing and we don't know how large the data will be
+			 *   So we either have to assume the worst (4bytes), or gamble on the data being small enough to fit into an Int16
+			 *   Or we always encode the size as VarInt (and reserving space by simply guessing somehow), and if the guess was wrong we move the data around
+			 *
+			 * -> can we skip the type-name if it's the very first object and matches the T parameter??
+			 *    probably, yea, but would that even be a good idea??
+			 *
+			 */
+
 		}
 
 		static void WrongRefTypeTest()
@@ -443,8 +517,8 @@ namespace LiveTesting
 	{
 		Dictionary<Type, string> _commonNames = new Dictionary<Type, string>
 		{
-				{ typeof(VersionTest1), "*Version" },
-				{ typeof(VersionTest1), "*Version" }
+				{ typeof(VersionTest1), "*" },
+				{ typeof(VersionTest2), "*" }
 		};
 
 		public string GetBaseName(Type type)
@@ -457,30 +531,46 @@ namespace LiveTesting
 
 		public Type GetTypeFromBase(string baseTypeName)
 		{
+			// While reading, we want to resolve to 'VersionTest2'
+			// So we can simulate that the type changed.
 			if (_commonNames.ContainsValue(baseTypeName))
-				return _commonNames.First(kvp => kvp.Value == baseTypeName).Key;
-			
+				return typeof(VersionTest2); 
+
 			return SimpleTypeBinderHelper.GetTypeFromBase(baseTypeName);
 		}
 
 		public Type GetTypeFromBaseAndAgruments(string baseTypeName, params Type[] genericTypeArguments)
 		{
-			return SimpleTypeBinderHelper.GetTypeFromBaseAndAgruments(baseTypeName, genericTypeArguments);
+			throw new NotSupportedException("this binder is only for debugging");
+			// return SimpleTypeBinderHelper.GetTypeFromBaseAndAgruments(baseTypeName, genericTypeArguments);
 		}
 	}
-	
+
 	class VersionTest1
 	{
-		public int A;
-		public int B;
-		public int C;
+		public int A = -11;
+		public int B = -12;
+		public int C = -13;
+		public int D = -14;
 	}
 	class VersionTest2
 	{
-		public int A;
+		// A stays as it is
+		public int A = 50;
+
+		// B got removed
+		// --
+
+		// C changed type: int -> float
+		[PreviousType(typeof(int))]
+		public float C = 51;
 		
-		public int C;
-		public float D;
+		// D changed name: D -> D2
+		[PreviousName("D")]
+		public int D2 = 52;
+
+		// E is new
+		public int E = 53;
 	}
 
 	class ConstructorTest

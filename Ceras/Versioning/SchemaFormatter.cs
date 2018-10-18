@@ -8,38 +8,48 @@ namespace Ceras.Helpers
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
-	using FastExpressionCompiler;
 	using static System.Linq.Expressions.Expression;
 
+	// todo 1: if we read the same block (containing a schema) twice, we need to recognize that it's the same and re-use the DynamicSchemaFormatter
+	//			-> but that does not really happen, does it? every data-block contains only one schema per type.
+	//			-> but what about serializing/deserializing multiple times?
+	// todo 2: have a dictionary for known namespaces we write directly (without schema bc they never change)
 
-	class DynamicSchemaFormatter<T> : IFormatter<T>
+	class SchemaDynamicFormatter<T> : IFormatter<T>
 	{
 		CerasSerializer _ceras;
 
-		/*
-		 * todo: have a dict that tells us about "known types" and how large they are, or how to skip them easily
-		 * Examples:
-		 *  int32 -> +4
-		 *  string -> read varint as +offset
-		 *  
-		 */
+		readonly Schema _schema;
 
-		public DynamicSchemaFormatter(CerasSerializer ceras)
+		SerializeDelegate<T> _serializer;
+		DeserializeDelegate<T> _deserializer;
+
+
+		const int FieldSizePrefixBytes = 2;
+		static readonly Type SizeType = typeof(short);
+		static readonly MethodInfo SizeWriteMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.WriteInt16Fixed));
+		static readonly MethodInfo SizeReadMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadInt16Fixed));
+
+
+		public SchemaDynamicFormatter(CerasSerializer ceras, Schema schema)
 		{
 			_ceras = ceras;
+			_schema = schema;
+
+			_serializer = GenerateSerializer(schema);
+			_deserializer = GenerateDeserializer(schema);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
+			_ceras.InstanceData.WrittenSchemata.Add(_schema);
+			_serializer(ref buffer, ref offset, value);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
+			_deserializer(buffer, ref offset, ref value);
 		}
-
-
-		// generate Serializer/Deserializer from schema
-
 
 
 		SerializeDelegate<T> GenerateSerializer(Schema schema)
@@ -93,14 +103,15 @@ namespace Ceras.Helpers
 			// todo: have a lookup list to directly get the actual 'SerializerBinary' method. There is no reason to actually use objects like "Int32Formatter"
 
 			List<Expression> block = new List<Expression>();
-
-			var writeInt32 = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.WriteInt32Fixed));
-
+			
 			var startPos = Parameter(typeof(int), "startPos");
-			var skipOffset = Parameter(typeof(int), "skipOffset");
+			var size = Parameter(typeof(int), "size");
 
 			foreach (var schemaEntry in schema.Members)
 			{
+				if (schemaEntry.IsSkip)
+					continue;
+
 				var member = schemaEntry.Member;
 				var type = member.MemberType;
 
@@ -113,7 +124,7 @@ namespace Ceras.Helpers
 				block.Add(Assign(startPos, refOffsetArg));
 
 				// offset += 4;
-				block.Add(AddAssign(refOffsetArg, Constant(4)));
+				block.Add(AddAssign(refOffsetArg, Constant(FieldSizePrefixBytes)));
 
 				// Serialize(...)
 				block.Add(Call(
@@ -124,26 +135,26 @@ namespace Ceras.Helpers
 							   arg2: MakeMemberAccess(valueArg, member.MemberInfo)
 						  ));
 
-				// skipOffset = (offset - startPos) - 4;
-				block.Add(Assign(skipOffset, Subtract(Subtract(refOffsetArg, startPos), Constant(4))));
+				// size = (offset - startPos) - 4;
+				block.Add(Assign(size, Subtract(Subtract(refOffsetArg, startPos), Constant(FieldSizePrefixBytes))));
 
 				// offset = startPos;
 				block.Add(Assign(refOffsetArg, startPos));
 
-				// WriteInt32( skipOffset )
+				// WriteInt32( size )
 				block.Add(Call(
-							   method: writeInt32,
+							   method: SizeWriteMethod,
 							   arg0: refBufferArg,
 							   arg1: refOffsetArg,
-							   arg2: skipOffset
+							   arg2: Convert(size, SizeType)
 							   ));
 
 				// offset = startPos + skipOffset;
-				block.Add(Assign(refOffsetArg, startPos));
+				block.Add(Assign(refOffsetArg, Add(Add(startPos, size), Constant(FieldSizePrefixBytes))));
 
 			}
 
-			var serializeBlock = Block(expressions: block);
+			var serializeBlock = Block(variables: new[] { startPos, size }, expressions: block);
 
 #if FAST_EXP
 			return Expression.Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg).CompileFast(true);
@@ -155,42 +166,50 @@ namespace Ceras.Helpers
 
 		DeserializeDelegate<T> GenerateDeserializer(Schema schema)
 		{
+			/*
+			 * We got a schema (read from the data), and need to use it to read things in the right order
+			 * and skip blocks that we want to skip
+			 */
+
 			var bufferArg = Parameter(typeof(byte[]), "buffer");
 			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
 			var refValueArg = Parameter(typeof(T).MakeByRefType(), "value");
 
 			List<Expression> block = new List<Expression>();
+			
+			var blockSize = Variable(typeof(int), "blockSize");
 
-			// Go through all fields and assign them
-			//foreach (var member in members)
-			//{
-			//	// todo: what about Field attributes that tell us to:
-			//	// - use a specific formatter? (HalfFloat, Int32Fixed, MyUserFormatter) 
-			//	// - assume a type, or exception
-			//	// - Force ignore caching (for ref types) (value types cannot be ref-saved)
-			//	// - Persistent object caching per type or field
+			foreach (var sMember in schema.Members)
+			{
+				var member = sMember.Member;
 
-			//	var type = member.MemberType;
+				// 1. Read block size
+				block.Add(Assign(left: blockSize,
+								 right: Convert(Call(method: SizeReadMethod, arg0: bufferArg, arg1: refOffsetArg), typeof(int))));
 
-			//	IFormatter formatter;
+				if (sMember.IsSkip)
+				{
+					// 2. a) Skip over the field
+					block.Add(AddAssign(refOffsetArg, blockSize));
+				}
+				else
+				{
+					// 2. b) read normally
+					var type = member.MemberType;
+					IFormatter formatter = _ceras.GetGenericFormatter(type);
 
-			//	if (type.IsValueType)
-			//		formatter = _ceras.GetSpecificFormatter(type);
-			//	else
-			//		formatter = _ceras.GetGenericFormatter(type);
+					var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
+					Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
 
-			//	//var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
-			//	var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
-			//	Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
+					var fieldExp = MakeMemberAccess(refValueArg, member.MemberInfo);
 
-			//	var fieldExp = MakeMemberAccess(refValueArg, member.MemberInfo);
-
-			//	var serializeCall = Call(Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, fieldExp);
-			//	block.Add(serializeCall);
-			//}
+					var serializeCall = Call(Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, fieldExp);
+					block.Add(serializeCall);
+				}
+			}
 
 
-			var serializeBlock = Block(expressions: block);
+			var serializeBlock = Block(variables: new ParameterExpression[] { blockSize }, expressions: block);
 #if FAST_EXP
 			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
 #else
@@ -241,32 +260,20 @@ namespace Ceras.Helpers
 	// I'd like to just use the dynamic formatter :), but manually writing it gives more control
 	class SchemaFormatter : IFormatter<Schema>
 	{
-		// todo: how to de-duplicate object-cache instances?
+		// todo: how to de-duplicate schemata?
 		// if two objects are different, but share their definition by chance, we want to exploit that fact
 		// ObjectSchema can implement GetHashCode(), but then we have to ensure that it, and its collection, and the values inside, never change! (which is trivial but boring)
 		// todo for another day...
-		ObjectCache _cache;
 		IFormatter<Type> _typeFormatter;
 
-		const int Bias = 1;
-		const int NewSchema = -1;
 
 		public SchemaFormatter(CerasSerializer ceras)
 		{
-			_cache = ceras.InstanceData.ObjectCache;
 			_typeFormatter = ceras.GetFormatter<Type>();
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, Schema value)
 		{
-			if (_cache.TryGetExistingObjectId(value, out int existingId))
-			{
-				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, existingId, Bias);
-				return;
-			}
-			SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewSchema, Bias);
-			_cache.RegisterObject(value);
-
 			_typeFormatter.Serialize(ref buffer, ref offset, value.Type);
 
 			var members = value.Members;
@@ -282,17 +289,9 @@ namespace Ceras.Helpers
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Schema schema)
 		{
-			int id = SerializerBinary.ReadUInt32Bias(buffer, ref offset, Bias);
-			if (id >= 0)
-			{
-				schema = _cache.GetExistingObject<Schema>(id);
-				return;
-			}
-
 			Type type = null;
 			_typeFormatter.Deserialize(buffer, ref offset, ref type);
 			schema.Type = type;
-
 
 			var count = SerializerBinary.ReadUInt32(buffer, ref offset);
 			for (int i = 0; i < count; i++)

@@ -214,6 +214,50 @@
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		static void WriteVarIntTEST(ref byte[] buffer, ref int offset, ulong value)
+		{
+			// 1nd byte
+			var byteVal = value & 0x7f;
+			value >>= 7;
+
+			if (value != 0)
+				byteVal |= 0b1000_0000;
+
+			buffer[offset++] = (byte)byteVal;
+
+			if (value == 0)
+				return;
+
+
+			// 2nd byte
+			byteVal = value & 0x7f;
+			value >>= 7;
+
+			if (value != 0)
+				byteVal |= 0b1000_0000;
+
+			buffer[offset++] = (byte)byteVal;
+
+			if (value == 0)
+				return;
+
+
+
+			//do
+			//{
+			//	var byteVal = value & 0x7f;
+			//	value >>= 7;
+
+			//	if (value != 0)
+			//		byteVal |= 0x80;
+
+			//	buffer[offset++] = (byte)byteVal;
+
+			//} while (value != 0);
+		}
+
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		static ulong ReadVarInt(byte[] bytes, ref int offset, int bits)
 		{
 			int shift = 0;
@@ -336,7 +380,7 @@
 			// when we wrote the data and we know how much it really was, we can still move the data around
 			// we can use the last overload of GetBytes
 
-			
+
 			var bytes = Encoding.UTF8.GetBytes(value);
 			EnsureCapacity(ref buffer, offset, bytes.Length + 5); // 5 bytes space for the varint
 

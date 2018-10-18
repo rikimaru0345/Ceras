@@ -1,6 +1,7 @@
 ﻿namespace Ceras
 {
 	using System;
+	using Formatters;
 
 
 	[AttributeUsage(AttributeTargets.Field)]
@@ -74,5 +75,52 @@
 			AlternativeNames = alternativeNames;
 		}
 	}
+	
 
+	public class PreviousNameAttribute : Attribute
+	{
+		public string Name { get; }  // null = same name as the field has now
+
+		public PreviousNameAttribute(string formerName)
+		{
+			Name = formerName;
+		}
+	}
+	
+	public class PreviousFormatter : PreviousNameAttribute
+	{
+		public Type FormatterType { get; } // formatter that can read this old version
+		
+		public PreviousFormatter(Type formatterType) : base(null)
+		{
+			CheckType(formatterType);
+			FormatterType = formatterType;
+		}
+		public PreviousFormatter(string previousName, Type formatterType) : base(previousName)
+		{
+			CheckType(formatterType);
+			FormatterType = formatterType;
+		}
+
+		static void CheckType(Type formatterType)
+		{
+			if (!typeof(IFormatter).IsAssignableFrom(formatterType))
+				throw new Exception($"The provided type {formatterType.Name} is not valid for 'PreviousFormatter', it needs to be a type that implements IFormatter<T>");
+		}
+	}
+
+	public class PreviousType : PreviousNameAttribute
+	{
+		public Type MemberType { get; } // the old type of the field/property
+
+		public PreviousType(Type memberType) : base(null)
+		{
+			MemberType = memberType;
+		}
+
+		public PreviousType(string previousName, Type memberType) : base(previousName)
+		{
+			MemberType = memberType;
+		}
+	}
 }

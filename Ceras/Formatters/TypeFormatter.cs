@@ -27,10 +27,9 @@
 
 		const int Bias = 3;
 		const int Null = -1;
-		const int NewComposite = -2;
-		const int NewSingle = -3;
-
-
+		const int NewGeneric = -2; // type that is further specified through generic arguments
+		const int NewSingle = -3; // normal type that has no generic args
+		
 		public TypeFormatter(CerasSerializer serializer)
 		{
 			_serializer = serializer;
@@ -64,7 +63,7 @@
 
 			if (isClosed && type.IsGenericType)
 			{
-				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewComposite, Bias);
+				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewGeneric, Bias);
 
 				// Split and write
 
@@ -123,7 +122,7 @@
 			}
 
 
-			bool isComposite = mode == NewComposite;
+			bool isComposite = mode == NewGeneric;
 
 			if (isComposite) // composite aka "closed generic"
 			{

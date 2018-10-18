@@ -414,31 +414,52 @@ namespace Tutorial
 				abilityData.VisualizePrint($"Ability {id} data:");
 			}
 
-			// Problems:
 			/*
-			 * 1.) 
-			 * Cannot deserialize recursively
-			 * we'd overwrite our object cache, Ids would go out of order, ...
-			 * Example: A nested object tells us "yea, this is object ID 5 again", while 5 is already some other object (because its the wrong context!)
+			 * Note:
 			 *
-			 * -> Need to make it so the serializer has Stack<>s of object- and type-caches.
-			 * 
+			 * 1.)
+			 * Keep in mind that we can not share a deserialization buffer!
+			 * That means overwriting the buffer you passed to Deserialize while the deserialization is still in progress will cause problems.
+			 * "But why, when would I even attempt that??"
+			 * -> If you remember Step1 there's a part about re-using buffers. Well, in some cases you might be tempted to share a deserialization buffer as well.
+			 *    For example you might think "if I use File.ReadAllBytes() for every object, that'd be wasteful, better use one big buffer and populate it from the file!"
+			 *    The idea is nice and would work to avoid creating a large buffer each time you want to read an object; but when combining it with this IExternalObject idea,
+			 *    things begin to break down because:
+			 *
+			 *    Lets say you have a Monster1.bin file, and load it into the shared buffer. Now while deserializing Ceras realizes that the monster also has a reference to Spell3.bin.
+			 *    It will send a request to your OnExternalObject function, asking for Type=Spell ID=3.
+			 *    That's when you'd load the Spell3.bin data into the shared buffer, OVERWRITING THE DATA of the monster that is still being deserialized.
+			 *
+			 * In other words: Just make sure to not overwrite a buffer before the library is done with it (which should be common sense for any programmer tbh :P)
 			 *
 			 * 2.)
-			 * Keep in mind that we can NOT share a deserialization buffer!!
-			 * If we load from Monster1.bin, and then require Spell5.bin, that'd overwrite our shared buffer,
-			 * and then when the spell is done and we want to continue with the monster, the data will have changed!
+			 * Consider a situation where we have 2 Person objects, both refering to each other (like the BestFriend example in Step1)
+			 * And now we'd like to load one person again.
+			 * Obviously Ceras has to also load the second person, so it will request it from you
+			 * Of course you again load the file (this time the requested person2.bin) and deserialize it.
+			 * Now! While deserializing person2 Ceras sees that it needs Person1!
+			 * And it calls your OnExternalObject again...
 			 *
-			 * -> debug helper: "The data has changed while deserializing, this must be a bug on your end!"
+			 * > "Oh no, its an infinite loop, how to deal with this?"
 			 *
-			 * 3.)
-			 * while deserializing objects, we need to create them, add to cache, then populate.
-			 * otherwise we might get into a situation where we want to load an ability that points to a monster (the one we're already loading)
-			 * and then we end up with two monsters (and if they code continues to run, infinite, and we get a stackoverflow)
-			 * In other words: Objects that are still being deserialized, need to already be in the cache, so they can be used by other stuff!
+			 * No problem. What you do is:
+			 * At the very start before deserializing, you first create an empty object:
+			 *    var p = new Person();
+			 * and then you add it to a dictionary!
+			 *    myDictionary.Add(id, p);
 			 *
-			 * -> create helper class that deals with deserializing object graphs?
+			 * And then you call Ceras in "populate" mode, passing the object you created.
+			 *    ceras.Deserialize(ref p, data);
 			 *
+			 * And you do it that way evertime something gets deserialized.
+			 * Now the problem is solved: While deserializing Person2 ceras calls your load function, and this time you already have an object!
+			 * Yes, it is not yet fully populated, but that doesn't matter at all. What matters is that the reference matches.
+			 *
+			 *
+			 * If this was confusing to you wait until I wrote another, even more detailed guide or something (or just open an issue on github!)
+			 *  
+			 *
+			 * (todo: write better guide; maybe even write some kind of "helper" class that deals with all of this maybe?)
 			 */
 
 			// Load the data again:

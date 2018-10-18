@@ -54,7 +54,7 @@ namespace Ceras
 
 
 		IFormatter<Type> _typeFormatter;
-
+		SchemaFormatter _schemaFormatter;
 
 		readonly FactoryPool<InstanceData> _instanceDataPool;
 		readonly Stack<InstanceData> _recursionStack = new Stack<InstanceData>();
@@ -102,8 +102,19 @@ namespace Ceras
 			//	if (Config.SealTypesWhenUsingKnownTypes)
 			//		typeFormatter.Seal();
 
-			_typeFormatter = (IFormatter<Type>)GetSpecificFormatter(typeof(Type));
 
+			//
+			// Type formatting is special, TypeFormatter has its own caching system!
+			_typeFormatter = (IFormatter<Type>)GetSpecificFormatter(typeof(Type));
+			// Important: Also allow formatting types directly:
+			var runtimeType = GetType().GetType();
+			_specificFormatters.Add(runtimeType, _typeFormatter);
+			_referenceFormatters.Add(typeof(Type), _typeFormatter);
+			_referenceFormatters.Add(runtimeType, _typeFormatter);
+
+
+
+			_schemaFormatter = new SchemaFormatter(this);
 
 			//
 			// Basic setup is done
@@ -129,13 +140,13 @@ namespace Ceras
 						continue;
 					}
 
-					var members = DynamicObjectFormatter<object>.GetSerializableMembers(t, Config.DefaultTargets, Config.ShouldSerializeMember);
-					foreach (var m in members)
+					var schema = DynamicObjectFormatter<object>.GetSerializationSchema(t, Config.DefaultTargets, Config.ShouldSerializeMember);
+					foreach (var m in schema.Members)
 					{
-						ProtocolChecksum.Add(m.MemberType.FullName);
-						ProtocolChecksum.Add(m.Name);
+						ProtocolChecksum.Add(m.Member.MemberType.FullName);
+						ProtocolChecksum.Add(m.Member.Name);
 
-						foreach (var a in m.MemberInfo.GetCustomAttributes(true))
+						foreach (var a in m.Member.MemberInfo.GetCustomAttributes(true))
 							ProtocolChecksum.Add(a.ToString());
 					}
 				}
@@ -149,7 +160,7 @@ namespace Ceras
 			// - dynamic serializers generate their code
 			// - reference formatters generate their wrappers
 			foreach (var t in Config.KnownTypes)
-				if(!t.ContainsGenericParameters)
+				if (!t.ContainsGenericParameters)
 					GetGenericFormatter(t);
 
 
@@ -162,6 +173,8 @@ namespace Ceras
 				d.CurrentRoot = null;
 				d.ObjectCache = new ObjectCache();
 				d.TypeCache = new ObjectCache();
+				d.WrittenSchemata = new HashSet<Schema>();
+				d.DataSchemata = new Dictionary<Type, Schema>();
 
 				foreach (var t in Config.KnownTypes)
 				{
@@ -193,13 +206,13 @@ namespace Ceras
 		/// Use this overload whenever you can. The intention is that you reuse the serialization buffer so the serializer only has to resize/reallocate a newer (larger) one if there really is not enough space; instead of allocating an array for every Serialize() call, this lets you avoid GC-pressure.
 		/// You *can* pass in null for 'targetByteArray' and let the serializer allocate one for you.
 		/// </summary>
-		public int Serialize<T>(T obj, ref byte[] targetByteArray, int offset = 0)
+		public int Serialize<T>(T obj, ref byte[] buffer, int offset = 0)
 		{
 			EnterRecursive(RecursionMode.Serialization);
 
 			if (Config.EmbedChecksum)
 			{
-				SerializerBinary.WriteInt32Fixed(ref targetByteArray, ref offset, ProtocolChecksum.Checksum);
+				SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, ProtocolChecksum.Checksum);
 			}
 
 
@@ -217,7 +230,7 @@ namespace Ceras
 				//
 				// The actual serialization
 				int offsetBeforeWrite = offset;
-				formatter.Serialize(ref targetByteArray, ref offset, obj);
+				formatter.Serialize(ref buffer, ref offset, obj);
 				int offsetAfterWrite = offset;
 
 
@@ -236,12 +249,40 @@ namespace Ceras
 					InstanceData.ObjectCache.ClearSerializationCache();
 
 
-				return offsetAfterWrite - offsetBeforeWrite;
+				int dataSize = offsetAfterWrite - offsetBeforeWrite;
+
+
+				if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+				{
+					//
+					// Write version information (WIP testing version)
+					byte[] schemaData = null;
+					int schemaOffset = 0;
+					// Write count first
+					SerializerBinary.WriteInt32(ref schemaData, ref schemaOffset, InstanceData.WrittenSchemata.Count);
+					// Then all schemata
+					foreach (var schema in InstanceData.WrittenSchemata)
+						_schemaFormatter.Serialize(ref schemaData, ref schemaOffset, schema);
+					int schemaBlockSize = schemaOffset;
+
+					SerializerBinary.EnsureCapacity(ref schemaData, schemaOffset, dataSize);
+					Buffer.BlockCopy(buffer, offsetBeforeWrite, schemaData, schemaOffset, dataSize);
+
+					buffer = schemaData;
+
+
+
+					return schemaBlockSize + dataSize;
+				}
+
+				return dataSize;
 			}
 			finally
 			{
 				//
 				// Clear the root object again
+				InstanceData.WrittenSchemata.Clear();
+
 				LeaveRecursive(RecursionMode.Serialization);
 			}
 		}
@@ -275,9 +316,31 @@ namespace Ceras
 
 			try
 			{
+				int offsetBeforeRead = offset;
+
+
+				
+				// TEST: Feature VersionTolerance
+				if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+				{
+					int schemaOffset = 0;
+					int numSchemata = SerializerBinary.ReadInt32(buffer, ref schemaOffset);
+					for (int i = 0; i < numSchemata; i++)
+					{
+						Schema schema = new Schema();
+						_schemaFormatter.Deserialize(buffer, ref schemaOffset, ref schema);
+						InstanceData.DataSchemata[schema.Type] = schema;
+					}
+
+					int dataBlockStart = schemaOffset;
+
+					offset = dataBlockStart;
+
+				}
+
+
 				var formatter = (IFormatter<T>)GetGenericFormatter(typeof(T));
 
-				int offsetBeforeRead = offset;
 
 				if (Config.EmbedChecksum)
 				{
@@ -316,6 +379,8 @@ namespace Ceras
 			}
 			finally
 			{
+				InstanceData.WrittenSchemata.Clear();
+
 				LeaveRecursive(RecursionMode.Deserialization);
 			}
 		}
@@ -332,6 +397,17 @@ namespace Ceras
 
 
 		public IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetGenericFormatter(typeof(T));
+
+
+
+		static HashSet<Assembly> FrameworkAssemblies = new HashSet<Assembly>
+		{
+				typeof(int).Assembly,
+				typeof(IList<>).Assembly,
+				typeof(System.Uri).Assembly,
+				typeof(System.Net.Sockets.AddressFamily).Assembly,
+				typeof(System.Tuple<>).Assembly,
+		};
 
 		public IFormatter GetGenericFormatter(Type type)
 		{
@@ -358,6 +434,21 @@ namespace Ceras
 			if (_specificFormatters.TryGetValue(type, out var formatter))
 				return formatter;
 
+			// 1.) Version Tolerance: Embedded schema descriptors
+			if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+				if (InstanceData.DataSchemata.TryGetValue(type, out var embeddedSchema))
+				{
+					// todo: remove those schemata again after reading
+					// todo: restore the formatters we've overwritten
+					// maybe put them into their own thing
+					var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
+					var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, embeddedSchema);
+					_specificFormatters[type] = schemaFormatter;
+					return schemaFormatter;
+				}
+
+
+
 			// 2.) User
 			if (_userResolver != null)
 			{
@@ -369,6 +460,29 @@ namespace Ceras
 					return formatter;
 				}
 			}
+
+
+			// Depending on the VersionTolerance we use different formatters
+			if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+			{
+				if (!FrameworkAssemblies.Contains(type.Assembly))
+				{
+					// Probably a user type, which means it might change, which means it needs Schema-Data
+					var objectSchema = DynamicObjectFormatter<object>.GetSerializationSchema(type, Config.DefaultTargets, Config.ShouldSerializeMember);
+
+					// todo: right now we create a new schema formatter every time, super-inefficient, but its only for testing!
+					var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
+					var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, objectSchema);
+
+					// What about value/ref types?
+					// Will we just do a custom ReferenceFormatter so that it writes Type +Schema? 
+					// Or a TypeFormatter that writes Type+Schema?
+					_specificFormatters[type] = schemaFormatter;
+					return schemaFormatter;
+				}
+			}
+
+
 
 			// 3.) Built-in
 			for (int i = 0; i < _resolvers.Count; i++)
@@ -468,6 +582,8 @@ namespace Ceras
 	{
 		public ObjectCache TypeCache;
 		public ObjectCache ObjectCache;
+		public HashSet<Schema> WrittenSchemata; // Populated while writing so at the end we know what schemata we've read, so we can embed their information
+		public Dictionary<Type, Schema> DataSchemata; // Populated at the start of a deserialization, so we know what types have specialized formatters
 		public IExternalRootObject CurrentRoot;
 	}
 

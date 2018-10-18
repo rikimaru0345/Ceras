@@ -306,7 +306,7 @@
 
 			if (typeof(T) == type)
 				// Exact match
-				convertedValueArg = valueArg;
+				convertedValueArg = valueArg; // todo: no need to compile a delegate at all
 			else if (!type.IsValueType)
 				// Cast general -> derived
 				convertedValueArg = Expression.TypeAs(valueArg, type);
