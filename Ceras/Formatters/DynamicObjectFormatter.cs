@@ -21,9 +21,6 @@ namespace Ceras.Formatters
 	// todo 2: cache formatters in a static-generic instead of dict? we need to know exactly how much we'd save; the static-ctor can just generate the corrosponding serializers
 	public class DynamicObjectFormatter<T> : IFormatter<T>, IDynamicFormatterMarker
 	{
-		static SchemaMemberComparer _schemaMemberComparer = new SchemaMemberComparer();
-
-
 		CerasSerializer _ceras;
 		SerializeDelegate<T> _dynamicSerializer;
 		DeserializeDelegate<T> _dynamicDeserializer;
@@ -55,7 +52,7 @@ namespace Ceras.Formatters
 			ThrowIfBanned(type);
 			ThrowIfNonspecific(type);
 
-			var schema = GetSerializationSchema(type, _ceras.Config.DefaultTargets, _ceras.Config.ShouldSerializeMember);
+			var schema = serializer.GetSerializationSchema(type, _ceras.Config.DefaultTargets, _ceras.Config.ShouldSerializeMember);
 
 			if (schema.Members.Count > 0)
 			{
@@ -199,192 +196,6 @@ namespace Ceras.Formatters
 		}
 
 
-		internal static Schema GetSerializationSchema(Type type, TargetMember defaultTargetMembers, Func<SerializedMember, SerializationOverride> fieldFilter = null)
-		{
-			// todo: verify that names are valid: letters+numbers, must start with a letter
-			// because then we can do a more efficient format 
-
-
-			Schema schema = new Schema();
-			schema.Type = type;
-
-			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-
-			var classConfig = type.GetCustomAttribute<MemberConfig>();
-
-			foreach (var m in type.GetFields(flags).Cast<MemberInfo>().Concat(type.GetProperties(flags)))
-			{
-				bool isPublic;
-				bool isField = false, isProp = false;
-
-				if (m is FieldInfo f)
-				{
-					// Skip readonly
-					if (f.IsInitOnly)
-						continue;
-
-					// Skip property backing fields
-					if (f.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
-						continue;
-
-					isPublic = f.IsPublic;
-					isField = true;
-				}
-				else if (m is PropertyInfo p)
-				{
-					if (!p.CanRead || !p.CanWrite)
-						continue;
-					if (p.GetIndexParameters().Length != 0)
-						continue;
-
-					isPublic = p.GetMethod.IsPublic;
-					isProp = true;
-				}
-				else
-					continue;
-
-				var serializedMember = FieldOrProp.Create(m);
-
-				// should we allow users to provide an formater for each old-name (in case newer versions have changed the type of the element?)
-				var attrib = m.GetCustomAttribute<MemberAttribute>();
-
-				var overrideFormatter = DetermineOverrideFormatter(m);
-
-				var schemaMember = new SchemaMember
-				{
-					IsSkip = false,
-					Member = serializedMember,
-					OverrideFormatter = null, // todo, get from attrib?
-					PersistentName = attrib?.Name ?? m.Name,
-				};
-
-				VerifyName(schemaMember.PersistentName);
-
-				//
-				// 1.) Use filter if there is one
-				if (fieldFilter != null)
-				{
-					var filterResult = fieldFilter(serializedMember);
-
-					if (filterResult == SerializationOverride.ForceInclude)
-					{
-						schema.Members.Add(schemaMember);
-						continue;
-					}
-					else if (filterResult == SerializationOverride.ForceSkip)
-					{
-						continue;
-					}
-				}
-
-				//
-				// 2.) Use attribute
-				var ignore = m.GetCustomAttribute<Ignore>(true) != null;
-				var include = m.GetCustomAttribute<Include>(true) != null;
-
-				if (ignore && include)
-					throw new Exception($"Member '{m.Name}' on type '{type.Name}' has both [Ignore] and [Include]!");
-
-				if (ignore)
-				{
-					continue;
-				}
-
-				if (include)
-				{
-					schema.Members.Add(schemaMember);
-					continue;
-				}
-
-				//
-				// 3.) Use class attributes
-				if (classConfig != null)
-				{
-					if (IsMatch(isField, isProp, isPublic, classConfig.TargetMembers))
-					{
-						schema.Members.Add(schemaMember);
-						continue;
-					}
-				}
-
-				//
-				// 4.) Use global defaults
-				if (IsMatch(isField, isProp, isPublic, defaultTargetMembers))
-				{
-					schema.Members.Add(schemaMember);
-					continue;
-				}
-			}
-
-			schema.Members.Sort(_schemaMemberComparer);
-
-			return schema;
-		}
-
-		static IFormatter DetermineOverrideFormatter(MemberInfo memberInfo)
-		{
-			var prevName = memberInfo.GetCustomAttribute<PreviousFormatter>();
-
-		}
-
-		static void VerifyName(string name)
-		{
-			if (string.IsNullOrWhiteSpace(name))
-				throw new Exception("Member name can not be null/empty");
-			if (!char.IsLetter(name[0]))
-				throw new Exception("Name must start with a letter");
-
-			for (int i = 1; i < name.Length; i++)
-				if (!char.IsLetterOrDigit(name[i]))
-					throw new Exception($"The name '{name}' has character '{name[i]}' at index '{i}', which is not allowed. Must be a letter or digit.");
-		}
-
-		static bool IsMatch(bool isField, bool isProp, bool isPublic, TargetMember targetMembers)
-		{
-			if (isField)
-			{
-				if (isPublic)
-				{
-					if ((targetMembers & TargetMember.PublicFields) != 0)
-						return true;
-				}
-				else
-				{
-					if ((targetMembers & TargetMember.PrivateFields) != 0)
-						return true;
-				}
-			}
-
-			if (isProp)
-			{
-				if (isPublic)
-				{
-					if ((targetMembers & TargetMember.PublicProperties) != 0)
-						return true;
-				}
-				else
-				{
-					if ((targetMembers & TargetMember.PrivateProperties) != 0)
-						return true;
-				}
-			}
-
-			return false;
-		}
-
-
-		class SchemaMemberComparer : IComparer<SchemaMember>
-		{
-			static string Prefix(SchemaMember m) => m.Member.IsField ? "f" : "p";
-
-			public int Compare(SchemaMember x, SchemaMember y)
-			{
-				var name1 = Prefix(x) + x.Member.MemberType.FullName + x.PersistentName;
-				var name2 = Prefix(y) + y.Member.MemberType.FullName + y.PersistentName;
-
-				return string.Compare(name1, name2, StringComparison.Ordinal);
-			}
-		}
 	}
 
 	class BannedTypeException : Exception

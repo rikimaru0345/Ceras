@@ -49,6 +49,8 @@
     <Compile Include="Helpers\ObjectCache.cs" />
     <Compile Include="Helpers\ObjectPool.cs" />
     <Compile Include="Helpers\NaiveTypeBinder.cs" />
+    <Compile Include="Helpers\ThreadsafeTypeKeyHashTable.cs" />
+    <Compile Include="Versioning\SchemaMemberComparer.cs" />
     <Compile Include="Versioning\Schema.cs" />
     <Compile Include="Versioning\SchemaFormatter.cs" />
     <Compile Include="Helpers\xxHash.cs" />

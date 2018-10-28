@@ -434,7 +434,7 @@
 
 			if (buffer == null)
 			{
-				buffer = new byte[0x1000];
+				buffer = new byte[0x4000];
 				return;
 			}
 

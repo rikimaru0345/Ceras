@@ -1,6 +1,5 @@
 ﻿namespace Ceras.Formatters
 {
-	using Helpers;
 	using System;
 
 	/*
@@ -29,7 +28,7 @@
 		const int Null = -1;
 		const int NewGeneric = -2; // type that is further specified through generic arguments
 		const int NewSingle = -3; // normal type that has no generic args
-		
+
 		public TypeFormatter(CerasSerializer serializer)
 		{
 			_serializer = serializer;
@@ -53,8 +52,8 @@
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, id, Bias);
 				return;
 			}
-			
-			
+
+
 			// Mode: New
 
 
@@ -70,16 +69,14 @@
 				// Base
 				var baseType = type.GetGenericTypeDefinition();
 				Serialize(ref buffer, ref offset, baseType);
-				
 
 				// Args
 				var genericArgs = type.GetGenericArguments();
-				
-				SerializerBinary.WriteByte(ref buffer, ref offset, (byte)(genericArgs.Length)); // We need count. Ex: Action<T1> and Action<T1, T2> share the name.
+
+				SerializerBinary.WriteByte(ref buffer, ref offset, (byte)(genericArgs.Length)); // We need count. Ex: Action<T1> and Action<T1, T2> share the name
 				for (int i = 0; i < genericArgs.Length; i++)
 					Serialize(ref buffer, ref offset, genericArgs[i]);
 
-				
 				// Register composite type
 				typeCache.RegisterObject(type);
 			}
@@ -88,16 +85,20 @@
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewSingle, Bias);
 
 				// Open generic, something that can be serialized alone
-				
 				var typeName = _typeBinder.GetBaseName(type);
-			
+
 				// Name
 				SerializerBinary.WriteString(ref buffer, ref offset, typeName);
 
-				
 				// Register single type
 				typeCache.RegisterObject(type);
 			}
+
+			// todo: do we put this only in the if or else part? or is it ok here? it should be ok, since we want to embed the schema of every type
+			if (_serializer.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+				if (!CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
+					_serializer.WriteSchemaForType(ref buffer, ref offset, type);
+
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Type value)
@@ -132,7 +133,7 @@
 				Type baseType = value;
 				Deserialize(buffer, ref offset, ref baseType);
 
-				
+
 				// Read count
 				var argCount = SerializerBinary.ReadByte(buffer, ref offset);
 				Type[] genericArgs = new Type[argCount];
@@ -156,7 +157,16 @@
 				value = _typeBinder.GetTypeFromBase(baseTypeName);
 
 				proxy.Value = value;
-			}			
+			}
+
+			// todo: what to do when the type is not written because it is the same already?
+			// a) force writing the type when embedding version info
+			// b) just write schema, assuming the type
+
+			if (_serializer.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+				if (!CerasSerializer.FrameworkAssemblies.Contains(value.Assembly))
+					_serializer.ReadSchemaForType(buffer, ref offset, value);
+
 		}
 	}
 }

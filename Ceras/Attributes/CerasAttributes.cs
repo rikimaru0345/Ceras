@@ -55,21 +55,21 @@
 	}
 	
 	[AttributeUsage(AttributeTargets.Field)]
-	public class MemberAttribute : Attribute
+	public class PreviousNameAttribute : Attribute
 	{
-		public readonly string[] AlternativeNames;
+		public readonly string[] AlternativeNames = new string[0];
 		public readonly string Name;
 
-		public MemberAttribute()
+		public PreviousNameAttribute()
 		{
 		}
 
-		public MemberAttribute(string name)
+		public PreviousNameAttribute(string name)
 		{
 			Name = name;
 		}
 
-		public MemberAttribute(string name, string[] alternativeNames)
+		public PreviousNameAttribute(string name, params string[] alternativeNames)
 		{
 			Name = name;
 			AlternativeNames = alternativeNames;
@@ -77,17 +77,15 @@
 	}
 	
 
-	public class PreviousNameAttribute : Attribute
-	{
-		public string Name { get; }  // null = same name as the field has now
-
-		public PreviousNameAttribute(string formerName)
-		{
-			Name = formerName;
-		}
-	}
 	
-	public class PreviousFormatter : PreviousNameAttribute
+
+
+
+	// todo: previous type / previous formatter would be nice to have. It's supposed to auto-convert old data to the new format (or let the user provide a formatter to read the old data)
+	// at the moment the problem is that we never know in what format the data was written; we'd have to embed the data type (ewww!), or add a version number that the user provides
+	// so we always know in what format we can expect the data. version number would be simply added to the binary data. 
+
+	class PreviousFormatter : PreviousNameAttribute
 	{
 		public Type FormatterType { get; } // formatter that can read this old version
 		
@@ -109,7 +107,7 @@
 		}
 	}
 
-	public class PreviousType : PreviousNameAttribute
+	class PreviousType : PreviousNameAttribute
 	{
 		public Type MemberType { get; } // the old type of the field/property
 
