@@ -32,17 +32,22 @@ var bytes = s.Serialize(p);
 #### Other Features
 - Can serialize Fields and Properties (Check out the [**Tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs) to see all the different configuration options)
   - `ShouldSerialize` Callback > Member-Attribute > Class-Attribute > Global Default
+- No need to place attributes on members
+  - Serialization is still completely "stable", since members are sorted by MemberTypeName+MemberName
 - Efficient:
   - By default no versioning-, type- or other meta-data is written, only what is strictly needed.
   - Utilizes both VarInt & Zig-Zag encoding (example: values up to 128 only take 1 byte instead of 4...)
-  - Encodes type-information in just 1 byte in most cases.
-   - In case you don't want to use `KnownTypes`, Ceras writes type-information only when needed and only once (gets reused)
-  - No type lookups! (except for polymorphic types of course)
+  - Encodes type-information in 0 or 1 byte in most cases
+   - If the type already matches no types are written at all (vast majority of cases)
+   - KnownTypes are encoded as 1 byte
+   - Ceras dynamically learns new/unknown types while serializing. New types are written once in compressed form, thus automatically becoming a known type.
+   - No type lookups! (except for polymorphic types of course)
+- Automatic splitting and reassembling. You want to save your `Monster`, `Spell`, and `Player` objects each into their own file? No problem! Ceras can automatically split and reassemble object graphs for you. (See `IExternalRootObject`)
 - No allocations
   - Generates no "garbage" (garbage-collector pressure) by recycling objects.
   - Integrates with user provided object-pools through `ObjectFactory` and `DiscardObject` methods. Especially useful for use as a network protocol or in games.
   - Can also recycle serialization buffers.
-- Advanced caching settings to remember objects and typing information over multiple serialization calls to save even more space when working with "unknown" types (types you didn't provide in `KnownTypes`).
+- Advanced caching settings to remember objects and typing information over multiple serialization calls to save even more space
 - Can be used as an extremely efficient binary network protocol
 - Can generate a checksum of all types, fields, attributes, ... which can be used to ensure binary compatability (very useful for networking where you want to check if the server/client are using the same protocol...)
 - Very easy to add new "Formatters" (the things that the serializer uses to actually read/write an object)
@@ -50,7 +55,7 @@ var bytes = s.Serialize(p);
 
 
 #### Built-in types
-Built-in support for many commonly used .NET types: Primitives(`int`, `string`, ...), `Enum`, `DateTime`, `Guid`, `Array[]`, `KeyValuePair<,>`, everything that implements `ICollection<>` so `List<>`, `Dictionary<,>`, ... 
+Built-in support for many commonly used .NET types: Primitives(`int`, `string`, ...), `Enum`, `decimal`, `DateTime`, `TimeSpan`, `DateTimeOffset`, `Guid`, `Array[]`, `KeyValuePair<,>`, `Nullable<>`, everything that implements `ICollection<>` so `List<>`, `Dictionary<,>`, ... 
 
 Automatically generates optimized formatters for your types! No attributes or anything needed, everything fully automatic.
 
@@ -86,12 +91,22 @@ Instead of having Ceras do thousands of "Stream.Write" calls, it first serialize
 ##### ...but what if my objects / object-graphs are too big? Or what if I want to serialize smaller parts for lower latency?
 Also not a problem, check out `IExternalRootObject` in the tutorial.
 
+##### What are the differences to MessagePack? Why should I use Ceras over MessagePack?
+While MessagePack-CSharp is an excellent library, it is still bound to the 'MsgPack' format, and thus its inefficiencies.
+Complex type hierarchies and references are a big problem. While the MessagePack-CSharp library managed to allivate some problems with the msgpack-standard, there are still many problems for real-world scenarios.
+One of which is the need to annotate every object and field with an ID-key, having to manually setup attributes in your hierarchy everywhere, making sure nothing collides... it quickly gets out of hand.
+Ceras fixes all those things (and more) completely. The downside is that objects serialized with Ceras are not at all compatible with MessagePack.
+
+
 ##### I'm forced to work with unknown types and can't provide any (at least some) types to `KnownTypes`, what are my options?
 You can still get some massive space-savings by shortening the namespaces.
-Using a custom TypeBinder that's very easy. For example in your long type name `MyVeryLongCompanyName.MyVeryLongProductName.SomeNamespace1.SomeType.MyActualNestedType`
-you can easily replace the first 3 parts with a single symbol. For example when Ceras needs to write the type name, you could change the string that actually gets written to something like this: `~1.SomeType.MyActualNestedType`
-And at deserialization time your type-binder knows that types that begin with `~1.` are just a shorthand for a longer type name.
+Using a custom TypeBinder that's very easy. For example your TypeBinder could just replace the first 3 parts in  `MyVeryLongCompanyName.MyVeryLongProductName.SomeNamespace1.SomeType.MyActualNestedType`
+ with a single symbol. When Ceras needs to write the type name your binder would make it so only `~1.SomeType.MyActualNestedType` gets written. And at deserialization time your TypeBinder knows that types that begin with `~1.` are just a shorthand for a longer type name and reverses the change again.
+ 
+Just implement `ITypeBinder` and set it in the `SerializerConfig`
+ 
    *(todo: write a tutorial step for this)*
+
 
 ##### Ceras doesn't support some type I need to serialize
 Report it as an issue. If it's a common type I'll most likely add a dedicated built-in formatter for it.
@@ -100,24 +115,24 @@ Report it as an issue. If it's a common type I'll most likely add a dedicated bu
 
 # Planned features
 
-### Next (very soon)
+### Next (soon)
 - Making Ceras available as a nuget package
+- Automatic version tolerance; very performant and highly configurable; can be disabled as well
 - Better exceptions (actual exception types instead of the generic `Exception`)
 
 ### Backlog
 - .NET standard build target
 - Override formatter per-member (aka `[Formatter(...)]` attribute)
-- Support for version tolerance is planned for one of the next versions and pretty high up on the priority list.
-For now, Ceras is made without versioning support, but there are some easy work arounds.
-For more details about this see the data-upgrade guide where this is explained in more detail.
 - Performance comparisons beyond simple micro benchmarks
 - Wider range of unit tests instead of manual test cases / debug asserts
+- Serialization Constructors: for immutable collections. (also supporting private static methods for construction)
 - Use [FastExpressionCompiler](https://github.com/dadhi/FastExpressionCompiler) when all its bugs are fixed
-- Support for more built-in types, including common Unity3D types.
+- More built-in formatters, including common Unity3D types.
+- Built-in LZ4 and GZip(Zlib) support, including support for Sync-Flush (especially useful for networking scenarios)
 - More DynamicSerializer variants to support extra use cases like immutable objects, readonly collections, generally being able to have serialization-constructors...
 
 ### Done
-- ~~Ceras does not serialize Properties yet. Support for that is coming soon!~~ **Ceras supports properties and fields now**
+- **Ceras supports properties and fields now** ~~Ceras does not serialize Properties yet. Support for that is coming soon!~~ 
 
 
 
