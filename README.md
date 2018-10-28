@@ -18,7 +18,8 @@ var s = new CerasSerializer();
 var bytes = s.Serialize(p);
 ```
 
--> Check out the [**Detailed Usage Guide**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs) for examples on all features.
+-> Check out the [**Tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs)
+-> It has many different examples for all sorts of use-cases and scenarios!
 
 
 # Features
@@ -44,15 +45,16 @@ var bytes = s.Serialize(p);
    - No type lookups! (except for polymorphic types of course)
 - Automatic splitting and reassembling. You want to save your `Monster`, `Spell`, and `Player` objects each into their own file? No problem! Ceras can automatically split and reassemble object graphs for you. (See `IExternalRootObject`)
 - No allocations
-  - Generates no "garbage" (garbage-collector pressure) by recycling objects.
-  - Integrates with user provided object-pools through `ObjectFactory` and `DiscardObject` methods. Especially useful for use as a network protocol or in games.
-  - Can also recycle serialization buffers.
+  - Generates no "garbage" (garbage-collector pressure) by recycling all internal objects.
+  - Integrates with user object-pools as well with `ObjectFactory` and `DiscardObject` methods. Especially useful for use as a network protocol or in games so Ceras will not allocate new user-objects and instead get them from your pools.
+  - Recycles serialization buffers (just pass in the buffer by ref)
+- Can overwrite objects you already have, works even when an object already contains references to wrong types, Ceras will use your  `DiscardObject`-Method then. (use as an alternative way to eliminate allocations/GC pressure)
 - Advanced caching settings to remember objects and typing information over multiple serialization calls to save even more space
 - Can be used as an extremely efficient binary network protocol
 - Can generate a checksum of all types, fields, attributes, ... which can be used to ensure binary compatability (very useful for networking where you want to check if the server/client are using the same protocol...)
 - Very easy to add new "Formatters" (the things that the serializer uses to actually read/write an object)
 - Various Attributes like `[Config]`, `[Ignore]`, `[Include]`
-
+- Version tolerance. Supports all changes: adding new / renaming / reordering / deleting members.
 
 #### Built-in types
 Built-in support for many commonly used .NET types: Primitives(`int`, `string`, ...), `Enum`, `decimal`, `DateTime`, `TimeSpan`, `DateTimeOffset`, `Guid`, `Array[]`, `KeyValuePair<,>`, `Nullable<>`, everything that implements `ICollection<>` so `List<>`, `Dictionary<,>`, ... 
@@ -117,7 +119,7 @@ Report it as an issue. If it's a common type I'll most likely add a dedicated bu
 
 ### Next (soon)
 - Making Ceras available as a nuget package
-- Automatic version tolerance; very performant and highly configurable; can be disabled as well
+
 - Better exceptions (actual exception types instead of the generic `Exception`)
 
 ### Backlog
@@ -132,8 +134,8 @@ Report it as an issue. If it's a common type I'll most likely add a dedicated bu
 - More DynamicSerializer variants to support extra use cases like immutable objects, readonly collections, generally being able to have serialization-constructors...
 
 ### Done
-- **Ceras supports properties and fields now** ~~Ceras does not serialize Properties yet. Support for that is coming soon!~~ 
-
+- Automatic version tolerance can now be enabled through config. `config.VersionTolerance = VersionTolerance.AutomaticEmbedded;`. More options will follow in the future including manual version tolerance if you want to go the extra mile to optimize your code. 
+- Ceras supports fields **and properties** now, checkout the `tutorial.cs` file to see all the ways to configure what gets serialized
 
 
 
