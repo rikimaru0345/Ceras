@@ -183,9 +183,23 @@ namespace Ceras.Helpers
 
 
 /*
- * ConstructorFormatter
- * - remove the "CreateInstanceIfNeeded" 
- * - replace all "read into member" with "read into local"
- * - add "call constructor (which could also be a normal static method) from locals"
- * - set remaining members from locals
+ * ConstructorFormatter: problem and our solution-approach:
+ *
+ * Problem:
+ * Instead of calling the parameterless "new()" we must call the right constructor function (either normal constructor or static 'create' method)
+ * But at the moment we are reading values into already existing objects.
+ * Right now we need an object so we can put the values there.
+ *
+ * Approach:
+ * We need to instead read all values into local variables, and then construct the object with them.
+ * After reading everything into locals we can call the ctor with the right parameters,
+ * and then set the remaining values (the ones that the parameter did not accept) as we did before (by setting the field or property).
+ *
+ * We have to make sure that all the remaining members can be set though.
+ *
+ *
+ * Maybe we can even further use this approach of reading into locals first to improve performance, so we have multiple reading steps, and then multiple write-steps.
+ * That sounds like it could maybe help.
+ *
+ *
  */

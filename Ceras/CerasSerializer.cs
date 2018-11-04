@@ -113,12 +113,13 @@ namespace Ceras
 			_specificFormatters.Add(runtimeType, _typeFormatter);
 			_referenceFormatters.Add(typeof(Type), _typeFormatter);
 			_referenceFormatters.Add(runtimeType, _typeFormatter);
-			
+
 			//
 			// Basic setup is done
 			// Now calculate the protocol checksum
 			Config.KnownTypes.Seal();
 			if (Config.GenerateChecksum)
+			{
 				foreach (var t in Config.KnownTypes)
 				{
 					ProtocolChecksum.Add(t.FullName);
@@ -149,9 +150,8 @@ namespace Ceras
 					}
 				}
 
-			if (Config.GenerateChecksum)
 				ProtocolChecksum.Finish();
-
+			}
 
 			//
 			// We can already pre-warm formatters
@@ -220,7 +220,7 @@ namespace Ceras
 				// We have to keep track of it so the CacheFormatter knows what NOT to skip
 				// otherwise we'd obviously only write one byte lol (the external ID) and nothing else.
 				InstanceData.CurrentRoot = obj as IExternalRootObject;
-				
+
 
 				//
 				// The actual serialization
@@ -400,7 +400,7 @@ namespace Ceras
 		internal void ReadSchemaForType(byte[] buffer, ref int offset, Type type)
 		{
 			var schema = new Schema();
-			
+
 			var count = SerializerBinary.ReadInt32(buffer, ref offset);
 			for (int i = 0; i < count; i++)
 			{
@@ -422,8 +422,8 @@ namespace Ceras
 					schemaMember.Member = new SerializedMember(member);
 				}
 			}
-			
-			
+
+
 			//
 			// Generate schema-formatter
 			var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
@@ -484,7 +484,7 @@ namespace Ceras
 					var formatter = (IFormatter<T>)GetGenericFormatter(type);
 					formatter.Deserialize(buffer, ref offset, ref value);
 				}
-				
+
 
 				if (expectedReadLength != -1)
 				{
@@ -646,7 +646,7 @@ namespace Ceras
 
 
 
-		
+
 		internal Schema GetSerializationSchema(Type type, TargetMember defaultTargetMembers, Func<SerializedMember, SerializationOverride> fieldFilter = null)
 		{
 			Schema schema = new Schema();
@@ -780,7 +780,7 @@ namespace Ceras
 
 				return (IFormatter)Activator.CreateInstance(formatter);
 			}
-			
+
 			return null;
 		}
 
@@ -791,8 +791,10 @@ namespace Ceras
 			if (char.IsNumber(name[0]) || char.IsControl(name[0]))
 				throw new Exception("Name must start with a letter");
 
+			const string allowedChars = "_";
+			
 			for (int i = 1; i < name.Length; i++)
-				if (!char.IsLetterOrDigit(name[i]))
+				if (!char.IsLetterOrDigit(name[i]) && !allowedChars.Contains(name[i]))
 					throw new Exception($"The name '{name}' has character '{name[i]}' at index '{i}', which is not allowed. Must be a letter or digit.");
 		}
 
