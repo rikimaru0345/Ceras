@@ -414,14 +414,21 @@
 			if (_objectConstructors.TryGetValue(type, out var f))
 				return f;
 
-			var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-						   .FirstOrDefault(c => c.GetParameters().Length == 0);
+		    if(type.IsArray)
+		    {//ArrayFormatter will create a new array
+                f = (() => null);
+		    } else
+		    {
+		        var ctor = type.GetConstructors(BindingFlags.Public|BindingFlags.Instance)
+		            .FirstOrDefault(c => c.GetParameters().Length == 0);
 
-			if (ctor == null)
-				throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
+		        if(ctor == null)
+		            throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
 
-			f = (Func<object>)CreateConstructorDelegate(ctor, typeof(Func<object>));
-			_objectConstructors[type] = f;
+		        f = (Func<object>)CreateConstructorDelegate(ctor, typeof(Func<object>));
+		    }
+
+		    _objectConstructors[type] = f;
 			return f;
 		}
 

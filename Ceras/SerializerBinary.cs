@@ -366,33 +366,31 @@
 		}
 
 
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteString(ref byte[] buffer, ref int offset, string value)
-		{
-			if (value == null)
-			{
-				WriteUInt32Bias(ref buffer, ref offset, -1, 1);
-				return;
-			}
+	    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+	    public static void WriteString(ref byte[] buffer, ref int offset, string value)
+	    {
+	        if(value == null)
+	        {
+	            WriteUInt32Bias(ref buffer, ref offset, -1, 1);
+	            return;
+	        }
 
+            // todo: maybe we can replace Encoding.UTF8.GetByteCount with reasonable estimation?
+            // default implementation Encoding.GetByteCount still allocates a new array
+            // but Encoding.UTF8 overrides it with more efficient implementation.
+	        // If Encoding.UTF8 will be replaced in future - original implementation
+	        // might be even faster.
+            var valueBytesCount = Encoding.UTF8.GetByteCount(value);
+	        EnsureCapacity(ref buffer, offset, valueBytesCount + 5);// 5 bytes space for the varint
 
-			// todo: guess how long the result will be approximately and write with that offset (leaving 1, 2 or 3 bytes for the length, depending on the guess)
-			// when we wrote the data and we know how much it really was, we can still move the data around
-			// we can use the last overload of GetBytes
+	        // Length
+	        WriteUInt32Bias(ref buffer, ref offset, valueBytesCount, 1);
 
+	        var realBytesCount = Encoding.UTF8.GetBytes(value, 0, value.Length, buffer, offset);
+	        offset += realBytesCount;
+	    }
 
-			var bytes = Encoding.UTF8.GetBytes(value);
-			EnsureCapacity(ref buffer, offset, bytes.Length + 5); // 5 bytes space for the varint
-
-			// Length
-			WriteUInt32Bias(ref buffer, ref offset, bytes.Length, 1);
-
-			// Data
-			Buffer.BlockCopy(bytes, 0, buffer, offset, bytes.Length);
-			offset += bytes.Length;
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	    [MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static string ReadString(byte[] buffer, ref int offset)
 		{
 			// Length
