@@ -121,24 +121,18 @@ Report it as an issue. If it's a common type I'll most likely add a dedicated bu
 
 
 # Planned features
-
-### Next (soon)
-- Making Ceras available as a nuget package
-
-- Better exceptions (actual exception types instead of the generic `Exception`)
-
-### Backlog
 - .NET standard build target
-- Override formatter per-member (aka `[Formatter(...)]` attribute)
+- "Serialization Constructors" for immutable collections (also supporting private static methods for construction)
 - Performance comparisons beyond simple micro benchmarks
+- Better exceptions (actual exception types instead of the generic `Exception`)
 - Wider range of unit tests instead of manual test cases / debug asserts
-- Serialization Constructors: for immutable collections. (also supporting private static methods for construction)
 - Use [FastExpressionCompiler](https://github.com/dadhi/FastExpressionCompiler) when all its bugs are fixed
 - More built-in formatters, including common Unity3D types.
+- Override formatter per-member (aka `[Formatter(...)]` attribute)
 - Built-in LZ4 and GZip(Zlib) support, including support for Sync-Flush (especially useful for networking scenarios)
-- More DynamicSerializer variants to support extra use cases like immutable objects, readonly collections, generally being able to have serialization-constructors...
 
 ### Done
+- Making Ceras available as a nuget package
 - Automatic release builds
 - Automatic version tolerance can now be enabled through config. `config.VersionTolerance = VersionTolerance.AutomaticEmbedded;`. More options will follow in the future including manual version tolerance if you want to go the extra mile to optimize your code. 
 - Ceras supports fields **and properties** now, checkout the `tutorial.cs` file to see all the ways to configure what gets serialized
