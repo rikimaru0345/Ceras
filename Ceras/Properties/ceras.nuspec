@@ -17,7 +17,13 @@
 			<releaseNotes>Bug fixes and performance improvements</releaseNotes>
 		-->
 
-        <description>Core utility functions for web applications</description>
+        <description>
+Ceras is a binary serializer, inspired by MsgPack and intended to not only fix the pain-points I've experienced using it, but also add a lot of extra features. Ceras implements its own format and is not compatible with the "MsgPack" format.
+
+Support for reference loops, large/complicated inheritnace chains, "external" objects, ...
+
+Check out the full feature list and tutorial over at https://github.com/rikimaru0345/Ceras/blob/master/README.md
+</description>
         <tags>utility, ceras, serialization, serializer, formatter, unity, unity3d, network, networking</tags>
 
         <frameworkAssemblies>
