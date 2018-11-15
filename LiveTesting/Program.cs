@@ -17,6 +17,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			StructTest();
+
 			VersionToleranceTest();
 
 			WrongRefTypeTest();
@@ -55,6 +57,47 @@ namespace LiveTesting
 
 			tutorial.Step7_GameDatabase();
 
+		}
+
+		class StructTestClass
+		{
+			public TestStruct TestStruct;
+		}
+
+		public struct TestStruct
+		{
+			[Ceras.Include]
+			uint _value;
+
+			public static implicit operator uint(TestStruct id)
+			{
+				return id._value;
+			}
+			public static implicit operator TestStruct(uint id)
+			{
+				return new TestStruct { _value = id };
+			}
+
+			public override string ToString()
+			{
+				return _value.ToString("X");
+			}
+		}
+
+		static void StructTest()
+		{
+			var c = new StructTestClass();
+			c.TestStruct = 5;
+			
+			var ceras = new CerasSerializer();
+			var data = ceras.Serialize<object>(c);
+			var clone = ceras.Deserialize<object>(data);
+
+			data.VisualizePrint("Struct Test");
+
+			var cloneContainer = clone as StructTestClass;
+
+			Debug.Assert(c.TestStruct == cloneContainer.TestStruct);
 		}
 
 		static void VersionToleranceTest()

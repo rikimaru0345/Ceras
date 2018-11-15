@@ -3,10 +3,12 @@
 	using System;
 	using System.Collections.Generic;
 
-	// todo: respect options for collection handling in both serializers
+	// todo: respect options for collection handling in both serializers (array and collection).
 
 	// todo: do we want to do object caching for arrays and collections as well!?
 	// todo: ..how realistic is it that two objects reference the same collection?
+
+	// todo: at the moment we refer to the item formatter through an interface field. Would we get a performance improvement if we'd compile a dedicated formatter that has the itemFormatter built-in as a constant instead? (just like the DynamicObjectFormatter already does)? Would we save performance if we'd cache the itemFormatter into a local variable before entering the loops?
 
 	public class ArrayFormatter<TItem> : IFormatter<TItem[]>
 	{
