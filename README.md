@@ -1,3 +1,6 @@
+![AppVeyor](https://ci.appveyor.com/api/projects/status/github/rikimaru0345/Ceras?branch=master&svg=true)
+
+
 # Ceras
 ###### Universal binary serializer for a wide variety of scenarios, lots of features, and tuned for performance 
 Ceras is a binary serializer, inspired by [MsgPack](https://github.com/neuecc/MessagePack-CSharp) and intended to not only fix the pain-points I've experienced using it, but also add a lot of extra features.
@@ -134,6 +137,7 @@ Report it as an issue. If it's a common type I'll most likely add a dedicated bu
 - More DynamicSerializer variants to support extra use cases like immutable objects, readonly collections, generally being able to have serialization-constructors...
 
 ### Done
+- Automatic release builds
 - Automatic version tolerance can now be enabled through config. `config.VersionTolerance = VersionTolerance.AutomaticEmbedded;`. More options will follow in the future including manual version tolerance if you want to go the extra mile to optimize your code. 
 - Ceras supports fields **and properties** now, checkout the `tutorial.cs` file to see all the ways to configure what gets serialized
 
