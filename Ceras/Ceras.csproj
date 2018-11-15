@@ -70,5 +70,8 @@
     <Compile Include="Resolvers\UserFormatterResolver.cs" />
     <Compile Include="SerializerBinary.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Properties\Ceras.nuspec" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

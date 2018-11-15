@@ -1,0 +1,34 @@
+﻿<?xml version="1.0"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+    <metadata>
+
+        <id>Ceras</id>
+        <version>1.0.0</version>
+
+        <authors>Riki (GitHub: rikimaru0345)</authors>
+        <owners>rikimaru0345</owners>
+
+        <licenseUrl>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</licenseUrl>
+        <projectUrl>https://github.com/rikimaru0345/Ceras</projectUrl>
+
+        <requireLicenseAcceptance>false</requireLicenseAcceptance>
+
+        <!-- 
+			<releaseNotes>Bug fixes and performance improvements</releaseNotes>
+		-->
+
+        <description>Core utility functions for web applications</description>
+        <tags>utility, ceras, serialization, serializer, formatter, unity, unity3d, network, networking</tags>
+
+        <frameworkAssemblies>
+            <frameworkAssembly assemblyName="System" targetFramework=".NETFramework4.5" />
+            <frameworkAssembly assemblyName="System.Core" targetFramework=".NETFramework4.5" />
+        </frameworkAssemblies>
+
+    </metadata>
+
+    <files>
+        <file src="..\bin\Release\Ceras.dll" target="lib\net45\" />
+        <file src="..\bin\Release\Ceras.pdb" target="lib\net45\" />
+    </files>
+</package>
