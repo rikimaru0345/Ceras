@@ -381,7 +381,7 @@
 	        // If Encoding.UTF8 will be replaced in future - original implementation
 	        // might be even faster.
             var valueBytesCount = Encoding.UTF8.GetByteCount(value);
-	        EnsureCapacity(ref buffer, offset, valueBytesCount + 5);// 5 bytes space for the varint
+	        EnsureCapacity(ref buffer, offset, valueBytesCount + 5); // 5 bytes space for the varint
 
 	        // Length
 	        WriteUInt32Bias(ref buffer, ref offset, valueBytesCount, 1);

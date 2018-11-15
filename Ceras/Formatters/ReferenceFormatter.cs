@@ -213,7 +213,7 @@
 			// todo: enforce all types to have a parameterless constructor
 			bool isRefType = !specificType.IsValueType;
 			bool isStringOrType = typeof(T) == typeof(string) || typeof(T) == typeof(Type);
-			
+
 
 			if (value == null)
 			{
@@ -267,9 +267,9 @@
 			T value;
 			var factory = _serializer.Config.ObjectFactoryMethod;
 			if (factory != null)
-				value = (T) _serializer.Config.ObjectFactoryMethod(specificType);
+				value = (T)_serializer.Config.ObjectFactoryMethod(specificType);
 			else
-				value = (T) GetConstructor(specificType)();
+				value = (T)GetConstructor(specificType)();
 			return value;
 		}
 
@@ -414,21 +414,23 @@
 			if (_objectConstructors.TryGetValue(type, out var f))
 				return f;
 
-		    if(type.IsArray)
-		    {//ArrayFormatter will create a new array
-                f = (() => null);
-		    } else
-		    {
-		        var ctor = type.GetConstructors(BindingFlags.Public|BindingFlags.Instance)
-		            .FirstOrDefault(c => c.GetParameters().Length == 0);
+			if (type.IsArray)
+			{
+				// ArrayFormatter will create a new array
+				f = () => null;
+			}
+			else
+			{
+				var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+					.FirstOrDefault(c => c.GetParameters().Length == 0);
 
-		        if(ctor == null)
-		            throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
+				if (ctor == null)
+					throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
 
-		        f = (Func<object>)CreateConstructorDelegate(ctor, typeof(Func<object>));
-		    }
+				f = (Func<object>)CreateConstructorDelegate(ctor, typeof(Func<object>));
+			}
 
-		    _objectConstructors[type] = f;
+			_objectConstructors[type] = f;
 			return f;
 		}
 
