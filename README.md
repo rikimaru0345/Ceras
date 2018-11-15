@@ -1,5 +1,4 @@
-![AppVeyor](https://ci.appveyor.com/api/projects/status/github/rikimaru0345/Ceras?branch=master&svg=true)
-
+[![AppVeyor](https://ci.appveyor.com/api/projects/status/github/rikimaru0345/Ceras?branch=master&svg=true)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts)
 
 # Ceras
 ###### Universal binary serializer for a wide variety of scenarios, lots of features, and tuned for performance 
