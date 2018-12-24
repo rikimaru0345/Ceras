@@ -6,8 +6,6 @@ namespace LiveTesting
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Linq;
-	using System.Text;
-	using Newtonsoft.Json;
 	using Tutorial;
 	using Xunit;
 
@@ -17,6 +15,10 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			InterfaceFormatterTest();
+
+			InheritTest();
+
 			StructTest();
 
 			VersionToleranceTest();
@@ -59,6 +61,63 @@ namespace LiveTesting
 
 		}
 
+		private static void InterfaceFormatterTest()
+		{
+			CerasSerializer ceras = new CerasSerializer();
+
+			var intListFormatter = ceras.GetFormatter<IList<int>>();
+
+			List<int> list = new List<int> { 1, 2, 3, 4 };
+
+
+			byte[] buffer = null;
+			int offset = 0;
+			intListFormatter.Serialize(ref buffer, ref offset, list);
+
+
+			// Deserializing into a IList variable should be no problem!
+
+			offset = 0;
+			IList<int> clonedList = null;
+			intListFormatter.Deserialize(buffer, ref offset, ref clonedList);
+
+			Debug.Assert(clonedList != null);
+			Debug.Assert(clonedList.SequenceEqual(list));
+		}
+
+		public abstract class NetObjectMessage
+		{
+			public uint NetId;
+		}
+		public class SyncUnitHealth : NetObjectMessage
+		{
+			public System.Int32 Health;
+		}
+
+		static void InheritTest()
+		{
+			var config = new SerializerConfig();
+			config.KnownTypes.Add(typeof(SyncUnitHealth));
+			var ceras = new CerasSerializer(config);
+
+			// This should be no problem:
+			// - including inherited fields
+			// - registering as derived (when derived is used), but still including inherited fields
+			// There's literally no reason why this shouldn't work (except for some major bug ofc)
+
+			var obj = new SyncUnitHealth { NetId = 1235, Health = 600 };
+			var bytes = ceras.Serialize<object>(obj);
+
+			var clone = ceras.Deserialize<object>(bytes) as SyncUnitHealth;
+
+			Debug.Assert(obj != clone);
+			Debug.Assert(obj.NetId == clone.NetId);
+			Debug.Assert(obj.Health == clone.Health);
+
+			// we're using KnownTypes, so we expect the message to be really short
+			Debug.Assert(bytes.Length == 6);
+		}
+
 		class StructTestClass
 		{
 			public TestStruct TestStruct;
@@ -88,7 +147,7 @@ namespace LiveTesting
 		{
 			var c = new StructTestClass();
 			c.TestStruct = 5;
-			
+
 			var ceras = new CerasSerializer();
 			var data = ceras.Serialize<object>(c);
 			var clone = ceras.Deserialize<object>(data);
@@ -110,7 +169,7 @@ namespace LiveTesting
 			var ceras = new CerasSerializer(config);
 
 			var v1 = new VersionTest1 { A = 33, B = 34, C = 36 };
-			var v2 = new VersionTest2 { A = -3,         C2 = -6, D = -7 };
+			var v2 = new VersionTest2 { A = -3, C2 = -6, D = -7 };
 
 			var v1Data = ceras.Serialize(v1);
 			v1Data.VisualizePrint("data with version tolerance");
@@ -120,8 +179,8 @@ namespace LiveTesting
 			var v1ObjData = ceras.Serialize<object>(v1);
 			Debug.Assert(v1Data.SequenceEqual(v1ObjData), "data should be the same (because VersionTolerance forces generic parameter to <object>)");
 
-			
-			Debug.Assert(v1.A == v2.A, "normal prop did not persist"); 
+
+			Debug.Assert(v1.A == v2.A, "normal prop did not persist");
 			Debug.Assert(v1.C == v2.C2, "expected prop 'C2' to be populated by prop previously named 'C'");
 		}
 
@@ -515,7 +574,7 @@ namespace LiveTesting
 			// While reading, we want to resolve to 'VersionTest2'
 			// So we can simulate that the type changed.
 			if (_commonNames.ContainsValue(baseTypeName))
-				return typeof(VersionTest2); 
+				return typeof(VersionTest2);
 
 			return SimpleTypeBinderHelper.GetTypeFromBase(baseTypeName);
 		}
@@ -541,7 +600,7 @@ namespace LiveTesting
 
 		// B got removed
 		// --
-		
+
 		[PreviousName("C", "C2")]
 		public int C2 = 52;
 
