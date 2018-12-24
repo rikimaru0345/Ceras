@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;net45</TargetFrameworks>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <Version>1.2.0</Version>
+    <Version>1.2.1</Version>
     <Authors>Riki (GitHub: rikimaru0345)</Authors>
     <PackageLicenseUrl>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</PackageLicenseUrl>
     <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
