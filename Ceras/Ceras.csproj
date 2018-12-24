@@ -1,77 +1,31 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+<Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{F246878A-DA0D-4177-9625-915091427FCB}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>Ceras</RootNamespace>
-    <AssemblyName>Ceras</AssemblyName>
-    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
-    <FileAlignment>512</FileAlignment>
+    <TargetFrameworks>netstandard2.0;net45</TargetFrameworks>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <Version>1.2.0</Version>
+    <Authors>Riki (GitHub: rikimaru0345)</Authors>
+    <PackageLicenseUrl>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</PackageLicenseUrl>
+    <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
+    <Description>Ceras is a binary serializer, inspired by MsgPack and intended to not only fix the pain-points I've experienced using it, but also add a lot of extra features. Ceras implements its own format and is not compatible with the "MsgPack" format.
+
+Support for reference loops, large/complicated inheritnace chains, "external" objects, ...
+
+Check out the full feature list and tutorial over at https://github.com/rikimaru0345/Ceras/blob/master/README.md</Description>
+    <PackageTags>utility, ceras, serialization, serializer, formatter, unity, unity3d, network, networking</PackageTags>
+    <Company>rikimaru0345</Company>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>TRACE;DEBUG</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="Microsoft.CSharp" />
+    <PackageReference Include="System.Reflection.Emit.Lightweight" Version="4.3.0" />
   </ItemGroup>
-  <ItemGroup>
-    <Compile Include="Exceptions\CerasException.cs" />
-    <Compile Include="Exceptions\UnexpectedBytesConsumedException.cs" />
-    <Compile Include="Helpers\FastExpressionCompiler.cs" />
-    <Compile Include="Helpers\FieldOrProp.cs" />
-    <Compile Include="Helpers\ObjectCache.cs" />
-    <Compile Include="Helpers\ObjectPool.cs" />
-    <Compile Include="Helpers\NaiveTypeBinder.cs" />
-    <Compile Include="Helpers\ThreadsafeTypeKeyHashTable.cs" />
-    <Compile Include="Versioning\SchemaMemberComparer.cs" />
-    <Compile Include="Versioning\Schema.cs" />
-    <Compile Include="Versioning\SchemaFormatter.cs" />
-    <Compile Include="Helpers\xxHash.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Resolvers\IExternalRootObject.cs" />
-    <Compile Include="Attributes\CerasAttributes.cs" />
-    <Compile Include="Formatters\BclFormatters.cs" />
-    <Compile Include="Formatters\ReferenceFormatter.cs" />
-    <Compile Include="Formatters\CollectionFormatter.cs" />
-    <Compile Include="Formatters\DynamicObjectFormatter.cs" />
-    <Compile Include="Formatters\IFormatter.cs" />
-    <Compile Include="Formatters\KeyValuePairFormatter.cs" />
-    <Compile Include="Formatters\MemberInfoFormatter.cs" />
-    <Compile Include="Formatters\StringFormatter.cs" />
-    <Compile Include="Formatters\TypeFormatter.cs" />
-    <Compile Include="Helpers\ReflectionHelper.cs" />
-    <Compile Include="Resolvers\DynamicObjectResolver.cs" />
-    <Compile Include="Resolvers\IFormatterResolver.cs" />
-    <Compile Include="Resolvers\PrimitiveResolver.cs" />
-    <Compile Include="Resolvers\StandardResolver.cs" />
-    <Compile Include="CerasSerializer.cs" />
-    <Compile Include="Resolvers\UserFormatterResolver.cs" />
-    <Compile Include="SerializerBinary.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="Properties\Ceras.nuspec" />
-  </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+
 </Project>
