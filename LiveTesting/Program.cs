@@ -15,6 +15,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			SimpleDictionaryTest();
+
 			DictInObjArrayTest();
 
 			MaintainTypeTest();
@@ -65,6 +67,18 @@ namespace LiveTesting
 
 		}
 
+		private static void SimpleDictionaryTest()
+		{
+			var dict = new Dictionary<string, object>
+			{
+				["name"] = "Test",
+			};
+			var s = new CerasSerializer();
+
+			var data = s.Serialize(dict);
+			var clone = s.Deserialize<Dictionary<string, object>>(data);
+		}
+
 		private static void DictInObjArrayTest()
 		{
 			var dict = new Dictionary<string, object>
@@ -96,7 +110,7 @@ namespace LiveTesting
 
 			var dictElement = objArray[0] as Dictionary<string, object>;
 			Debug.Assert(dictElement != null);
-			
+
 			var three = dictElement["test"];
 
 			Debug.Assert(three.GetType() == typeof(int));
