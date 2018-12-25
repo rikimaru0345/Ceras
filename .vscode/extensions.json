@@ -1,0 +1,7 @@
+{
+    "recommendations": [
+        "ms-vscode.csharp",
+        "tintoy.msbuild-project-tools",
+        "docsmsft.docs-authoring-pack"
+    ],
+}
