@@ -212,7 +212,7 @@
 			// todo: have the recent fixes made these checks obsolete? What if someone forces serialization of private fields in a type that cannot be directly instantiated?
 			// todo: enforce all types to have a parameterless constructor
 			bool isRefType = !specificType.IsValueType;
-			bool isStringOrType = typeof(T) == typeof(string) || typeof(T) == typeof(Type);
+			bool isStringOrType = specificType == typeof(string) || specificType == typeof(Type);
 
 
 			if (value == null)
