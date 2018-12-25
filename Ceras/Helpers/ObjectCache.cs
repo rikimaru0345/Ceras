@@ -147,6 +147,10 @@
 				_sourcePool.ReturnObject(this);
 			}
 
+			public override string ToString()
+			{
+				return $"RefProxy({typeof(T).Name}): {Value}";
+			}
 		}
 
 		static class RefProxyPool<T>
