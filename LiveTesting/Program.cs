@@ -15,6 +15,10 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			DictInObjArrayTest();
+
+			MaintainTypeTest();
+
 			InterfaceFormatterTest();
 
 			InheritTest();
@@ -58,6 +62,76 @@ namespace LiveTesting
 			tutorial.Step5_CustomFormatters();
 
 			tutorial.Step7_GameDatabase();
+
+		}
+
+		private static void DictInObjArrayTest()
+		{
+			var dict = new Dictionary<string, object>
+			{
+				["test"] = new Dictionary<string, object>
+				{
+					["test"] = new object[]
+					{
+						new Dictionary<string, object>
+						{
+							["test"] = 3
+						}
+					}
+				}
+			};
+
+
+			var s = new CerasSerializer();
+
+			var data = s.Serialize(dict);
+
+			var cloneDict = s.Deserialize<Dictionary<string, object>>(data);
+		}
+
+		private static void MaintainTypeTest()
+		{
+			CerasSerializer ceras = new CerasSerializer();
+
+			var dict = new Dictionary<string, object>
+			{
+				["int"] = 5,
+				["byte"] = (byte)12,
+				["float"] = 3.141f
+			};
+
+			var data1 = ceras.Serialize(dict);
+			var clone = ceras.Deserialize<Dictionary<string, object>>(data1);
+
+			foreach (var kvp in dict)
+			{
+				var cloneValue = clone[kvp.Key];
+
+				Debug.Assert(kvp.Value.Equals(cloneValue));
+
+				if (kvp.Value.GetType() != cloneValue.GetType())
+					Debug.Assert(false, $"Type does not match: A={kvp.Value.GetType()} B={cloneValue.GetType()}");
+				else
+					Console.WriteLine($"Success! Type matching: {kvp.Value.GetType()}");
+			}
+
+			var data2 = new Dictionary<string, object>();
+			data2["test"] = 5;
+
+			var s = new CerasSerializer();
+			var desData = s.Deserialize<Dictionary<string, object>>(s.Serialize(data2));
+
+			var originalType = data2["test"].GetType();
+			var clonedType = data2["test"].GetType();
+
+			if (originalType != clonedType)
+			{
+				Debug.Assert(false, $"Types don't match anymore!! {originalType} {clonedType}");
+			}
+			else
+			{
+				Console.WriteLine("Success! Type match: " + originalType);
+			}
 
 		}
 
