@@ -127,24 +127,22 @@
 
 			if (isComposite) // composite aka "closed generic"
 			{
-				// Read main type
-				var compositeProxy = typeCache.CreateDeserializationProxy<Type>();
-
+				// Read base type first (example: Dictionary<T1, T2>)
 				Type baseType = value;
 				Deserialize(buffer, ref offset, ref baseType);
 
 
-				// Read count
+				// Read count (example: 2)
 				var argCount = SerializerBinary.ReadByte(buffer, ref offset);
 				Type[] genericArgs = new Type[argCount];
+
+				// Read all inner type definitions (in our example: 'string' and 'object)
 				for (int i = 0; i < argCount; i++)
-				{
-					var genericArgProxy = typeCache.CreateDeserializationProxy<Type>();
+					Deserialize(buffer, ref offset, ref genericArgs[i]);
+				
 
-					Deserialize(buffer, ref offset, ref genericArgProxy.Value);
-
-					genericArgs[i] = genericArgProxy.Value;
-				}
+				// Read construct full composite (example: Dictionary<string, object>)
+				var compositeProxy = typeCache.CreateDeserializationProxy<Type>();
 
 				value = _typeBinder.GetTypeFromBaseAndAgruments(baseType.FullName, genericArgs);
 				compositeProxy.Value = value; // make it available for future deserializations
