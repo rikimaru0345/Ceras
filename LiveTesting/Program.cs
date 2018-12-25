@@ -87,6 +87,20 @@ namespace LiveTesting
 			var data = s.Serialize(dict);
 
 			var cloneDict = s.Deserialize<Dictionary<string, object>>(data);
+
+			var inner1 = cloneDict["test"] as Dictionary<string, object>;
+			Debug.Assert(inner1 != null);
+
+			var objArray = inner1["test"] as object[];
+			Debug.Assert(objArray != null);
+
+			var dictElement = objArray[0] as Dictionary<string, object>;
+			Debug.Assert(dictElement != null);
+			
+			var three = dictElement["test"];
+
+			Debug.Assert(three.GetType() == typeof(int));
+			Debug.Assert(3.Equals(three));
 		}
 
 		private static void MaintainTypeTest()
