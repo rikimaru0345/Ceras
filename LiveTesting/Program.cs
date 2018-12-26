@@ -77,6 +77,12 @@ namespace LiveTesting
 
 			var data = s.Serialize(dict);
 			var clone = s.Deserialize<Dictionary<string, object>>(data);
+
+			Debug.Assert(dict != clone);
+
+			string n1 = dict["name"] as string;
+			string n2 = clone["name"] as string;
+			Debug.Assert(n1 == n2);
 		}
 
 		private static void DictInObjArrayTest()
@@ -125,7 +131,9 @@ namespace LiveTesting
 			{
 				["int"] = 5,
 				["byte"] = (byte)12,
-				["float"] = 3.141f
+				["float"] = 3.141f,
+				["ushort"] = (ushort)345,
+				["sbyte"] = (sbyte)91,
 			};
 
 			var data1 = ceras.Serialize(dict);
@@ -147,10 +155,10 @@ namespace LiveTesting
 			data2["test"] = 5;
 
 			var s = new CerasSerializer();
-			var desData = s.Deserialize<Dictionary<string, object>>(s.Serialize(data2));
+			var clonedDict = s.Deserialize<Dictionary<string, object>>(s.Serialize(data2));
 
 			var originalType = data2["test"].GetType();
-			var clonedType = data2["test"].GetType();
+			var clonedType = clonedDict["test"].GetType();
 
 			if (originalType != clonedType)
 			{
