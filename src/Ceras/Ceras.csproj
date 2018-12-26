@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.Net.Sdk">
+  <!-- Global metadata -->
+  <PropertyGroup>
+    <Version>1.2.1</Version>
+    <Authors>riki</Authors>
+    <Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
+    <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/rikimaru0345/Ceras</RepositoryUrl>
+    <Description>
+      Ceras is a binary serializer, inspired by MsgPack and intended to not only fix the pain-points I've experienced using it,
+      but also add a lot of extra features. Ceras implements its own format and is not compatible with the "MsgPack" format.
+
+      Support for reference loops, large/complicated inheritance chains, "external" objects, ...
+    </Description>
+    <PackageTags>utility, ceras, serialization, serializer, formatter, unity, unity3d, network, networking</PackageTags>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <TargetFrameworks>net45;netstandard2.0;</TargetFrameworks>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Reflection.Emit.ILGeneration" Version="4.3.0" />
+    <PackageReference Include="System.Reflection.Emit.Lightweight" Version="4.3.0" />
+  </ItemGroup>
+</Project>

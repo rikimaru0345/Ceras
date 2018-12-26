@@ -22,8 +22,8 @@ namespace Ceras.Test
             var nullBytes = Roundtrip((byte[])null);
             Assert.Equal((byte[])null, nullBytes);
             
-            var zeroBytes = Roundtrip(Array.Empty<byte>());
-            Assert.Equal(zeroBytes, Array.Empty<byte>());
+            var zeroBytes = Roundtrip(new byte[0]);
+            Assert.Equal(zeroBytes, new byte[0]);
 
             var r = new Random(DateTime.Now.GetHashCode());
             var bytesData = new byte[r.Next(100, 200)];
@@ -39,8 +39,8 @@ namespace Ceras.Test
             var nullBytes = Roundtrip((decimal[])null);
             Assert.Equal((decimal[])null, nullBytes);
 
-            var zeroBytes = Roundtrip(Array.Empty<decimal>());
-            Assert.Equal(zeroBytes, Array.Empty<decimal>());
+            var zeroBytes = Roundtrip(new decimal[0]);
+            Assert.Equal(zeroBytes, new decimal[0]);
 
             var r = new Random(DateTime.Now.GetHashCode());
             var decimalData = new decimal[r.Next(100, 200)];
