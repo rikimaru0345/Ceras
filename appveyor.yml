@@ -1,0 +1,34 @@
+version: 1.2.{build}
+branches:
+  only:
+  - master
+image: Visual Studio 2017
+configuration: Release
+platform: Any CPU
+dotnet_csproj:
+  patch: true
+  file: '**\*.csproj'
+  version: '{version}'
+  package_version: '{version}'
+  assembly_version: '{version}'
+  file_version: '{version}'
+  informational_version: '{version}'
+nuget:
+  disable_publish_on_pr: true
+before_build:
+- cmd: nuget restore
+build:
+  verbosity: minimal
+before_package:
+- cmd: >-
+    7z a ceras_net45.zip "Ceras\bin\Release\net45\Ceras.dll" "Ceras\bin\Release\net45\Ceras.pdb"
+
+
+    7z a ceras_netstandard2.0.zip "Ceras\bin\Release\netstandard2.0\Ceras.dll" "Ceras\bin\Release\netstandard2.0\Ceras.pdb"
+artifacts:
+- path: ceras_net45.zip
+  name: Release Folder Zip (.NET Framework 4.5)
+- path: '**\Ceras*.nupkg'
+  name: NuGet Package
+- path: ceras_netstandard2.0.zip
+  name: Release Folder Zip (.net standard 2.0)
