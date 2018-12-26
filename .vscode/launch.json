@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Sample App",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/samples/LiveTesting/bin/Debug/netcoreapp2.1/LiveTesting.dll",
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": true
+        },
+        {
+            "name": ".NET Core Attach",
+            "type": "coreclr",
+            "request": "attach",
+            "processId": "${command:pickProcess}"
+        }
+    ]
+}

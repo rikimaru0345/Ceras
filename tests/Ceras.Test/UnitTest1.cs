@@ -14,7 +14,7 @@ namespace Ceras.Test
 			byte[] data;
 
 			data = _s.Serialize<object>(null);
-			Assert.Equal(1, data.Length);
+			Assert.Single(data);
 
 			data = _s.Serialize<string>(null);
 			Assert.Equal(new byte[1] { 3 }, data);

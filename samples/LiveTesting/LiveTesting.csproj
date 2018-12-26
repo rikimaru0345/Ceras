@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.Net.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net472;netcoreapp2.0</TargetFrameworks>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ceras\Ceras.csproj" />
+    <PackageReference Include="Newtonsoft.Json" Version="12.0.1" />
+    <PackageReference Include="xunit" Version="2.4.1" />
+  </ItemGroup>
+</Project>
