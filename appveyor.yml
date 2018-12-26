@@ -9,10 +9,6 @@ dotnet_csproj:
   patch: true
   file: '**\*.csproj'
   version: '{version}'
-  package_version: '{version}'
-  assembly_version: '{version}'
-  file_version: '{version}'
-  informational_version: '{version}'
 nuget:
   disable_publish_on_pr: true
 before_build:
@@ -21,10 +17,9 @@ build:
   verbosity: minimal
 before_package:
 - cmd: >-
-    7z a ceras_net45.zip "Ceras\bin\Release\net45\Ceras.dll" "Ceras\bin\Release\net45\Ceras.pdb"
+    7z a ceras_net45.zip "src\Ceras\bin\Release\net45\Ceras.dll" "src\Ceras\bin\Release\net45\Ceras.pdb"
 
-
-    7z a ceras_netstandard2.0.zip "Ceras\bin\Release\netstandard2.0\Ceras.dll" "Ceras\bin\Release\netstandard2.0\Ceras.pdb"
+    7z a ceras_netstandard2.0.zip "src\Ceras\bin\Release\netstandard2.0\Ceras.dll" "src\Ceras\bin\Release\netstandard2.0\Ceras.pdb"
 artifacts:
 - path: ceras_net45.zip
   name: Release Folder Zip (.NET Framework 4.5)
