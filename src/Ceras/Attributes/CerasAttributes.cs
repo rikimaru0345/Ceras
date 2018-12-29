@@ -4,25 +4,40 @@
 	using Formatters;
 
 
-	[AttributeUsage(AttributeTargets.Field)]
+	/// <summary>
+	/// Add this to a field or property to force Ceras to ignore it.
+	/// Check out the tutorial to see in what order attributes, the ShouldSerialize callback and other settings are evaluated.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
 	public sealed class Ignore : Attribute { }
 
-	[AttributeUsage(AttributeTargets.Field)]
+	/// <summary>
+	/// Add this to a field or property to force Ceras to include it.
+	/// Check out the tutorial to see in what order attributes, the ShouldSerialize callback and other settings are evaluated.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
 	public sealed class Include : Attribute { }
 
 
 	public enum SerializationOverride
 	{
+		/// <summary>
+		/// When you return 'NoOverride' Ceras will continue normally, which is checking the member-attributes, class attributes, etc... check out the tutorial to see how Ceras decides what members are included in detail.
+		/// </summary>
 		NoOverride,
+		/// <summary>
+		/// ForceInclude will completely skip all other checks and include the member. Be careful that you don't accidentally include hidden/compiler generated fields if you have turned 'SkipCompilerGeneratedFields' off.
+		/// </summary>
 		ForceInclude,
+		/// <summary>
+		/// Forces Ceras to ignore the field or property completely.
+		/// </summary>
 		ForceSkip,
 	}
 
 
 	/// <summary>
-	/// Configure what members to include by default in this type.
-	/// Note: 1) If the attribute is missing, the setting from the config will be used.
-	/// Note: 2) Ceras checks the ShouldSerializeMember method first, then Ignore/Include attributes on the members, then the CerasConfig attribute, and last the default setting from the SerializerConfig.
+	/// Configure what members to include by default in this type, you can also add [Ignore] and [Include] to individual members as well to override the member config.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Class)]
 	public sealed class MemberConfig : Attribute
@@ -40,9 +55,21 @@
 	{
 		None = 0,
 
+		/// <summary>
+		/// Include all public fields, pretty obvious
+		/// </summary>
 		PublicFields = 1 << 0,
+		/// <summary>
+		/// Include private fields except for hidden compiler-generated fields (like backing fields for readonly-properties, enumerator state-machines, ...)
+		/// </summary>
 		PrivateFields = 1 << 1,
+		/// <summary>
+		/// Only properties marked with the "public" keyword. So properties marked as internal/protected/private are not included
+		/// </summary>
 		PublicProperties = 1 << 2,
+		/// <summary>
+		/// Private properties are all properties that have "internal", "private", or "protected" as their visibility
+		/// </summary>
 		PrivateProperties = 1 << 3,
 
 		AllPublic = PublicFields | PublicProperties,
@@ -82,7 +109,7 @@
 
 
 	// todo: previous type / previous formatter would be nice to have. It's supposed to auto-convert old data to the new format (or let the user provide a formatter to read the old data)
-	// at the moment the problem is that we never know in what format the data was written; we'd have to embed the data type (ewww!), or add a version number that the user provides
+	// at the moment the problem is that we never know in what format the data was written; we'd have to embed the data type (ewww! that would make the binary huge!), or add a version number that the user provides
 	// so we always know in what format we can expect the data. version number would be simply added to the binary data. 
 
 	class PreviousFormatter : PreviousNameAttribute
