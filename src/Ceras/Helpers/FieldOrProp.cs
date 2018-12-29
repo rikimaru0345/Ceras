@@ -37,6 +37,7 @@ namespace Ceras.Helpers
 		{
 			if (memberInfo is FieldInfo f)
 			{
+				// todo: allow init only fields and set them using field.SetValue()
 				if (f.IsInitOnly)
 					throw new Exception("field is readonly");
 			}

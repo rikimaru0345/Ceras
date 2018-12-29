@@ -139,7 +139,7 @@ namespace Ceras
 						continue;
 					}
 
-					var schema = GetSerializationSchema(t, Config.DefaultTargets, Config.ShouldSerializeMember);
+					var schema = GetSerializationSchema(t, Config.DefaultTargets, Config.SkipCompilerGeneratedFields, Config.ShouldSerializeMember);
 					foreach (var m in schema.Members)
 					{
 						ProtocolChecksum.Add(m.Member.MemberType.FullName);
@@ -380,7 +380,7 @@ namespace Ceras
 
 
 			// Create schema, write it
-			var schema = GetSerializationSchema(type, Config.DefaultTargets, Config.ShouldSerializeMember);
+			var schema = GetSerializationSchema(type, Config.DefaultTargets, Config.SkipCompilerGeneratedFields, Config.ShouldSerializeMember);
 
 			var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
 			var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, schema);
@@ -603,7 +603,7 @@ namespace Ceras
 				if (!FrameworkAssemblies.Contains(type.Assembly))
 				{
 					// Probably a user type, which means it might change, which means it needs Schema-Data
-					var objectSchema = GetSerializationSchema(type, Config.DefaultTargets, Config.ShouldSerializeMember);
+					var objectSchema = GetSerializationSchema(type, Config.DefaultTargets, Config.SkipCompilerGeneratedFields, Config.ShouldSerializeMember);
 
 					// todo: right now we create a new schema formatter every time, super-inefficient, but its only for testing!
 					var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
@@ -647,7 +647,7 @@ namespace Ceras
 
 
 
-		internal Schema GetSerializationSchema(Type type, TargetMember defaultTargetMembers, Func<SerializedMember, SerializationOverride> fieldFilter = null)
+		internal Schema GetSerializationSchema(Type type, TargetMember defaultTargetMembers, bool skipCompilerGenerated, Func<SerializedMember, SerializationOverride> memberFilter = null)
 		{
 			Schema schema = new Schema();
 			schema.Type = type;
@@ -660,24 +660,34 @@ namespace Ceras
 			{
 				bool isPublic;
 				bool isField = false, isProp = false;
+				bool isCompilerGenerated = false;
 
 				if (m is FieldInfo f)
 				{
 					// Skip readonly
 					if (f.IsInitOnly)
-						continue;
+						isCompilerGenerated = true;
 
-					// Skip property backing fields
+					// Readonly auto-prop backing fields
 					if (f.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
-						continue;
+						isCompilerGenerated = true;
+
+					// By default we skip hidden/compiler generated fields, so we don't accidentally serialize properties twice (property, and then its automatic backing field as well)
+					if (isCompilerGenerated)
+						if (skipCompilerGenerated)
+							continue;
 
 					isPublic = f.IsPublic;
 					isField = true;
 				}
 				else if (m is PropertyInfo p)
 				{
+					// There's no way we can serialize a prop that we can't read and write, even {private set;} props would be writeable,
+					// As for readonly props (like string Name { get; } = "abc";), the only way to serialize them is serializing the backing fields, which is handled above (skipCompilerGenerated)
 					if (!p.CanRead || !p.CanWrite)
 						continue;
+
+					// This checks for indexers, an indexer is classified as a property
 					if (p.GetIndexParameters().Length != 0)
 						continue;
 
@@ -689,8 +699,15 @@ namespace Ceras
 
 				var serializedMember = FieldOrProp.Create(m);
 
-				// should we allow users to provide an formater for each old-name (in case newer versions have changed the type of the element?)
+				// should we allow users to provide a formatter for each old-name (in case newer versions have changed the type of the element?)
 				var attrib = m.GetCustomAttribute<PreviousNameAttribute>();
+
+				if (attrib != null)
+				{
+					VerifyName(attrib.Name);
+					foreach (var n in attrib.AlternativeNames)
+						VerifyName(n);
+				}
 
 				var overrideFormatter = DetermineOverrideFormatter(m);
 
@@ -702,13 +719,12 @@ namespace Ceras
 					PersistentName = attrib?.Name ?? m.Name,
 				};
 
-				VerifyName(schemaMember.PersistentName);
 
 				//
 				// 1.) Use filter if there is one
-				if (fieldFilter != null)
+				if (memberFilter != null)
 				{
-					var filterResult = fieldFilter(serializedMember);
+					var filterResult = memberFilter(serializedMember);
 
 					if (filterResult == SerializationOverride.ForceInclude)
 					{
@@ -739,6 +755,23 @@ namespace Ceras
 					schema.Members.Add(schemaMember);
 					continue;
 				}
+
+
+				//
+				// After checking the user callback (ShouldSerializeMember) and the direct attributes (because it's possible to directly target a backing field like this: [field: Include])
+				// we now need to check for compiler generated fields again.
+				// The intent is that if 'skipCompilerGenerated==false' then we allow checking the callback, as well as the attributes.
+				// But (at least for now) we don't want those problematic fields to be included by default,
+				// which would happen if any of the class or global defaults tell us to include 'private fields', because it is too dangerous to do it globally.
+				// There are all sorts of spooky things that we never want to include like:
+				// - enumerator-state-machines
+				// - async-method-state-machines
+				// - events (maybe?)
+				// - cached method invokers for 'dynamic' objects
+				// Right now I'm not 100% certain all or any of those would be a problem, but I'd rather test it first before just blindly serializing this unintended stuff.
+				if (isCompilerGenerated)
+					continue;
+
 
 				//
 				// 3.) Use class attributes
@@ -792,7 +825,7 @@ namespace Ceras
 				throw new Exception("Name must start with a letter");
 
 			const string allowedChars = "_";
-			
+
 			for (int i = 1; i < name.Length; i++)
 				if (!char.IsLetterOrDigit(name[i]) && !allowedChars.Contains(name[i]))
 					throw new Exception($"The name '{name}' has character '{name[i]}' at index '{i}', which is not allowed. Must be a letter or digit.");
@@ -974,6 +1007,16 @@ namespace Ceras
 		public Action<object> DiscardObjectMethod { get; set; } = null;
 
 
+		/// <summary>
+		/// Defaults to true, which means that fields marked as [CompilerGenerated] are skipped without asking your 'ShouldSerializeMember' function (if you have set one).
+		/// For 99% of all use cases this is exactly what you want. For more information read the 'readonly properties' section in the tutorial.
+		/// </summary>
+		public bool SkipCompilerGeneratedFields { get; set; } = true;
+
+		/// <summary>
+		/// This is the very first thing that ceras uses to determine whether or not to serialize something.
+		/// Important: Compiler generated fields are always skipped by default, for more information about that see the 'readonly properties' section in the tutorial where all of this is explained in detail.
+		/// </summary>
 		public Func<SerializedMember, SerializationOverride> ShouldSerializeMember { get; set; } = null;
 
 		public IExternalObjectResolver ExternalObjectResolver { get; set; }

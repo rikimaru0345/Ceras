@@ -509,21 +509,21 @@ namespace LiveTesting
 
 		static void PropertyTest()
 		{
-			var p = new PropertyClass
+			var p = new PropertyClass()
 			{
 				Name = "qweqrwetwr",
 				Num = 348765213,
 				Other = new OtherPropertyClass()
 			};
+			p.MutateProperties();
 			p.Other.Other = p;
 			p.Other.PropertyClasses.Add(p);
 			p.Other.PropertyClasses.Add(p);
 
-
 			var config = new SerializerConfig();
 			config.DefaultTargets = TargetMember.All;
 
-			var ceras = new CerasSerializer();
+			var ceras = new CerasSerializer(config);
 			var data = ceras.Serialize(p);
 			data.VisualizePrint("Property Test");
 			var clone = ceras.Deserialize<PropertyClass>(data);
@@ -532,6 +532,8 @@ namespace LiveTesting
 			Debug.Assert(p.Num == clone.Num);
 			Debug.Assert(p.Other.PropertyClasses.Count == 2);
 			Debug.Assert(p.Other.PropertyClasses[0] == p.Other.PropertyClasses[1]);
+
+			Debug.Assert(p.VerifyAllPropsAreChanged());
 
 		}
 
@@ -797,12 +799,39 @@ namespace LiveTesting
 		}
 	}
 
-	[MemberConfig(TargetMembers = TargetMember.All)]
 	class PropertyClass
 	{
 		public string Name { get; set; } = "abcdef";
 		public int Num { get; set; } = 6235;
 		public OtherPropertyClass Other { get; set; }
+
+		public string PublicProp { get; set; } = "Public Prop (default value)";
+		internal string InternalProp { get; set; } = "Internal Prop (default value)";
+		private string PrivateProp { get; set; } = "Private Prop (default value)";
+		protected string ProtectedProp { get; set; } = "Protected Prop (default value)";
+		public string ReadonlyProp1 { get; private set; } = "ReadOnly Prop (default value)";
+
+		public PropertyClass()
+		{
+		}
+
+		internal void MutateProperties()
+		{
+			PublicProp = "changed";
+			InternalProp = "changed";
+			PrivateProp = "changed";
+			ProtectedProp = "changed";
+			ReadonlyProp1 = "changed";
+		}
+
+		internal bool VerifyAllPropsAreChanged()
+		{
+			return PublicProp == "changed"
+				&& InternalProp == "changed"
+				&& PrivateProp == "changed"
+				&& ProtectedProp == "changed"
+				&& ReadonlyProp1 == "changed";
+		}
 	}
 
 	[MemberConfig(TargetMembers = TargetMember.All)]

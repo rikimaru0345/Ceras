@@ -6,12 +6,13 @@
     <Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
     <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
     <RepositoryUrl>https://github.com/rikimaru0345/Ceras</RepositoryUrl>
-    <Description>
-      Ceras is a binary serializer, inspired by MsgPack and intended to not only fix the pain-points I've experienced using it,
-      but also add a lot of extra features. Ceras implements its own format and is not compatible with the "MsgPack" format.
-
-      Support for reference loops, large/complicated inheritance chains, "external" objects, ...
-    </Description>
+    <Description>Ceras is a binary serializer, inspired by MsgPack and intended to not only fix the pain-points I've experienced using it,
+but also add a lot of extra features like:
+Support for reference loops (objects referencing each other), large/complicated inheritance chains, 
+zero allocations and pooling to avoid GC pressure, 
+ability to serialize an object graph into multiple "fragments" (aka external objects), ...
+and much more checkout the github page for a full list!
+</Description>
     <PackageTags>utility, ceras, serialization, serializer, formatter, unity, unity3d, network, networking</PackageTags>
   </PropertyGroup>
 
