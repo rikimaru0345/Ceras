@@ -547,8 +547,7 @@ namespace Tutorial
 
 	class MyCustomPersonFormatter : IFormatter<Person>
 	{
-		// Fields are auto-injected by ceras
-		public CerasSerializer Serializer;
+		// Public IFormatter<T> fields are auto-injected by Ceras's dependency injection system
 		public IFormatter<Person> PersonFormatter;
 
 
@@ -556,21 +555,29 @@ namespace Tutorial
 		{
 			SerializerBinary.WriteString(ref buffer, ref offset, value.Name);
 			SerializerBinary.WriteInt32(ref buffer, ref offset, value.Health);
+
+			// !! Important - Read below!
 			PersonFormatter.Serialize(ref buffer, ref offset, value.BestFriend);
 
-			// Important: 
-			// You might be tempted to just recursively call Serialize again for 'BestFriend', but that won't work!
-			// Do not think you can manually serialize other instances.
-			// It may look like that the object injected into "PersonFormatter" is just 'MyCustomPersonFormatter' itself again,
-			// but that's not the case!
-			// In fact, what you get is a lot of magic behind the scenes that deals with a ton of edge cases (object references, and reference loop handling, and more)
+			// You might be tempted to just recursively call your own Serialize method (this method) again for 'BestFriend', but that won't work!
+			// That won't work because Ceras does many things behind the scenes to make reference-loops work.
+			// 
+			// Think about it like this:
+			// When we want to serialize '.BestFriend' and someone is their own best friend (silly, i know :P) then we'd want the serialized data to
+			// say "this object was already written, look it up here..."
+			// Otherwise we'd get into an infinite loop, which is exactly what is happening if we'd just write "this.Serialize(ref buffer, ref offset, value.BestFriend);" here.
+			//
+			// Now, as for the 'PersonFormatter' field in this class.
+			// Ceras can inject fields of type 'IFormatter' and 'CerasSerializer' into all its formatters. 
+			// So, even though it may look like that the object injected into "PersonFormatter" is just 'MyCustomPersonFormatter' itself again, that's not the case!
+			//
+			// In case you are interested in what's going on behind the scenes:
+			// Ceras actually injects a 'ReferenceFormatter<Person>' into our 'PersonFormatter' field, which deals with reference loops.
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Person value)
 		{
-			// Just for illustration purposes we'll do exactly the same thing that Ceras would
-			// normally generate for us automatically, but instead we're doing it manually here.
-
+			// Nothing interesting here, all the important stuff is explained in 'Serialize()'
 			value.Name = SerializerBinary.ReadString(buffer, ref offset);
 			value.Health = SerializerBinary.ReadInt32(buffer, ref offset);
 			PersonFormatter.Deserialize(buffer, ref offset, ref value.BestFriend);

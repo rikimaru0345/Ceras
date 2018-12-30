@@ -6,6 +6,8 @@
 
 	class SchemaMemberComparer : IComparer<SchemaMember>
 	{
+		public static readonly SchemaMemberComparer Instance = new SchemaMemberComparer();
+
 		static string Prefix(SchemaMember m) => m.Member.IsField ? "f" : "p";
 
 		public int Compare(SchemaMember x, SchemaMember y)
