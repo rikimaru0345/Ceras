@@ -27,6 +27,7 @@
 	 */
 	public class ReferenceFormatter<T> : IFormatter<T>
 	{
+		// -5: To support stuff like 'object obj = typeof(Bla);'. The story is more complicated and explained at the end of the file.
 		// -4: For external objects that the user has to resolve
 		// -3: A new value, the type is exactly the same as the target field/prop
 		// -2: A new value, which has a type different than the target. Example: field type is ICollection<T> and the actual value is LinkedList<T> 
@@ -35,12 +36,13 @@
 		//  1: Previously seen item with index 1
 		//  2: Previously seen item with index 2
 		// ...
+		const int InlineType = -5;
 		const int ExternalObject = -4;
 		const int NewValueSameType = -3;
 		const int NewValue = -2;
 		const int Null = -1;
 
-		const int Bias = 4; // Using WriteUInt32Bias is more efficient than WriteInt32(), but it requires a known bias
+		const int Bias = 5; // Using WriteUInt32Bias is more efficient than WriteInt32(), but it requires a known bias
 
 
 		IFormatter<Type> _typeFormatter;
@@ -66,6 +68,13 @@
 			if (EqualityComparer<T>.Default.Equals(value, default(T)))
 			{
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, Null, Bias);
+				return;
+			}
+
+			if(value is Type type)
+			{
+				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, InlineType, Bias);
+				_typeFormatter.Serialize(ref buffer, ref offset, type);
 				return;
 			}
 
@@ -132,6 +141,14 @@
 					_serializer.Config.DiscardObjectMethod?.Invoke(value);
 
 				value = default(T);
+				return;
+			}
+
+			if(objId == InlineType)
+			{
+				Type type = null;
+				_typeFormatter.Deserialize(buffer, ref offset, ref type);
+				value = (T)(object)type; // This is ugly, but there's no way to prevent it, right?
 				return;
 			}
 
@@ -504,7 +521,8 @@
 
 }
 
-/* Note #1
+/*
+ * Note #1
 			
 	!!Important !!
 	When we're deserializing any nested types (ex: Literal<float>)
@@ -535,5 +553,21 @@
 	So instead we'll pass the reference to a proxy object. 
 	The proxy objects are small, but spamming them for every deserialization is still not cool.
 	So we use a very simple pool for them.
-				 
- */
+	
+	
+
+  Note #2
+	Serializing types as values.
+	Let's say someone has a field like this: `object obj = typeof(Bla);`
+	We don't know what's inside the field from just the field-type, so as always, we'd have to write the type. 
+	So we'd write "obj.GetType()", which is the first problem, that'd return 'RuntimeType'!
+
+	Second problem would be that if we have an `object obj1 = new Bla();` then we'd write the type and then the value, so far so good,
+	but when we later encounter the `obj` field (the one that contains a type!) then we'd not be able to share the object ID!
+
+	Why? Because Types have their own cache, but the `obj` fields value was saved into the normal value-cache instead.
+
+	The only solution is to check for 'Type' and treat it as a special case.
+
+
+*/

@@ -9,7 +9,6 @@
 	class ReflectionTypesFormatterResolver : IFormatterResolver
 	{
 		readonly CerasSerializer _serializer;
-		readonly Dictionary<Type, IFormatter> _memberInfoFormatters = new Dictionary<Type, IFormatter>();
 
 		public ReflectionTypesFormatterResolver(CerasSerializer serializer)
 		{
@@ -20,15 +19,9 @@
 		{
 			if (typeof(MemberInfo).IsAssignableFrom(type))
 			{
-				IFormatter memberInfoFormatter;
-				if (!_memberInfoFormatters.TryGetValue(type, out memberInfoFormatter))
-				{
-					var formatterType = typeof(MemberInfoFormatter<>).MakeGenericType(type);
-					memberInfoFormatter = (IFormatter)Activator.CreateInstance(formatterType, _serializer);
-					_memberInfoFormatters[type] = memberInfoFormatter;
-				}
-
-				return memberInfoFormatter;
+				var memberInfoFormatterType = typeof(MemberInfoFormatter<>).MakeGenericType(type);
+				var memberInfoFormatter = Activator.CreateInstance(memberInfoFormatterType, args: _serializer);
+				return (IFormatter)memberInfoFormatter;
 			}
 
 			return null;

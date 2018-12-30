@@ -25,7 +25,7 @@ namespace Ceras
 	public class CerasSerializer
 	{
 		// Some types are constructed by the formatter directly
-		static readonly Type _rtTypeType, _rtFieldType, _rtPropType, _rtCtorType, _rtMethodType;
+		internal static readonly Type _rtTypeType, _rtFieldType, _rtPropType, _rtCtorType, _rtMethodType;
 		static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
 		readonly Dictionary<Type, IFormatter> _typeToConstructionFormatter = new Dictionary<Type, IFormatter>();
 
@@ -145,11 +145,9 @@ namespace Ceras
 			_specificFormatters.Add(runtimeType, typeFormatter);
 			_referenceFormatters.Add(typeof(Type), typeFormatter);
 			_referenceFormatters.Add(runtimeType, typeFormatter);
-
-			// MemberInfos use the MemberInfoFormatter, but since we want it to also deal with the runtime-types, we have to add the formatter here
-			//foreach (var t in _formatterConstructedTypes)
-			//	GetSpecificFormatter(t); // Call it so it's added to the dictionary
-
+			
+			// MemberInfos (FieldInfo, RuntimeFieldInfo, ...)
+			_resolvers.Add(new ReflectionTypesFormatterResolver(this));
 
 
 
