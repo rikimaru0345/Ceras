@@ -35,6 +35,12 @@ namespace Ceras.Helpers
 			_ceras = ceras;
 			_schema = schema;
 
+			
+			var type = typeof(T);
+
+			BannedTypes.ThrowIfBanned(type);
+			BannedTypes.ThrowIfNonspecific(type);
+
 			if (schema.Members.Count > 0)
 			{
 				_serializer = GenerateSerializer(schema);
