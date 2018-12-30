@@ -5,7 +5,6 @@ namespace Ceras.Helpers
 	using Formatters;
 	using System;
 	using System.Diagnostics;
-	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
 	using static System.Linq.Expressions.Expression;
@@ -36,8 +35,16 @@ namespace Ceras.Helpers
 			_ceras = ceras;
 			_schema = schema;
 
-			_serializer = GenerateSerializer(schema);
-			_deserializer = GenerateDeserializer(schema);
+			if (schema.Members.Count > 0)
+			{
+				_serializer = GenerateSerializer(schema);
+				_deserializer = GenerateDeserializer(schema);
+			}
+			else
+			{
+				_serializer = (ref byte[] buffer, ref int offset, T value) => { };
+				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
+			}
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
@@ -61,7 +68,7 @@ namespace Ceras.Helpers
 			// todo: have a lookup list to directly get the actual 'SerializerBinary' method. There is no reason to actually use objects like "Int32Formatter"
 
 			List<Expression> block = new List<Expression>();
-			
+
 			var startPos = Parameter(typeof(int), "startPos");
 			var size = Parameter(typeof(int), "size");
 
@@ -134,7 +141,7 @@ namespace Ceras.Helpers
 			var refValueArg = Parameter(typeof(T).MakeByRefType(), "value");
 
 			List<Expression> block = new List<Expression>();
-			
+
 			var blockSize = Variable(typeof(int), "blockSize");
 
 			foreach (var sMember in schema.Members)
@@ -165,7 +172,6 @@ namespace Ceras.Helpers
 					block.Add(serializeCall);
 				}
 			}
-
 
 			var serializeBlock = Block(variables: new ParameterExpression[] { blockSize }, expressions: block);
 #if FAST_EXP
