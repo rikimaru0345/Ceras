@@ -2,22 +2,16 @@
 {
 	using System;
 
-	/*
-	 * The idea here is that we have a map of "known types" that we use when possible to encode a type as just one number
-	 * If the type is not known, we format the type + all its generic paramters recursively
-	 *
-	 * Should we maybe allow the user to provide a set of "known types"? What would that even accomplish if we cache type-serialization anyway?
-	 * Advantage: Even the first types will likely be efficiently written as an ID, only rarely falling back to formatting as a string.
-	 * Disadvantage: Opens a huge door for mistakes, since if the user changes the known types, or forgets to initialize it exactly the same way, stuff will break horribly with no way
-	 *				 for us to fix it anymore. Once the "configuration" of known types is lost, all data serialized by this serializer will be very hard to recover.
-	 * Only really a problem if writing to files. Not a problem when dealing with networking (since messages are not saved and discarded after reading and processing)
-	 */
+
 	/*
 	 * Important:
 	 * For a long time this was wrapped into a CacheFormatter, but that had a problem.
 	 * Assuming we've added List<> and MyObj to KnownTypes, then List<MyObj> was still not known, which is bad!
-	 * The cache formatter only deals with concrete values and can't know that List<MyObj> can be built from two already existing "primitives".
-	 * That's why we changed it so now TypeFormatter does its own caching.
+	 * The cache formatter only deals with concrete values and can't know that List<MyObj> can be built from
+	 * two already existing "primitives" (List<> and MyObj).
+	 * The type formatter is aware of this and deals with it in the most efficient way by splitting each generic
+	 * type into its components and serializing them individually, so they can be reconstructed from their individual parts.
+	 * This saves a ton of space (and thus time!)
 	 */
 	class TypeFormatter : IFormatter<Type>
 	{

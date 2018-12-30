@@ -14,79 +14,36 @@
 #endif
 
 	/*
-	 This is a thing intended to be used with STRING or OBJECT for T.
-	 It saves seen instances into dict/list while serializing
-	 This enables dealing with any object graph, even cyclic references of any kind.
-	 It also save binary size(and thus a lot of cpu cycles as well if the object is large)
-	 todo: different CacheFormatters MUST share a common pool! Why?
-	 todo: .. because what if we have an object of a known type(field type and actual type are exactly the same)
-	 todo: .. and then we later find an object-field with a refernce to an encountered object!
-	 todo: .. lets say the data tells us "it's the object with Id 5".
-	 todo: .. now that's all the information we have, and there are multiple "Caches" with different types.
-	 todo: .. that means we wouldn't know which object type it is even supposed to be. The data doesn't tell us since the ID is the ONLY thing there
-	 todo: .. and the field-type itself doesn't tell us anything either (since it is 'object')
-	 todo: .. Solution: One big common cache for all the objects!
-	
-	
-	 The only alternative solution would be to do this in the serializer
-	 - When an object is encountered again, we write "type+ cahedObjId"
-	   which will then result in 2 things written (so not minimum amount of data)
-	 - Could only be avoided when we know the object is of exactly the right type (not higher or lower in the type-hierarchy)
-	   Maybe if the type is sealed??
-	 - After writing type+ID, when we deserialize again, we can use the type to know what CacheFormatter<T> we're looking for, 
-	   so we resolve the right one, and then look into what objects it has.
-
-
-	 But what are the advantages/disadvantages of each approach??
-	 SharedObjectCache
-	 + less dictionary lookups (no lookup of type->cache, and then id->obj)
-	 + less space used in the binary file
-	 - different object types can not share IDs, so if there's an NPC with Id 5, then there can't be a spell with Id 5!
-	 
-	 Cache by type
-	 - need to write type for every ID(so we know what specific type cache it is in)
-	 + can define own IDs per object, so no gaps
-	 - have to do two lookups at deserialization(typeId -> cache; cache+objId -> obj)
-	
-	
-	 Variant 3:
-	 Could we just completely skip over all root objects (except the one being currently serialized), and only write IDs that are given to the serializer by some interface of the object?
-	 -> At read time, how do we resolve circular refernces?
-	 	  - the object has to resolve references as they are encountered:   void Resolve<T>(ref T obj, int id)
-		   -it can pass that to the serializer again if it wants to...
-
-	 -> how do we handle fields like "object r;" which can contain a rootObject or normal one?
-	      - at deserialization time there are a few cases:
-		  			- 'null' -> write null to field
-					- 'type:SpellRoot' + 'spellID' -> call Resolve<Spell>(ref obj, spellId);
-					- 'type:SimpleExample' + 'existingId' -> look into normal object cache
-
-	      - we're back to solution1, we need to know the type first, and then switch based on that. maybe resolve, maybe nomal object, ...
-
-	- while serializing, we can put all root objects into a hash-set so the user knows what objects we encountered in the graph
-	  maybe that would be helpful to know, so those objects can be serialized as well (maybe with dirty-checks or so...)
-
-		todo: we went with the easiest method (just write ID, let the user resolve IDs at deserialization time)
-		
-		todo: can we improve this? Could we  instead just write a IFormatter<IRootObject>, so only those objects will get special treatment, and the CacheFormatter doesn't have to check every single object for IExternalRootObject
-
-*/
-
-
+	 * 
+	 * This formatter enables dealing with any object graph, even cyclic references of any kind.
+	 * It also save binary size(and thus a lot of cpu cycles as well if the object is large)
+	 * 
+	 * Important: Different CacheFormatters MUST share a common pool!
+	 * Why?
+	 * because what if we have an object of a known type (field type and actual type are exactly the same)
+	 * and then later we encounter an 'object Field;' with a refernce to the previous object (the one in the field where the type matches).
+	 * Of course the references are supposed to match in the end again, and without all objects being part of the same cache that won't work.
+	 * (We would try to find the referenced object in the <object> pool but it was put into the <specific> pool when it was first encountered!)
+	 */
 	public class ReferenceFormatter<T> : IFormatter<T>
 	{
-		// -3: For external objects that the user has to resolve
-		// -2: New Value/Object that we've never seen before
-		// -1: Actually <null>
-		//  0: The previously seen item with index 0
-		//  1: The previously seen item with index 1
-		//  2: The previously seen item with index 2
+		// -5: To support stuff like 'object obj = typeof(Bla);'. The story is more complicated and explained at the end of the file.
+		// -4: For external objects that the user has to resolve
+		// -3: A new value, the type is exactly the same as the target field/prop
+		// -2: A new value, which has a type different than the target. Example: field type is ICollection<T> and the actual value is LinkedList<T> 
+		// -1: Actually <null> or default value
+		//  0: Previously seen item with index 0
+		//  1: Previously seen item with index 1
+		//  2: Previously seen item with index 2
 		// ...
-		const int Bias = 4;
+		const int InlineType = -5;
 		const int ExternalObject = -4;
 		const int NewValueSameType = -3;
 		const int NewValue = -2;
 		const int Null = -1;
+
+		const int Bias = 5; // Using WriteUInt32Bias is more efficient than WriteInt32(), but it requires a known bias
+
 
 		IFormatter<Type> _typeFormatter;
 		readonly CerasSerializer _serializer;
@@ -95,7 +52,6 @@
 
 		Dictionary<Type, SerializeDelegate<T>> _specificSerializers = new Dictionary<Type, SerializeDelegate<T>>();
 		Dictionary<Type, DeserializeDelegate<T>> _specificDeserializers = new Dictionary<Type, DeserializeDelegate<T>>();
-
 
 
 		public bool IsSealed { get; private set; }
@@ -112,6 +68,13 @@
 			if (EqualityComparer<T>.Default.Equals(value, default(T)))
 			{
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, Null, Bias);
+				return;
+			}
+
+			if(value is Type type)
+			{
+				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, InlineType, Bias);
+				_typeFormatter.Serialize(ref buffer, ref offset, type);
 				return;
 			}
 
@@ -181,6 +144,14 @@
 				return;
 			}
 
+			if(objId == InlineType)
+			{
+				Type type = null;
+				_typeFormatter.Deserialize(buffer, ref offset, ref type);
+				value = (T)(object)type; // This is ugly, but there's no way to prevent it, right?
+				return;
+			}
+
 			if (objId >= 0)
 			{
 				// Something we already know
@@ -206,30 +177,21 @@
 			else // if (objId == NewValueSameType) commented out, its the only possible remaining case
 				specificType = typeof(T);
 
-			// At this point we know that the 'value' will have value, so if 'value' (the variable) is null we need to create an instance
-			// todo: investigate if there is a way to do this better,
-			// todo: is the generic code optimized in the jit? is this check is never even done in the ASM?
-			// todo: have the recent fixes made these checks obsolete? What if someone forces serialization of private fields in a type that cannot be directly instantiated?
-			// todo: enforce all types to have a parameterless constructor
+
+			// At this point we know that the 'value' will not be 'null', so if 'value' (the variable) is null we need to create an instance
 			bool isRefType = !specificType.IsValueType;
-			bool isStringOrType = specificType == typeof(string) || specificType == typeof(Type);
 
-
-			if (value == null)
+			if (isRefType)
 			{
-				if (!isStringOrType && // we can't create instances of String or Type, they are special cases
-					isRefType) // only ref types have a ctor 
+				// Do we already have an object?
+				if (value != null)
 				{
-					value = CreateInstance(specificType);
-				}
-			}
-			else
-			{
-				// There is a value already, but is it the right type?
-				// Maybe the field is 'ICollection<int>' and the data says we should have a List<int>, but there's already a LinkedList<int> present!
-				// What we need to do is throw out the
-				if (isRefType)
-					if (value.GetType() != specificType) // todo: types using a SerializationCtor (in the future) are handled in a different ReferenceFormatter
+					// Yes, then maybe we can overwrite its values (works for objects and collections)
+					// But only if it's the right type!
+
+					// todo: types using a SerializationCtor (in the future) are handled in a different ReferenceFormatter
+					//		 where we first read all members into local variables, then create the object (passing some of them into the constructor), and then writing the remaining as usual
+					if (value.GetType() != specificType)
 					{
 						// Discard the old value
 						_serializer.Config.DiscardObjectMethod?.Invoke(value);
@@ -237,40 +199,40 @@
 						// Create instance of the right type
 						value = CreateInstance(specificType);
 					}
+					else
+					{
+						// Existing object is the right type
+					}
+				}
+				else
+				{
+					// Instance is null, create one
+					// Note: that we *could* check if the type is one of the types that we cannot instantiate (String, Type, MemberInfo, ...) and then
+					//       just not call CreateInstance, but the check itself would be expensive as well (HashSet look up?), so what's the point of complicating the code more?
+					//       CreateInstance will do a dictionary lookup for us and simply return null for those types.
+					value = CreateInstance(specificType);
+				}
+			}
+			else
+			{
+				// Not a reference type. So it doesn't matter.
 			}
 
 
+
+			//
+			// Deserialize the object
+			// 1. First generate a proxy so we can do lookups
 			var objectProxy = _serializer.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
 
-			// Make sure that the deserializer can make use of an already existing object (if there is one)
+			// 2. Make sure that the deserializer can make use of an already existing object (if there is one)
 			objectProxy.Value = value;
 
-
-			// Read the object
+			// 3. Actually read the object
 			GetSpecificDeserializerDispatcher(specificType)(buffer, ref offset, ref objectProxy.Value);
 
-			// Write back the actual value
+			// 4. Write back the actual value, which instantly resolves all references
 			value = objectProxy.Value;
-		}
-
-		T CreateInstance(Type specificType)
-		{
-			// todo:
-			// we can easily merge null-check (in the caller) and GetConstructor() into GetSpecificDeserializerDispatcher() 
-			// which would let us avoid one dictionary lookup, the type check, checking if a factory method is set, ...
-			// directly using Expression.New() will likely be faster as well
-			// todo 2:
-			// in fact, we can even *directly* inline the serializer sometimes!
-			// if the specific serializer is a DynamicSerializer, we could just take the expression-tree it generates, and directly inline it here.
-			// that would avoid even more overhead!
-
-			T value;
-			var factory = _serializer.Config.ObjectFactoryMethod;
-			if (factory != null)
-				value = (T)_serializer.Config.ObjectFactoryMethod(specificType);
-			else
-				value = (T)GetConstructor(specificType)();
-			return value;
 		}
 
 
@@ -409,8 +371,33 @@
 		}
 
 
+		// Create an instance of a given type
+		T CreateInstance(Type specificType)
+		{
+			// todo:
+			// we can easily merge null-check (in the caller) and GetConstructor() into GetSpecificDeserializerDispatcher() 
+			// which would let us avoid one dictionary lookup, the type check, checking if a factory method is set, ...
+			// directly using Expression.New() will likely be faster as well
+			// todo 2:
+			// in fact, we can even *directly* inline the serializer sometimes!
+			// if the specific serializer is a DynamicSerializer, we could just take the expression-tree it generates, and directly inline it here.
+			// that would avoid even more overhead!
+
+			// Some objects can not be instantiated directly. Like 'Type', 'string', or 'MemberInfo', ... we return a constructor for them that always returns null. 
+
+			T value;
+			var factory = _serializer.Config.ObjectFactoryMethod;
+			if (factory != null)
+				value = (T)_serializer.Config.ObjectFactoryMethod(specificType);
+			else
+				value = (T)GetConstructor(specificType)();
+			return value;
+		}
+
+		// Get a 'constructor' function that creates an instance of a type
 		static Func<object> GetConstructor(Type type)
 		{
+			// Fast path: return already constructed object!
 			if (_objectConstructors.TryGetValue(type, out var f))
 				return f;
 
@@ -419,8 +406,14 @@
 				// ArrayFormatter will create a new array
 				f = () => null;
 			}
+			else if(CerasSerializer.IsFormatterConstructed(type))
+			{
+				// The formatter that handles this type also handles its creation, so we return null
+				f = () => null;
+			}
 			else
 			{
+				// We create a new instances using the default constructor
 				var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
 					.FirstOrDefault(c => c.GetParameters().Length == 0);
 
@@ -509,8 +502,7 @@
 
 		/// <summary>
 		/// Set IsSealed, and will throw an exception whenever a new value is encountered.
-		/// Intended to be used when serializing Types (inner formatter is 'TypeFormatter') and using KnownTypes.
-		/// The idea is that you populate KnownTypes in advance, then call Seal(), so you'll be notified *before* something goes wrong (a new, unintended, type getting serialized)
+		/// The idea is that you populate KnownTypes in the SerializerConfig initially and then call Seal(); That's useful so you'll get notified by an exception *before* something goes wrong (a new, unintended, type getting serialized). For example 
 		/// </summary>
 		public void Seal()
 		{
@@ -519,10 +511,18 @@
 
 	}
 
+	static class MemberHelper
+	{
+		// Helper members
+		internal static byte _field;
+		internal static byte _prop { get; set; }
+		internal static void _method() { }
+	}
 
 }
 
-/* Note #1
+/*
+ * Note #1
 			
 	!!Important !!
 	When we're deserializing any nested types (ex: Literal<float>)
@@ -553,5 +553,21 @@
 	So instead we'll pass the reference to a proxy object. 
 	The proxy objects are small, but spamming them for every deserialization is still not cool.
 	So we use a very simple pool for them.
-				 
- */
+	
+	
+
+  Note #2
+	Serializing types as values.
+	Let's say someone has a field like this: `object obj = typeof(Bla);`
+	We don't know what's inside the field from just the field-type, so as always, we'd have to write the type. 
+	So we'd write "obj.GetType()", which is the first problem, that'd return 'RuntimeType'!
+
+	Second problem would be that if we have an `object obj1 = new Bla();` then we'd write the type and then the value, so far so good,
+	but when we later encounter the `obj` field (the one that contains a type!) then we'd not be able to share the object ID!
+
+	Why? Because Types have their own cache, but the `obj` fields value was saved into the normal value-cache instead.
+
+	The only solution is to check for 'Type' and treat it as a special case.
+
+
+*/

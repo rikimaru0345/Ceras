@@ -50,6 +50,12 @@
 
 				break;
 
+			case MemberTypes.TypeInfo:
+			case MemberTypes.NestedType:
+				// This should never happen, because root types as well as nested types are simply "Type",
+				// so they should be handled by the TypeFormatter!
+				goto default;
+
 			default:
 				throw new ArgumentOutOfRangeException("Cannot serialize member type '" + member.MemberType + "'");
 			}

@@ -6,15 +6,19 @@ namespace LiveTesting
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Linq;
+	using System.Reflection;
 	using Tutorial;
 	using Xunit;
 
 	class Program
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
+		delegate void ActionDelegate();
 
 		static void Main(string[] args)
 		{
+			DelegatesTest();
+
 			SimpleDictionaryTest();
 
 			DictInObjArrayTest();
@@ -64,6 +68,139 @@ namespace LiveTesting
 			tutorial.Step5_CustomFormatters();
 
 			tutorial.Step7_GameDatabase();
+
+		}
+
+		static int Add1(int x) => x + 1;
+		static int Add2(int x) => x + 2;
+
+		private static void DelegatesTest()
+		{
+			/*
+			Func<int, int> myFunc = Add1;
+
+			int localCapturedInt = 6;
+
+			myFunc = x => 
+			{
+				Console.WriteLine("Original delegate got called!");
+				return localCapturedInt + 7;
+			};
+			
+			myFunc = (Func<int, int>)Delegate.Combine(myFunc, myFunc);
+			myFunc = (Func<int, int>)Delegate.Combine(myFunc, myFunc);
+			myFunc = (Func<int, int>)Delegate.Combine(myFunc, myFunc);
+
+			var targets = myFunc.GetInvocationList();
+			
+
+			var result = myFunc(1); // writes the console message above 8 times, *facepalm*
+
+			Debug.Assert(myFunc(5) == 6);
+
+			*/
+
+			var ceras = new CerasSerializer();
+
+			var multipleTypesHolder = new TypeTestClass();
+			multipleTypesHolder.Type1 = typeof(Person);
+			multipleTypesHolder.Type2 = typeof(Person);
+			multipleTypesHolder.Type3 = typeof(Person);
+			
+			multipleTypesHolder.Object1 = new Person();
+			multipleTypesHolder.Object2 = new Person();
+			multipleTypesHolder.Object3 = multipleTypesHolder.Object1;
+
+			multipleTypesHolder.Member = typeof(TypeTestClass).GetMembers().First();
+			multipleTypesHolder.Method = typeof(TypeTestClass).GetMethods().First();
+
+
+			var data = ceras.Serialize(multipleTypesHolder);
+			data.VisualizePrint("member info");
+			var multipleTypesHolderClone = ceras.Deserialize<TypeTestClass>(data);
+			// Expected: no type-name appears multiple times, and deserialization works correctly.
+
+
+			//var multipleTypesHolderData = ceras.Serialize(multipleTypesHolder);
+			//multipleTypesHolderData.VisualizePrint("TypeTestClass");
+			//var multipleTypesHolderClone = ceras.Deserialize<TypeTestClass>(multipleTypesHolderData);
+
+
+			/*
+
+			var memberInfo = new MemberInfoHolder();
+			memberInfo.Field = typeof(MemberInfoHolder).GetFields()[0];
+			memberInfo.Property = typeof(MemberInfoHolder).GetProperty("property", BindingFlags.NonPublic | BindingFlags.Instance);
+			memberInfo.Method = typeof(MemberInfoHolder).GetMethod("method", BindingFlags.NonPublic | BindingFlags.Instance);
+
+			var memberInfoClone = ceras.Deserialize<MemberInfoHolder>(ceras.Serialize(memberInfo));
+
+			var valueHolder = new DelegateValueHolder();
+
+			valueHolder.A = 1;
+			valueHolder.B = 0;
+
+			Action action = () =>
+			{
+				valueHolder.B += valueHolder.A;
+			};
+
+			HiddenFieldsTestClass test = new HiddenFieldsTestClass();
+			test.SimpleActionEvent += () => { };
+
+			var testType = typeof(HiddenFieldsTestClass);
+
+
+			var clonedAction = ceras.Deserialize<Action>(ceras.Serialize(action));
+
+			clonedAction();
+
+			Func<int> get2 = () => 2;
+			var t = get2.GetType();
+
+			var get2Clone = ceras.Deserialize<Func<int>>(ceras.Serialize(get2));
+
+
+			Debug.Assert(get2() == 2);
+			Debug.Assert(get2Clone() == get2());
+			*/
+		}
+
+		class TypeTestClass
+		{
+			public Type Type1;
+			public Type Type2;
+			public Type Type3;
+			public object Object1;
+			public object Object2;
+			public object Object3;
+
+			public MemberInfo Member;
+			public MethodInfo Method;
+		}
+
+		class MemberInfoHolder
+		{
+			public FieldInfo Field;
+			public PropertyInfo Property;
+			public MethodInfo Method;
+
+			private string property { get; set; }
+			private void method() { }
+		}
+
+		class DelegateValueHolder
+		{
+			public int A;
+			public int B;
+		}
+
+		class HiddenFieldsTestClass
+		{
+			public event Action SimpleActionEvent;
+			public event Action<int> SimpleEventWithArg;
+
+
 
 		}
 

@@ -13,25 +13,65 @@ namespace Ceras
 	using System.Runtime.CompilerServices;
 	using System.Text;
 
-	// Todo: 
 	/*
-		- write out specific type. only needed when the type of the current value is different (more specific) than the field type
-		->  automatic discovery of classes is too brittle, we'll provide a way to add a map of known types
-	 
-		- overwrite objects/reuse/object pooling
-			a) always new()
-			b) use object that exists, then fallback to factory method
-
-		let the user specify where to use caching exactly, what types get objectCached always, ..., what fields
-		sometimes it makes sense to ref-serialize arrays and collections as well
-
-		omit type information (serialize as "infer from target" code) if the specific type is exactly equal to the target type
-
-		todo: change all internal IDs to uint (object cache, external object, ...)
-	*/
+	 * Todo:
+	 * 
+	 * VersionTolerance:
+	 * - we could probably somehow reuse the generated schemata, but how to do it efficiently?
+	 * - also, it would be nice if we could embed a hash + size offset into the binary, so that we can easily detect that we already have a given schema, and then skip it (using the one we already have)
+	 * 
+	 * 
+	 */
 	public class CerasSerializer
 	{
-		static SchemaMemberComparer _schemaMemberComparer = new SchemaMemberComparer();
+		// Some types are constructed by the formatter directly
+		internal static readonly Type _rtTypeType, _rtFieldType, _rtPropType, _rtCtorType, _rtMethodType;
+		static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
+		readonly Dictionary<Type, IFormatter> _typeToConstructionFormatter = new Dictionary<Type, IFormatter>();
+
+		internal static bool IsFormatterConstructed(Type type)
+		{
+			return _formatterConstructedTypes.Contains(type);
+		}
+
+		static CerasSerializer()
+		{
+			// Type
+			var type = typeof(Type);
+			_rtTypeType = type.GetType();
+
+			_formatterConstructedTypes.Add(type);
+			_formatterConstructedTypes.Add(_rtTypeType);
+
+
+			//
+			// MemberInfos and their runtime variants
+			_formatterConstructedTypes.Add(typeof(FieldInfo));
+			var field = typeof(MemberHelper).GetField(nameof(MemberHelper._field), BindingFlags.Static | BindingFlags.NonPublic);
+			_rtFieldType = field.GetType();
+			_formatterConstructedTypes.Add(_rtFieldType);
+
+			_formatterConstructedTypes.Add(typeof(PropertyInfo));
+			var prop = typeof(MemberHelper).GetProperty(nameof(MemberHelper._prop), BindingFlags.Static | BindingFlags.NonPublic);
+			_rtPropType = prop.GetType();
+			_formatterConstructedTypes.Add(_rtPropType);
+
+			_formatterConstructedTypes.Add(typeof(ConstructorInfo));
+			var ctor = typeof(CerasSerializer).GetConstructor(BindingFlags.Static | BindingFlags.NonPublic, null, new Type[0], new ParameterModifier[0]);
+			_rtCtorType = ctor.GetType();
+			_formatterConstructedTypes.Add(_rtCtorType);
+
+			_formatterConstructedTypes.Add(typeof(MethodInfo));
+			var method = typeof(MemberHelper).GetMethod(nameof(MemberHelper._method), BindingFlags.Static | BindingFlags.NonPublic);
+			_rtMethodType = method.GetType();
+			_formatterConstructedTypes.Add(_rtMethodType);
+
+
+			// String
+			_formatterConstructedTypes.Add(typeof(string));
+		}
+
+
 
 		internal readonly SerializerConfig Config;
 		public ProtocolChecksum ProtocolChecksum { get; } = new ProtocolChecksum();
@@ -85,7 +125,6 @@ namespace Ceras
 			// Int, Float, Enum, String
 			_resolvers.Add(new PrimitiveResolver(this));
 
-			_resolvers.Add(new ReflectionTypesFormatterResolver(this));
 			_resolvers.Add(new KeyValuePairFormatterResolver(this));
 			_resolvers.Add(new CollectionFormatterResolver(this));
 
@@ -96,23 +135,21 @@ namespace Ceras
 			// That is because we only want to have specific resolvers in the resolvers-list
 			_dynamicResolver = new DynamicObjectFormatterResolver(this);
 
-			// Type formatter is the basis for all complex objects
-			var typeFormatter = new TypeFormatter(this);
-			_specificFormatters.Add(typeof(Type), typeFormatter);
-
-			//if (Config.KnownTypes.Count > 0)
-			//	if (Config.SealTypesWhenUsingKnownTypes)
-			//		typeFormatter.Seal();
-
-
 			//
-			// Type formatting is special, TypeFormatter has its own caching system!
-			_typeFormatter = (IFormatter<Type>)GetSpecificFormatter(typeof(Type));
-			// Important: Also allow formatting types directly:
+			// Type formatter is the basis for all complex objects,
+			// It is special and has its own caching system (so no wrapping in a ReferenceFormatter)
+			var typeFormatter = new TypeFormatter(this);
+
 			var runtimeType = GetType().GetType();
-			_specificFormatters.Add(runtimeType, _typeFormatter);
-			_referenceFormatters.Add(typeof(Type), _typeFormatter);
-			_referenceFormatters.Add(runtimeType, _typeFormatter);
+			_specificFormatters.Add(typeof(Type), typeFormatter);
+			_specificFormatters.Add(runtimeType, typeFormatter);
+			_referenceFormatters.Add(typeof(Type), typeFormatter);
+			_referenceFormatters.Add(runtimeType, typeFormatter);
+			
+			// MemberInfos (FieldInfo, RuntimeFieldInfo, ...)
+			_resolvers.Add(new ReflectionTypesFormatterResolver(this));
+
+
 
 			//
 			// Basic setup is done
@@ -605,13 +642,10 @@ namespace Ceras
 					// Probably a user type, which means it might change, which means it needs Schema-Data
 					var objectSchema = GetSerializationSchema(type, Config.DefaultTargets, Config.SkipCompilerGeneratedFields, Config.ShouldSerializeMember);
 
-					// todo: right now we create a new schema formatter every time, super-inefficient, but its only for testing!
+					// todo: right now we create a new schema formatter every time, not very efficient, but how can we cache them reliably?
 					var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
 					var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, objectSchema);
 
-					// What about value/ref types?
-					// Will we just do a custom ReferenceFormatter so that it writes Type +Schema? 
-					// Or a TypeFormatter that writes Type+Schema?
 					_specificFormatters[type] = schemaFormatter;
 					return schemaFormatter;
 				}
@@ -793,7 +827,7 @@ namespace Ceras
 				}
 			}
 
-			schema.Members.Sort(_schemaMemberComparer);
+			schema.Members.Sort(SchemaMemberComparer.Instance);
 
 			return schema;
 		}

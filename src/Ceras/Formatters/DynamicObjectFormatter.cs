@@ -13,10 +13,9 @@ namespace Ceras.Formatters
 	using FastExpressionCompiler;
 #endif
 
-	interface IDynamicFormatterMarker { }
 
-	// todo 2: cache formatters in a static-generic instead of dict? we need to know exactly how much we'd save; the static-ctor can just generate the corrosponding serializers
-	public class DynamicObjectFormatter<T> : IFormatter<T>, IDynamicFormatterMarker
+	// todo: Can we use a static-generic as a cache instead of dict? Is that even possible in our case? Would we even save anything? How much would it be faster?
+	public class DynamicObjectFormatter<T> : IFormatter<T>
 	{
 		CerasSerializer _ceras;
 		SerializeDelegate<T> _dynamicSerializer;
