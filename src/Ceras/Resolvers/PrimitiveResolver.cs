@@ -31,6 +31,10 @@
 			[typeof(double)] = new DoubleFormatter(),
 
 			[typeof(string)] = new StringFormatter(),
+
+			
+			[typeof(IntPtr)] = new IntPtrFormatter(),
+			[typeof(UIntPtr)] = new UIntPtrFormatter(),
 		};
 
 
@@ -192,6 +196,32 @@
 			public void Deserialize(byte[] buffer, ref int offset, ref ulong value)
 			{
 				value = (ulong)SerializerBinary.ReadInt64Fixed(buffer, ref offset);
+			}
+		}
+		
+		class IntPtrFormatter : IFormatter<IntPtr>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, IntPtr IntPtr)
+			{
+				SerializerBinary.WriteInt64Fixed(ref buffer, ref offset, IntPtr.ToInt64());
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref IntPtr value)
+			{
+				value = new IntPtr(SerializerBinary.ReadInt64Fixed(buffer, ref offset));
+			}
+		}
+
+		class UIntPtrFormatter : IFormatter<UIntPtr>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, UIntPtr IntPtr)
+			{
+				SerializerBinary.WriteInt64Fixed(ref buffer, ref offset, (long)IntPtr.ToUInt64());
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref UIntPtr value)
+			{
+				value = new UIntPtr((ulong)SerializerBinary.ReadInt64Fixed(buffer, ref offset));
 			}
 		}
 
