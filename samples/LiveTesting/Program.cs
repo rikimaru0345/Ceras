@@ -76,7 +76,6 @@ namespace LiveTesting
 
 		private static void DelegatesTest()
 		{
-
 			/*
 			Func<int, int> myFunc = Add1;
 
@@ -85,7 +84,7 @@ namespace LiveTesting
 			myFunc = x => 
 			{
 				Console.WriteLine("Original delegate got called!");
-				return staticGuid + localCapturedInt + 7;
+				return localCapturedInt + 7;
 			};
 			
 			myFunc = (Func<int, int>)Delegate.Combine(myFunc, myFunc);
@@ -103,27 +102,31 @@ namespace LiveTesting
 
 			var ceras = new CerasSerializer();
 
-			var multipleTypesHolder = new MultipleTypesHolder();
-			multipleTypesHolder.Type1 = typeof(MyMonster);
-			multipleTypesHolder.Type2 = typeof(MyMonster);
-			multipleTypesHolder.Type3 = typeof(MyMonster);
+			var multipleTypesHolder = new TypeTestClass();
+			multipleTypesHolder.Type1 = typeof(Person);
+			multipleTypesHolder.Type2 = typeof(Person);
+			multipleTypesHolder.Type3 = typeof(Person);
+			
+			multipleTypesHolder.Object1 = new Person();
+			multipleTypesHolder.Object2 = new Person();
+			multipleTypesHolder.Object3 = multipleTypesHolder.Object1;
 
-			multipleTypesHolder.Object1 = multipleTypesHolder.Type1;
-			multipleTypesHolder.Object2 = new MyAbility { Name = "Ability 2" };
-			multipleTypesHolder.Object3 = new MyMonster { Name = "Orc" };
-
-			// THE ISSUE IS: we're serializing a type-type.
-			// Since the field is 'object' we need to knwo what type is inside, so we would write 'Type=RuntimeType', but that doesn't work.
-			// We need another way. We need to detect that when an object-field contains a Type, and then write the type itself as a special case or something.
-			// Maybe the reference formatter is the thing that needs to skip it. It needs to only write the type itself and then abort, or something like that.
-
-			// Expected: the type name only gets written once, and that deserialization works correctly.
-			var multipleTypesHolderData = ceras.Serialize(multipleTypesHolder);
-			multipleTypesHolderData.VisualizePrint("Multiple Types");
-			var multipleTypesHolderClone = ceras.Deserialize<MultipleTypesHolder>(multipleTypesHolderData);
+			multipleTypesHolder.Member = typeof(TypeTestClass).GetMembers().First();
+			multipleTypesHolder.Method = typeof(TypeTestClass).GetMethods().First();
 
 
+			var data = ceras.Serialize(multipleTypesHolder);
+			data.VisualizePrint("member info");
+			var multipleTypesHolderClone = ceras.Deserialize<TypeTestClass>(data);
+			// Expected: no type-name appears multiple times, and deserialization works correctly.
 
+
+			//var multipleTypesHolderData = ceras.Serialize(multipleTypesHolder);
+			//multipleTypesHolderData.VisualizePrint("TypeTestClass");
+			//var multipleTypesHolderClone = ceras.Deserialize<TypeTestClass>(multipleTypesHolderData);
+
+
+			/*
 
 			var memberInfo = new MemberInfoHolder();
 			memberInfo.Field = typeof(MemberInfoHolder).GetFields()[0];
@@ -160,17 +163,20 @@ namespace LiveTesting
 
 			Debug.Assert(get2() == 2);
 			Debug.Assert(get2Clone() == get2());
+			*/
 		}
 
-		class MultipleTypesHolder
+		class TypeTestClass
 		{
 			public Type Type1;
 			public Type Type2;
 			public Type Type3;
-
 			public object Object1;
 			public object Object2;
 			public object Object3;
+
+			public MemberInfo Member;
+			public MethodInfo Method;
 		}
 
 		class MemberInfoHolder
