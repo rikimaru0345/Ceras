@@ -65,7 +65,7 @@ namespace Ceras.Formatters
 				// Get the formatter and its Serialize method
 				// var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
 				var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
-				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter");
+				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter " + formatter.GetType().FullName);
 
 				// Access the field that we want to serialize
 				var fieldExp = Expression.MakeMemberAccess(valueArg, member.MemberInfo);
@@ -114,7 +114,7 @@ namespace Ceras.Formatters
 
 				//var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
 				var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
-				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
+				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
 
 				var fieldExp = Expression.MakeMemberAccess(refValueArg, member.MemberInfo);
 
