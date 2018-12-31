@@ -1,5 +1,6 @@
 ﻿namespace Ceras.Formatters
 {
+	using Ceras.Helpers;
 	using System;
 
 
@@ -13,6 +14,18 @@
 	 * type into its components and serializing them individually, so they can be reconstructed from their individual parts.
 	 * This saves a ton of space (and thus time!)
 	 */
+	
+	
+	/*
+	 * Todo 1:
+	 * 
+	 * right now we have checks like this:
+	 *		if (_serializer.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+	 * 
+	 * Would it be possible to remove them, and create a 'SchemaTypeFormatter' which overrides Serialize and Deserialize and adds that to the end?
+	 * Would it be faster? Would serialization performance be impacted negatively when not using VersionTolerance because of the virtual methods?
+	 */
+
 	class TypeFormatter : IFormatter<Type>
 	{
 		readonly CerasSerializer _serializer;
@@ -48,10 +61,9 @@
 			}
 
 
-			// Mode: New
-
-
-			// Is it a composite type that we have to split into its parts? (aka any generic)
+			//
+			// From here on we know it's a new type
+			// Now, is it a composite type that we have to split into its parts? (aka any generic)
 			bool isClosed = !type.ContainsGenericParameters;
 
 			if (isClosed && type.IsGenericType)
@@ -88,21 +100,29 @@
 				typeCache.RegisterObject(type);
 			}
 
-			// todo: do we put this only in the if or else part? or is it ok here? it should be ok, since we want to embed the schema of every type
+
 			if (_serializer.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
 				if (!CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
-					_serializer.WriteSchemaForType(ref buffer, ref offset, type);
+				{
+					// Get Schema
+					var schema = _serializer.SchemaDb.GetOrCreatePrimarySchema(type);
 
+					// Write it
+					_serializer.SchemaDb.WriteSchema(ref buffer, ref offset, schema);
+
+					// Make the formatter available, if we're called from TypeFormatter then this will be the next thing
+					_serializer.ActivateSchemaOverride(type, schema);
+				}
 		}
 
-		public void Deserialize(byte[] buffer, ref int offset, ref Type value)
+		public void Deserialize(byte[] buffer, ref int offset, ref Type type)
 		{
 			int mode = SerializerBinary.ReadUInt32Bias(buffer, ref offset, Bias);
 
 			// Null
 			if (mode == Null)
 			{
-				value = null;
+				type = null;
 				return;
 			}
 
@@ -112,7 +132,7 @@
 			if (mode >= 0)
 			{
 				var id = mode;
-				value = typeCache.GetExistingObject<Type>(id);
+				type = typeCache.GetExistingObject<Type>(id);
 				return;
 			}
 
@@ -122,7 +142,7 @@
 			if (isComposite) // composite aka "closed generic"
 			{
 				// Read base type first (example: Dictionary<T1, T2>)
-				Type baseType = value;
+				Type baseType = type;
 				Deserialize(buffer, ref offset, ref baseType);
 
 
@@ -133,31 +153,32 @@
 				// Read all inner type definitions (in our example: 'string' and 'object)
 				for (int i = 0; i < argCount; i++)
 					Deserialize(buffer, ref offset, ref genericArgs[i]);
-				
+
 
 				// Read construct full composite (example: Dictionary<string, object>)
 				var compositeProxy = typeCache.CreateDeserializationProxy<Type>();
 
-				value = _typeBinder.GetTypeFromBaseAndAgruments(baseType.FullName, genericArgs);
-				compositeProxy.Value = value; // make it available for future deserializations
+				type = _typeBinder.GetTypeFromBaseAndAgruments(baseType.FullName, genericArgs);
+				compositeProxy.Value = type; // make it available for future deserializations
 			}
 			else
 			{
 				var proxy = typeCache.CreateDeserializationProxy<Type>();
 
 				string baseTypeName = SerializerBinary.ReadString(buffer, ref offset);
-				value = _typeBinder.GetTypeFromBase(baseTypeName);
+				type = _typeBinder.GetTypeFromBase(baseTypeName);
 
-				proxy.Value = value;
+				proxy.Value = type;
 			}
 
-			// todo: what to do when the type is not written because it is the same already?
-			// a) force writing the type when embedding version info
-			// b) just write schema, assuming the type
 
 			if (_serializer.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
-				if (!CerasSerializer.FrameworkAssemblies.Contains(value.Assembly))
-					_serializer.ReadSchemaForType(buffer, ref offset, value);
+				if (!CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
+				{
+					var schema = _serializer.SchemaDb.ReadSchema(buffer, ref offset, type);
+
+					_serializer.ActivateSchemaOverride(type, schema);
+				}
 
 		}
 	}

@@ -428,19 +428,19 @@
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void EnsureCapacity(ref byte[] buffer, int offset, int size)
 		{
-			int newSize = offset + size;
-
 			if (buffer == null)
 			{
-				buffer = new byte[0x4000];
+				buffer = new byte[0x4000]; // 16k
 				return;
 			}
+
+			int newSize = offset + size;
 
 			if (buffer.Length >= newSize)
 				return;
 
-			if (newSize < 0x1000)
-				newSize = 0x1000;
+			if (newSize < 0x4000)
+				newSize = 0x4000;
 			else
 				newSize *= 2;
 

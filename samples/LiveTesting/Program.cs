@@ -17,6 +17,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			VersionToleranceTest();
+
 			ReadonlyTest();
 
 			DelegatesTest();
@@ -32,8 +34,6 @@ namespace LiveTesting
 			InheritTest();
 
 			StructTest();
-
-			VersionToleranceTest();
 
 			WrongRefTypeTest();
 
@@ -681,7 +681,7 @@ namespace LiveTesting
 			var obj = new ConstructorTest(5);
 			var ceras = new CerasSerializer();
 			var data = ceras.Serialize(obj);
-
+			
 			// This is expected to throw an exception
 			try
 			{

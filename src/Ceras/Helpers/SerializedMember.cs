@@ -3,11 +3,11 @@
 namespace Ceras.Helpers
 {
 	using System.Reflection;
-	using static System.Linq.Expressions.Expression;
 
+	// Just a helper struct to make it a little easier to deal with MemberInfo
 	public struct SerializedMember
 	{
-		public readonly string Name;
+		public string Name => MemberInfo.Name;
 
 		public readonly MemberInfo MemberInfo;
 		public readonly Type MemberType;
@@ -15,37 +15,33 @@ namespace Ceras.Helpers
 		public bool IsField => MemberInfo is FieldInfo;
 		public bool IsProperty => MemberInfo is PropertyInfo;
 
-		public SerializedMember(MemberInfo memberInfo)
+		private SerializedMember(MemberInfo memberInfo)
 		{
 			MemberInfo = memberInfo;
 
-			if(memberInfo is PropertyInfo p)
+			if (memberInfo is PropertyInfo p)
 				MemberType = p.PropertyType;
 			else if (MemberInfo is FieldInfo f)
 				MemberType = f.FieldType;
 			else
 				throw new Exception("type " + memberInfo.GetType().Name + " can not be used as serializedType");
-
-			Name = memberInfo.Name;
 		}
-	}
 
-
-	static class FieldOrProp
-	{
-		public static SerializedMember Create(MemberInfo memberInfo)
+		internal static SerializedMember Create(MemberInfo memberInfo, bool allowReadonly = false)
 		{
 			if (memberInfo is FieldInfo f)
 			{
-				// todo: allow init only fields and set them using field.SetValue()
-				if (f.IsInitOnly)
-					throw new Exception("field is readonly");
+				if (!allowReadonly)
+					if (f.IsInitOnly)
+						throw new Exception("field is readonly");
 			}
 			else if (memberInfo is PropertyInfo p)
 			{
 				if (!p.CanRead || !p.CanWrite)
 					throw new Exception("property must be readable and writable");
 			}
+			else if (memberInfo == null)
+				throw new ArgumentNullException("memberInfo cannot be null");
 			else
 				throw new ArgumentException("argument must be field or property");
 
@@ -55,6 +51,6 @@ namespace Ceras.Helpers
 
 			return new SerializedMember(memberInfo);
 		}
-
 	}
+
 }

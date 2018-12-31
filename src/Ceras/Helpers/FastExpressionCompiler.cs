@@ -24,6 +24,8 @@ THE SOFTWARE.
 
 // ReSharper disable CoVariantArrayConversion
 
+#if FAST_EXP
+
 #if LIGHT_EXPRESSION
 namespace FastExpressionCompiler.LightExpression
 #else
@@ -3593,3 +3595,7 @@ namespace FastExpressionCompiler
         }
     }
 }
+
+
+
+#endif

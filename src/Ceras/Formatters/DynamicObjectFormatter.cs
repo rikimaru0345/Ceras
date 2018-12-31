@@ -15,7 +15,7 @@ namespace Ceras.Formatters
 
 
 	// todo: Can we use a static-generic as a cache instead of dict? Is that even possible in our case? Would we even save anything? How much would it be faster?
-	public class DynamicObjectFormatter<T> : IFormatter<T>
+	class DynamicObjectFormatter<T> : IFormatter<T>
 	{
 		CerasSerializer _ceras;
 		SerializeDelegate<T> _dynamicSerializer;
@@ -30,7 +30,7 @@ namespace Ceras.Formatters
 			BannedTypes.ThrowIfBanned(type);
 			BannedTypes.ThrowIfNonspecific(type);
 
-			var schema = CerasSerializer.GetSerializationSchema(type, _ceras.Config);
+			var schema = _ceras.SchemaDb.GetOrCreatePrimarySchema(type);
 
 			if (schema.Members.Count > 0)
 			{

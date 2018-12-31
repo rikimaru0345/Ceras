@@ -35,21 +35,31 @@ namespace Ceras.Helpers
 			_ceras = ceras;
 			_schema = schema;
 
-			
 			var type = typeof(T);
 
 			BannedTypes.ThrowIfBanned(type);
 			BannedTypes.ThrowIfNonspecific(type);
 
-			if (schema.Members.Count > 0)
+			if (schema.Members.Count == 0)
+			{
+				_serializer = (ref byte[] buffer, ref int offset, T value) => { };
+				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
+				return;
+			}
+
+			if (schema.IsPrimary)
 			{
 				_serializer = GenerateSerializer(schema);
 				_deserializer = GenerateDeserializer(schema);
 			}
 			else
 			{
-				_serializer = (ref byte[] buffer, ref int offset, T value) => { };
-				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
+				// No serializer! Writing data in some old format is not supported (yet, maybe in the future).
+				// In theory we could do it. But it's not implemented because there would have to be some way for the user to specify what Schema to use.
+				// And we get into all sorts of troubles with type-conversion (not implemented yet, but it will probably arrive earlier than this...)
+				// This also protects us against bugs!
+				_serializer = ErrorSerializer;
+				_deserializer = GenerateDeserializer(schema);
 			}
 		}
 
@@ -188,30 +198,10 @@ namespace Ceras.Helpers
 
 		}
 
-
+		
+		static void ErrorSerializer(ref byte[] buffer, ref int offset, T value)
+		{
+			throw new InvalidOperationException("Trying to write using a non-primary ObjectSchema. This should never happen and is a bug, please report it on GitHub!");
+		}
 	}
-
 }
-
-
-/*
- * ConstructorFormatter: problem and our solution-approach:
- *
- * Problem:
- * Instead of calling the parameterless "new()" we must call the right constructor function (either normal constructor or static 'create' method)
- * But at the moment we are reading values into already existing objects.
- * Right now we need an object so we can put the values there.
- *
- * Approach:
- * We need to instead read all values into local variables, and then construct the object with them.
- * After reading everything into locals we can call the ctor with the right parameters,
- * and then set the remaining values (the ones that the parameter did not accept) as we did before (by setting the field or property).
- *
- * We have to make sure that all the remaining members can be set though.
- *
- *
- * Maybe we can even further use this approach of reading into locals first to improve performance, so we have multiple reading steps, and then multiple write-steps.
- * That sounds like it could maybe help.
- *
- *
- */
