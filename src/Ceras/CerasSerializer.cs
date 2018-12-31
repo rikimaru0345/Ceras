@@ -637,12 +637,18 @@ namespace Ceras
 			// Depending on the VersionTolerance we use different formatters
 			if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
 			{
-				if (!FrameworkAssemblies.Contains(type.Assembly))
+				bool isFrameworkType = FrameworkAssemblies.Contains(type.Assembly);
+
+				if(type.IsArray)
+					isFrameworkType = true;
+
+				if (isFrameworkType == false)
 				{
 					// Probably a user type, which means it might change, which means it needs Schema-Data
 					var objectSchema = GetSerializationSchema(type, Config.DefaultTargets, Config.SkipCompilerGeneratedFields, Config.ShouldSerializeMember);
 
 					// todo: right now we create a new schema formatter every time, not very efficient, but how can we cache them reliably?
+					//		 the only way would be to embed the hash so we can skip it, or should we still read the schema, calculate the hash, and then just skip the SchemaDynamicFormatter?
 					var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
 					var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, objectSchema);
 
