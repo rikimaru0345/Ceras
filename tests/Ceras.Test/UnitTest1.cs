@@ -17,7 +17,7 @@ namespace Ceras.Test
 			Assert.Single(data);
 
 			data = _s.Serialize<string>(null);
-			Assert.Equal(new byte[1] { 3 }, data);
+			Assert.Equal(new byte[1] { 4 }, data);
 
 			data = _s.Serialize(0);
 			Assert.Equal(new byte[1] { 0 }, data);
@@ -49,7 +49,7 @@ namespace Ceras.Test
 
 
 			data = _s.Serialize("12345");
-		    Assert.Equal(new byte[] {1, 6, 49, 50, 51, 52, 53}, data);// 1byte length, 5bytes content
+		    Assert.Equal(new byte[] {2, 6, 49, 50, 51, 52, 53}, data);// 1byte length, 5bytes content
 		}
 
 		[Fact]

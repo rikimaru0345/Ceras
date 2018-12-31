@@ -89,7 +89,7 @@ namespace Ceras.Helpers
 				// Get Serialize method
 				var formatter = _ceras.GetGenericFormatter(type);
 				var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
-				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter");
+				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter " + formatter.GetType().FullName);
 
 				// startPos = offset; 
 				block.Add(Assign(startPos, refOffsetArg));
@@ -170,7 +170,7 @@ namespace Ceras.Helpers
 					IFormatter formatter = _ceras.GetGenericFormatter(type);
 
 					var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
-					Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
+					Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
 
 					var fieldExp = MakeMemberAccess(refValueArg, member.MemberInfo);
 
