@@ -177,7 +177,7 @@ namespace Ceras
 						continue;
 					}
 
-					var schema = GetSerializationSchema(t, Config.DefaultTargets, Config.SkipCompilerGeneratedFields, Config.ShouldSerializeMember);
+					var schema = GetSerializationSchema(t, Config);
 					foreach (var m in schema.Members)
 					{
 						ProtocolChecksum.Add(m.Member.MemberType.FullName);
@@ -310,167 +310,6 @@ namespace Ceras
 				LeaveRecursive(RecursionMode.Serialization);
 			}
 		}
-
-		internal void WriteSchemaForType(ref byte[] buffer, ref int offset, Type type)
-		{
-			/*
-			 * With Schema information we add some things to the file:
-			 * - SchemaBlockStartOffset (varint: pointing to the first byte of the schemata block)
-			 * - SchemaBlockLength (varint: only used when we need to add this to the offset, when the user requests size validation in deserialize)
-			 * - RawData
-			 * - SchemataBlock
-			 *   - varint: numSchemata
-			 *   For 0..numSchemata:
-  			 *     - int32: schemaHash
-			 *     - varInt: schemaSize
-			 *     - schemaData
-			 * 
-			 *
-			 * problem:
-			 *  - schema definitions contain type names, which we NEED to read so they're in our cache in the right order
-			 *
-			 *  - if we write schema types after the data; then the data contains the actual strings,
-			 *    and while reading we need to read the schemata FIRST, potentially referring us to a string that was supposedly already there but is not
-			 *
-			 *  -> can we know the schema beforehand? no, there might be objects that are hidden in <object> or interface fields!
-			 *
-			 *  -> we must write type names at the very beginning
-			 *
-			 *
-			 * Other approach:
-			 * Schema data interweaved. Keep track of what types are written.
-			 * When a type name is written in full, also write the schema for it right into the data (with has prefix)
-			 * When reading we read the type (and cache it), then the schema hash; potentially ignoring the schema data because we already have a schema+formatter for that
-			 *
-			 * 1.) Write schema together with type-name as needed
-			 * 2.) While reading, make use of the schema hash to reuse an existing schema + use "skip-reader" to quickly read over the schema data (only happens once, so its ok)
-			 *
-			 * Trying to rescue approach #1?
-			 * We would need to ensure type names are written in full only in the schema, because that is read first;
-			 * - When a type has to be written: add it to a list, pseudo caching it, and instantly emit the cacheId.
-			 * - After writing the data: emit schemata in the correct order; emit the type names in full.
-			 *
-			 *
-			 * Approach 1 vs 2:
-			 * - First approach collects all schema data into the beginning of the file
-			 *   + could potentially extract it into a separate thing maybe?
-			 * - Second approach writes schema data inline with the type-name
-			 *   + easier to do
-			 *
-			 * Is one always faster than the other?
-			 *  + inline is likely faster to implement
-			 *
-			 *
-			 * Scenario: Multiple files all with same schema
-			 * - would like to have schema data shared somewhere
-			 * - but then we'd like to put all the objects into one big file anyway
-			 * - doing that would require some sort of database because we need fast access to entries and being able to rewrite an entry (with dynamic size change)
-			 *
-			 * Abort?
-			 * - for simple versioning maybe use json
-			 * - but we'd lose IExternalRootObject, which is super-bad, but we could do some special formatting, to write an ID instead just like Ceras
-			 * - why do we even want versioning info??
-			 *    -> settings files? maybe DB-like functionality?
-			 * - assuming db: where do we put lists and strings?
-			 *
-			 *
-			 *
-			 * What do we want from our DB?
-			 * - Fast
-			 * - Automatic deconstruction/construction into RootObjects
-			 * - usually 500, to at the very most 5k items (5MB -> 5000 * 1kb)
-			 * -> Database is a topic for another day!
-			 *    Akavache, LiteDB, or a very simple custom solution might be the best
-			 *
-			 * That means:
-			 * - Very simple embed mode, just so it's feature-complete
-			 * - Manual mode where the user is responsible:
-			 *     - OnSchemaCreated (given hash+bytes[])
-			 *     - schema is separated from data, types are likely in KnownTypes anyway so the raw-data is small
-			 *     - user has to take care to give ceras the right schema to read with
-			 *       easiest way: prefix every written object with hash of its schema; save schemata in a separate small db
-			 * - Ceras in "file mode" separate databases
-			 *   - schema db
-			 *   - per-root-object-type db
-			 * - IKeyValueStore: Get(ulong id, ref byte[] buffer, ref int dataStart, ref int dataSize)
-			 * - IKeyValueStoreResolver: IKeyValueStore GetStore(string name)
-			 *
-			 * 1.) SimpleMode (to please the feature list and beginners)
-			 *     Directly embeds version data into the saved data, useful for stuff like graphics-settings, UI-config and setup (keybinds, layout, ...), ...
-			 *
-			 * 2.) Manual:
-			 *     You get notified about schema creation and need to manually save it
-			 *     Ceras will ask for schemata while reading. It gives you the hash, and you need to provide the schema data
-			 *     todo: maybe not even that, manual mode is intended to be completely manual! so maybe we'll not even do that
-			 *     8byte hash is embedded into the data to validate the format
-			 *     Only useful if you want maximum control and customize everything
-			 *
-			 * 3.) Automatic
-			 *     IKeyValueStore and IKeyValueStoreResolver solve everything.
-			 *     Ceras will obtain one IKeyValueStore from you to save/load schemata and an additional store for each root object type.
-			 *     - Ceras will provide Save(obj), Get(id), Delete(id)
-			 *     - Ceras will either
-			 *         - notify you about all other root objects in the graph (so you can save them)
-			 *         - or automatically serialize them, check the hash to see if the object is still up to date (maybe? is this a good idea?)
-			 *     - Will automatically use an built-in IExternalRootObjectResolver to load referenced objects
-			 *       and will make sure that only one instance of each object is present (so references stay consistent)
-			 */
-
-
-			// Create schema, write it
-			var schema = GetSerializationSchema(type, Config.DefaultTargets, Config.SkipCompilerGeneratedFields, Config.ShouldSerializeMember);
-
-			var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
-			var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, schema);
-
-			// Make the formatter available, if we're called from TypeFormatter then this will be the next thing
-			_specificFormatters[type] = schemaFormatter;
-
-
-			// Write the schema...
-			var members = schema.Members;
-			SerializerBinary.WriteInt32(ref buffer, ref offset, members.Count);
-
-			for (int i = 0; i < members.Count; i++)
-				SerializerBinary.WriteString(ref buffer, ref offset, members[i].PersistentName);
-		}
-
-		internal void ReadSchemaForType(byte[] buffer, ref int offset, Type type)
-		{
-			var schema = new Schema();
-
-			var count = SerializerBinary.ReadInt32(buffer, ref offset);
-			for (int i = 0; i < count; i++)
-			{
-				var name = SerializerBinary.ReadString(buffer, ref offset);
-
-				var schemaMember = new SchemaMember();
-				schema.Members.Add(schemaMember);
-
-				var member = Schema.FindMember(type, name);
-				if (member == null)
-				{
-					schemaMember.PersistentName = name;
-					schemaMember.IsSkip = true;
-				}
-				else
-				{
-					schemaMember.PersistentName = name;
-					schemaMember.IsSkip = false;
-					schemaMember.Member = new SerializedMember(member);
-				}
-			}
-
-
-			//
-			// Generate schema-formatter
-			var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
-			var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, schema);
-
-			// Make the formatter available, if we're called from TypeFormatter then this will be the next thing
-			_specificFormatters[type] = schemaFormatter;
-		}
-
 
 		/// <summary>
 		/// Convenience method that will most likely allocate a T to return (using 'new T()'). Unless the data says the object really is null, in that case no instance of T is allocated.
@@ -646,7 +485,7 @@ namespace Ceras
 				if (isFrameworkType == false)
 				{
 					// Probably a user type, which means it might change, which means it needs Schema-Data
-					var objectSchema = GetSerializationSchema(type, Config.DefaultTargets, Config.SkipCompilerGeneratedFields, Config.ShouldSerializeMember);
+					var objectSchema = GetSerializationSchema(type, Config);
 
 					// todo: right now we create a new schema formatter every time, not very efficient, but how can we cache them reliably?
 					//		 the only way would be to embed the hash so we can skip it, or should we still read the schema, calculate the hash, and then just skip the SchemaDynamicFormatter?
@@ -687,8 +526,169 @@ namespace Ceras
 
 
 
+		internal void WriteSchemaForType(ref byte[] buffer, ref int offset, Type type)
+		{
+			/*
+			 * With Schema information we add some things to the file:
+			 * - SchemaBlockStartOffset (varint: pointing to the first byte of the schemata block)
+			 * - SchemaBlockLength (varint: only used when we need to add this to the offset, when the user requests size validation in deserialize)
+			 * - RawData
+			 * - SchemataBlock
+			 *   - varint: numSchemata
+			 *   For 0..numSchemata:
+  			 *     - int32: schemaHash
+			 *     - varInt: schemaSize
+			 *     - schemaData
+			 * 
+			 *
+			 * problem:
+			 *  - schema definitions contain type names, which we NEED to read so they're in our cache in the right order
+			 *
+			 *  - if we write schema types after the data; then the data contains the actual strings,
+			 *    and while reading we need to read the schemata FIRST, potentially referring us to a string that was supposedly already there but is not
+			 *
+			 *  -> can we know the schema beforehand? no, there might be objects that are hidden in <object> or interface fields!
+			 *
+			 *  -> we must write type names at the very beginning
+			 *
+			 *
+			 * Other approach:
+			 * Schema data interweaved. Keep track of what types are written.
+			 * When a type name is written in full, also write the schema for it right into the data (with has prefix)
+			 * When reading we read the type (and cache it), then the schema hash; potentially ignoring the schema data because we already have a schema+formatter for that
+			 *
+			 * 1.) Write schema together with type-name as needed
+			 * 2.) While reading, make use of the schema hash to reuse an existing schema + use "skip-reader" to quickly read over the schema data (only happens once, so its ok)
+			 *
+			 * Trying to rescue approach #1?
+			 * We would need to ensure type names are written in full only in the schema, because that is read first;
+			 * - When a type has to be written: add it to a list, pseudo caching it, and instantly emit the cacheId.
+			 * - After writing the data: emit schemata in the correct order; emit the type names in full.
+			 *
+			 *
+			 * Approach 1 vs 2:
+			 * - First approach collects all schema data into the beginning of the file
+			 *   + could potentially extract it into a separate thing maybe?
+			 * - Second approach writes schema data inline with the type-name
+			 *   + easier to do
+			 *
+			 * Is one always faster than the other?
+			 *  + inline is likely faster to implement
+			 *
+			 *
+			 * Scenario: Multiple files all with same schema
+			 * - would like to have schema data shared somewhere
+			 * - but then we'd like to put all the objects into one big file anyway
+			 * - doing that would require some sort of database because we need fast access to entries and being able to rewrite an entry (with dynamic size change)
+			 *
+			 * Abort?
+			 * - for simple versioning maybe use json
+			 * - but we'd lose IExternalRootObject, which is super-bad, but we could do some special formatting, to write an ID instead just like Ceras
+			 * - why do we even want versioning info??
+			 *    -> settings files? maybe DB-like functionality?
+			 * - assuming db: where do we put lists and strings?
+			 *
+			 *
+			 *
+			 * What do we want from our DB?
+			 * - Fast
+			 * - Automatic deconstruction/construction into RootObjects
+			 * - usually 500, to at the very most 5k items (5MB -> 5000 * 1kb)
+			 * -> Database is a topic for another day!
+			 *    Akavache, LiteDB, or a very simple custom solution might be the best
+			 *
+			 * That means:
+			 * - Very simple embed mode, just so it's feature-complete
+			 * - Manual mode where the user is responsible:
+			 *     - OnSchemaCreated (given hash+bytes[])
+			 *     - schema is separated from data, types are likely in KnownTypes anyway so the raw-data is small
+			 *     - user has to take care to give ceras the right schema to read with
+			 *       easiest way: prefix every written object with hash of its schema; save schemata in a separate small db
+			 * - Ceras in "file mode" separate databases
+			 *   - schema db
+			 *   - per-root-object-type db
+			 * - IKeyValueStore: Get(ulong id, ref byte[] buffer, ref int dataStart, ref int dataSize)
+			 * - IKeyValueStoreResolver: IKeyValueStore GetStore(string name)
+			 *
+			 * 1.) SimpleMode (to please the feature list and beginners)
+			 *     Directly embeds version data into the saved data, useful for stuff like graphics-settings, UI-config and setup (keybinds, layout, ...), ...
+			 *
+			 * 2.) Manual:
+			 *     You get notified about schema creation and need to manually save it
+			 *     Ceras will ask for schemata while reading. It gives you the hash, and you need to provide the schema data
+			 *     todo: maybe not even that, manual mode is intended to be completely manual! so maybe we'll not even do that
+			 *     8byte hash is embedded into the data to validate the format
+			 *     Only useful if you want maximum control and customize everything
+			 *
+			 * 3.) Automatic
+			 *     IKeyValueStore and IKeyValueStoreResolver solve everything.
+			 *     Ceras will obtain one IKeyValueStore from you to save/load schemata and an additional store for each root object type.
+			 *     - Ceras will provide Save(obj), Get(id), Delete(id)
+			 *     - Ceras will either
+			 *         - notify you about all other root objects in the graph (so you can save them)
+			 *         - or automatically serialize them, check the hash to see if the object is still up to date (maybe? is this a good idea?)
+			 *     - Will automatically use an built-in IExternalRootObjectResolver to load referenced objects
+			 *       and will make sure that only one instance of each object is present (so references stay consistent)
+			 */
 
-		internal Schema GetSerializationSchema(Type type, TargetMember defaultTargetMembers, bool skipCompilerGenerated, Func<SerializedMember, SerializationOverride> memberFilter = null)
+
+			// Create schema, write it
+			var schema = GetSerializationSchema(type, Config);
+
+			var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
+			var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, schema);
+
+			// Make the formatter available, if we're called from TypeFormatter then this will be the next thing
+			_specificFormatters[type] = schemaFormatter;
+
+
+			// Write the schema...
+			var members = schema.Members;
+			SerializerBinary.WriteInt32(ref buffer, ref offset, members.Count);
+
+			for (int i = 0; i < members.Count; i++)
+				SerializerBinary.WriteString(ref buffer, ref offset, members[i].PersistentName);
+		}
+
+		internal void ReadSchemaForType(byte[] buffer, ref int offset, Type type)
+		{
+			var schema = new Schema();
+
+			var count = SerializerBinary.ReadInt32(buffer, ref offset);
+			for (int i = 0; i < count; i++)
+			{
+				var name = SerializerBinary.ReadString(buffer, ref offset);
+
+				var schemaMember = new SchemaMember();
+				schema.Members.Add(schemaMember);
+
+				var member = Schema.FindMember(type, name);
+				if (member == null)
+				{
+					schemaMember.PersistentName = name;
+					schemaMember.IsSkip = true;
+				}
+				else
+				{
+					schemaMember.PersistentName = name;
+					schemaMember.IsSkip = false;
+					schemaMember.Member = new SerializedMember(member);
+				}
+			}
+
+
+			//
+			// Generate schema-formatter
+			var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
+			var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, schema);
+
+			// Make the formatter available, if we're called from TypeFormatter then this will be the next thing
+			_specificFormatters[type] = schemaFormatter;
+		}
+
+
+
+		internal static Schema GetSerializationSchema(Type type, SerializerConfig config)
 		{
 			Schema schema = new Schema();
 			schema.Type = type;
@@ -701,13 +701,14 @@ namespace Ceras
 			{
 				bool isPublic;
 				bool isField = false, isProp = false;
+				bool isReadonly = false;
 				bool isCompilerGenerated = false;
 
 				if (m is FieldInfo f)
 				{
 					// Skip readonly
 					if (f.IsInitOnly)
-						isCompilerGenerated = true;
+						isReadonly = true;
 
 					// Readonly auto-prop backing fields
 					if (f.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
@@ -715,7 +716,7 @@ namespace Ceras
 
 					// By default we skip hidden/compiler generated fields, so we don't accidentally serialize properties twice (property, and then its automatic backing field as well)
 					if (isCompilerGenerated)
-						if (skipCompilerGenerated)
+						if (config.SkipCompilerGeneratedFields)
 							continue;
 
 					isPublic = f.IsPublic;
@@ -724,6 +725,7 @@ namespace Ceras
 				else if (m is PropertyInfo p)
 				{
 					// There's no way we can serialize a prop that we can't read and write, even {private set;} props would be writeable,
+					// That is becasue there is actually physically no set() method we could possibly call. Just like a "computed property".
 					// As for readonly props (like string Name { get; } = "abc";), the only way to serialize them is serializing the backing fields, which is handled above (skipCompilerGenerated)
 					if (!p.CanRead || !p.CanWrite)
 						continue;
@@ -749,23 +751,22 @@ namespace Ceras
 					foreach (var n in attrib.AlternativeNames)
 						VerifyName(n);
 				}
-
-				var overrideFormatter = DetermineOverrideFormatter(m);
+				
 
 				var schemaMember = new SchemaMember
 				{
 					IsSkip = false,
 					Member = serializedMember,
-					OverrideFormatter = overrideFormatter,
+					//OverrideFormatter = DetermineOverrideFormatter(m),
 					PersistentName = attrib?.Name ?? m.Name,
 				};
 
 
 				//
-				// 1.) Use filter if there is one
-				if (memberFilter != null)
+				// 1.) ShouldSerializeMember - use filter if there is one
+				if (config.ShouldSerializeMember != null)
 				{
-					var filterResult = memberFilter(serializedMember);
+					var filterResult = config.ShouldSerializeMember(serializedMember);
 
 					if (filterResult == SerializationOverride.ForceInclude)
 					{
@@ -779,7 +780,7 @@ namespace Ceras
 				}
 
 				//
-				// 2.) Use attribute
+				// 2.) Use member-attribute
 				var ignore = m.GetCustomAttribute<Ignore>(true) != null;
 				var include = m.GetCustomAttribute<Include>(true) != null;
 
@@ -813,9 +814,8 @@ namespace Ceras
 				if (isCompilerGenerated)
 					continue;
 
-
 				//
-				// 3.) Use class attributes
+				// 3.) Use class-attribute
 				if (classConfig != null)
 				{
 					if (IsMatch(isField, isProp, isPublic, classConfig.TargetMembers))
@@ -827,7 +827,7 @@ namespace Ceras
 
 				//
 				// 4.) Use global defaults
-				if (IsMatch(isField, isProp, isPublic, defaultTargetMembers))
+				if (IsMatch(isField, isProp, isPublic, config.DefaultTargets))
 				{
 					schema.Members.Add(schemaMember);
 					continue;
@@ -839,7 +839,9 @@ namespace Ceras
 			return schema;
 		}
 
-		IFormatter DetermineOverrideFormatter(MemberInfo memberInfo)
+		// Removed until we are ready to deal with the V2 of version tolerance
+		/*
+		static IFormatter DetermineOverrideFormatter(MemberInfo memberInfo)
 		{
 			var prevType = memberInfo.GetCustomAttribute<PreviousType>();
 			if (prevType != null)
@@ -857,6 +859,7 @@ namespace Ceras
 
 			return null;
 		}
+		*/
 
 		static void VerifyName(string name)
 		{

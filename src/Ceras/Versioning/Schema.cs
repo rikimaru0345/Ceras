@@ -117,7 +117,8 @@
 		public string PersistentName; // If set, this gets written as type name
 		public bool IsSkip; // If this is true, member and override formatter are not used; while reading the element is skipped (by reading its size)
 		public SerializedMember Member;
-		public IFormatter OverrideFormatter;
+		
+		// public IFormatter OverrideFormatter;
 
 		public override string ToString()
 		{

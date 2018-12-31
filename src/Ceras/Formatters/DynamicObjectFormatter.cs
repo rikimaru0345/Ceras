@@ -30,7 +30,7 @@ namespace Ceras.Formatters
 			BannedTypes.ThrowIfBanned(type);
 			BannedTypes.ThrowIfNonspecific(type);
 
-			var schema = serializer.GetSerializationSchema(type, _ceras.Config.DefaultTargets, _ceras.Config.SkipCompilerGeneratedFields, _ceras.Config.ShouldSerializeMember);
+			var schema = CerasSerializer.GetSerializationSchema(type, _ceras.Config);
 
 			if (schema.Members.Count > 0)
 			{
