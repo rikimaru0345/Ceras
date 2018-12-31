@@ -15,8 +15,7 @@
 			[typeof(TimeSpan)] = new TimeSpanFormatter(),
 			[typeof(Guid)] = new GuidFormatter(),
 			[typeof(decimal)] = new DecimalFormatter(),
-			[typeof(BitVector32)] = new BitVector32Formatter(), // do we even need this one? does the dynamic formatter not take care of it?
-			//[typeof(BitVector32.Section)] = new BitVector32SectionFormatter(),
+			[typeof(BitVector32)] = new BitVector32Formatter(),
 		};
 
 		CerasSerializer _serializer;
@@ -189,7 +188,6 @@
 			}
 		}
 
-
 		class BitVector32Formatter : IFormatter<BitVector32>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, BitVector32 value)
@@ -203,26 +201,5 @@
 				value = new BitVector32(data);
 			}
 		}
-		
-
-		//class BitVector32SectionFormatter : IFormatter<BitVector32.Section>
-		//{
-		//	public void Serialize(ref byte[] buffer, ref int offset, BitVector32.Section value)
-		//	{
-		//		WriteInt16Fixed(ref buffer, ref offset, value.Offset);
-		//		WriteInt16Fixed(ref buffer, ref offset, value.Mask);
-		//	}
-
-		//	public void Deserialize(byte[] buffer, ref int offset, ref BitVector32.Section value)
-		//	{
-		//		var sectionOffset = ReadInt16Fixed(buffer, ref offset);
-		//		var mask = ReadInt16Fixed(buffer, ref offset);
-				
-		//		value = BitVector32.CreateMask()
-		//	}
-		//}
 	}
-
-
-
 }
