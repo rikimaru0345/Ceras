@@ -470,7 +470,7 @@ namespace Tutorial
 
 		}
 
-		public void Step8_DataUpgrade()
+		public void Step8_DataUpgrade_OLD()
 		{
 			/*
 			 * So you have a settings class or something, and now you have done 3 types of changes:
@@ -516,6 +516,59 @@ namespace Tutorial
 			var newSettings = jObj.ToObject<SettingsNew>();
 
 			var newData = serializer.Serialize(newSettings);
+		}
+	
+		public void Step9_VersionTolerance()
+		{
+			/*
+			 * This is like V2 of the 'DataUpgrade' section.
+			 * Since then Ceras got a VersionTolerance feature which can be enabled in the config.
+			 * 
+			 * 
+			 */
+
+			// todo 1: show how to use it
+
+			// todo 2: mention that any type-changes of existing fields are not supported (int X; becoming a float X; or so)
+
+			// todo 3: show how to deal with changing types (like in #8, just keep the old object around) 
+
+			// todo 4: In the future: Embed type-data and maybe a version number, so Ceras can also deal with changing types!
+			//         Advantage: Now we have perfect version tolerance, no need for any workarounds!
+			//		   Disadvantage: Uses more additional space, we can't magically save more data (the member types) without using more space.
+			//		   Problems: If we are asked to load an older type, and we see that a type has changed, we need the user to provide some sort of type-converter thingy.
+			//				     but we can probably do automatic conversion for all the simple stuff (int->float, ...), but maybe that's too dangerous.
+			//				     What if someone has a locale set that uses '.' and we use ',' and then "1.45" becomes 145 as int (which is ofc wrong)
+		}
+
+		public void Step10_ReadonlyHandling()
+		{
+			/*
+			 * Situation:
+			 * 
+			 * You have an object, which has a 'readonly Settings CurrentSettings;'.
+			 * Of course that can't (normally) be serialized or deserialized.
+			 * But Ceras can still deal with it.
+			 * 
+			 * Default: readonly fields are completely ignored
+			 * 
+			 * Members: save/restore the content of the variable itself
+			 * 
+			 * Forced: also fix if there's a mismatch
+			 * 
+			 * 
+			 * 
+			 */
+
+
+			// todo: example
+
+			// todo: explain that its only for readonly fields. 
+			// Readonly props can add a {private set;}, 
+			// and if for whatever reason simply adding a private set is not possible and you only have a {get;}=...; then things get extremely complicated 
+			// with SkipCompilerGeneratedFields and all the tons of problems that comes with.
+
+			// todo: explain in detail what a mismatch is (null -> not null,  not null -> null, polymorphic type mismatch)
 		}
 	}
 

@@ -17,6 +17,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			ReadonlyTest();
+
 			DelegatesTest();
 
 			SimpleDictionaryTest();
@@ -71,6 +73,58 @@ namespace LiveTesting
 
 		}
 
+		private static void ReadonlyTest()
+		{
+			SerializerConfig config = new SerializerConfig();
+			config.ReadonlyFieldHandling = ReadonlyFieldHandling.Off;
+			CerasSerializer s = new CerasSerializer(config);
+
+			ReadonlyTestClass test = new ReadonlyTestClass(9999);
+			test.Settings.Setting1 = 2222;
+			test.Settings.Setting2 = "asdasdasda";
+
+
+			var clone1 = s.Deserialize<ReadonlyTestClass>(s.Serialize(test));
+
+			// Feature is off, expect that fields are ignored:
+			Assert.Equal(5, clone1.Number);
+			Assert.Equal(1, clone1.Settings.Setting1);
+			Assert.Equal("a", clone1.Settings.Setting2);
+
+
+
+			config.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+
+			// todo: test mismatch throws exception
+			// todo: test readonly number is not fixed
+			// todo: test settings are correctly restored
+
+		}
+
+		class ReadonlyTestClass
+		{
+			public readonly int Number = 5;
+
+			public readonly MySettings Settings = new MySettings();
+
+			public class MySettings
+			{
+				public int Setting1 = 1;
+				public string Setting2 = "a";
+			}
+
+
+			public ReadonlyTestClass()
+			{
+			}
+
+			public ReadonlyTestClass(int number)
+			{
+				Number = number;
+			}
+		}
+
+
 		static int Add1(int x) => x + 1;
 		static int Add2(int x) => x + 2;
 
@@ -106,7 +160,7 @@ namespace LiveTesting
 			multipleTypesHolder.Type1 = typeof(Person);
 			multipleTypesHolder.Type2 = typeof(Person);
 			multipleTypesHolder.Type3 = typeof(Person);
-			
+
 			multipleTypesHolder.Object1 = new Person();
 			multipleTypesHolder.Object2 = new Person();
 			multipleTypesHolder.Object3 = multipleTypesHolder.Object1;

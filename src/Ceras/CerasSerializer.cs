@@ -31,6 +31,7 @@ namespace Ceras
 
 		internal static bool IsFormatterConstructed(Type type)
 		{
+			// Array is also always constructed by the caller, but it is handled separately
 			return _formatterConstructedTypes.Contains(type);
 		}
 
@@ -145,7 +146,7 @@ namespace Ceras
 			_specificFormatters.Add(runtimeType, typeFormatter);
 			_referenceFormatters.Add(typeof(Type), typeFormatter);
 			_referenceFormatters.Add(runtimeType, typeFormatter);
-			
+
 			// MemberInfos (FieldInfo, RuntimeFieldInfo, ...)
 			_resolvers.Add(new ReflectionTypesFormatterResolver(this));
 
@@ -639,7 +640,7 @@ namespace Ceras
 			{
 				bool isFrameworkType = FrameworkAssemblies.Contains(type.Assembly);
 
-				if(type.IsArray)
+				if (type.IsArray)
 					isFrameworkType = true;
 
 				if (isFrameworkType == false)
@@ -1011,6 +1012,8 @@ namespace Ceras
 		}
 	}
 
+
+
 	// todo: make it so settings cannot be changed after instantiating a serializer. Maybe copy the values? Or implement a "freezable" pattern?
 	public class SerializerConfig
 	{
@@ -1037,6 +1040,11 @@ namespace Ceras
 		public bool PersistObjectCache { get; set; } = false;
 
 
+		/// <summary>
+		/// Whenever Ceras needs to create a new object it will use the factory method (if you have provided one)
+		/// The primary intended use for this is object pooling; for example when receiving network messages you obviously don't want to 'new()' a new packet every time a message arrives, instead you want to take them from a pool. When doing so, you should of course also provide a 'DiscardObjectMethod' so Ceras can give you objects back when they are not used anymore (happens when you use the ref-version of deserialize to overwrite existing objects).
+		/// Another thing this can be used for is when you have a type that only has a static Create method instead of a parameterless constructor.
+		/// </summary>
 		public Func<Type, object> ObjectFactoryMethod { get; set; } = null;
 
 		/// <summary>
@@ -1048,7 +1056,13 @@ namespace Ceras
 
 
 		/// <summary>
-		/// Defaults to true, which means that fields marked as [CompilerGenerated] are skipped without asking your 'ShouldSerializeMember' function (if you have set one).
+		/// !! Important:
+		/// You may believe you now what you're doing when including things like the backing fields of {get;}-only properties, but there are tons of other problems you most likely didn't even realize unless you've read the github issue here: https://github.com/rikimaru0345/Ceras/issues/11. 
+		/// 
+		/// Hint: You may end up including all sorts of stuff like enumerator statemachines, delegates, remanants of 'dynamic' objects, ...
+		/// So here's your warning: Don't set this to false unless you know what you're doing.
+		/// 
+		/// This defaults to true, which means that fields marked as [CompilerGenerated] are skipped without asking your 'ShouldSerializeMember' function (if you have set one).
 		/// For 99% of all use cases this is exactly what you want. For more information read the 'readonly properties' section in the tutorial.
 		/// </summary>
 		public bool SkipCompilerGeneratedFields { get; set; } = true;
@@ -1059,21 +1073,44 @@ namespace Ceras
 		/// </summary>
 		public Func<SerializedMember, SerializationOverride> ShouldSerializeMember { get; set; } = null;
 
+		/// <summary>
+		/// If your object implement IExternalRootObject they are written as their external ID, so at deserialization-time you need to provide a resolver for Ceras so it can get back the Objects from their IDs.
+		/// When would you use this?
+		/// There's a lot of really interesting use cases for this, be sure to read the tutorial section 'GameDatabase' even if you're not making a game.
+		/// </summary>
 		public IExternalObjectResolver ExternalObjectResolver { get; set; }
 
+
+		/// <summary>
+		/// A TypeBinder does two very simple things: 1. it produces a name of a given 'Type', and 2. it finds a 'Type' when given that name.
+		/// The default type binder (NaiveTypeBinder) simply uses '.FullName', but there are many cases where you would want to mess around with that.
+		/// For example if your objects have very long full-names (many long namespaces), then you could definitely improve performance and output size of your serialized binary by (for example) shortening the namespaces. See the readme on github for more information.
+		/// </summary>
 		public ITypeBinder TypeBinder { get; set; } = null;
 
 		/// <summary>
 		/// If one of the objects in the graph implements IExternalRootObject, Ceras will only write its ID and then call this function. 
-		/// This is useful in case you want to also serialize the external objects as well.
+		/// That means this external object for which only the ID was written, was not serialized itself. But often you want to sort of "collect" all the elements
+		/// that belong into an object-graph and save them at the same time. That's when you'd use this callback. 
+		/// Make sure to read the 'GameDatabase' example in the tutorial even if you're not making a game.
 		/// </summary>
 		public Action<IExternalRootObject> OnExternalObject { get; set; } = null;
 
 		// todo: settings per-type: ShouldRecylce
 		// todo: settings per-field: Formatter<> to override
 
+		/// <summary>
+		/// If you want to provide your own formatter resolver, use this.
+		/// </summary>
 		public FormatterResolverCallback OnResolveFormatter { get; set; } = null;
 
+		/// <summary>
+		/// Add all the types you want to serialize to this collection.
+		/// When Ceras serializes your objects, and the object field is not exactly matching (for example a base type) then ceras obviously has to write the type.
+		/// Even though Ceras is optimized so it only writes the type once, that is sometimes unacceptable (networking for example).
+		/// So if you add types here, Ceras can *always* use a pre-calculated typeID directly. 
+		/// See the tutorial for more information.
+		/// </summary>
 		public KnownTypesCollection KnownTypes { get; } = new KnownTypesCollection();
 
 		/// <summary>
@@ -1089,6 +1126,10 @@ namespace Ceras
 		public bool SealTypesWhenUsingKnownTypes { get; set; } = true;
 
 
+		/// <summary>
+		/// Sometimes you want to persist objects even while they evolve (fields being added, removed, renamed).
+		/// IMPORTANT: Type changes are not yet supported, and there are other things to be aware of, so check out the tutorial for more information (and a way to deal with changing types)
+		/// </summary>
 		public VersionTolerance VersionTolerance { get; set; } = VersionTolerance.Disabled;
 
 		/// <summary>
@@ -1107,6 +1148,28 @@ namespace Ceras
 		/// If all the other things (ShouldSerializeMember and all the attributes) yield no result, then this setting is used to determine if a member should be included.
 		/// </summary>
 		public TargetMember DefaultTargets { get; set; } = TargetMember.PublicFields;
+
+		/// <summary>
+		/// Explaining this setting here would take too much space, check out the tutorial section for details.
+		/// </summary>
+		public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.Off;
+	}
+
+
+	public enum ReadonlyFieldHandling
+	{
+		/// <summary>
+		/// By default ceras will ignore readonly fields.
+		/// </summary>
+		Off = 0,
+		/// <summary>
+		/// Handle readonly fields the safe way: By serializing and deserializing the inner members of a readonly field. If the field element itself is not as expected, this will throw an exception.
+		/// </summary>
+		Members = 1,
+		/// <summary>
+		/// Same as 'Members', but instead of throwing an exception, Ceras will fix the mismatch by force (using reflection). To know what that means and when to use it, check out the tutorial section about readonly handling.
+		/// </summary>
+		ForcedOverwrite = 2,
 	}
 
 	public enum VersionTolerance
