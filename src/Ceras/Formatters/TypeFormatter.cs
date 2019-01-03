@@ -6,12 +6,14 @@
 
 	/*
 	 * Important:
-	 * For a long time this was wrapped into a CacheFormatter, but that had a problem.
+	 * For a long time this was wrapped into a ReferenceFormatter, but that had a problem.
 	 * Assuming we've added List<> and MyObj to KnownTypes, then List<MyObj> was still not known, which is bad!
-	 * The cache formatter only deals with concrete values and can't know that List<MyObj> can be built from
-	 * two already existing "primitives" (List<> and MyObj).
-	 * The type formatter is aware of this and deals with it in the most efficient way by splitting each generic
+	 * The ReferenceFormatter only deals with concrete values and can't know that List<MyObj> can
+	 * be assembled from some already existing "primitives" (in our example case: List<> and MyObj).
+	 * 
+	 * The TypeFormatter is aware of this and deals with it in the most efficient way by splitting each generic
 	 * type into its components and serializing them individually, so they can be reconstructed from their individual parts.
+	 * 
 	 * This saves a ton of space (and thus time!)
 	 */
 	
@@ -31,10 +33,11 @@
 		readonly CerasSerializer _serializer;
 		readonly ITypeBinder _typeBinder;
 
-		const int Bias = 3;
 		const int Null = -1;
 		const int NewGeneric = -2; // type that is further specified through generic arguments
 		const int NewSingle = -3; // normal type that has no generic args
+
+		const int Bias = 3;
 
 		public TypeFormatter(CerasSerializer serializer)
 		{
@@ -200,3 +203,18 @@
 		}
 	}
 }
+
+
+/*
+ * Explanation:
+ * 
+ * 	When we're deserializing any nested types (ex: Literal<float>)
+	then we're writing Literal`1 as 0, and System.Single as 1
+	but while reading, we're recursively descending, so System.Single would get read first (as 0)
+	which would throw off everything.
+	Solution: 
+	Reserve some space (inserting <null>) into the object-cache before actually reading, so all the nested things will just append to the list as intended.
+	and then just overwrite the inserted placeholder with the actual value once we're done.
+	This only works for types, since generic types obviously can't recursively contain exact copies of themselves.
+ * 
+ */

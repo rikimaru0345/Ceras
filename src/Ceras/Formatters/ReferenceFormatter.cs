@@ -36,11 +36,11 @@
 		//  1: Previously seen item with index 1
 		//  2: Previously seen item with index 2
 		// ...
-		const int InlineType = -5;
-		const int ExternalObject = -4;
-		const int NewValueSameType = -3;
-		const int NewValue = -2;
 		const int Null = -1;
+		const int NewValue = -2;
+		const int NewValueSameType = -3;
+		const int ExternalObject = -4;
+		const int InlineType = -5;
 
 		const int Bias = 5; // Using WriteUInt32Bias is more efficient than WriteInt32(), but it requires a known bias
 
@@ -600,14 +600,11 @@
 		Fail_TypeMismatch, // The value is not null, as the data tells us. But the type of the existing object does not match the expected one (so populating fields is impossible)
 		// -> Fix: Read as normal and assign
 	}
-	// todo: this case above (InstanceMismatch) needs special testing and extra care. It should NOT happen just because we have a previously seen object (at least not always!), because if that is
-	// an object that we (ceras) actually created or obtained (existing reuse, external obj, ...) earlier, then it should have been enetered into the cache anyway so that should be fine.
-	// The only situation where it should happen is when there's an actual reasonable mismatch, like when we know "yea there's some other object that also has a reference to this object but it is different here suddenly".
-	// That is a very specific case and we need to test for exactly that
-
 	*/
 
 
+	// This is here so we are able to get specific internal framework types.
+	// Such as "System.RtFieldInfo" or "System.RuntimeTypeInfo", ...
 	static class MemberHelper
 	{
 		// Helper members
@@ -619,52 +616,23 @@
 }
 
 /*
- * Note #1
-			
-	!!Important !!
-	When we're deserializing any nested types (ex: Literal<float>)
-	then we're writing Literal`1 as 0, and System.Single as 1
-	but while reading, we're recursively descending, so System.Single would get read first (as 0)
-	which would throw off everything.
-	Solution: 
-	Reserve some space(inserting < null >) into the object-cache - list before actually reading, so all the nested things will just append to the list as intended.
-	and then just overwrite the inserted placeholder with the actual value once we're done
-
-	Problem:
-	If there's a root object that has a field that simply references the root object
-	then we will write it correctly, but since we only update the reference after the object is FULLY deserialized, we end up with nulls.
-
-	Solution:
-	Right when the object is created, it has to be immediately put into the _deserializationCache
-	So child fields(like for example a '.Self' field)
-	can properly resolve the reference.
-
-	Problem:
-	How to even do that?
-	So when the object is created (but its fields are not yet fully populated) we must get a reference to
-	it immediately, before any member-field is deserialized!(Because one of those fields could be a refernce to the object itself again)
-	How can we intercept this assignment / object creation?
-
-	Solution:
-	We pass a reference to a proxy.If we'd just have a List<T> we would not be able to use "ref" (like: deserialize(... ref list[x]) )
-	So instead we'll pass the reference to a proxy object. 
-	The proxy objects are small, but spamming them for every deserialization is still not cool.
-	So we use a very simple pool for them.
-	
-	
-
-  Note #2
 	Serializing types as values.
 	Let's say someone has a field like this: `object obj = typeof(Bla);`
-	We don't know what's inside the field from just the field-type, so as always, we'd have to write the type. 
-	So we'd write "obj.GetType()", which is the first problem, that'd return 'RuntimeType'!
+	We don't know what's inside the field from just the field-type (which is just 'object').
+	So as always, we'd have to write the type.
+	Usually we would get the type of the value, so "obj.GetType()", but in this case that would not work at all, as the result
+	would of 'typeof(Type).GetType()' is actually 'System.RuntimeType'!
 
-	Second problem would be that if we have an `object obj1 = new Bla();` then we'd write the type and then the value, so far so good,
-	but when we later encounter the `obj` field (the one that contains a type!) then we'd not be able to share the object ID!
+	Resolving this would be possible with some special cases in the TypeFormatter.
+	But that would slow things down, and there is actually one
+	more (even more important) problem that is not immediately apparent: sharing!
+	The TypeFormatter has its own specialized cache for types, so not only could we not profit from its specialized code,
+	we would also write a huge unoptimized string for many types.
+	And if there are any actual instances of that type we'd waste even more space by encoding the type once with type-encoding
+	and once as a "value".
 
-	Why? Because Types have their own cache, but the `obj` fields value was saved into the normal value-cache instead.
-
-	The only solution is to check for 'Type' and treat it as a special case.
-
-
+	Solution:
+	We can resolve all of those problems by making 'Type' a special case (as it should be).
+	After implementing it we realize that this is actually "free" in performance terms.
+	So we didn't add any performance penalty AND fixed multiple problems at the same time.
 */

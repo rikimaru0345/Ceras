@@ -183,11 +183,12 @@ namespace Ceras.Formatters
 							else
 								onReassignment = Expression.Throw(Expression.Constant(new Exception("The reference in the readonly-field '"+fieldInfo.Name+"' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
 
-							// 1. Did the reference change?
+							// Did the reference change?
 							block.Add(Expression.IfThenElse(
 								test: Expression.ReferenceEqual(tempStore, Expression.MakeMemberAccess(refValueArg, member.MemberInfo)),
 								
-								// Still the same. Whatever happened (null, seen object, external object, type), it seems to be ok.
+								// Still the same. Whatever has happened (and there are a LOT of cases), it seems to be ok.
+								// Maybe the existing object's content was overwritten, or the instance reference was already as expected, or...
 								ifTrue: Expression.Empty(),
 
 								// Reference changed. Handle it depending on if its allowed or not
