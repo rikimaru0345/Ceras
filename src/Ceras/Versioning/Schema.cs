@@ -318,7 +318,8 @@
 				else
 					continue;
 
-				var serializedMember = SerializedMember.Create(m);
+				bool allowReadonly = _config.ReadonlyFieldHandling != ReadonlyFieldHandling.Off;
+				var serializedMember = SerializedMember.Create(m, allowReadonly);
 
 				// should we allow users to provide a formatter for each old-name (in case newer versions have changed the type of the element?)
 				var attrib = m.GetCustomAttribute<PreviousNameAttribute>();

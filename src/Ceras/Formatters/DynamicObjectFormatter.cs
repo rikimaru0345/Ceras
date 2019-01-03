@@ -8,6 +8,7 @@ namespace Ceras.Formatters
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Linq.Expressions;
+	using System.Reflection;
 
 #if FAST_EXP
 	using FastExpressionCompiler;
@@ -17,6 +18,13 @@ namespace Ceras.Formatters
 	// todo: Can we use a static-generic as a cache instead of dict? Is that even possible in our case? Would we even save anything? How much would it be faster?
 	class DynamicObjectFormatter<T> : IFormatter<T>
 	{
+		static readonly MethodInfo SetValue = typeof(FieldInfo).GetMethod(
+				name: "SetValue",
+				bindingAttr: BindingFlags.Instance | BindingFlags.Public,
+				binder: null, 
+				types: new Type[] { typeof(object), typeof(object) },
+				modifiers: new ParameterModifier[2]);
+
 		CerasSerializer _ceras;
 		SerializeDelegate<T> _dynamicSerializer;
 		DeserializeDelegate<T> _dynamicDeserializer;
@@ -93,28 +101,104 @@ namespace Ceras.Formatters
 
 			List<Expression> block = new List<Expression>();
 
+			List<ParameterExpression> locals = new List<ParameterExpression>();
+
 			// Go through all fields and assign them
 			foreach (var sMember in members)
 			{
 				var member = sMember.Member;
+				var type = member.MemberType;
 				// todo: what about Field attributes that tell us to:
 				// - use a specific formatter? (HalfFloat, Int32Fixed, MyUserFormatter) 
 				// - assume a type, or exception
-				// - Force ignore caching (for ref types) (value types cannot be ref-saved)
-				// - Persistent object caching per type or field
+				// - Force ignore caching (as in not using the reference formatter)
 
-				var type = member.MemberType;
+				IFormatter formatter = _ceras.GetGenericFormatter(type);
 
-				IFormatter formatter;
-
-				if (type.IsValueType)
-					formatter = _ceras.GetSpecificFormatter(type);
-				else
-					formatter = _ceras.GetGenericFormatter(type);
-
-				//var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
 				var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
+
+
+				//
+				// We have everything we need to read and then assign the member.
+				// But what if the member is readonly?
+
+				if (member.MemberInfo is FieldInfo fieldInfo)
+					if (fieldInfo.IsInitOnly)
+					{
+						if (_ceras.Config.ReadonlyFieldHandling == ReadonlyFieldHandling.Off)
+							throw new InvalidOperationException($"Error while trying to generate a deserializer for the field '{member.MemberInfo.DeclaringType.FullName}.{member.MemberInfo.Name}' and the field is readonly, but ReadonlyFieldHandling is turned off in the serializer configuration.");
+
+						// We just read the value into a local variable first,
+						// for value types we overwrite,
+						// for objects we type-check, and if the type matches we populate the fields as normal
+						
+						// 1. Read the data into a new local variable
+						var tempStore = Expression.Variable(type, member.Name + "_tempStoreForReadonly");
+						locals.Add(tempStore);
+
+						// 2. Init the local with the current value
+						block.Add(Expression.Assign(tempStore, Expression.MakeMemberAccess(refValueArg, member.MemberInfo)));
+
+						// 3. Read the value as usual, but use the temp variable as target
+						var tempReadCall = Expression.Call(Expression.Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, tempStore);
+						block.Add(tempReadCall);
+
+						// 4. ReferenceTypes and ValueTypes are handled a bit differently (Boxing, Equal-vs-ReferenceEqual, text in exception, ...)
+						if (type.IsValueType)
+						{
+							// Value types are simple.
+							// Either they match perfectly -> do nothing
+							// Or the values are not the same -> either throw an exception of do a forced overwrite
+
+							Expression onMismatch;
+							if (_ceras.Config.ReadonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
+								// field.SetValue(valueArg, tempStore)
+								onMismatch = Expression.Call(Expression.Constant(fieldInfo), SetValue, arg0: refValueArg, arg1: Expression.Convert(tempStore, typeof(object))); // Explicit boxing needed
+							else
+								onMismatch = Expression.Throw(Expression.Constant(new Exception($"The value-type in field '{fieldInfo.Name}' does not match the expected value, but the field is readonly and overwriting is not allowed in the serializer configuration. Fix the value, or make the field writeable, or enable 'ForcedOverwrite' in the serializer settings to allow Ceras to overwrite the readonly-field.")));
+
+							block.Add(Expression.IfThenElse(
+								test: Expression.Equal(tempStore, Expression.MakeMemberAccess(refValueArg, member.MemberInfo)),
+								ifTrue: Expression.Empty(),
+								ifFalse: onMismatch
+								));
+						}
+						else
+						{
+							// Either we already give the deserializer the existing object as target where it should write to, in which case its fine.
+							// Or the deserializer somehow gets its own object instance from somewhere else, in which case we can only proceed with overwriting the field anyway.
+
+							// So the most elegant way to handle this is to first let the deserializer do what it normally does,
+							// and then check if it has changed the reference.
+							// If it did not, everything is fine; meaning it must have accepted 'null' or whatever object is in there, or fixed its content.
+							// If the reference was changed there is potentially some trouble.
+							// If we're allowed to change it we use reflection, if not we throw an exception
+
+							
+							Expression onReassignment;
+							if (_ceras.Config.ReadonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
+								// field.SetValue(valueArg, tempStore)
+								onReassignment = Expression.Call(Expression.Constant(fieldInfo), SetValue, arg0: refValueArg, arg1: tempStore);
+							else
+								onReassignment = Expression.Throw(Expression.Constant(new Exception("The reference in the readonly-field '"+fieldInfo.Name+"' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
+
+							// 1. Did the reference change?
+							block.Add(Expression.IfThenElse(
+								test: Expression.ReferenceEqual(tempStore, Expression.MakeMemberAccess(refValueArg, member.MemberInfo)),
+								
+								// Still the same. Whatever happened (null, seen object, external object, type), it seems to be ok.
+								ifTrue: Expression.Empty(),
+
+								// Reference changed. Handle it depending on if its allowed or not
+								ifFalse: onReassignment
+								));
+
+						}
+
+						continue;
+					}
+
 
 				var fieldExp = Expression.MakeMemberAccess(refValueArg, member.MemberInfo);
 
@@ -123,7 +207,7 @@ namespace Ceras.Formatters
 			}
 
 
-			var serializeBlock = Expression.Block(expressions: block);
+			var serializeBlock = Expression.Block(variables: locals, expressions: block);
 #if FAST_EXP
 			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
 #else
@@ -142,8 +226,6 @@ namespace Ceras.Formatters
 		{
 			_dynamicDeserializer(buffer, ref offset, ref value);
 		}
-
-
 	}
 
 	// Some types are banned from serialization

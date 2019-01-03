@@ -102,7 +102,7 @@
 			{
 				if (IsSealed)
 				{
-					throw new InvalidOperationException($"Trying to add '{value.ToString()}' (type '{typeof(T).FullName}') to a sealed cache formatter.");
+					throw new InvalidOperationException($"Trying to add '{value.ToString()}' (type '{typeof(T).FullName}') to a sealed cache.");
 				}
 
 				// Important: Insert the ID for this value into our dictionary BEFORE calling SerializeFirstTime, as that might recursively call us again (maybe with the same value!)
@@ -236,6 +236,24 @@
 		}
 
 
+		/*
+		 * So what even is a SpecificDispatcher and why do we need one??
+		 * 
+		 * The answer is surprisingly simple.
+		 * If we (the reference formatter) are of some sort of 'base type' like ReferenceFormatter<object> or ReferenceFormatter<IList> or ...
+		 * then we can serialize the reference itself just fine, yea, but the actual type needs a different serializer.
+		 * 
+		 * There can be all sorts of actual implementations inside an 'IList' field and we can't know until we look at the current value.
+		 * So that means we need to use a different formatter depending on the *actual* type of the object.
+		 * 
+		 * But doing the lookup from type to formatter and potentially creating one is not the only thing that needs to be done.
+		 * Because there's another problem:
+		 * 
+		 * Our <T> would have to be co-variant and contra-variant at the same time (because we consume and produce a <T>).
+		 * Of course in normal C# that's not possible because it's not even safe to do.
+		 * But in our case we actually know (well, unless we get corrupted data of course) that everything will work.
+		 * So to bypass that limitation we compile our own special delegate that does the forwards and backwards casting for us.
+		 */
 		SerializeDelegate<T> GetSpecificSerializerDispatcher(Type type)
 		{
 			if (_specificSerializers.TryGetValue(type, out var f))
@@ -294,6 +312,7 @@
 			return f;
 		}
 
+		// See the comment on GetSpecificSerializerDispatcher
 		DeserializeDelegate<T> GetSpecificDeserializerDispatcher(Type type)
 		{
 			if (_specificDeserializers.TryGetValue(type, out var f))
@@ -499,6 +518,20 @@
 			return method.CreateDelegate(delegateType);
 		}
 
+		
+
+		/*
+		 * A special method needed for ReadonlyFieldHandling
+		 * 
+		 * If there's some object in a field, we have to know if the ReferenceFormatter would decide (for whatever reason) to assign to the given reference.
+		 * That is important to know because we (the dynamic formatter) actually need to forward the assignment (if it happens).
+		 * And otherwise 
+		 */
+		void PeekWriteDecision(T value, byte[] buffer, int offset)
+		{
+
+		}
+
 
 		/// <summary>
 		/// Set IsSealed, and will throw an exception whenever a new value is encountered.
@@ -510,6 +543,70 @@
 		}
 
 	}
+
+
+	
+	/*
+	 * The idea for the 'Members' mode of readonly field handling is that
+	 * we populate the fields only. Which (and that's just our current interpretation) requires
+	 * that the reference itself is already exactly what it should be.
+	 * 
+	 * That means 'Members' only succeeds when:
+	 * - Value is null and data requires null
+	 * - KnownObject resolves to what's already there
+	 * - ExternalObject resolves to what's already there
+	 * - Inline type is the same one that's already there
+	 * - NewObject with matching type.
+	 * 
+	 * The last one is a bit of a special case. It requires a new object, but since we *want* to populate an existing object,
+	 * we can just "adopt" the already existing object, which fulfilles the idea of 'Members' as well.
+	 * 
+	 * - "Why even have this and not just always do the 'read and overwrite' thing??"
+	 * -> Because for readonly fields we have more options than just 'do or don't handle them'.
+	 *    We also support 'members', aka 'populate only'. And for that we must know if we should immediately throw an exception.
+	 *    
+	 *    
+	 * But wait a second.
+	 * Can we not completely see if there are any field-writes needed just by checking if the ReferenceFormatter has changed the given ref-variable??
+	
+	enum ReferenceRecycleWriteDecision
+	{
+		//
+		// Success:
+		// Cases where everything matches already
+		Success_Null, // Expected null, and we got null.
+		Success_MatchingInstance, // Expected a specific instance (previous object, external object, inline type) and that's what we got.
+
+
+		//
+		// Valid:
+		// Case where we get a new object, and we have a matching object present already that can accept the incoming data.
+		Valid_TypeMatch, // Expected an instance, and (as expected) there is already an object of the correct type present. We can continue in 'populate' mode.
+
+
+		//
+		// Failure:
+		// Cases where the content of the field does not match; we would have to fix it somehow
+
+		Fail_ShouldWriteNull, // The field contains an instance, but the data tells us the field should be null!
+		// -> Fix: Read as normal and assign
+		
+		Fail_InstanceExpected, // The field currently contains null, but the data says there should be an object in there. 
+		// -> Fix: Read as normal and assign
+
+		Fail_InstanceMismatch, // The field already contains an instance, but not the right one. The data tells us there should be a very specific object in there, but it's not
+		// -> Fix: Read as normal and assign
+
+		Fail_TypeMismatch, // The value is not null, as the data tells us. But the type of the existing object does not match the expected one (so populating fields is impossible)
+		// -> Fix: Read as normal and assign
+	}
+	// todo: this case above (InstanceMismatch) needs special testing and extra care. It should NOT happen just because we have a previously seen object (at least not always!), because if that is
+	// an object that we (ceras) actually created or obtained (existing reuse, external obj, ...) earlier, then it should have been enetered into the cache anyway so that should be fine.
+	// The only situation where it should happen is when there's an actual reasonable mismatch, like when we know "yea there's some other object that also has a reference to this object but it is different here suddenly".
+	// That is a very specific case and we need to test for exactly that
+
+	*/
+
 
 	static class MemberHelper
 	{

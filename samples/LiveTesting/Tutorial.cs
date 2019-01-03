@@ -8,6 +8,7 @@ namespace Tutorial
 	using Newtonsoft.Json.Linq;
 	using System;
 	using System.Collections.Generic;
+	using System.Diagnostics;
 
 	class Person
 	{
@@ -517,7 +518,7 @@ namespace Tutorial
 
 			var newData = serializer.Serialize(newSettings);
 		}
-	
+
 		public void Step9_VersionTolerance()
 		{
 			/*
@@ -561,7 +562,13 @@ namespace Tutorial
 			 */
 
 
-			// todo: example
+			{
+				
+				
+			}
+
+
+
 
 			// todo: explain that its only for readonly fields. 
 			// Readonly props can add a {private set;}, 
@@ -571,6 +578,8 @@ namespace Tutorial
 			// todo: explain in detail what a mismatch is (null -> not null,  not null -> null, polymorphic type mismatch)
 		}
 	}
+
+
 
 	static class MyGameDatabase
 	{

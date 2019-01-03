@@ -179,6 +179,33 @@
 
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteUInt32Fixed(ref byte[] buffer, ref int offset, uint value)
+		{
+			EnsureCapacity(ref buffer, offset, 4);
+
+			fixed (byte* pBuffer = buffer)
+			{
+				*((uint*)(pBuffer + offset)) = value;
+			}
+
+			offset += 4;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static uint ReadUInt32Fixed(byte[] buffer, ref int offset)
+		{
+			uint value;
+
+			fixed (byte* pBuffer = buffer)
+			{
+				value = *((uint*)(pBuffer + offset));
+			}
+
+			offset += 4;
+			return value;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteByte(ref byte[] buffer, ref int offset, byte value)
 		{
 			EnsureCapacity(ref buffer, offset, 1);

@@ -3,12 +3,11 @@
 	using System;
 	using System.Collections.Generic;
 
-	// todo: respect options for collection handling in both serializers (array and collection).
-
-	// todo: do we want to do object caching for arrays and collections as well!?
-	// todo: ..how realistic is it that two objects reference the same collection?
-
 	// todo: at the moment we refer to the item formatter through an interface field. Would we get a performance improvement if we'd compile a dedicated formatter that has the itemFormatter built-in as a constant instead? (just like the DynamicObjectFormatter already does)? Would we save performance if we'd cache the itemFormatter into a local variable before entering the loops?
+
+	// Idea from a user: at the moment we obtain a generic formatter for the item and then write the entries one after another. But would it be possible somehow (if the type is sealed or value-type) to write the type only once at the start, establishing something like "now X objects of this exact type Y will follow".
+	// -> No! We'd still need a reference formatter to ensure references are maintained. And at that point we have saved absolutely nothing because that check already encodes type IF its needed!
+	// Which means that we'd not even save a single byte, because there are no bytes to save. We already do not waste any bytes on encoding "yup same type" because that information is packed into the reference-formatters "serialization mode id". We'd have to either write the ID of an existing object or use one byte for "new object" anyway. And the thing is: This unavoidable byte is already used to also encode that...
 
 	public class ArrayFormatter<TItem> : IFormatter<TItem[]>
 	{
@@ -17,10 +16,7 @@
 		public ArrayFormatter(CerasSerializer serializer)
 		{
 			var itemType = typeof(TItem);
-			if (itemType.IsValueType)
-				_itemFormatter = (IFormatter<TItem>) serializer.GetSpecificFormatter(itemType);
-			else
-				_itemFormatter = (IFormatter<TItem>) serializer.GetGenericFormatter(itemType);
+			_itemFormatter = (IFormatter<TItem>) serializer.GetGenericFormatter(itemType);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TItem[] ar)

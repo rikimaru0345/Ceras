@@ -154,6 +154,7 @@ namespace Ceras
 
 			SchemaDb = new SchemaDb(Config);
 
+
 			if (Config.ExternalObjectResolver == null)
 				Config.ExternalObjectResolver = new ErrorResolver();
 
@@ -244,7 +245,8 @@ namespace Ceras
 				d.ObjectCache = new ObjectCache();
 				d.TypeCache = new ObjectCache();
 				d.WrittenSchemata = new HashSet<Schema>();
-				d.DataSchemata = new Dictionary<Type, Schema>();
+				d.WrittenSchemataList = new List<Schema>();
+				d.ReadSchemata = new HashSet<Type>();
 
 				foreach (var t in Config.KnownTypes)
 				{
@@ -344,6 +346,7 @@ namespace Ceras
 				//
 				// Clear the root object again
 				InstanceData.WrittenSchemata.Clear();
+				InstanceData.WrittenSchemataList.Clear();
 				InstanceData.CurrentRoot = null;
 
 				LeaveRecursive(RecursionMode.Serialization);
@@ -352,7 +355,7 @@ namespace Ceras
 
 		/// <summary>
 		/// Convenience method that will most likely allocate a T to return (using 'new T()'). Unless the data says the object really is null, in that case no instance of T is allocated.
-		/// It would be smart to not use this method and instead use the (ref T value, byte[] buffer) overload with an object you have cached. 
+		/// It would be smart to not use this method and instead use another overload. 
 		/// That way the deserializer will set/populate the object you've provided. Obviously this only works if you can overwrite/reuse objects like this! (which, depending on what you're doing, might not be possible at all)
 		/// </summary>
 		public T Deserialize<T>(byte[] buffer)
@@ -363,12 +366,25 @@ namespace Ceras
 			return value;
 		}
 
+
+		/// <summary>
+		/// Deserializes an object from previously serialized data.
+		/// <para>You can put in anything for the <paramref name="value"/>, and if the object in the data matches, Ceras will populate your existing object (overwrite its fields, clear/refill the collections, ...)</para>
+		/// <para>Keep in mind that the config settings used for serialization must match exactly (should be obvious tho)</para>
+		/// </summary>
 		public void Deserialize<T>(ref T value, byte[] buffer)
 		{
 			int offset = 0;
 			Deserialize(ref value, buffer, ref offset, -1);
 		}
 
+		/// <summary>
+		/// The most advanced deserialize method.
+		/// <para>Again, you can put in an existing object to populate (or a variable that's currently null, in which case Ceras creates an object for you)</para>
+		/// <para>In this version you can put in the offset as well, telling Ceras where to start reading from inside the buffer.</para>
+		/// <para>After the method is done, the offset will be where Ceras has stopped reading.</para>
+		/// <para>If you pass in a value >0 for <paramref name="expectedReadLength"/> then Ceras will check how many bytes it has read (only rarely useful)</para>
+		/// </summary>
 		public void Deserialize<T>(ref T value, byte[] buffer, ref int offset, int expectedReadLength = -1)
 		{
 			if (buffer == null)
@@ -442,7 +458,10 @@ namespace Ceras
 			}
 		}
 
-
+		/// <summary>
+		/// Allows you to "peek" the object the data contains without having to fully deserialize the whole object.
+		/// <para>Only works for data that was saved without version tolerance (maybe that'll be supported eventually, if someone requests it)</para>
+		/// </summary>
 		public Type PeekType(byte[] buffer)
 		{
 			Type t = null;
@@ -453,9 +472,15 @@ namespace Ceras
 		}
 
 
-
+		/// <summary>
+		/// This is a shortcut to the <see cref="GetGenericFormatter(Type)"/> method
+		/// </summary>
 		public IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetGenericFormatter(typeof(T));
 
+		/// <summary>
+		/// Returns one of Ceras' internal formatters for some type.
+		/// It automatically returns the right one for whatever type is passed in.
+		/// </summary>
 		public IFormatter GetGenericFormatter(Type type)
 		{
 			if (type.IsValueType)
@@ -477,25 +502,30 @@ namespace Ceras
 			return referenceFormatter;
 		}
 
+		/// <summary>
+		/// Similar to <see cref="GetGenericFormatter(Type)"/> it returns a formatter, but one that is not wrapped in a <see cref="ReferenceFormatter{T}"/>.
+		/// <para>You probably always want to use <see cref="GetGenericFormatter(Type)"/>, and only use this method instead when you are 100% certain you have emulated everything that <see cref="ReferenceFormatter{T}"/> does for you.</para>
+		/// <para>Internally Ceras uses this to </para>
+		/// </summary>
 		public IFormatter GetSpecificFormatter(Type type)
 		{
 			// 1.) Cache - todo: maybe do static-generic caching
 			if (_specificFormatters.TryGetValue(type, out var formatter))
 				return formatter;
 
-			// 2.) Version Tolerance: Embedded schema descriptors
-			if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
-				if (InstanceData.DataSchemata.TryGetValue(type, out var embeddedSchema))
-				{
-					// todo: remove those schemata again after reading
-					// todo: restore the formatters we've overwritten
-					// maybe put them into their own thing
+			//// 2.) Version Tolerance: Embedded schema descriptors
+			//if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+			//	if (InstanceData.DataSchemata.TryGetValue(type, out var embeddedSchema))
+			//	{
+			//		// todo: remove those schemata again after reading
+			//		// todo: restore the formatters we've overwritten
+			//		// maybe put them into their own thing
 
-					var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
-					var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, embeddedSchema);
-					_specificFormatters.Add(type, schemaFormatter);
-					return schemaFormatter;
-				}
+			//		var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
+			//		var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, embeddedSchema);
+			//		_specificFormatters.Add(type, schemaFormatter);
+			//		return schemaFormatter;
+			//	}
 
 
 			// 3.) User
@@ -628,20 +658,14 @@ namespace Ceras
 			}
 
 			// todo:
-			// MAYBE there are some big problems left to consider here...
-			// It's been a while since I worked on this, so I'm 
-			// not sure if the concerns below have already been solved by the many refactorings done in the past
 			/*
 			 * !! Big issue here !!
-			 * 
-			 * 
 			 * ## To recap:
 			 * 
 			 * - Any given type always has exactly one primary Schema.
 			 * - A type can also have older schemata associated with it (those Schemata are always generated by ReadSchema())
 			 * - Every Schema has exactly one SchemaDynamicFormatter
 			 * - A SchemaDynamicFormatter probably has a ReferenceFormatter as its parent.
-			 * 
 			 * 
 			 * Which means...
 			 * the ReferenceFormatter is bound to that exact schema, because it compiles a dispatch to the specific SchemaDynamicFormatter.
@@ -650,7 +674,6 @@ namespace Ceras
 			 * 
 			 * Which brings us to the issue:
 			 * Can we be sure that there will never be a situation where we could potentially use the wrong specific formatter by accident? (spoiler: no we can't be sure)
-			 * 
 			 * 
 			 * How might it happen?
 			 *	1)	Setup
@@ -664,14 +687,78 @@ namespace Ceras
 			 * 
 			 *    
 			 * 
+			 * ## Bigger issue
+			 * 
+			 * There's actually an example where we don't even need to do two serializations.
+			 * If we use an array things will immediately break:
 			 * 
 			 * Assume we read an array of objects with version tolerance.
-			 *    We now have an ArrayFormatter<> that is specific to this schema.
+			 *    We now have an ArrayFormatter<> that is specific to this schema, because it contains a reference to a ReferenceFormatter which itself uses a SchemaDynamicFormatter.
+			 *    All of those formatters won't change again after they've been instantiated once.
 			 *    Now we start another deserialization, it's an array of those objects again, but this time an older version of them.
 			 *    The ArrayFormatter<> won't change, so it will now try to read the elements with the wrong schema.
 			 *    -> How to fix this
 			 *    -> Do we have to completely discard all our formatters after every deserialization?
 			 *    
+			 * -> For deserialization of a single object it shouldn't be a problem because once we encounter the TypeDefinition, we also encounter the object Schema,
+			 *    which then will activate the correct formatters.
+			 *    So now the serializer is "primed" to react correctly to this type.
+			 *    
+			 * -> But what about an array formatter? The user wants to read an 'Person[]', and the data contains 'PersonOldVersion[]'.
+			 *    The array is the first thing, so the ArrayFormatter has already been established (and before that the ReferenceFormatter<Person[]>)!
+			 *	  And now, while we're already well underway reading the array, we suddenly realize (actually we don't and that's the problem) that we're using
+			 *	  the wrong formatter for the upcoming object data!
+			 *	  Sure, once we're reading the first object we find its type and schema, which then activates the schema formatter, but at that point it's already too late.
+			 *	  We're already reading the first element, at that point replacing the formatter doesn't even do anything anymore; the ArrayFormatter has long since obtained
+			 *	  an itemFormatter that (supposedly!!) reads the data!
+			 *	  
+			 * -> Even worse: the type is not even written if the entries match the array, which means we'd not write any schema at all!!
+			 * 
+			 * Same problem with reading. Once it is identified that we're about to read array like 'Person[]', an array formatter is created,
+			 * which then immediately wants to obtain its item-formatter. So it gets a ReferenceFormatter<Person>, with the inner formatter being SchemaDynamicFormatter<Person>,
+			 * which internally uses the primary schema for the type, not the one we're now just about to read.
+			 * 
+			 * 
+			 * How to solve this in general?
+			 * My initial thought is that all formatters that internally depend on a schema (directly or indirectly) are "tainted" by the Schema.
+			 * So the most naive approach would be like this:
+			 *	- before reading or writing it has to be known what types will take part in the serialization.
+			 *	  Writing:
+			 *		- not a problem, we *always* use the primary schema to write
+			 *	  Reading:
+			 *	    - before reading the first byte of real data, we need to know all the schemata that are about to be used.
+			 *	      that's only possible if we have one large schema blob in front of the data, instead of mixed in inline with the data.
+			 *	- simply throw out all potentially tainted formatters and start over every time.
+			 *	
+			 * The most obvious optimization here is that we don't really have to "throw out" all formatters, we can instead just mark them with their Schema, so we know what schema they use.
+			 * 
+			 * -> Problem what if there's a SchemaDynamicFormatter that serializes ObjectTypeA, which in turn has a reference each to ObjectTypeX and ObjectTypeY,
+			 *    now we read some data with all old-format data (5 versions in the past).
+			 *    And next we read some data where ObjectTypeX is 3 versions in the past, and ObjectTypeY is 5 versions in the past.
+			 *    Obviously the SchemaDynamicFormatter for ObjectTypeA will not work. When it wants to read the field for ObjectTypeX it would call some formatter that is for the wrong Schema.
+			 *    Not all objects change their version together. In almost all cases only one or very few objects change for a new version.
+			 *    So it is possible (actually totally certain) that we encounter mixed-version data.
+			 * 
+			 *    -> Formatters can be tained by multiple schemata, even if they use only one (or none at all) themselves.
+			 *       Like an array formatter that serializes 'ObjectTypeA[]'...
+			 * 
+			 * Potential solution:
+			 * - Now every formatter would be marked with what schemata it uses directly or indirectly
+			 * - We're reading a new object blob, and read all the schemata first so now we have the complete schema set.
+			 * - We can now take a look if we have a set of formatters that uses this set (or a superset) of schemata
+			 * - If we don't we have to start over at least partially. However we can at least re-use formatters for sub-objects where the set matches again.
+			 * 
+			 * 
+			 * Next steps:
+			 * - VersionTolerance is rarely used and we need a way to get the feature going correctly now, not in 6 months
+			 *   So we'll throw out all formatters before and after every deserialization to ensure that there can't be any schema-tainting
+			 *   (need to remove all those static dictionaries in the resolvers everywhere as well!)
+			 *   - Once before the deserialization so we don't read old data using new formatters
+			 *   - Once after the deserialization so we don't keep array-, dynamic-, and reference- formatters around that use old schemas
+			 * - To do this we must fix when schema data is read/written. It must be at the start of the data in one big blob, never inline with the types/data.
+			 * - The most impactful optimization would be to have a HashSet<Schema> as the key into a dictionary that gives us a Tuple<List<IFormatter>>, List<IFormatter>>> (two lists, reference and specific formatters). And when we encounter a set of those schemata, we can just re-use all the things.
+			 * - No need to go into the much more difficult optimization of actually tracking which formatter uses what schemata (directly AND indirectly), and then somehow using that to share generated formatters across the "schema boundaries". That situation will almost never appear in reality, and people encountering it can instantly fix it by simply upgrading (loading, and re-saving) all their data in the new format. This data-upgrading is a very common thing in software anyway, any kind of database upgrades all the data whenver there is a schema change, so that's nothing new.
+			 * - With those steps we fixed all problems.
 			 */
 		}
 
@@ -722,15 +809,16 @@ namespace Ceras
 		public ObjectCache TypeCache;
 		public ObjectCache ObjectCache;
 
+		public IExternalRootObject CurrentRoot;
 
 		// Populated at the start of a deserialization, so we know what types have specialized formatters
-		public Dictionary<int, Schema> HashToSchema;
-		public Dictionary<Type, Schema> DataSchemata;
+		// public Dictionary<int, Schema> HashToSchema;
+		// public Dictionary<Type, Schema> DataSchemata;
+		
+		public HashSet<Schema> WrittenSchemata; // Populated while writing so at the end we know which Schemata we've written
+		public List<Schema> WrittenSchemataList; 
 
-
-		public HashSet<Schema> WrittenSchemata; // Populated while writing so at the end we know what schemata we've read, so we can embed their information
-
-		public IExternalRootObject CurrentRoot;
+		public HashSet<Type> ReadSchemata; // While reading, we know whether or not a Schema follows the Type by checking if we've already read a Schema for the type.
 	}
 
 	enum RecursionMode
@@ -793,7 +881,7 @@ namespace Ceras
 
 		/// <summary>
 		/// !! Important:
-		/// You may believe you now what you're doing when including things like the backing fields of {get;}-only properties, but there are tons of other problems you most likely didn't even realize unless you've read the github issue here: https://github.com/rikimaru0345/Ceras/issues/11. 
+		/// You may believe you know what you're doing when including things compiler-generated fields, but there are tons of other problems you most likely didn't even realize unless you've read the github issue here: https://github.com/rikimaru0345/Ceras/issues/11. 
 		/// 
 		/// Hint: You may end up including all sorts of stuff like enumerator statemachines, delegates, remanants of 'dynamic' objects, ...
 		/// So here's your warning: Don't set this to false unless you know what you're doing.
@@ -804,7 +892,7 @@ namespace Ceras
 		public bool SkipCompilerGeneratedFields { get; set; } = true;
 
 		/// <summary>
-		/// This is the very first thing that ceras uses to determine whether or not to serialize something.
+		/// This is the very first thing that ceras uses to determine whether or not to serialize something. While not the most comfortable, it is useful because it is called for types you don't control (types from other libraries where you don't have the source code...).
 		/// Important: Compiler generated fields are always skipped by default, for more information about that see the 'readonly properties' section in the tutorial where all of this is explained in detail.
 		/// </summary>
 		public Func<SerializedMember, SerializationOverride> ShouldSerializeMember { get; set; } = null;
@@ -891,7 +979,9 @@ namespace Ceras
 		public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.Off;
 	}
 
-
+	/// <summary>
+	/// Options how Ceras handles readonly fields. Check the description of each entry.
+	/// </summary>
 	public enum ReadonlyFieldHandling
 	{
 		/// <summary>

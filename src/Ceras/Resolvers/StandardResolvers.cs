@@ -56,6 +56,7 @@
 		}
 	}
 	
+	// todo: Only few collections support a 'capacity'-constructor, but List<> and Dictionar<> do! So we should make special version of the collection formatter for them!
 	class CollectionFormatterResolver : IFormatterResolver
 	{
 		readonly CerasSerializer _serializer;
@@ -71,9 +72,9 @@
 			//
 			// Do we already have an array or collection formatter?
 			//
-			IFormatter existingInstance;
-			if (_formatterInstances.TryGetValue(type, out existingInstance))
-				return existingInstance;
+			IFormatter formatter;
+			if (_formatterInstances.TryGetValue(type, out formatter))
+				return formatter;
 
 			//
 			// Array?
@@ -83,13 +84,10 @@
 				var itemType = type.GetElementType();
 
 				var formatterType = typeof(ArrayFormatter<>).MakeGenericType(itemType);
+				formatter = (IFormatter)Activator.CreateInstance(formatterType, _serializer);
 
-				existingInstance = (IFormatter)Activator.CreateInstance(formatterType, _serializer);
-				
-				//existingInstance = DynamicObjectFormatterResolver.WrapInCache(type, existingInstance, _serializer);
-
-				_formatterInstances[type] = existingInstance;
-				return existingInstance;
+				_formatterInstances[type] = formatter;
+				return formatter;
 			}
 
 
@@ -97,7 +95,6 @@
 			// Collection?
 			//
 			// If it implements ICollection, we can serialize it!
-			// We need to know what type item the collection contains
 			var closedCollection = ReflectionHelper.FindClosedType(type, typeof(ICollection<>));
 
 			// If the type really implements some kind of ICollection, we can create a CollectionFormatter for it
@@ -106,13 +103,10 @@
 				var itemType = closedCollection.GetGenericArguments()[0];
 
 				var formatterType = typeof(CollectionFormatter<,>).MakeGenericType(type, itemType);
+				formatter = (IFormatter)Activator.CreateInstance(formatterType, _serializer);
 
-				existingInstance = (IFormatter)Activator.CreateInstance(formatterType, _serializer);
-
-				//existingInstance = DynamicObjectFormatterResolver.WrapInCache(type, existingInstance, _serializer);
-
-				_formatterInstances[type] = existingInstance;
-				return existingInstance;
+				_formatterInstances[type] = formatter;
+				return formatter;
 			}
 
 			return null;

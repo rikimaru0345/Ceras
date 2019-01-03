@@ -24,10 +24,10 @@ namespace Ceras.Helpers
 		DeserializeDelegate<T> _deserializer;
 
 
-		const int FieldSizePrefixBytes = 2;
-		static readonly Type SizeType = typeof(short);
-		static readonly MethodInfo SizeWriteMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.WriteInt16Fixed));
-		static readonly MethodInfo SizeReadMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadInt16Fixed));
+		const int FieldSizePrefixBytes = 4;
+		static readonly Type SizeType = typeof(uint);
+		static readonly MethodInfo SizeWriteMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.WriteUInt32Fixed));
+		static readonly MethodInfo SizeReadMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadUInt32Fixed));
 
 
 		public SchemaDynamicFormatter(CerasSerializer ceras, Schema schema)

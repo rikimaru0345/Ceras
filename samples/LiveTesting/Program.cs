@@ -17,9 +17,9 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			VersionToleranceTest();
-
 			ReadonlyTest();
+
+			VersionToleranceTest();
 
 			DelegatesTest();
 
@@ -60,7 +60,6 @@ namespace LiveTesting
 			ListTest();
 
 
-
 			var tutorial = new Tutorial();
 
 			tutorial.Step1_SimpleUsage();
@@ -68,61 +67,176 @@ namespace LiveTesting
 			tutorial.Step3_Recycling();
 			tutorial.Step4_KnownTypes();
 			tutorial.Step5_CustomFormatters();
-
+			// tutorial.Step6_NetworkExample();
 			tutorial.Step7_GameDatabase();
-
+			// tutorial.Step8_DataUpgrade_OLD();
+			// tutorial.Step9_VersionTolerance();
+			tutorial.Step10_ReadonlyHandling();
 		}
 
 		private static void ReadonlyTest()
 		{
-			SerializerConfig config = new SerializerConfig();
-			config.ReadonlyFieldHandling = ReadonlyFieldHandling.Off;
-			CerasSerializer s = new CerasSerializer(config);
+			// Test #1:
+			// By default the setting is off. Fields are ignored.
+			{
+				SerializerConfig config = new SerializerConfig();
+				CerasSerializer ceras = new CerasSerializer(config);
 
-			ReadonlyTestClass test = new ReadonlyTestClass(9999);
-			test.Settings.Setting1 = 2222;
-			test.Settings.Setting2 = "asdasdasda";
+				ReadonlyFieldsTest obj = new ReadonlyFieldsTest(5, "xyz", new ReadonlyFieldsTest.ContainerThingA { Setting1 = 10, Setting2 = "asdasdas" });
+
+				var data = ceras.Serialize(obj);
+
+				var cloneNew = ceras.Deserialize<ReadonlyFieldsTest>(data);
+
+				Debug.Assert(cloneNew.Int == 1);
+				Debug.Assert(cloneNew.String == "a");
+				Debug.Assert(cloneNew.Container == null);
+			}
+
+			// Test #2A:
+			// In the 'Members' mode we expect an exception for readonly value-typed fields.
+			{
+				SerializerConfig config = new SerializerConfig();
+				// Only use the two "primitives" for this test (string is not a primitive in the original sense tho)
+				config.ShouldSerializeMember = m => (m.Name == "Int" || m.Name == "String") ? SerializationOverride.ForceInclude : SerializationOverride.ForceSkip;
+				config.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+
+				CerasSerializer ceras = new CerasSerializer(config);
+
+				ReadonlyFieldsTest obj = new ReadonlyFieldsTest(5, "55555", new ReadonlyFieldsTest.ContainerThingA { Setting1 = 555555, Setting2 = "555555555" });
+
+				var data = ceras.Serialize(obj);
+
+				ReadonlyFieldsTest existingTarget = new ReadonlyFieldsTest(6, "66666", null);
+
+				bool gotException = false;
+				try
+				{
+					var cloneNew = ceras.Deserialize<ReadonlyFieldsTest>(data);
+				}
+				catch (Exception ex)
+				{
+					gotException = true;
+				}
+
+				Debug.Assert(gotException); // We want an exception
+			}
+
+			// Test #2B:
+			// In the 'Members' mode (when not dealing with value-types)
+			// we want Ceras to re-use the already existing object
+			{
+				SerializerConfig config = new SerializerConfig();
+				// We only want the container field, and its contents, but not the two "primitives"
+				config.ShouldSerializeMember = m => (m.Name == "Int" || m.Name == "String") ? SerializationOverride.ForceSkip : SerializationOverride.ForceInclude;
+				config.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+
+				CerasSerializer ceras = new CerasSerializer(config);
+
+				ReadonlyFieldsTest obj = new ReadonlyFieldsTest(5, "55555", new ReadonlyFieldsTest.ContainerThingA { Setting1 = 555555, Setting2 = "555555555" });
+
+				var data = ceras.Serialize(obj);
+
+				var newContainer = new ReadonlyFieldsTest.ContainerThingA { Setting1 = -1, Setting2 = "this should get overwritten" };
+				ReadonlyFieldsTest existingTarget = new ReadonlyFieldsTest(6, "66666", newContainer);
+
+				// populate existing data
+				ceras.Deserialize<ReadonlyFieldsTest>(ref existingTarget, data);
 
 
-			var clone1 = s.Deserialize<ReadonlyTestClass>(s.Serialize(test));
+				// The simple fields should have been ignored
+				Debug.Assert(existingTarget.Int == 6);
+				Debug.Assert(existingTarget.String == "66666");
 
-			// Feature is off, expect that fields are ignored:
-			Assert.Equal(5, clone1.Number);
-			Assert.Equal(1, clone1.Settings.Setting1);
-			Assert.Equal("a", clone1.Settings.Setting2);
+				// The reference itself should not have changed
+				Debug.Assert(existingTarget.Container == newContainer);
+
+				// The content of the container should be changed now
+				Debug.Assert(newContainer.Setting1 == 555555);
+				Debug.Assert(newContainer.Setting2 == "555555555");
+
+			}
 
 
+			// Test #3
+			// In 'ForcedOverwrite' mode Ceras should fix all possible mismatches by force (reflection),
+			// which means that it should work exactly like as if the field were not readonly.
+			{
+				SerializerConfig config = new SerializerConfig();
+				config.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
+				CerasSerializer ceras = new CerasSerializer(config);
 
-			config.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+				// This time we want Ceras to fix everything, reference mismatches and value mismatches alike.
 
-			// todo: test mismatch throws exception
-			// todo: test readonly number is not fixed
-			// todo: test settings are correctly restored
+				ReadonlyFieldsTest obj = new ReadonlyFieldsTest(5, "55555", new ReadonlyFieldsTest.ContainerThingA { Setting1 = 324, Setting2 = "1134" });
 
+				var data = ceras.Serialize(obj);
+
+				ReadonlyFieldsTest existingTarget = new ReadonlyFieldsTest(123, null, new ReadonlyFieldsTest.ContainerThingB());
+
+				// populate existing object
+				ceras.Deserialize<ReadonlyFieldsTest>(ref existingTarget, data);
+
+
+				// Now we really check for everything...
+
+				// Sanity check, no way this could happen, but lets make sure.
+				Debug.Assert(ReferenceEquals(obj, existingTarget) == false);
+
+				// Fields should be like in the original
+				Debug.Assert(existingTarget.Int == 5);
+				Debug.Assert(existingTarget.String == "55555");
+
+				// The container type was wrong, Ceras should have fixed that by instantiating a different object 
+				// and writing that into the readonly field.
+				var container = existingTarget.Container as ReadonlyFieldsTest.ContainerThingA;
+				Debug.Assert(container != null);
+
+				// Contents of the container should be correct as well
+				Debug.Assert(container.Setting1 == 324);
+				Debug.Assert(container.Setting2 == "1134");
+			}
+
+
+			// todo: also test the case where the existing object does not match the expected type
 		}
 
-		class ReadonlyTestClass
+
+		class ReadonlyFieldsTest
 		{
-			public readonly int Number = 5;
+			public readonly int Int = 1;
+			public readonly string String = "a";
+			public readonly ContainerBase Container = null;
 
-			public readonly MySettings Settings = new MySettings();
-
-			public class MySettings
-			{
-				public int Setting1 = 1;
-				public string Setting2 = "a";
-			}
-
-
-			public ReadonlyTestClass()
+			public ReadonlyFieldsTest()
 			{
 			}
 
-			public ReadonlyTestClass(int number)
+			public ReadonlyFieldsTest(int i, string s, ContainerBase c)
 			{
-				Number = number;
+				Int = i;
+				String = s;
+				Container = c;
+			}
+
+			public abstract class ContainerBase
+			{
+			}
+
+			public class ContainerThingA : ContainerBase
+			{
+				public int Setting1 = 2;
+				public string Setting2 = "b";
+			}
+
+			public class ContainerThingB : ContainerBase
+			{
+				public float Float = 1;
+				public byte Byte = 1;
+				public string String = "c";
 			}
 		}
+
 
 
 		static int Add1(int x) => x + 1;
@@ -681,7 +795,7 @@ namespace LiveTesting
 			var obj = new ConstructorTest(5);
 			var ceras = new CerasSerializer();
 			var data = ceras.Serialize(obj);
-			
+
 			// This is expected to throw an exception
 			try
 			{
