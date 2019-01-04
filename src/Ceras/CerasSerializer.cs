@@ -245,8 +245,6 @@ namespace Ceras
 				d.ObjectCache = new ObjectCache();
 				d.TypeCache = new ObjectCache();
 				d.WrittenSchemata = new HashSet<Schema>();
-				d.WrittenSchemataList = new List<Schema>();
-				d.ReadSchemata = new HashSet<Type>();
 
 				foreach (var t in Config.KnownTypes)
 				{
@@ -346,7 +344,6 @@ namespace Ceras
 				//
 				// Clear the root object again
 				InstanceData.WrittenSchemata.Clear();
-				InstanceData.WrittenSchemataList.Clear();
 				InstanceData.CurrentRoot = null;
 
 				LeaveRecursive(RecursionMode.Serialization);
@@ -711,14 +708,8 @@ namespace Ceras
 
 		public IExternalRootObject CurrentRoot;
 
-		// Populated at the start of a deserialization, so we know what types have specialized formatters
-		// public Dictionary<int, Schema> HashToSchema;
-		// public Dictionary<Type, Schema> DataSchemata;
-		
-		public HashSet<Schema> WrittenSchemata; // Populated while writing so at the end we know which Schemata we've written
-		public List<Schema> WrittenSchemataList; 
-
-		public HashSet<Type> ReadSchemata; // While reading, we know whether or not a Schema follows the Type by checking if we've already read a Schema for the type.
+		// Populated while writing so we know what schemata have actually been used.
+		public HashSet<Schema> WrittenSchemata;
 	}
 
 	enum RecursionMode
