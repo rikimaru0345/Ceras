@@ -8,7 +8,7 @@
 
 	public class BclFormatterResolver : Resolvers.IFormatterResolver
 	{
-		static Dictionary<Type, IFormatter> _primitiveFormatters = new Dictionary<Type, IFormatter>
+		static readonly Dictionary<Type, IFormatter> _primitiveFormatters = new Dictionary<Type, IFormatter>
 		{
 			[typeof(DateTime)] = new DateTimeFormatter(),
 			[typeof(DateTimeOffset)] = new DateTimeOffsetFormatter(),
