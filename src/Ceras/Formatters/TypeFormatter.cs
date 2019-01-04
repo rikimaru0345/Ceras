@@ -102,25 +102,6 @@
 				// Register single type
 				typeCache.RegisterObject(type);
 			}
-
-			if (_serializer.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
-				if (!CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
-				{
-					// Get Schema
-					var schema = _serializer.SchemaDb.GetOrCreatePrimarySchema(type);
-
-					// Mark as that schema being used
-					if(!_serializer.InstanceData.WrittenSchemata.Contains(schema))
-					{
-						_serializer.InstanceData.WrittenSchemata.Add(schema);
-						_serializer.InstanceData.WrittenSchemataList.Add(schema);
-					}
-
-					// Make the formatter available, if we're called from TypeFormatter then this will be the next thing
-					_serializer.ActivateSchemaOverride(type, schema);
-
-					throw new Exception("version tolerance is currently being reworked");
-				}
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Type type)
@@ -178,16 +159,6 @@
 
 				proxy.Value = type;
 			}
-
-
-			if (_serializer.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
-				if (!CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
-				{
-					var schema = _serializer.SchemaDb.ReadSchema(buffer, ref offset, type);
-
-					_serializer.ActivateSchemaOverride(type, schema);
-				}
-
 		}
 	}
 }
