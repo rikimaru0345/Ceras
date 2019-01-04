@@ -63,6 +63,8 @@
 			_typeFormatter = (IFormatter<Type>)serializer.GetSpecificFormatter(typeof(Type));
 		}
 
+
+
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
 			if (EqualityComparer<T>.Default.Equals(value, default(T)))

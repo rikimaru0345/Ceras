@@ -109,28 +109,16 @@
 					// Get Schema
 					var schema = _serializer.SchemaDb.GetOrCreatePrimarySchema(type);
 
-					// Write it (if not done yet)
-
+					// Mark as that schema being used
 					if(!_serializer.InstanceData.WrittenSchemata.Contains(schema))
 					{
-						_serializer.InstanceData.WrittenSchemataList.Add(schema); // need to enter into the list as well so we know in what order the schemata are used
-						_serializer.SchemaDb.WriteSchema(ref buffer, ref offset, schema);
+						_serializer.InstanceData.WrittenSchemata.Add(schema);
+						_serializer.InstanceData.WrittenSchemataList.Add(schema);
 					}
 
 					// Make the formatter available, if we're called from TypeFormatter then this will be the next thing
 					_serializer.ActivateSchemaOverride(type, schema);
 
-
-					// todo: collect all schemata, embed them in front, add hash and skip-over thing, ...
-					// todo: while reading the schema block, all specific serializers have to be created first before any reference formatters are allowed to be created.
-					// todo: how? how is this solved right now? If a DynamicFormatter has a field reference to itself, how does that work
-					//			- For ValueTypes: they cannot contain fields as themselves in anyway (would be infinite recursion)
-					//			- ReferenceTypes: when a DynamicFormatter<T> is created, and T has a field of type T inside it as well, it obtains a ReferenceFormatter<T> instead.
-					//							  that way the actual specific formatter is resolved later (when the first DynamicFormatter<T> has completed its construction)
-					// Even when constructing a dynamicFormatter and it contains a reference to some object, it will always ask for a referenceFormatter first.
-					// Problem: If an object contains a custom value-type it will not use the reference formatter.
-					// Solution:
-					// -> We must always construct formatters for value-types first.
 					throw new Exception("version tolerance is currently being reworked");
 				}
 		}
