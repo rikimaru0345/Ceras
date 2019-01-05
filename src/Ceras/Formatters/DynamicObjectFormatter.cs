@@ -16,7 +16,7 @@ namespace Ceras.Formatters
 
 
 	// todo: Can we use a static-generic as a cache instead of dict? Is that even possible in our case? Would we even save anything? How much would it be faster?
-	class DynamicObjectFormatter<T> : IFormatter<T>
+	class DynamicObjectFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
 	{
 		static readonly MethodInfo SetValue = typeof(FieldInfo).GetMethod(
 				name: "SetValue",
@@ -26,8 +26,10 @@ namespace Ceras.Formatters
 				modifiers: new ParameterModifier[2]);
 
 		CerasSerializer _ceras;
+
 		SerializeDelegate<T> _dynamicSerializer;
 		DeserializeDelegate<T> _dynamicDeserializer;
+
 
 		public DynamicObjectFormatter(CerasSerializer serializer)
 		{
@@ -226,6 +228,28 @@ namespace Ceras.Formatters
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
 			_dynamicDeserializer(buffer, ref offset, ref value);
+		}
+
+
+		public void OnSchemaChanged(TypeMetaData meta)
+		{
+			// What schema changes are relevant to us?
+			// - When the schema for our own type changes
+			// but also:
+			// - When the schema for one of the value-types inside this object changes.
+			//   That is because there isn't any kind of "railway switch" that can change the formatter being used,
+			//   as formatters for value-types are used directly (without a ReferenceFormatter that would switch out its dispatcher configuration)
+			//
+			// So that's our "key" for the dictionary. The "SchemaComplex" of all those used schemata.
+
+			// todo: If the schema of a value-type changes while we're already reading an object, is there even any way that we can still swap out the formatter?
+			//       There doesn't appear to be any way what-so-ever.
+			//       While reading we are already in the compiled formatter, changes while the read is already in progress will not be applied.
+			//
+			// - is that a big issue?
+			// - workaround: force usage of ref formatter
+			// - detectable? schemaChange + hasAnyUserValueTypes + serializationCurrentlyInProgress
+			//   since schema changes are rare, we can do that easily
 		}
 	}
 

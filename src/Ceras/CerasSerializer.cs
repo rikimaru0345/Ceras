@@ -379,18 +379,6 @@ namespace Ceras
 			{
 				int offsetBeforeRead = offset;
 
-				if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
-				{
-					TODO // todo: we need to read the schema block; throw all our formatters out, and create new ones using exactly the schemata we're given.
-					// Only then will the formatter we're getting below be right
-
-					// todo: clear all serializers and deserializers
-
-					// todo: all our ISchemaTaintedFormatters need to get the type meta data somehow.
-					//		 One Idea to implement this would be to pass it through the ctor, but looking up if there is any matching ctor takes as long (if not far longer) than
-					//		 each formatter simply requesting the metadata on its own for the given type anyway...
-				}
-
 				//
 				// Actual deserialization
 				{

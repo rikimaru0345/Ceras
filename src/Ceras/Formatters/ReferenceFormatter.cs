@@ -259,15 +259,21 @@
 		 */
 		SerializeDelegate<T> GetSpecificSerializerDispatcher(Type type)
 		{
-			if(!_dispatchers.TryGetValue(type, out var dispatcher))
-			{
-				dispatcher = new DispatcherEntry();
-				_dispatchers.Add(type, dispatcher);
-			}
-			else
+			if(_dispatchers.TryGetValue(type, out var dispatcher))
 			{
 				if(dispatcher.CurrentSerializeDispatcher != null)
 					return dispatcher.CurrentSerializeDispatcher;
+			}
+			else
+			{
+				var meta = _serializer.GetTypeMetaData(type);
+
+				dispatcher = new DispatcherEntry
+				{
+					CurrentSchema = meta.CurrentSchema
+				};
+
+				_dispatchers.Add(type, dispatcher);
 			}
 
 			// What does this method do?
@@ -319,6 +325,7 @@
 			var f = Expression.Lambda<SerializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).Compile();
 #endif
 			dispatcher.CurrentSerializeDispatcher = f;
+			dispatcher.SchemaDispatchers.Add(dispatcher.CurrentSchema, new DispatcherPair(dispatcher.CurrentSerializeDispatcher, dispatcher.CurrentDeserializeDispatcher));
 
 			return f;
 		}
@@ -326,15 +333,21 @@
 		// See the comment on GetSpecificSerializerDispatcher
 		DeserializeDelegate<T> GetSpecificDeserializerDispatcher(Type type)
 		{
-			if(!_dispatchers.TryGetValue(type, out var dispatcher))
-			{
-				dispatcher = new DispatcherEntry();
-				_dispatchers.Add(type, dispatcher);
-			}
-			else
+			if(_dispatchers.TryGetValue(type, out var dispatcher))
 			{
 				if(dispatcher.CurrentDeserializeDispatcher != null)
 					return dispatcher.CurrentDeserializeDispatcher;
+			}
+			else
+			{
+				var meta = _serializer.GetTypeMetaData(type);
+
+				dispatcher = new DispatcherEntry
+				{
+					CurrentSchema = meta.CurrentSchema
+				};
+
+				_dispatchers.Add(type, dispatcher);
 			}
 
 			var formatter = _serializer.GetSpecificFormatter(type);
@@ -404,6 +417,7 @@
 			var f = Expression.Lambda<DeserializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).Compile();
 #endif
 			dispatcher.CurrentDeserializeDispatcher = f;
+			dispatcher.SchemaDispatchers.Add(dispatcher.CurrentSchema, new DispatcherPair(dispatcher.CurrentSerializeDispatcher, dispatcher.CurrentDeserializeDispatcher));
 
 			return f;
 		}
@@ -565,7 +579,7 @@
 
 		class DispatcherEntry
 		{
-			public Func<object> Constructor;
+			//public Func<object> Constructor;
 
 			public Schema CurrentSchema;
 			public SerializeDelegate<T> CurrentSerializeDispatcher;
