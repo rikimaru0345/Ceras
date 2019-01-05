@@ -1,6 +1,5 @@
 ﻿namespace Ceras.Formatters
 {
-	using System;
 	using System.Collections.Generic;
 
 	// todo: at the moment we refer to the item formatter through an interface field. Would we get a performance improvement if we'd compile a dedicated formatter that has the itemFormatter built-in as a constant instead? (just like the DynamicObjectFormatter already does)? Would we save performance if we'd cache the itemFormatter into a local variable before entering the loops?
@@ -9,14 +8,17 @@
 	// -> No! We'd still need a reference formatter to ensure references are maintained. And at that point we have saved absolutely nothing because that check already encodes type IF its needed!
 	// Which means that we'd not even save a single byte, because there are no bytes to save. We already do not waste any bytes on encoding "yup same type" because that information is packed into the reference-formatters "serialization mode id". We'd have to either write the ID of an existing object or use one byte for "new object" anyway. And the thing is: This unavoidable byte is already used to also encode that...
 
-	public class ArrayFormatter<TItem> : IFormatter<TItem[]>
+	class ArrayFormatter<TItem> : IFormatter<TItem[]>, ISchemaTaintedFormatter
 	{
 		IFormatter<TItem> _itemFormatter;
 
 		public ArrayFormatter(CerasSerializer serializer)
 		{
 			var itemType = typeof(TItem);
-			_itemFormatter = (IFormatter<TItem>) serializer.GetGenericFormatter(itemType);
+			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
+			
+			var itemMetaData = serializer.GetTypeMetaData(itemType);
+			itemMetaData.SchemaTaintedFormatters.Add((ISchemaTaintedFormatter)this);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TItem[] ar)
@@ -29,8 +31,9 @@
 
 			SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, ar.Length, 1);
 
+			var f = _itemFormatter; // Cache into local to prevent ram fetches
 			for (int i = 0; i < ar.Length; i++)
-				_itemFormatter.Serialize(ref buffer, ref offset, ar[i]);
+				f.Serialize(ref buffer, ref offset, ar[i]);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref TItem[] ar)
@@ -46,38 +49,43 @@
 			if (ar == null || ar.Length != length)
 				ar = new TItem[length];
 
+			var f = _itemFormatter; // Cache into local to prevent ram fetches
 			for (int i = 0; i < length; i++)
-				_itemFormatter.Deserialize(buffer, ref offset, ref ar[i]);
+				f.Deserialize(buffer, ref offset, ref ar[i]);
+		}
+
+
+		public void OnSchemaChanged(TypeMetaData meta)
+		{
+			if (meta.Type.IsValueType)
+				_itemFormatter = (IFormatter<TItem>)meta.SpecificFormatter;
+			else
+				_itemFormatter = (IFormatter<TItem>)meta.ReferenceFormatter;
 		}
 	}
 
-	public class CollectionFormatter<TCollection, TItem> : IFormatter<TCollection> where TCollection : ICollection<TItem>
+	class CollectionFormatter<TCollection, TItem> : IFormatter<TCollection> where TCollection : ICollection<TItem>, ISchemaTaintedFormatter
 	{
 		IFormatter<TItem> _itemFormatter;
 
 		public CollectionFormatter(CerasSerializer serializer)
 		{
-			// What do we use as item formatter?
-			// - specific formatter (only writes data directly)
-			//   use when the type is known
-			// - generic formatter (writes type if needed)
-			//   use when types can be polymorphic
-
 			var itemType = typeof(TItem);
-			if (itemType.IsValueType)
-				_itemFormatter = (IFormatter<TItem>) serializer.GetSpecificFormatter(itemType);
-			else
-				_itemFormatter = (IFormatter<TItem>) serializer.GetGenericFormatter(itemType);
+			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
+
+			var itemMetaData = serializer.GetTypeMetaData(itemType);
+			itemMetaData.SchemaTaintedFormatters.Add((ISchemaTaintedFormatter)this);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TCollection value)
 		{
 			// Write how many items do we have
 			SerializerBinary.WriteUInt32(ref buffer, ref offset, (uint)value.Count);
-			
+
 			// Write each item
+			var f = _itemFormatter;
 			foreach (var item in value)
-				_itemFormatter.Serialize(ref buffer, ref offset, item);
+				f.Serialize(ref buffer, ref offset, item);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref TCollection value)
@@ -87,12 +95,23 @@
 
 			value.Clear();
 
+			var f = _itemFormatter;
+
 			for (int i = 0; i < itemCount; i++)
 			{
 				TItem item = default(TItem);
-				_itemFormatter.Deserialize(buffer, ref offset, ref item);
+				f.Deserialize(buffer, ref offset, ref item);
 				value.Add(item);
 			}
+		}
+
+		
+		public void OnSchemaChanged(TypeMetaData meta)
+		{
+			if (meta.Type.IsValueType)
+				_itemFormatter = (IFormatter<TItem>)meta.SpecificFormatter;
+			else
+				_itemFormatter = (IFormatter<TItem>)meta.ReferenceFormatter;
 		}
 	}
 }

@@ -68,7 +68,7 @@ namespace Ceras.Formatters
 				var type = member.MemberType;
 
 				// todo: have a lookup list to directly get the actual 'SerializerBinary' method. There is no reason to actually use objects like "Int32Formatter"
-				var formatter = _ceras.GetGenericFormatter(type);
+				var formatter = _ceras.GetReferenceFormatter(type);
 
 				// Get the formatter and its Serialize method
 				// var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
@@ -113,7 +113,7 @@ namespace Ceras.Formatters
 				// - assume a type, or exception
 				// - Force ignore caching (as in not using the reference formatter)
 
-				IFormatter formatter = _ceras.GetGenericFormatter(type);
+				IFormatter formatter = _ceras.GetReferenceFormatter(type);
 
 				var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);

@@ -249,6 +249,9 @@
 		readonly Dictionary<Type, Schema> _typeToPrimary;
 		readonly Dictionary<Type, List<Schema>> _typeToSecondaries;
 
+		static byte[] _schemaBuffer;
+
+
 		public SchemaDb(SerializerConfig config)
 		{
 			_config = config;
@@ -417,6 +420,8 @@
 			return schema;
 		}
 
+
+
 		// Reads a schema from given data
 		internal Schema ReadSchema(byte[] buffer, ref int offset, Type type)
 		{
@@ -469,7 +474,7 @@
 			}
 		}
 
-		internal void WriteSchema(ref byte[] buffer, ref int offset, Schema schema)
+		internal static void WriteSchema(ref byte[] buffer, ref int offset, Schema schema)
 		{
 			if (!schema.IsPrimary)
 				throw new InvalidOperationException("Can't write schema that doesn't match the primary. This is a bug, please report it on GitHub!");

@@ -1,5 +1,6 @@
 ﻿namespace Ceras.Formatters
 {
+	using Ceras.Helpers;
 	using Resolvers;
 	using System;
 	using System.Collections.Generic;
@@ -24,8 +25,15 @@
 	 * and then later we encounter an 'object Field;' with a refernce to the previous object (the one in the field where the type matches).
 	 * Of course the references are supposed to match in the end again, and without all objects being part of the same cache that won't work.
 	 * (We would try to find the referenced object in the <object> pool but it was put into the <specific> pool when it was first encountered!)
+	 * 
+	 * todo: there are a few cases in here where we can certainly optimize performance
+	 *		 - We can make it so _dispatchers is only used at most once per call. Currently we might have multiple lookups, but all
+	 *		   we actually need is getting(or creating) the DispatcherEntry and then only work with that.
+	 *		 - globalObjectConstructors is supposed to cache generic constructors, but we always check if there is a user-factory-method, which is not needed.
+	 *		   we could compile that into the constructor, but at that point it is not a global ctor anymore, which is fine if we only cache it into the dispatcherEntry.
+	 * 
 	 */
-	public class ReferenceFormatter<T> : IFormatter<T>
+	class ReferenceFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
 	{
 		// -5: To support stuff like 'object obj = typeof(Bla);'. The story is more complicated and explained at the end of the file.
 		// -4: For external objects that the user has to resolve
@@ -48,13 +56,11 @@
 		IFormatter<Type> _typeFormatter;
 		readonly CerasSerializer _serializer;
 
-		static Dictionary<Type, Func<object>> _objectConstructors = new Dictionary<Type, Func<object>>();
+		static Dictionary<Type, Func<object>> _globalObjectConstructors = new Dictionary<Type, Func<object>>();
 
-		Dictionary<Type, SerializeDelegate<T>> _specificSerializers = new Dictionary<Type, SerializeDelegate<T>>();
-		Dictionary<Type, DeserializeDelegate<T>> _specificDeserializers = new Dictionary<Type, DeserializeDelegate<T>>();
+		readonly Dictionary<Type, DispatcherEntry> _dispatchers = new Dictionary<Type, DispatcherEntry>();
 
 
-		public bool IsSealed { get; private set; }
 
 		public ReferenceFormatter(CerasSerializer serializer)
 		{
@@ -73,7 +79,7 @@
 				return;
 			}
 
-			if(value is Type type)
+			if (value is Type type)
 			{
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, InlineType, Bias);
 				_typeFormatter.Serialize(ref buffer, ref offset, type);
@@ -102,11 +108,6 @@
 			}
 			else
 			{
-				if (IsSealed)
-				{
-					throw new InvalidOperationException($"Trying to add '{value.ToString()}' (type '{typeof(T).FullName}') to a sealed cache.");
-				}
-
 				// Important: Insert the ID for this value into our dictionary BEFORE calling SerializeFirstTime, as that might recursively call us again (maybe with the same value!)
 				_serializer.InstanceData.ObjectCache.RegisterObject(value);
 
@@ -146,7 +147,7 @@
 				return;
 			}
 
-			if(objId == InlineType)
+			if (objId == InlineType)
 			{
 				Type type = null;
 				_typeFormatter.Deserialize(buffer, ref offset, ref type);
@@ -258,8 +259,16 @@
 		 */
 		SerializeDelegate<T> GetSpecificSerializerDispatcher(Type type)
 		{
-			if (_specificSerializers.TryGetValue(type, out var f))
-				return f;
+			if(!_dispatchers.TryGetValue(type, out var dispatcher))
+			{
+				dispatcher = new DispatcherEntry();
+				_dispatchers.Add(type, dispatcher);
+			}
+			else
+			{
+				if(dispatcher.CurrentSerializeDispatcher != null)
+					return dispatcher.CurrentSerializeDispatcher;
+			}
 
 			// What does this method do?
 			// It creates a cast+call dynamically
@@ -305,11 +314,11 @@
 										);
 
 #if FAST_EXP
-			f = Expression.Lambda<SerializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).CompileFast(true);
+			var f = Expression.Lambda<SerializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).CompileFast(true);
 #else
-			f = Expression.Lambda<SerializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).Compile();
+			var f = Expression.Lambda<SerializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).Compile();
 #endif
-			_specificSerializers[type] = f;
+			dispatcher.CurrentSerializeDispatcher = f;
 
 			return f;
 		}
@@ -317,8 +326,16 @@
 		// See the comment on GetSpecificSerializerDispatcher
 		DeserializeDelegate<T> GetSpecificDeserializerDispatcher(Type type)
 		{
-			if (_specificDeserializers.TryGetValue(type, out var f))
-				return f;
+			if(!_dispatchers.TryGetValue(type, out var dispatcher))
+			{
+				dispatcher = new DispatcherEntry();
+				_dispatchers.Add(type, dispatcher);
+			}
+			else
+			{
+				if(dispatcher.CurrentDeserializeDispatcher != null)
+					return dispatcher.CurrentDeserializeDispatcher;
+			}
 
 			var formatter = _serializer.GetSpecificFormatter(type);
 
@@ -382,11 +399,11 @@
 										});
 
 #if FAST_EXP
-			f = Expression.Lambda<DeserializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).CompileFast(true);
+			var f = Expression.Lambda<DeserializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).CompileFast(true);
 #else
-			f = Expression.Lambda<DeserializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).Compile();
+			var f = Expression.Lambda<DeserializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).Compile();
 #endif
-			_specificDeserializers[type] = f;
+			dispatcher.CurrentDeserializeDispatcher = f;
 
 			return f;
 		}
@@ -418,34 +435,37 @@
 		// Get a 'constructor' function that creates an instance of a type
 		static Func<object> GetConstructor(Type type)
 		{
-			// Fast path: return already constructed object!
-			if (_objectConstructors.TryGetValue(type, out var f))
+			lock (_globalObjectConstructors)
+			{
+				// Fast path: return already constructed object!
+				if (_globalObjectConstructors.TryGetValue(type, out var f))
+					return f;
+
+				if (type.IsArray)
+				{
+					// ArrayFormatter will create a new array
+					f = () => null;
+				}
+				else if (CerasSerializer.IsFormatterConstructed(type))
+				{
+					// The formatter that handles this type also handles its creation, so we return null
+					f = () => null;
+				}
+				else
+				{
+					// We create a new instances using the default constructor
+					var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+						.FirstOrDefault(c => c.GetParameters().Length == 0);
+
+					if (ctor == null)
+						throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
+
+					f = (Func<object>)CreateConstructorDelegate(ctor, typeof(Func<object>));
+				}
+
+				_globalObjectConstructors[type] = f;
 				return f;
-
-			if (type.IsArray)
-			{
-				// ArrayFormatter will create a new array
-				f = () => null;
 			}
-			else if(CerasSerializer.IsFormatterConstructed(type))
-			{
-				// The formatter that handles this type also handles its creation, so we return null
-				f = () => null;
-			}
-			else
-			{
-				// We create a new instances using the default constructor
-				var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-					.FirstOrDefault(c => c.GetParameters().Length == 0);
-
-				if (ctor == null)
-					throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
-
-				f = (Func<object>)CreateConstructorDelegate(ctor, typeof(Func<object>));
-			}
-
-			_objectConstructors[type] = f;
-			return f;
 		}
 
 		static Delegate CreateConstructorDelegate(ConstructorInfo constructor, Type delegateType)
@@ -520,34 +540,55 @@
 			return method.CreateDelegate(delegateType);
 		}
 
-		
 
-		/*
-		 * A special method needed for ReadonlyFieldHandling
-		 * 
-		 * If there's some object in a field, we have to know if the ReferenceFormatter would decide (for whatever reason) to assign to the given reference.
-		 * That is important to know because we (the dynamic formatter) actually need to forward the assignment (if it happens).
-		 * And otherwise 
-		 */
-		void PeekWriteDecision(T value, byte[] buffer, int offset)
+		public void OnSchemaChanged(TypeMetaData meta)
 		{
-
+			// If we've encountered this specific type already...
+			if(_dispatchers.TryGetValue(meta.Type, out var entry))
+			{
+				// ...then we might have some stuff for this schema of this type.
+				//
+				// So if we have some cached dispatchers already, we activate them.
+				// If we don't have any, set them to null and they will be populated when actually needed
+				if(entry.SchemaDispatchers.TryGetValue(meta.CurrentSchema, out var pair))
+				{
+					entry.CurrentSerializeDispatcher = pair.SerializeDispatcher;
+					entry.CurrentDeserializeDispatcher = pair.DeserializeDispatcher;
+				}
+				else
+				{
+					entry.CurrentSerializeDispatcher = null;
+					entry.CurrentDeserializeDispatcher = null;
+				}
+			}
 		}
 
-
-		/// <summary>
-		/// Set IsSealed, and will throw an exception whenever a new value is encountered.
-		/// The idea is that you populate KnownTypes in the SerializerConfig initially and then call Seal(); That's useful so you'll get notified by an exception *before* something goes wrong (a new, unintended, type getting serialized). For example 
-		/// </summary>
-		public void Seal()
+		class DispatcherEntry
 		{
-			IsSealed = true;
+			public Func<object> Constructor;
+
+			public Schema CurrentSchema;
+			public SerializeDelegate<T> CurrentSerializeDispatcher;
+			public DeserializeDelegate<T> CurrentDeserializeDispatcher;
+
+			public readonly Dictionary<Schema, DispatcherPair> SchemaDispatchers = new Dictionary<Schema, DispatcherPair>();
 		}
 
+		struct DispatcherPair
+		{
+			public readonly SerializeDelegate<T> SerializeDispatcher;
+			public readonly DeserializeDelegate<T> DeserializeDispatcher;
+
+			public DispatcherPair(SerializeDelegate<T> serialize, DeserializeDelegate<T> deserialize)
+			{
+				SerializeDispatcher = serialize;
+				DeserializeDispatcher = deserialize;
+			}
+		}
 	}
 
 
-	
+
 	/*
 	 * The idea for the 'Members' mode of readonly field handling is that
 	 * we populate the fields only. Which (and that's just our current interpretation) requires

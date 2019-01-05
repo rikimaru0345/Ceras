@@ -1,16 +1,16 @@
 ﻿// ReSharper disable RedundantTypeArgumentsOfMethod
 namespace Ceras
 {
+	using Exceptions;
+	using Formatters;
+	using Helpers;
+	using Resolvers;
 	using System;
 	using System.Collections;
 	using System.Collections.Generic;
 	using System.Linq;
 	using System.Reflection;
 	using System.Text;
-	using Exceptions;
-	using Formatters;
-	using Helpers;
-	using Resolvers;
 
 	/*
 	 * Todo:
@@ -114,10 +114,7 @@ namespace Ceras
 		// If a resolver can't fulfill the request for a specific formatter, it returns null.
 		readonly List<IFormatterResolver> _resolvers = new List<IFormatterResolver>();
 
-		// The specific formatters we have. For example a formatter that knows how to read/write 'List<int>'. This will never contain
-		// unspecific formatters (for example for types like 'object' or 'List<>')
-		readonly Dictionary<Type, IFormatter> _referenceFormatters = new Dictionary<Type, IFormatter>();
-		readonly Dictionary<Type, IFormatter> _specificFormatters = new Dictionary<Type, IFormatter>();
+		readonly Dictionary<Type, TypeMetaData> _metaData = new Dictionary<Type, TypeMetaData>();
 
 		readonly IFormatter<Type> _typeFormatter;
 
@@ -181,10 +178,9 @@ namespace Ceras
 			var typeFormatter = new TypeFormatter(this);
 
 			var runtimeType = GetType().GetType();
-			_specificFormatters.Add(typeof(Type), typeFormatter);
-			_specificFormatters.Add(runtimeType, typeFormatter);
-			_referenceFormatters.Add(typeof(Type), typeFormatter);
-			_referenceFormatters.Add(runtimeType, typeFormatter);
+
+			SetFormatters(typeof(Type), typeFormatter, typeFormatter);
+			SetFormatters(runtimeType, typeFormatter, typeFormatter);
 
 			// MemberInfos (FieldInfo, RuntimeFieldInfo, ...)
 			_resolvers.Add(new ReflectionTypesFormatterResolver(this));
@@ -232,7 +228,7 @@ namespace Ceras
 			// - reference formatters generate their wrappers
 			foreach (var t in Config.KnownTypes)
 				if (!t.ContainsGenericParameters)
-					GetGenericFormatter(t);
+					GetReferenceFormatter(t);
 
 
 
@@ -285,11 +281,6 @@ namespace Ceras
 		{
 			EnterRecursive(RecursionMode.Serialization);
 
-			if (Config.EmbedChecksum)
-			{
-				SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, ProtocolChecksum.Checksum);
-			}
-
 			try
 			{
 				//
@@ -303,24 +294,17 @@ namespace Ceras
 				// The actual serialization
 				int offsetBeforeWrite = offset;
 				{
-					Type type = typeof(T);
-					if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded && !FrameworkAssemblies.Contains(type.Assembly))
-					{
-						// Force <object>
-						var formatter = (IFormatter<object>)GetGenericFormatter(typeof(object));
-						formatter.Serialize(ref buffer, ref offset, obj);
-					}
-					else
-					{
-						// Normal serialization
-						var formatter = (IFormatter<T>)GetGenericFormatter(type);
-						formatter.Serialize(ref buffer, ref offset, obj);
-					}
+					if (Config.EmbedChecksum)
+						SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, ProtocolChecksum.Checksum);
+
+					var formatter = (IFormatter<T>)GetReferenceFormatter(typeof(T));
+					formatter.Serialize(ref buffer, ref offset, obj);
 				}
 				int offsetAfterWrite = offset;
 
+
 				//
-				// After we're done, we probably have to clear all our caches!
+				// After we're done, we have to clear all our caches!
 				// Only very rarely can we avoid that
 				// todo: would it be more efficient to have one static and one dynamic dictionary??
 				if (!Config.PersistTypeCache)
@@ -349,6 +333,8 @@ namespace Ceras
 				LeaveRecursive(RecursionMode.Serialization);
 			}
 		}
+
+
 
 		/// <summary>
 		/// Convenience method that will most likely allocate a T to return (using 'new T()'). Unless the data says the object really is null, in that case no instance of T is allocated.
@@ -393,24 +379,29 @@ namespace Ceras
 			{
 				int offsetBeforeRead = offset;
 
-				if (Config.EmbedChecksum)
+				if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
 				{
-					var checksum = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
-					if (checksum != ProtocolChecksum.Checksum)
-						throw new InvalidOperationException($"Checksum does not match embedded checksum (Serializer={ProtocolChecksum.Checksum}, Data={checksum})");
+					TODO // todo: we need to read the schema block; throw all our formatters out, and create new ones using exactly the schemata we're given.
+					// Only then will the formatter we're getting below be right
+
+					// todo: clear all serializers and deserializers
+
+					// todo: all our ISchemaTaintedFormatters need to get the type meta data somehow.
+					//		 One Idea to implement this would be to pass it through the ctor, but looking up if there is any matching ctor takes as long (if not far longer) than
+					//		 each formatter simply requesting the metadata on its own for the given type anyway...
 				}
 
-				Type type = typeof(T);
-				if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded && !FrameworkAssemblies.Contains(type.Assembly))
+				//
+				// Actual deserialization
 				{
-					var formatter = (IFormatter<object>)GetGenericFormatter(typeof(object));
-					object obj = value;
-					formatter.Deserialize(buffer, ref offset, ref obj);
-					value = (T)obj;
-				}
-				else
-				{
-					var formatter = (IFormatter<T>)GetGenericFormatter(type);
+					if (Config.EmbedChecksum)
+					{
+						var checksum = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
+						if (checksum != ProtocolChecksum.Checksum)
+							throw new InvalidOperationException($"Checksum does not match embedded checksum (Serializer={ProtocolChecksum.Checksum}, Data={checksum})");
+					}
+
+					var formatter = (IFormatter<T>)GetReferenceFormatter(typeof(T));
 					formatter.Deserialize(buffer, ref offset, ref value);
 				}
 
@@ -449,8 +440,6 @@ namespace Ceras
 			}
 			finally
 			{
-				InstanceData.WrittenSchemata.Clear();
-
 				LeaveRecursive(RecursionMode.Deserialization);
 			}
 		}
@@ -470,15 +459,15 @@ namespace Ceras
 
 
 		/// <summary>
-		/// This is a shortcut to the <see cref="GetGenericFormatter(Type)"/> method
+		/// This is a shortcut to the <see cref="GetReferenceFormatter(Type)"/> method
 		/// </summary>
-		public IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetGenericFormatter(typeof(T));
+		public IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
 
 		/// <summary>
 		/// Returns one of Ceras' internal formatters for some type.
 		/// It automatically returns the right one for whatever type is passed in.
 		/// </summary>
-		public IFormatter GetGenericFormatter(Type type)
+		public IFormatter GetReferenceFormatter(Type type)
 		{
 			if (type.IsValueType)
 			{
@@ -487,51 +476,47 @@ namespace Ceras
 			}
 
 			// 1.) Cache
-			if (_referenceFormatters.TryGetValue(type, out var formatter))
-				return formatter;
+			var meta = GetTypeMetaData(type);
+
+			if (meta.ReferenceFormatter != null)
+				return meta.ReferenceFormatter;
+
 
 			// 2.) Create a reference formatter (which internally obtains the matching specific one)
 			var refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
 			var referenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
 
-			_referenceFormatters.Add(type, referenceFormatter);
+			meta.ReferenceFormatter = referenceFormatter;
 
 			return referenceFormatter;
 		}
 
 		/// <summary>
-		/// Similar to <see cref="GetGenericFormatter(Type)"/> it returns a formatter, but one that is not wrapped in a <see cref="ReferenceFormatter{T}"/>.
-		/// <para>You probably always want to use <see cref="GetGenericFormatter(Type)"/>, and only use this method instead when you are 100% certain you have emulated everything that <see cref="ReferenceFormatter{T}"/> does for you.</para>
+		/// Similar to <see cref="GetReferenceFormatter(Type)"/> it returns a formatter, but one that is not wrapped in a <see cref="ReferenceFormatter{T}"/>.
+		/// <para>You probably always want to use <see cref="GetReferenceFormatter(Type)"/>, and only use this method instead when you are 100% certain you have emulated everything that <see cref="ReferenceFormatter{T}"/> does for you.</para>
 		/// <para>Internally Ceras uses this to </para>
 		/// </summary>
 		public IFormatter GetSpecificFormatter(Type type)
 		{
-			// 1.) Cache - todo: maybe do static-generic caching
-			if (_specificFormatters.TryGetValue(type, out var formatter))
-				return formatter;
+			var meta = GetTypeMetaData(type);
 
-			//// 2.) Version Tolerance: Embedded schema descriptors
-			//if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
-			//	if (InstanceData.DataSchemata.TryGetValue(type, out var embeddedSchema))
-			//	{
-			//		// todo: remove those schemata again after reading
-			//		// todo: restore the formatters we've overwritten
-			//		// maybe put them into their own thing
+			return GetSpecificFormatter(type, meta);
+		}
 
-			//		var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
-			//		var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, embeddedSchema);
-			//		_specificFormatters.Add(type, schemaFormatter);
-			//		return schemaFormatter;
-			//	}
+		IFormatter GetSpecificFormatter(Type type, TypeMetaData meta)
+		{
+			// 1.) Cache
+			if (meta.SpecificFormatter != null)
+				return meta.SpecificFormatter;
 
 
-			// 3.) User
+			// 2.) User
 			if (_userResolver != null)
 			{
-				formatter = _userResolver(this, type);
+				var formatter = _userResolver(this, type);
 				if (formatter != null)
 				{
-					_specificFormatters.Add(type, formatter);
+					meta.SpecificFormatter = formatter;
 					InjectDependencies(formatter);
 					return formatter;
 				}
@@ -571,25 +556,49 @@ namespace Ceras
 			// 3.) Built-in
 			for (int i = 0; i < _resolvers.Count; i++)
 			{
-				formatter = _resolvers[i].GetFormatter(type);
+				var formatter = _resolvers[i].GetFormatter(type);
 				if (formatter != null)
 				{
-					_specificFormatters.Add(type, formatter);
+					meta.SpecificFormatter = formatter;
 					return formatter;
 				}
 			}
 
+
 			// 4.) Dynamic
-			formatter = _dynamicResolver.GetFormatter(type);
-			if (formatter != null)
 			{
-				_specificFormatters.Add(type, formatter);
-				return formatter;
+				var formatter = _dynamicResolver.GetFormatter(type);
+				if (formatter != null)
+				{
+					meta.SpecificFormatter = formatter;
+					return formatter;
+				}
 			}
 
 
 			throw new NotSupportedException($"Ceras could not find any IFormatter<T> for the type '{type.FullName}'. Maybe exclude that field/prop from serializaion or write a custom formatter for it.");
 		}
+
+
+		internal TypeMetaData GetTypeMetaData(Type type)
+		{
+			if (!_metaData.TryGetValue(type, out var meta))
+			{
+				meta = new TypeMetaData(type);
+				_metaData.Add(type, meta);
+			}
+
+			return meta;
+		}
+
+		void SetFormatters(Type type, IFormatter specific, IFormatter reference)
+		{
+			var meta = GetTypeMetaData(type);
+
+			meta.SpecificFormatter = specific;
+			meta.ReferenceFormatter = reference;
+		}
+
 
 		void InjectDependencies(IFormatter formatter)
 		{
@@ -612,7 +621,7 @@ namespace Ceras
 					if (formatterType != null)
 					{
 						var formattedType = formatterType.GetGenericArguments()[0];
-						var requestedFormatter = GetGenericFormatter(formattedType);
+						var requestedFormatter = GetReferenceFormatter(formattedType);
 
 						f.SetValue(formatter, requestedFormatter);
 					}
@@ -624,39 +633,39 @@ namespace Ceras
 
 		internal void ActivateSchemaOverride(Type type, Schema schema)
 		{
-			if (schema.SpecificFormatter == null)
+			var meta = GetTypeMetaData(type);
+
+			//
+			// 1. Is this schema already active for the current type?
+			//    Maybe we're still set from last serialization/deserialization?
+			if (meta.CurrentSchema == schema)
+				return;
+
+
+			// 2. Set the schema as the active one
+			meta.CurrentSchema = schema;
+
+
+			// 3. Do we have a specific formatter for this one? If not create it
+			if (meta.SpecificFormatter == null)
 			{
-				// First activation, create the formatters
-
-				var formatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
-				schema.SpecificFormatter = (IFormatter)Activator.CreateInstance(formatterType, this, schema);
-
-				// By setting the specific formatter here first, it is ensured that the ReferenceFormatter below
-				// will obtain the specific formatter we created.
-				// todo: This is aweful because it depends on the assumption that ReferenceFormatter<> will call GetSpecificFormatter.
-				// It's indirection times 100. 
-				// But how can we fix it? Probably by adding another constructor to it that lets it take the specific formatter
-				// todo: Hmm, this sounds like it could enable some optimizations as well at the other locations where a ReferenceFormatter is created...
-				//
-				// But a ref formatter always does a dynamic lookup since it can never know what it will deal with statically (could be <object> but the actual thing is 'Person' or 'string')
-				// So what would passing in a specific formatter even mean in that scenario?
-				//
-				_specificFormatters.Add(type, schema.SpecificFormatter);
-
-
-
-				var refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
-				schema.ReferenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
-
-				_referenceFormatters.Add(type, schema.ReferenceFormatter);
+				// Will create and set the formatter
+				GetSpecificFormatter(type, meta);
 			}
-			else
+
+
+			// 4. Notify every formatter that wants to know about schema changes to this type
+			for (int i = 0; i < meta.SchemaTaintedFormatters.Count; i++)
 			{
-				// The formatters have already been created
-				// we only need to activate them
-				_specificFormatters[type] = schema.SpecificFormatter;
-				_referenceFormatters[type] = schema.ReferenceFormatter;
+				var taintedFormatter = meta.SchemaTaintedFormatters[i];
+				taintedFormatter.OnSchemaChanged(meta);
 			}
+
+
+			// todo: make every formatter that uses some other formatter listen to schema-changes that it is interested in
+
+			// todo: merge all dictionaries that use a Type as key. Could be really useful in SchemaDb
+
 		}
 
 
@@ -1064,5 +1073,24 @@ namespace Ceras
 		string GetBaseName(Type type);
 		Type GetTypeFromBase(string baseTypeName);
 		Type GetTypeFromBaseAndAgruments(string baseTypeName, params Type[] genericTypeArguments);
+	}
+
+	class TypeMetaData
+	{
+		public readonly Type Type;
+
+		public IFormatter SpecificFormatter;
+		public IFormatter ReferenceFormatter;
+
+		public Schema CurrentSchema;
+
+		public readonly List<ISchemaTaintedFormatter> SchemaTaintedFormatters = new List<ISchemaTaintedFormatter>();
+
+		// todo: PrimarySchema, List<Schema> secondarySchemata;
+
+		public TypeMetaData(Type type)
+		{
+			Type = type;
+		}
 	}
 }

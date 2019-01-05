@@ -97,7 +97,7 @@ namespace Ceras.Helpers
 				var type = member.MemberType;
 
 				// Get Serialize method
-				var formatter = _ceras.GetGenericFormatter(type);
+				var formatter = _ceras.GetReferenceFormatter(type);
 				var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
 				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter " + formatter.GetType().FullName);
 
@@ -177,7 +177,7 @@ namespace Ceras.Helpers
 				{
 					// 2. b) read normally
 					var type = member.MemberType;
-					IFormatter formatter = _ceras.GetGenericFormatter(type);
+					IFormatter formatter = _ceras.GetReferenceFormatter(type);
 
 					var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 					Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
