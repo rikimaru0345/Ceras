@@ -17,7 +17,19 @@ namespace Ceras.Formatters
 
 
 	// todo: Can we use a static-generic as a cache instead of dict? Is that even possible in our case? Would we even save anything? How much would it be faster?
-	class DynamicObjectFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
+	/*
+	 * This formatter is used for every object-type that Ceras cannot deal with.
+	 * It analyzes the members of the class or struct and compiles an optimized formatter for it.
+	 * 
+	 * - "How does it handle abstract classes?"
+	 * > The ReferenceFormatter<> does that by "dispatching" to the actual type at runtime, dispatching one of many different DynamicObjectForamtters.
+	 * 
+	 * - "Why does it not implement ISchemaTaintedFormatter?"
+	 * > That concept only applies to types whos schema can change. So in VersionTolerant serialization both DynamicObjectFormatter and SchemaDynamicFormatter are used.
+	 *   This one is used for framework-types that are not supported, and SchemaDynamicFormatter is used for user-types.
+	 *   Because user-types can change over time, and framework-types stay the same, and if they change that has to be dealt with in a completely different way anyway.
+	 */
+	class DynamicObjectFormatter<T> : IFormatter<T>
 	{
 		static readonly MethodInfo SetValue = typeof(FieldInfo).GetMethod(
 				name: "SetValue",
@@ -27,9 +39,6 @@ namespace Ceras.Formatters
 				modifiers: new ParameterModifier[2]);
 
 
-		// Instead of creating a new hash-set every time we need it, we just keep one around and re-use it.
-		// This one will only ever get used during one function call
-		static HashSet<Type> _tempHashSet = new HashSet<Type>();
 
 		CerasSerializer _ceras;
 
@@ -52,32 +61,6 @@ namespace Ceras.Formatters
 			{
 				_dynamicSerializer = GenerateSerializer(schema.Members);
 				_dynamicDeserializer = GenerateDeserializer(schema.Members);
-
-				if (_ceras.Config.VersionTolerance != VersionTolerance.Disabled)
-				{
-					// What Schema changes do we want to know about?
-					// When the schema of our own type or the schema of one of our members changes
-					// 1.) Collect all types of whos schema we (so that when it changes, we know that we should update ourselves)
-					_tempHashSet.Clear();
-
-					_tempHashSet.Add(type);
-					foreach(var m in schema.Members)
-						_tempHashSet.Add(m.Member.MemberType);
-
-					List<Schema> currentSchemata = new List<Schema>(_tempHashSet.Count);
-
-					// 2.) Enter ourselves into the "interested" lists so that we get notified
-					foreach(var t in _tempHashSet)
-					{
-						var meta = _ceras.GetTypeMetaData(t);
-						meta.OnSchemaChangeTargets.Add(this);
-						currentSchemata.Add(meta.CurrentSchema);
-					}
-					_tempHashSet.Clear();
-
-					// 3.) Create a schema complex that represents the sum of all schemata we're currently using
-					var currentSchemaComplex = new SchemaComplex(currentSchemata);
-				}
 			}
 			else
 			{
@@ -262,27 +245,6 @@ namespace Ceras.Formatters
 			_dynamicDeserializer(buffer, ref offset, ref value);
 		}
 
-
-		public void OnSchemaChanged(TypeMetaData meta)
-		{
-			// What schema changes are relevant to us?
-			// - When the schema for our own type changes
-			// but also:
-			// - When the schema for one of the value-types inside this object changes.
-			//   That is because there isn't any kind of "railway switch" that can change the formatter being used,
-			//   as formatters for value-types are used directly (without a ReferenceFormatter that would switch out its dispatcher configuration)
-			//
-			// So that's our "key" for the dictionary. The "SchemaComplex" of all those used schemata.
-
-			// todo: If the schema of a value-type changes while we're already reading an object, is there even any way that we can still swap out the formatter?
-			//       There doesn't appear to be any way what-so-ever.
-			//       While reading we are already in the compiled formatter, changes while the read is already in progress will not be applied.
-			//
-			// - is that a big issue?
-			// - workaround: force usage of ref formatter
-			// - detectable? schemaChange + hasAnyUserValueTypes + serializationCurrentlyInProgress
-			//   since schema changes are rare, we can do that easily
-		}
 	}
 
 	// Some types are banned from serialization

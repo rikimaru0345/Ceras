@@ -266,6 +266,9 @@
 			if (_typeToPrimary.TryGetValue(type, out Schema s))
 				return s;
 
+			if(CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
+				throw new InvalidOperationException("Cannot create a Schema for a framework type. This must be a bug, please report it on GitHub!");
+			
 
 			Schema schema = new Schema(true, type);
 
@@ -431,6 +434,10 @@
 			// And when reading we can prepare all the schema serializers,
 			// and if we have all of them already we can skip straight to the data
 			// which would save us quite a bit of time.
+
+			
+			if(CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
+				throw new InvalidOperationException("Cannot read a Schema for a framework type! This must be either a serious bug, or the given data has been tampered with. Please report it on GitHub!");
 
 
 			//
