@@ -1,14 +1,19 @@
-[![AppVeyor](https://ci.appveyor.com/api/projects/status/github/rikimaru0345/Ceras?branch=master&svg=true)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts)  [![Test Results](https://img.shields.io/appveyor/tests/rikimaru0345/ceras.svg)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/tests)  [![NuGet](https://img.shields.io/nuget/v/Ceras.svg?logo=nuget&logoColor=ddd)](https://www.nuget.org/packages/Ceras/)  [![Release](https://img.shields.io/badge/download-70kb%20%5Brelease.zip%5D-blue.svg?logo=appveyor )](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts)  [![LICENSE](https://img.shields.io/github/license/rikimaru0345/Ceras.svg)](https://github.com/rikimaru0345/Ceras/blob/master/LICENSE)
+[![AppVeyor](https://ci.appveyor.com/api/projects/status/github/rikimaru0345/Ceras?branch=master&svg=true)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts)  [![Test Results](https://img.shields.io/appveyor/tests/rikimaru0345/ceras.svg)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/tests) [![LICENSE](https://img.shields.io/github/license/rikimaru0345/Ceras.svg)](https://github.com/rikimaru0345/Ceras/blob/master/LICENSE)
+
+[![NuGet](https://img.shields.io/nuget/v/Ceras.svg?logo=nuget&logoColor=ddd)](https://www.nuget.org/packages/Ceras/)  [![Release](https://img.shields.io/badge/download-70kb%20%5Brelease.zip%5D-blue.svg?logo=appveyor )](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts) 
+
+[![Discord](https://discordapp.com/api/guilds/367211057787305985/embed.png)](https://discord.gg/FGaCX4c)
+
 
 
 
 
 # Ceras
 ###### Universal binary serializer for a wide variety of scenarios, lots of features, and tuned for performance 
-Ceras is a binary serializer, inspired by [MsgPack](https://github.com/neuecc/MessagePack-CSharp) and intended to not only fix the pain-points I've experienced using it, but also add a lot of extra features.
-Ceras implements its own format and is not at all compatible with the "MsgPack" format.
+Ceras is a binary serializer. It converts whatever object you give it into a `byte[]` and back.
+It's not just a replacement for BinaryFormatter or MessagePack, it also adds tons of features on top. 
 
-Support for reference loops, large/complicated inheritnace chains, "external" objects, ...
+Supports reference loops, large/complicated inheritance chains, splitting objects into parts, ...
 
 # Quick start
 
@@ -47,8 +52,8 @@ var bytes = s.Serialize(p);
    - If the type already matches no types are written at all (vast majority of cases)
    - KnownTypes are encoded as 1 byte
    - Ceras dynamically learns new/unknown types while serializing. New types are written once in compressed form, thus automatically becoming a known type.
-   - No type lookups! (except for polymorphic types of course)
-- Automatic splitting and reassembling. You want to save your `Monster`, `Spell`, and `Player` objects each into their own file? No problem! Ceras can automatically split and reassemble object graphs for you. (See `IExternalRootObject`)
+   - No slowdown through type lookups! (except for polymorphic types of course)
+- Can serialize in parts. You want to save your `Monster`, `Spell`, and `Player` objects each into their own file, but they all reference each other in many ways? No problem at all! Ceras can automatically split and reassemble entire object-graphs for you. And it's pretty easy: see `IExternalRootObject`
 - No allocations
   - Generates no "garbage" (garbage-collector pressure) by recycling all internal objects.
   - Integrates with user object-pools as well with `ObjectFactory` and `DiscardObject` methods. Especially useful for use as a network protocol or in games so Ceras will not allocate new user-objects and instead get them from your pools.
@@ -61,7 +66,8 @@ var bytes = s.Serialize(p);
 - Various Attributes like `[Config]`, `[Ignore]`, `[Include]`
 - Version tolerance. Supports all changes: adding new / renaming / reordering / deleting members.
 - Ceras can handle `readonly` fields in various ways. Ceras can change the contents of objects in readonly fields without having to change the reference in the field itself (aka 'populate' with data). Or it can force-overwrite readonly fields if you really want to (using reflection).
-- Good exceptions: All exceptions Ceras throws contain reasons why something went wrong and what to do about it.  
+- Good exceptions: All exceptions Ceras throws contain reasons why something went wrong and what to do about it. 
+- Ceras is fully "reentrant" meaning that the same serializer-instance can start a new nested serialization while the other one is still in progress. Very useful when dealing with `IExternalRootObject`s (simplifies your code a lot).
 
 #### Built-in types
 Built-in support for many commonly used .NET types:

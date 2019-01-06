@@ -8,6 +8,7 @@ namespace Ceras
 	using System;
 	using System.Collections;
 	using System.Collections.Generic;
+	using System.Collections.Specialized;
 	using System.Linq;
 	using System.Reflection;
 	using System.Text;
@@ -52,11 +53,8 @@ namespace Ceras
 
 		static HashSet<Assembly> FrameworkAssemblies = new HashSet<Assembly>
 		{
-				typeof(int).Assembly,
-				typeof(IList<>).Assembly,
-				typeof(System.Uri).Assembly,
-				typeof(System.Net.Sockets.AddressFamily).Assembly,
-				typeof(System.Tuple<>).Assembly,
+				typeof(object).Assembly, // mscorelib
+				typeof(Uri).Assembly, // system.dll
 		};
 
 
