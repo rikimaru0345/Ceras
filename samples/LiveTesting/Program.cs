@@ -87,6 +87,8 @@ namespace LiveTesting
 			var data = ceras.Serialize(big);
 			
 			var clone = ceras.Deserialize<BigInteger>(data);
+
+			Debug.Assert(clone.ToString() == big.ToString());
 		}
 
 		private static void ReadonlyTest()
