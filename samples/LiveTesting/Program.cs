@@ -6,6 +6,7 @@ namespace LiveTesting
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Linq;
+	using System.Numerics;
 	using System.Reflection;
 	using Tutorial;
 	using Xunit;
@@ -17,9 +18,11 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			ReadonlyTest();
+			BigIntegerTest();
 
 			VersionToleranceTest();
+			
+			ReadonlyTest();
 
 			DelegatesTest();
 
@@ -72,6 +75,18 @@ namespace LiveTesting
 			// tutorial.Step8_DataUpgrade_OLD();
 			// tutorial.Step9_VersionTolerance();
 			tutorial.Step10_ReadonlyHandling();
+		}
+
+		private static void BigIntegerTest()
+		{
+			BigInteger big = new BigInteger(28364526879);
+			big = BigInteger.Pow(big, 6);
+
+			CerasSerializer ceras = new CerasSerializer();
+			
+			var data = ceras.Serialize(big);
+			
+			var clone = ceras.Deserialize<BigInteger>(data);
 		}
 
 		private static void ReadonlyTest()

@@ -4,6 +4,7 @@
 	using System.Collections.Generic;
 	using System.Collections.Specialized;
 	using System.Diagnostics.CodeAnalysis;
+	using System.Numerics;
 	using static SerializerBinary;
 
 	public class BclFormatterResolver : Resolvers.IFormatterResolver
@@ -15,7 +16,10 @@
 			[typeof(TimeSpan)] = new TimeSpanFormatter(),
 			[typeof(Guid)] = new GuidFormatter(),
 			[typeof(decimal)] = new DecimalFormatter(),
+
 			[typeof(BitVector32)] = new BitVector32Formatter(),
+
+			[typeof(BigInteger)] = new BigIntegerFormatter(),
 		};
 
 		CerasSerializer _serializer;
@@ -187,7 +191,7 @@
 				}
 			}
 		}
-
+		
 		class BitVector32Formatter : IFormatter<BitVector32>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, BitVector32 value)
@@ -199,6 +203,35 @@
 			{
 				var data = ReadInt32Fixed(buffer, ref offset);
 				value = new BitVector32(data);
+			}
+		}
+
+		class BigIntegerFormatter : IFormatter<BigInteger>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, BigInteger value)
+			{
+				var data = value.ToByteArray();
+
+				// Length
+				WriteUInt32(ref buffer, ref offset, (uint)data.Length);
+
+				// Bytes
+				EnsureCapacity(ref buffer, offset, data.Length);
+				Buffer.BlockCopy(data, 0, buffer, offset, data.Length);
+				
+				offset += data.Length;
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref BigInteger value)
+			{
+				var length = (int)ReadUInt32(buffer, ref offset);
+
+				var bytes = new byte[length];
+
+				Buffer.BlockCopy(buffer, offset, bytes, 0, length);
+				offset += length;
+
+				value = new BigInteger(bytes);
 			}
 		}
 	}
