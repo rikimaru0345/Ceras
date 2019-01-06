@@ -30,46 +30,27 @@ namespace Ceras.Helpers
 
 		readonly CerasSerializer _ceras;
 
-		/*
-		readonly Schema _schema;
+		readonly Dictionary<Schema, SerializerPair> _generatedSerializerPairs = new Dictionary<Schema, SerializerPair>();
+
+		Schema _currentSchema;
 
 		SerializeDelegate<T> _serializer;
 		DeserializeDelegate<T> _deserializer;
-		*/
 
+		int _deserializationDepth; // recursion tracker for special types of schema-changes (can be removed eventually when we implemented a better solution)
 
 
 		public SchemaDynamicFormatter(CerasSerializer ceras, Schema schema)
 		{
 			_ceras = ceras;
-			_schema = schema;
+			_currentSchema = schema;
 
 			var type = typeof(T);
 
 			BannedTypes.ThrowIfBanned(type);
 			BannedTypes.ThrowIfNonspecific(type);
 
-			if (schema.Members.Count == 0)
-			{
-				_serializer = (ref byte[] buffer, ref int offset, T value) => { };
-				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
-				return;
-			}
-
-			if (schema.IsPrimary)
-			{
-				_serializer = GenerateSerializer(schema);
-				_deserializer = GenerateDeserializer(schema);
-			}
-			else
-			{
-				// No serializer! Writing data in some old format is not supported (yet, maybe in the future).
-				// In theory we could do it. But it's not implemented because there would have to be some way for the user to specify what Schema to use.
-				// And we get into all sorts of troubles with type-conversion (not implemented yet, but it will probably arrive earlier than this...)
-				// This also protects us against bugs!
-				_serializer = ErrorSerializer;
-				_deserializer = GenerateDeserializer(schema);
-			}
+			ActivateSchema(_currentSchema);
 
 			RegisterForSchemaChanges();
 		}
@@ -83,7 +64,15 @@ namespace Ceras.Helpers
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
-			_deserializer(buffer, ref offset, ref value);
+			try
+			{
+				_deserializationDepth++;
+				_deserializer(buffer, ref offset, ref value);
+			}
+			finally
+			{
+				_deserializationDepth--;
+			}
 		}
 
 
@@ -217,6 +206,30 @@ namespace Ceras.Helpers
 				return;
 
 
+			// We want to know when the schema of this type changes!
+			_ceras.GetTypeMetaData(typeof(T)).OnSchemaChangeTargets.Add(this);
+
+			// We also need to know about changes to value-type schemata.
+			// But we have to ensure that we're recording ALL changes, not just the ones of the current schema (which might be missing entries!)
+			var primarySchema = _ceras.SchemaDb.GetOrCreatePrimarySchema(typeof(T));
+
+			foreach (var member in primarySchema.Members)
+			{
+				var memberType = member.Member.MemberType;
+				
+				// Only value-types are important, ref-types are handled somewhere else (ref-formatter)
+				if(!memberType.IsValueType)
+					continue;
+
+				var memberMetaData = _ceras.GetTypeMetaData(member.Member.MemberType);
+				memberMetaData.OnSchemaChangeTargets.Add(this);
+			}
+
+
+
+			// todo: this is for later, but probably we can avoid all this anyway if we select a better solution to the "inline problem"
+
+			/*
 			// What Schema changes do we want to know about?
 			// When the schema of our own type or the schema of one of our members changes
 			// 1.) Collect all types of whos schema we (so that when it changes, we know that we should update ourselves)
@@ -239,25 +252,85 @@ namespace Ceras.Helpers
 
 			// 3.) Create a schema complex that represents the sum of all schemata we're currently using
 			var currentSchemaComplex = new SchemaComplex(currentSchemata);
+			*/
 
 		}
 
+
 		public void OnSchemaChanged(TypeMetaData meta)
+		{
+			// We're given the full metadata, but we only need the schema itself here
+			// That simplifies the code because we can reuse the function for the constructor
+			var schema = meta.CurrentSchema;
+			ActivateSchema(schema);
+		}
+
+		void ActivateSchema(Schema schema)
 		{
 			// What schema changes are relevant to us?
 			// - Schema of own type
-			// - Schema of value-types inside us
-			
+			// - Schema of value-types inside us (dispatches for ref types are handled by RefFormatter anyway)
 
-			//
-			// Luckily we don't ever have to deal with references to reference-types.
-			// Because they are always handled through a ReferenceFormatter which will take care of the schema switching for us.
-			
-			// So that's our "key" for the dictionary. The "SchemaComplex" of all those used schemata.
+
+			// For now we only adapt to change to the current type schema.
+			// Do we have serializers prepared for this schema already?
+
+			if (_currentSchema == schema)
+				return;
+
+
+			// Important sanity check, if this happens the user should definitely know about it!
+			if (_deserializationDepth > 0)
+				if ()
+
+
+
+					if (_generatedSerializerPairs.TryGetValue(schema, out var pair))
+					{
+						// Use already generated serializers 
+						_serializer = pair.Serializer;
+						_deserializer = pair.Deserializer;
+
+						_currentSchema = schema;
+						return;
+					}
+
+			// We have to make a new serializer pair
+			if (schema.Members.Count == 0)
+			{
+				_serializer = (ref byte[] buffer, ref int offset, T value) => { };
+				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
+				return;
+			}
+
+			if (schema.IsPrimary)
+			{
+				_serializer = GenerateSerializer(schema);
+				_deserializer = GenerateDeserializer(schema);
+			}
+			else
+			{
+				// No serializer! Writing data in some old format is not supported (yet, maybe in the future).
+				// In theory we could do it. But it's not implemented because there would have to be some way for the user to specify what Schema to use.
+				// And we get into all sorts of troubles with type-conversion (not implemented yet, but it will probably arrive earlier than this...)
+				// This also protects us against bugs!
+				_serializer = ErrorSerializer;
+				_deserializer = GenerateDeserializer(schema);
+			}
+
+			_currentSchema = schema;
+
+			_generatedSerializerPairs.Add(schema, new SerializerPair(_serializer, _deserializer));
+
+
+			// todo: later we want to include the "schema complex" as well, which is the combination of multiple schemata.
+			//       because that's the actual key here.
+			//       but it makes things more difficult, it would most likely be better to chose one of the solutions below (in point #3)
 
 
 			// 1) Mutate the current SchemaComplex and create a new SchemaComplex that represents the current one
 			//    todo: how do we do this efficiently? We can't create a new SchemaComplex class and List<> just to (maybe) realize that we've already got one of those!
+
 
 			// 2) After updating the current SchemaComplex, we check if we already got a serializer-pair that handles this, if not create a new one
 			//    Then assign it.
@@ -278,19 +351,25 @@ namespace Ceras.Helpers
 			//    look into this object to get the refernce to the formatter. That way we could swap out the formatter even while we're already running it.
 			//
 
-			// todo: If the schema of a value-type changes while we're already reading an object, is there even any way that we can still swap out the formatter?
-			//       There doesn't appear to be any way what-so-ever.
-			//       While reading we are already in the compiled formatter, changes while the read is already in progress will not be applied.
-			//
-			// - is that a big issue?
-			// - workaround: force usage of ref formatter
-			// - detectable? schemaChange + schema is for a value type that's used in here + a deserialization is currently already in progress
 		}
 
 
 		static void ErrorSerializer(ref byte[] buffer, ref int offset, T value)
 		{
 			throw new InvalidOperationException("Trying to write using a non-primary ObjectSchema. This should never happen and is a bug, please report it on GitHub!");
+		}
+
+
+		struct SerializerPair
+		{
+			public readonly SerializeDelegate<T> Serializer;
+			public readonly DeserializeDelegate<T> Deserializer;
+
+			public SerializerPair(SerializeDelegate<T> serializer, DeserializeDelegate<T> deserializer)
+			{
+				Serializer = serializer;
+				Deserializer = deserializer;
+			}
 		}
 	}
 }
