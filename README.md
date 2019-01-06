@@ -39,7 +39,7 @@ var bytes = s.Serialize(p);
 - Can serialize Fields and Properties (Check out the [**Tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs) to see all the different configuration options)
   - `ShouldSerialize` Callback > Member-Attribute > Class-Attribute > Global Default
 - No need to place attributes on members
-  - Serialization is still completely "stable", since members are sorted by MemberTypeName+MemberName
+  - Serialization is completely "stable", since members are sorted by more than just field-name, type-name, ...
 - Efficient:
   - By default no versioning-, type- or other meta-data is written, only what is strictly needed.
   - Utilizes both VarInt & Zig-Zag encoding (example: values up to 128 only take 1 byte instead of 4...)
@@ -60,9 +60,14 @@ var bytes = s.Serialize(p);
 - Very easy to add new "Formatters" (the things that the serializer uses to actually read/write an object)
 - Various Attributes like `[Config]`, `[Ignore]`, `[Include]`
 - Version tolerance. Supports all changes: adding new / renaming / reordering / deleting members.
+- Ceras can handle `readonly` fields in various ways. Ceras can change the contents of objects in readonly fields without having to change the reference in the field itself (aka 'populate' with data). Or it can force-overwrite readonly fields if you really want to (using reflection).
+- Good exceptions: All exceptions Ceras throws contain reasons why something went wrong and what to do about it.  
 
 #### Built-in types
-Built-in support for many commonly used .NET types: Primitives(`int`, `string`, ...), `Enum`, `decimal`, `DateTime`, `TimeSpan`, `DateTimeOffset`, `Guid`, `Array[]`, `KeyValuePair<,>`, `Nullable<>`, everything that implements `ICollection<>` so `List<>`, `Dictionary<,>`, ... 
+Built-in support for many commonly used .NET types:
+- Primitives(`int`, `string`, ...), `Enum`
+- All `ICollection<>` so `List<>`, `Dictionary<,>`, ... 
+- Pretty much all commonly used BCL types: `decimal`, `DateTime`, `TimeSpan`, `DateTimeOffset`, `Guid`, `Array[]`, `KeyValuePair<,>`, `Nullable<>`, `BitVector32`,
 
 Automatically generates optimized formatters for your types! No attributes or anything needed, everything fully automatic.
 
@@ -121,7 +126,6 @@ Report it as an issue. If it's a common type I'll most likely add a dedicated bu
 
 
 # Planned features
-- .NET standard build target
 - "Serialization Constructors" for immutable collections (also supporting private static methods for construction)
 - Performance comparisons beyond simple micro benchmarks
 - Better exceptions (actual exception types instead of the generic `Exception`)
@@ -132,6 +136,7 @@ Report it as an issue. If it's a common type I'll most likely add a dedicated bu
 - Built-in LZ4 and GZip(Zlib) support, including support for Sync-Flush (especially useful for networking scenarios)
 
 ### Done
+- .NET standard build target
 - Making Ceras available as a nuget package
 - Automatic release builds
 - Automatic version tolerance can now be enabled through config. `config.VersionTolerance = VersionTolerance.AutomaticEmbedded;`. More options will follow in the future including manual version tolerance if you want to go the extra mile to optimize your code. 
