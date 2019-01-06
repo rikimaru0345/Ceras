@@ -4,10 +4,11 @@
 	using System.Collections.Generic;
 
 	// Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
-	public class ObjectCache
+	class ObjectCache
 	{
 		readonly Dictionary<object, int> _serializationCache = new Dictionary<object, int>();
 		readonly List<RefProxy> _deserializationCache = new List<RefProxy>();
+
 
 
 		// Serialization:
@@ -89,33 +90,7 @@
 			_deserializationCache.Clear();
 		}
 
-		//public void RemoveObjectFromCache(T obj)
-		//{
-		//	var comparer = EqualityComparer<T>.Default;
 
-		//	int existingObjectIndex = -1;
-		//	for (int i = 0; i < _deserializationCache.Count; i++)
-		//	{
-		//		if (comparer.Equals(_deserializationCache[i].Value, obj))
-		//		{
-		//			existingObjectIndex = i;
-		//			break;
-		//		}
-		//	}
-
-		//	if (existingObjectIndex == -1)
-		//		throw new InvalidOperationException("Cannot remove an object from the cache because it could not be found in the cache. This must be a major bug.");
-
-		//	// Make sure we're not leaking any memory by keeping references indirectly:  pool -> refProxy -> largeObject
-		//	var proxy = _deserializationCache[existingObjectIndex];
-		//	proxy.Value = default(T);
-		//	_proxyPool.ReturnObject(proxy);
-
-		//	_deserializationCache.RemoveAt(existingObjectIndex);
-
-
-		//	_serializationCache.Remove(obj);
-		//}
 
 		internal abstract class RefProxy
 		{
@@ -142,7 +117,7 @@
 			public override void ResetAndReturn()
 			{
 				// Make sure we don't hold any references!
-				Value = default(T);
+				Value = default;
 				// Go back to the pool
 				_sourcePool.ReturnObject(this);
 			}
@@ -155,11 +130,16 @@
 
 		static class RefProxyPool<T>
 		{
-			static readonly FactoryPool<RefProxy<T>> _proxyPool = new FactoryPool<RefProxy<T>>(p => new RefProxy<T>(p), 8);
-
-			public static RefProxy<T> Rent()
+			readonly static FactoryPool<RefProxy<T>> _proxyPool = new FactoryPool<RefProxy<T>>(CreateRefProxy, 8);
+			
+			internal static RefProxy<T> Rent()
 			{
 				return _proxyPool.RentObject();
+			}
+
+			static RefProxy<T> CreateRefProxy(FactoryPool<RefProxy<T>> pool)
+			{
+				return new RefProxy<T>(pool);
 			}
 		}
 	}

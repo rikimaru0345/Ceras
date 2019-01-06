@@ -39,26 +39,32 @@
 
 		public T RentObject()
 		{
-			if (_objects.Count > 0)
+			lock (_objects)
 			{
-				// Return existing object
-				var obj = _objects.Pop();
-				ObjectsAvailableInPool--;
-				return obj;
-			}
-			else
-			{
-				// Create a new one
-				var obj = _factoryMethod(this);
-				Capacity++;
-				return obj;
+				if (_objects.Count > 0)
+				{
+					// Return existing object
+					var obj = _objects.Pop();
+					ObjectsAvailableInPool--;
+					return obj;
+				}
+				else
+				{
+					// Create a new one
+					var obj = _factoryMethod(this);
+					Capacity++;
+					return obj;
+				}
 			}
 		}
 
 		public void ReturnObject(T objectToReturn)
 		{
-			_objects.Push(objectToReturn);
-			ObjectsAvailableInPool++;
+			lock (_objects)
+			{
+				_objects.Push(objectToReturn);
+				ObjectsAvailableInPool++;
+			}
 		}
 
 	}

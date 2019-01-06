@@ -1,16 +1,16 @@
 ﻿// ReSharper disable RedundantTypeArgumentsOfMethod
 namespace Ceras
 {
+	using Exceptions;
+	using Formatters;
+	using Helpers;
+	using Resolvers;
 	using System;
 	using System.Collections;
 	using System.Collections.Generic;
 	using System.Linq;
 	using System.Reflection;
 	using System.Text;
-	using Exceptions;
-	using Formatters;
-	using Helpers;
-	using Resolvers;
 
 	/*
 	 * Todo:
@@ -50,7 +50,7 @@ namespace Ceras
 			return _formatterConstructedTypes.Contains(type);
 		}
 
-		internal static HashSet<Assembly> FrameworkAssemblies = new HashSet<Assembly>
+		static HashSet<Assembly> FrameworkAssemblies = new HashSet<Assembly>
 		{
 				typeof(int).Assembly,
 				typeof(IList<>).Assembly,
@@ -114,10 +114,7 @@ namespace Ceras
 		// If a resolver can't fulfill the request for a specific formatter, it returns null.
 		readonly List<IFormatterResolver> _resolvers = new List<IFormatterResolver>();
 
-		// The specific formatters we have. For example a formatter that knows how to read/write 'List<int>'. This will never contain
-		// unspecific formatters (for example for types like 'object' or 'List<>')
-		readonly Dictionary<Type, IFormatter> _referenceFormatters = new Dictionary<Type, IFormatter>();
-		readonly Dictionary<Type, IFormatter> _specificFormatters = new Dictionary<Type, IFormatter>();
+		readonly Dictionary<Type, TypeMetaData> _metaData = new Dictionary<Type, TypeMetaData>();
 
 		readonly IFormatter<Type> _typeFormatter;
 
@@ -181,10 +178,9 @@ namespace Ceras
 			var typeFormatter = new TypeFormatter(this);
 
 			var runtimeType = GetType().GetType();
-			_specificFormatters.Add(typeof(Type), typeFormatter);
-			_specificFormatters.Add(runtimeType, typeFormatter);
-			_referenceFormatters.Add(typeof(Type), typeFormatter);
-			_referenceFormatters.Add(runtimeType, typeFormatter);
+
+			SetFormatters(typeof(Type), typeFormatter, typeFormatter);
+			SetFormatters(runtimeType, typeFormatter, typeFormatter);
 
 			// MemberInfos (FieldInfo, RuntimeFieldInfo, ...)
 			_resolvers.Add(new ReflectionTypesFormatterResolver(this));
@@ -232,7 +228,7 @@ namespace Ceras
 			// - reference formatters generate their wrappers
 			foreach (var t in Config.KnownTypes)
 				if (!t.ContainsGenericParameters)
-					GetGenericFormatter(t);
+					GetReferenceFormatter(t);
 
 
 
@@ -244,9 +240,8 @@ namespace Ceras
 				d.CurrentRoot = null;
 				d.ObjectCache = new ObjectCache();
 				d.TypeCache = new ObjectCache();
-				d.WrittenSchemata = new HashSet<Schema>();
-				d.WrittenSchemataList = new List<Schema>();
-				d.ReadSchemata = new HashSet<Type>();
+				//d.WrittenSchemata = new HashSet<Schema>();
+				d.EncounteredSchemaTypes = new HashSet<Type>();
 
 				foreach (var t in Config.KnownTypes)
 				{
@@ -287,11 +282,6 @@ namespace Ceras
 		{
 			EnterRecursive(RecursionMode.Serialization);
 
-			if (Config.EmbedChecksum)
-			{
-				SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, ProtocolChecksum.Checksum);
-			}
-
 			try
 			{
 				//
@@ -305,24 +295,17 @@ namespace Ceras
 				// The actual serialization
 				int offsetBeforeWrite = offset;
 				{
-					Type type = typeof(T);
-					if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded && !FrameworkAssemblies.Contains(type.Assembly))
-					{
-						// Force <object>
-						var formatter = (IFormatter<object>)GetGenericFormatter(typeof(object));
-						formatter.Serialize(ref buffer, ref offset, obj);
-					}
-					else
-					{
-						// Normal serialization
-						var formatter = (IFormatter<T>)GetGenericFormatter(type);
-						formatter.Serialize(ref buffer, ref offset, obj);
-					}
+					if (Config.EmbedChecksum)
+						SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, ProtocolChecksum.Checksum);
+
+					var formatter = (IFormatter<T>)GetReferenceFormatter(typeof(T));
+					formatter.Serialize(ref buffer, ref offset, obj);
 				}
 				int offsetAfterWrite = offset;
 
+
 				//
-				// After we're done, we probably have to clear all our caches!
+				// After we're done, we have to clear all our caches!
 				// Only very rarely can we avoid that
 				// todo: would it be more efficient to have one static and one dynamic dictionary??
 				if (!Config.PersistTypeCache)
@@ -345,13 +328,15 @@ namespace Ceras
 			{
 				//
 				// Clear the root object again
-				InstanceData.WrittenSchemata.Clear();
-				InstanceData.WrittenSchemataList.Clear();
+				//InstanceData.WrittenSchemata.Clear();
+				InstanceData.EncounteredSchemaTypes.Clear();
 				InstanceData.CurrentRoot = null;
 
 				LeaveRecursive(RecursionMode.Serialization);
 			}
 		}
+
+
 
 		/// <summary>
 		/// Convenience method that will most likely allocate a T to return (using 'new T()'). Unless the data says the object really is null, in that case no instance of T is allocated.
@@ -396,24 +381,17 @@ namespace Ceras
 			{
 				int offsetBeforeRead = offset;
 
-				if (Config.EmbedChecksum)
+				//
+				// Actual deserialization
 				{
-					var checksum = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
-					if (checksum != ProtocolChecksum.Checksum)
-						throw new InvalidOperationException($"Checksum does not match embedded checksum (Serializer={ProtocolChecksum.Checksum}, Data={checksum})");
-				}
+					if (Config.EmbedChecksum)
+					{
+						var checksum = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
+						if (checksum != ProtocolChecksum.Checksum)
+							throw new InvalidOperationException($"Checksum does not match embedded checksum (Serializer={ProtocolChecksum.Checksum}, Data={checksum})");
+					}
 
-				Type type = typeof(T);
-				if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded && !FrameworkAssemblies.Contains(type.Assembly))
-				{
-					var formatter = (IFormatter<object>)GetGenericFormatter(typeof(object));
-					object obj = value;
-					formatter.Deserialize(buffer, ref offset, ref obj);
-					value = (T)obj;
-				}
-				else
-				{
-					var formatter = (IFormatter<T>)GetGenericFormatter(type);
+					var formatter = (IFormatter<T>)GetReferenceFormatter(typeof(T));
 					formatter.Deserialize(buffer, ref offset, ref value);
 				}
 
@@ -452,8 +430,6 @@ namespace Ceras
 			}
 			finally
 			{
-				InstanceData.WrittenSchemata.Clear();
-
 				LeaveRecursive(RecursionMode.Deserialization);
 			}
 		}
@@ -473,15 +449,15 @@ namespace Ceras
 
 
 		/// <summary>
-		/// This is a shortcut to the <see cref="GetGenericFormatter(Type)"/> method
+		/// This is a shortcut to the <see cref="GetReferenceFormatter(Type)"/> method
 		/// </summary>
-		public IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetGenericFormatter(typeof(T));
+		public IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
 
 		/// <summary>
 		/// Returns one of Ceras' internal formatters for some type.
 		/// It automatically returns the right one for whatever type is passed in.
 		/// </summary>
-		public IFormatter GetGenericFormatter(Type type)
+		public IFormatter GetReferenceFormatter(Type type)
 		{
 			if (type.IsValueType)
 			{
@@ -490,51 +466,47 @@ namespace Ceras
 			}
 
 			// 1.) Cache
-			if (_referenceFormatters.TryGetValue(type, out var formatter))
-				return formatter;
+			var meta = GetTypeMetaData(type);
+
+			if (meta.ReferenceFormatter != null)
+				return meta.ReferenceFormatter;
+
 
 			// 2.) Create a reference formatter (which internally obtains the matching specific one)
 			var refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
 			var referenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
 
-			_referenceFormatters.Add(type, referenceFormatter);
+			meta.ReferenceFormatter = referenceFormatter;
 
 			return referenceFormatter;
 		}
 
 		/// <summary>
-		/// Similar to <see cref="GetGenericFormatter(Type)"/> it returns a formatter, but one that is not wrapped in a <see cref="ReferenceFormatter{T}"/>.
-		/// <para>You probably always want to use <see cref="GetGenericFormatter(Type)"/>, and only use this method instead when you are 100% certain you have emulated everything that <see cref="ReferenceFormatter{T}"/> does for you.</para>
+		/// Similar to <see cref="GetReferenceFormatter(Type)"/> it returns a formatter, but one that is not wrapped in a <see cref="ReferenceFormatter{T}"/>.
+		/// <para>You probably always want to use <see cref="GetReferenceFormatter(Type)"/>, and only use this method instead when you are 100% certain you have emulated everything that <see cref="ReferenceFormatter{T}"/> does for you.</para>
 		/// <para>Internally Ceras uses this to </para>
 		/// </summary>
 		public IFormatter GetSpecificFormatter(Type type)
 		{
-			// 1.) Cache - todo: maybe do static-generic caching
-			if (_specificFormatters.TryGetValue(type, out var formatter))
-				return formatter;
+			var meta = GetTypeMetaData(type);
 
-			//// 2.) Version Tolerance: Embedded schema descriptors
-			//if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
-			//	if (InstanceData.DataSchemata.TryGetValue(type, out var embeddedSchema))
-			//	{
-			//		// todo: remove those schemata again after reading
-			//		// todo: restore the formatters we've overwritten
-			//		// maybe put them into their own thing
+			return GetSpecificFormatter(type, meta);
+		}
 
-			//		var schemaFormatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
-			//		var schemaFormatter = (IFormatter)Activator.CreateInstance(schemaFormatterType, this, embeddedSchema);
-			//		_specificFormatters.Add(type, schemaFormatter);
-			//		return schemaFormatter;
-			//	}
+		IFormatter GetSpecificFormatter(Type type, TypeMetaData meta)
+		{
+			// 1.) Cache
+			if (meta.SpecificFormatter != null)
+				return meta.SpecificFormatter;
 
 
-			// 3.) User
+			// 2.) User
 			if (_userResolver != null)
 			{
-				formatter = _userResolver(this, type);
+				var formatter = _userResolver(this, type);
 				if (formatter != null)
 				{
-					_specificFormatters.Add(type, formatter);
+					meta.SpecificFormatter = formatter;
 					InjectDependencies(formatter);
 					return formatter;
 				}
@@ -544,28 +516,16 @@ namespace Ceras
 			// Depending on the VersionTolerance we use different formatters
 			if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
 			{
-				bool isFrameworkType = FrameworkAssemblies.Contains(type.Assembly);
-
-				if (type.IsArray)
-					// In the context of versioning, arrays are considered a framework type, because arrays are always serialized the same way.
-					// It's only the elements themselves that are serialized differently!
-					isFrameworkType = true;
-
-				if (isFrameworkType == false)
+				if (!meta.IsFrameworkType)
 				{
-					// Wait a second, if we somehow get here that would mean the TypeFormatter
-					// has not activated the correct SchemaFormatter override for us already.
-					// If it did, then the formatter would have been cached already!
-					throw new InvalidOperationException($"VersionToleranceError: resolving SchemaDynamicFormatter for '{type.FullName}' failed! The formatter was expected to be cached already. This is a bug, please report it on GitHub!");
+					// Create SchemaFormatter, it will automatically adjust itself to the schema when it's read.
+					var schema = SchemaDb.GetOrCreatePrimarySchema(type);
 
-					/*
-					// Probably a user type, which means it might change, which means it needs Schema-Data
-					var objectSchema = SchemaDb.GetOrCreatePrimarySchema(type);
-					
-					// SetSchemaOverride already adds the generated formatter to the formatter caches
-					var formatter = SetSchemaOverride(type, objectSchema);
-					return formatter;
-					*/
+					var formatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
+					var schemaFormatter = (IFormatter)Activator.CreateInstance(formatterType, args: new object[] { this, schema });
+
+					meta.SpecificFormatter = schemaFormatter;
+					return schemaFormatter;
 				}
 			}
 
@@ -574,25 +534,61 @@ namespace Ceras
 			// 3.) Built-in
 			for (int i = 0; i < _resolvers.Count; i++)
 			{
-				formatter = _resolvers[i].GetFormatter(type);
+				var formatter = _resolvers[i].GetFormatter(type);
 				if (formatter != null)
 				{
-					_specificFormatters.Add(type, formatter);
+					meta.SpecificFormatter = formatter;
 					return formatter;
 				}
 			}
 
+
 			// 4.) Dynamic
-			formatter = _dynamicResolver.GetFormatter(type);
-			if (formatter != null)
 			{
-				_specificFormatters.Add(type, formatter);
-				return formatter;
+				var formatter = _dynamicResolver.GetFormatter(type);
+				if (formatter != null)
+				{
+					meta.SpecificFormatter = formatter;
+					return formatter;
+				}
 			}
 
 
 			throw new NotSupportedException($"Ceras could not find any IFormatter<T> for the type '{type.FullName}'. Maybe exclude that field/prop from serializaion or write a custom formatter for it.");
 		}
+
+
+		internal TypeMetaData GetTypeMetaData(Type type)
+		{
+			if (!_metaData.TryGetValue(type, out var meta))
+			{
+				bool isFrameworkType;
+				// In the context of versioning, arrays are considered a framework type, because arrays are always serialized the same way.
+				// It's only the elements themselves that are serialized differently!
+				if (type.IsArray)
+					isFrameworkType = true;
+				else
+					isFrameworkType = FrameworkAssemblies.Contains(type.Assembly);
+
+				meta = new TypeMetaData(type, isFrameworkType);
+
+				if (!isFrameworkType)
+					meta.CurrentSchema = SchemaDb.GetOrCreatePrimarySchema(type);
+
+				_metaData.Add(type, meta);
+			}
+
+			return meta;
+		}
+
+		void SetFormatters(Type type, IFormatter specific, IFormatter reference)
+		{
+			var meta = GetTypeMetaData(type);
+
+			meta.SpecificFormatter = specific;
+			meta.ReferenceFormatter = reference;
+		}
+
 
 		void InjectDependencies(IFormatter formatter)
 		{
@@ -615,7 +611,7 @@ namespace Ceras
 					if (formatterType != null)
 					{
 						var formattedType = formatterType.GetGenericArguments()[0];
-						var requestedFormatter = GetGenericFormatter(formattedType);
+						var requestedFormatter = GetReferenceFormatter(formattedType);
 
 						f.SetValue(formatter, requestedFormatter);
 					}
@@ -627,139 +623,39 @@ namespace Ceras
 
 		internal void ActivateSchemaOverride(Type type, Schema schema)
 		{
-			if (schema.SpecificFormatter == null)
+			var meta = GetTypeMetaData(type);
+
+			//
+			// 1. Is this schema already active for the current type?
+			//    Maybe we're still set from last serialization/deserialization?
+			if (meta.CurrentSchema == schema)
+				return;
+
+
+			// 2. Set the schema as the active one
+			meta.CurrentSchema = schema;
+
+
+			// 3. Do we have a specific formatter for this one? If not create it
+			if (meta.SpecificFormatter == null)
 			{
-				// First activation, create the formatters
-
-				var formatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
-				schema.SpecificFormatter = (IFormatter)Activator.CreateInstance(formatterType, this, schema);
-
-				// By setting the specific formatter here first, it is ensured that the ReferenceFormatter below
-				// will obtain the specific formatter we created.
-				// todo: This is aweful because it depends on the assumption that ReferenceFormatter<> will call GetSpecificFormatter.
-				// It's indirection times 100. 
-				// But how can we fix it? Probably by adding another constructor to it that lets it take the specific formatter
-				// todo: Hmm, this sounds like it could enable some optimizations as well at the other locations where a ReferenceFormatter is created...
-				_specificFormatters.Add(type, schema.SpecificFormatter);
-
-
-
-				var refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
-				schema.ReferenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
-
-				_referenceFormatters.Add(type, schema.ReferenceFormatter);
-			}
-			else
-			{
-				// The formatters have already been created
-				// we only need to activate them
-				_specificFormatters[type] = schema.SpecificFormatter;
-				_referenceFormatters[type] = schema.ReferenceFormatter;
+				// Will create and set the formatter
+				GetSpecificFormatter(type, meta);
 			}
 
-			// todo:
-			/*
-			 * !! Big issue here !!
-			 * ## To recap:
-			 * 
-			 * - Any given type always has exactly one primary Schema.
-			 * - A type can also have older schemata associated with it (those Schemata are always generated by ReadSchema())
-			 * - Every Schema has exactly one SchemaDynamicFormatter
-			 * - A SchemaDynamicFormatter probably has a ReferenceFormatter as its parent.
-			 * 
-			 * Which means...
-			 * the ReferenceFormatter is bound to that exact schema, because it compiles a dispatch to the specific SchemaDynamicFormatter.
-			 * Also this ReferenceFormatter might already be compiled into multiple other formatters as a constant etc...
-			 * For example yet another SchemaDynamicFormatter for an object that contains a reference to the first type.
-			 * 
-			 * Which brings us to the issue:
-			 * Can we be sure that there will never be a situation where we could potentially use the wrong specific formatter by accident? (spoiler: no we can't be sure)
-			 * 
-			 * How might it happen?
-			 *	1)	Setup
-			 *		We read an object of type 'A' in VersionTolerant-Mode.
-			 *		It turns out the object was serialized in an older format; but it's no problem, we read the embedded Schema and create the matching SchemaDynamicFormatter.
-			 *		Of course that also creates a RefrenceFormatter, which is put into _referenceFormatters.
-			 *		The object is read successfully and all is well.
-			 *		
-			 *	2)	Mistake
-			 *		Now we want to write an object of that type, so of course we call GetFormatter and then it returns us a formatter that is using the wrong schema
-			 * 
-			 *    
-			 * 
-			 * ## Bigger issue
-			 * 
-			 * There's actually an example where we don't even need to do two serializations.
-			 * If we use an array things will immediately break:
-			 * 
-			 * Assume we read an array of objects with version tolerance.
-			 *    We now have an ArrayFormatter<> that is specific to this schema, because it contains a reference to a ReferenceFormatter which itself uses a SchemaDynamicFormatter.
-			 *    All of those formatters won't change again after they've been instantiated once.
-			 *    Now we start another deserialization, it's an array of those objects again, but this time an older version of them.
-			 *    The ArrayFormatter<> won't change, so it will now try to read the elements with the wrong schema.
-			 *    -> How to fix this
-			 *    -> Do we have to completely discard all our formatters after every deserialization?
-			 *    
-			 * -> For deserialization of a single object it shouldn't be a problem because once we encounter the TypeDefinition, we also encounter the object Schema,
-			 *    which then will activate the correct formatters.
-			 *    So now the serializer is "primed" to react correctly to this type.
-			 *    
-			 * -> But what about an array formatter? The user wants to read an 'Person[]', and the data contains 'PersonOldVersion[]'.
-			 *    The array is the first thing, so the ArrayFormatter has already been established (and before that the ReferenceFormatter<Person[]>)!
-			 *	  And now, while we're already well underway reading the array, we suddenly realize (actually we don't and that's the problem) that we're using
-			 *	  the wrong formatter for the upcoming object data!
-			 *	  Sure, once we're reading the first object we find its type and schema, which then activates the schema formatter, but at that point it's already too late.
-			 *	  We're already reading the first element, at that point replacing the formatter doesn't even do anything anymore; the ArrayFormatter has long since obtained
-			 *	  an itemFormatter that (supposedly!!) reads the data!
-			 *	  
-			 * -> Even worse: the type is not even written if the entries match the array, which means we'd not write any schema at all!!
-			 * 
-			 * Same problem with reading. Once it is identified that we're about to read array like 'Person[]', an array formatter is created,
-			 * which then immediately wants to obtain its item-formatter. So it gets a ReferenceFormatter<Person>, with the inner formatter being SchemaDynamicFormatter<Person>,
-			 * which internally uses the primary schema for the type, not the one we're now just about to read.
-			 * 
-			 * 
-			 * How to solve this in general?
-			 * My initial thought is that all formatters that internally depend on a schema (directly or indirectly) are "tainted" by the Schema.
-			 * So the most naive approach would be like this:
-			 *	- before reading or writing it has to be known what types will take part in the serialization.
-			 *	  Writing:
-			 *		- not a problem, we *always* use the primary schema to write
-			 *	  Reading:
-			 *	    - before reading the first byte of real data, we need to know all the schemata that are about to be used.
-			 *	      that's only possible if we have one large schema blob in front of the data, instead of mixed in inline with the data.
-			 *	- simply throw out all potentially tainted formatters and start over every time.
-			 *	
-			 * The most obvious optimization here is that we don't really have to "throw out" all formatters, we can instead just mark them with their Schema, so we know what schema they use.
-			 * 
-			 * -> Problem what if there's a SchemaDynamicFormatter that serializes ObjectTypeA, which in turn has a reference each to ObjectTypeX and ObjectTypeY,
-			 *    now we read some data with all old-format data (5 versions in the past).
-			 *    And next we read some data where ObjectTypeX is 3 versions in the past, and ObjectTypeY is 5 versions in the past.
-			 *    Obviously the SchemaDynamicFormatter for ObjectTypeA will not work. When it wants to read the field for ObjectTypeX it would call some formatter that is for the wrong Schema.
-			 *    Not all objects change their version together. In almost all cases only one or very few objects change for a new version.
-			 *    So it is possible (actually totally certain) that we encounter mixed-version data.
-			 * 
-			 *    -> Formatters can be tained by multiple schemata, even if they use only one (or none at all) themselves.
-			 *       Like an array formatter that serializes 'ObjectTypeA[]'...
-			 * 
-			 * Potential solution:
-			 * - Now every formatter would be marked with what schemata it uses directly or indirectly
-			 * - We're reading a new object blob, and read all the schemata first so now we have the complete schema set.
-			 * - We can now take a look if we have a set of formatters that uses this set (or a superset) of schemata
-			 * - If we don't we have to start over at least partially. However we can at least re-use formatters for sub-objects where the set matches again.
-			 * 
-			 * 
-			 * Next steps:
-			 * - VersionTolerance is rarely used and we need a way to get the feature going correctly now, not in 6 months
-			 *   So we'll throw out all formatters before and after every deserialization to ensure that there can't be any schema-tainting
-			 *   (need to remove all those static dictionaries in the resolvers everywhere as well!)
-			 *   - Once before the deserialization so we don't read old data using new formatters
-			 *   - Once after the deserialization so we don't keep array-, dynamic-, and reference- formatters around that use old schemas
-			 * - To do this we must fix when schema data is read/written. It must be at the start of the data in one big blob, never inline with the types/data.
-			 * - The most impactful optimization would be to have a HashSet<Schema> as the key into a dictionary that gives us a Tuple<List<IFormatter>>, List<IFormatter>>> (two lists, reference and specific formatters). And when we encounter a set of those schemata, we can just re-use all the things.
-			 * - No need to go into the much more difficult optimization of actually tracking which formatter uses what schemata (directly AND indirectly), and then somehow using that to share generated formatters across the "schema boundaries". That situation will almost never appear in reality, and people encountering it can instantly fix it by simply upgrading (loading, and re-saving) all their data in the new format. This data-upgrading is a very common thing in software anyway, any kind of database upgrades all the data whenver there is a schema change, so that's nothing new.
-			 * - With those steps we fixed all problems.
-			 */
+
+			// 4. Notify every formatter that wants to know about schema changes to this type
+			for (int i = 0; i < meta.OnSchemaChangeTargets.Count; i++)
+			{
+				var taintedFormatter = meta.OnSchemaChangeTargets[i];
+				taintedFormatter.OnSchemaChanged(meta);
+			}
+
+
+			// todo: make every formatter that uses some other formatter listen to schema-changes that it is interested in
+
+			// todo: merge all dictionaries that use a Type as key. Could be really useful in SchemaDb
+
 		}
 
 
@@ -811,14 +707,12 @@ namespace Ceras
 
 		public IExternalRootObject CurrentRoot;
 
-		// Populated at the start of a deserialization, so we know what types have specialized formatters
-		// public Dictionary<int, Schema> HashToSchema;
-		// public Dictionary<Type, Schema> DataSchemata;
-		
-		public HashSet<Schema> WrittenSchemata; // Populated while writing so at the end we know which Schemata we've written
-		public List<Schema> WrittenSchemataList; 
+		// Populated while writing so we know what schemata have actually been used.
+		// public HashSet<Schema> WrittenSchemata;
 
-		public HashSet<Type> ReadSchemata; // While reading, we know whether or not a Schema follows the Type by checking if we've already read a Schema for the type.
+		// Why <Type> instead of <Schema> ? Becasue while reading we'll never encounter multiple different schemata for the same type.
+		// And while writing we'll only ever use the primary schema.
+		public HashSet<Type> EncounteredSchemaTypes;
 	}
 
 	enum RecursionMode
@@ -1173,5 +1067,28 @@ namespace Ceras
 		string GetBaseName(Type type);
 		Type GetTypeFromBase(string baseTypeName);
 		Type GetTypeFromBaseAndAgruments(string baseTypeName, params Type[] genericTypeArguments);
+	}
+
+	class TypeMetaData
+	{
+		public readonly Type Type;
+		public readonly bool IsFrameworkType;
+
+		public IFormatter SpecificFormatter;
+		public IFormatter ReferenceFormatter;
+
+		public Schema CurrentSchema;
+
+		// Anyone (any formatter) who is interested in schema changes for this type should enter themselves in this list
+		public readonly List<ISchemaTaintedFormatter> OnSchemaChangeTargets = new List<ISchemaTaintedFormatter>();
+
+
+		// todo: PrimarySchema, List<Schema> secondarySchemata;
+
+		public TypeMetaData(Type type, bool isFrameworkType)
+		{
+			Type = type;
+			IsFrameworkType = isFrameworkType;
+		}
 	}
 }

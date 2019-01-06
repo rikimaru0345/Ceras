@@ -7,6 +7,7 @@ namespace Ceras.Formatters
 	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
+	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
 
@@ -16,18 +17,34 @@ namespace Ceras.Formatters
 
 
 	// todo: Can we use a static-generic as a cache instead of dict? Is that even possible in our case? Would we even save anything? How much would it be faster?
+	/*
+	 * This formatter is used for every object-type that Ceras cannot deal with.
+	 * It analyzes the members of the class or struct and compiles an optimized formatter for it.
+	 * 
+	 * - "How does it handle abstract classes?"
+	 * > The ReferenceFormatter<> does that by "dispatching" to the actual type at runtime, dispatching one of many different DynamicObjectForamtters.
+	 * 
+	 * - "Why does it not implement ISchemaTaintedFormatter?"
+	 * > That concept only applies to types whos schema can change. So in VersionTolerant serialization both DynamicObjectFormatter and SchemaDynamicFormatter are used.
+	 *   This one is used for framework-types that are not supported, and SchemaDynamicFormatter is used for user-types.
+	 *   Because user-types can change over time, and framework-types stay the same, and if they change that has to be dealt with in a completely different way anyway.
+	 */
 	class DynamicObjectFormatter<T> : IFormatter<T>
 	{
 		static readonly MethodInfo SetValue = typeof(FieldInfo).GetMethod(
 				name: "SetValue",
 				bindingAttr: BindingFlags.Instance | BindingFlags.Public,
-				binder: null, 
+				binder: null,
 				types: new Type[] { typeof(object), typeof(object) },
 				modifiers: new ParameterModifier[2]);
 
+
+
 		CerasSerializer _ceras;
+
 		SerializeDelegate<T> _dynamicSerializer;
 		DeserializeDelegate<T> _dynamicDeserializer;
+
 
 		public DynamicObjectFormatter(CerasSerializer serializer)
 		{
@@ -68,7 +85,7 @@ namespace Ceras.Formatters
 				var type = member.MemberType;
 
 				// todo: have a lookup list to directly get the actual 'SerializerBinary' method. There is no reason to actually use objects like "Int32Formatter"
-				var formatter = _ceras.GetGenericFormatter(type);
+				var formatter = _ceras.GetReferenceFormatter(type);
 
 				// Get the formatter and its Serialize method
 				// var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
@@ -113,7 +130,7 @@ namespace Ceras.Formatters
 				// - assume a type, or exception
 				// - Force ignore caching (as in not using the reference formatter)
 
-				IFormatter formatter = _ceras.GetGenericFormatter(type);
+				IFormatter formatter = _ceras.GetReferenceFormatter(type);
 
 				var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
@@ -132,7 +149,7 @@ namespace Ceras.Formatters
 						// We just read the value into a local variable first,
 						// for value types we overwrite,
 						// for objects we type-check, and if the type matches we populate the fields as normal
-						
+
 						// 1. Read the data into a new local variable
 						var tempStore = Expression.Variable(type, member.Name + "_tempStoreForReadonly");
 						locals.Add(tempStore);
@@ -175,18 +192,18 @@ namespace Ceras.Formatters
 							// If the reference was changed there is potentially some trouble.
 							// If we're allowed to change it we use reflection, if not we throw an exception
 
-							
+
 							Expression onReassignment;
 							if (_ceras.Config.ReadonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
 								// field.SetValue(valueArg, tempStore)
 								onReassignment = Expression.Call(Expression.Constant(fieldInfo), SetValue, arg0: refValueArg, arg1: tempStore);
 							else
-								onReassignment = Expression.Throw(Expression.Constant(new Exception("The reference in the readonly-field '"+fieldInfo.Name+"' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
+								onReassignment = Expression.Throw(Expression.Constant(new Exception("The reference in the readonly-field '" + fieldInfo.Name + "' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
 
 							// Did the reference change?
 							block.Add(Expression.IfThenElse(
 								test: Expression.ReferenceEqual(tempStore, Expression.MakeMemberAccess(refValueArg, member.MemberInfo)),
-								
+
 								// Still the same. Whatever has happened (and there are a LOT of cases), it seems to be ok.
 								// Maybe the existing object's content was overwritten, or the instance reference was already as expected, or...
 								ifTrue: Expression.Empty(),
@@ -227,6 +244,7 @@ namespace Ceras.Formatters
 		{
 			_dynamicDeserializer(buffer, ref offset, ref value);
 		}
+
 	}
 
 	// Some types are banned from serialization
