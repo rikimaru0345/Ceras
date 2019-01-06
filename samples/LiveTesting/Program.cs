@@ -581,17 +581,36 @@ namespace LiveTesting
 
 			config.TypeBinder = new DebugVersionTypeBinder();
 
-			var ceras = new CerasSerializer(config);
+			// We are using a new ceras instance every time.
+			// We want to make sure that no caching is going on.
+			// todo: we have to run the same tests with only one instance to test the opposite, which is that cached stuff won't get in the way!
 
 			var v1 = new VersionTest1 { A = 33, B = 34, C = 36 };
 			var v2 = new VersionTest2 { A = -3, C2 = -6, D = -7 };
 
-			var v1Data = ceras.Serialize(v1);
+			var v1Data = (new CerasSerializer(config)).Serialize(v1);
 			v1Data.VisualizePrint("data with version tolerance");
-			ceras.Deserialize<VersionTest2>(ref v2, v1Data);
+			(new CerasSerializer(config)).Deserialize<VersionTest2>(ref v2, v1Data);
 
 			Debug.Assert(v1.A == v2.A, "normal prop did not persist");
 			Debug.Assert(v1.C == v2.C2, "expected prop 'C2' to be populated by prop previously named 'C'");
+
+
+			// Everything should work the same way when forcing serialization to <object>
+			var v1DataAsObj = (new CerasSerializer(config)).Serialize<object>(v1);
+			v1DataAsObj.VisualizePrint("data with version tolerance (as object)");
+			var v1Clone = (new CerasSerializer(config)).Deserialize<object>(v1DataAsObj);
+
+			var v1CloneCasted = v1Clone as VersionTest2;
+			Debug.Assert(v1CloneCasted != null, "expected deserialized object to have changed to the newer type");
+			Debug.Assert(v1CloneCasted.A == v1.A, "expected A to stay the same");
+			Debug.Assert(v1CloneCasted.C2 == v1.C, "expected C to be transferred to C2");
+			Debug.Assert(v1CloneCasted.D == new VersionTest2().D, "expected D to have the default value");
+
+
+			// todo: we have to add a test for the case when we read some old data, and the root object has not changed (so it's still the same as always), but a child object has changed
+			// todo: test the case where a user-value-type is a field in some root object, and while reading the schema changes (because are reading old data), an exception is expected/wanted
+			// todo: test reading multiple different old serializations in random order; each one encoding a different version of the object; 
 		}
 
 		static void WrongRefTypeTest()
@@ -1003,7 +1022,6 @@ namespace LiveTesting
 		public int A = -11;
 		public int B = -12;
 		public int C = -13;
-		public int D = -14;
 	}
 	class VersionTest2
 	{
