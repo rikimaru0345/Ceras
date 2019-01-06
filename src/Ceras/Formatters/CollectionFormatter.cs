@@ -18,7 +18,7 @@
 			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
 			
 			var itemMetaData = serializer.GetTypeMetaData(itemType);
-			itemMetaData.OnSchemaChangeTargets.Add((ISchemaTaintedFormatter)this);
+			itemMetaData.OnSchemaChangeTargets.Add(this);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TItem[] ar)
@@ -63,8 +63,9 @@
 				_itemFormatter = (IFormatter<TItem>)meta.ReferenceFormatter;
 		}
 	}
-
-	class CollectionFormatter<TCollection, TItem> : IFormatter<TCollection> where TCollection : ICollection<TItem>, ISchemaTaintedFormatter
+	
+	class CollectionFormatter<TCollection, TItem> : ISchemaTaintedFormatter, IFormatter<TCollection>
+		where TCollection : ICollection<TItem>
 	{
 		IFormatter<TItem> _itemFormatter;
 
@@ -74,7 +75,7 @@
 			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
 
 			var itemMetaData = serializer.GetTypeMetaData(itemType);
-			itemMetaData.OnSchemaChangeTargets.Add((ISchemaTaintedFormatter)this);
+			itemMetaData.OnSchemaChangeTargets.Add(this);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TCollection value)

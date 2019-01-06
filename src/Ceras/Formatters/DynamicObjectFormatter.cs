@@ -143,7 +143,7 @@ namespace Ceras.Formatters
 				if (member.MemberInfo is FieldInfo fieldInfo)
 					if (fieldInfo.IsInitOnly)
 					{
-						if (_ceras.Config.ReadonlyFieldHandling == ReadonlyFieldHandling.Off)
+						if (sMember.ReadonlyFieldHandling == ReadonlyFieldHandling.Off)
 							throw new InvalidOperationException($"Error while trying to generate a deserializer for the field '{member.MemberInfo.DeclaringType.FullName}.{member.MemberInfo.Name}' and the field is readonly, but ReadonlyFieldHandling is turned off in the serializer configuration.");
 
 						// We just read the value into a local variable first,
@@ -169,7 +169,7 @@ namespace Ceras.Formatters
 							// Or the values are not the same -> either throw an exception of do a forced overwrite
 
 							Expression onMismatch;
-							if (_ceras.Config.ReadonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
+							if (sMember.ReadonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
 								// field.SetValue(valueArg, tempStore)
 								onMismatch = Expression.Call(Expression.Constant(fieldInfo), SetValue, arg0: refValueArg, arg1: Expression.Convert(tempStore, typeof(object))); // Explicit boxing needed
 							else
@@ -194,7 +194,7 @@ namespace Ceras.Formatters
 
 
 							Expression onReassignment;
-							if (_ceras.Config.ReadonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
+							if (sMember.ReadonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
 								// field.SetValue(valueArg, tempStore)
 								onReassignment = Expression.Call(Expression.Constant(fieldInfo), SetValue, arg0: refValueArg, arg1: tempStore);
 							else

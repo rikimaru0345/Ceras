@@ -1,7 +1,7 @@
 ﻿namespace Ceras
 {
-	using System;
 	using Formatters;
+	using System;
 
 
 	/// <summary>
@@ -19,6 +19,9 @@
 	public sealed class Include : Attribute { }
 
 
+	/// <summary>
+	/// Read the descriptions of the individual entries.
+	/// </summary>
 	public enum SerializationOverride
 	{
 		/// <summary>
@@ -43,13 +46,32 @@
 	public sealed class MemberConfig : Attribute
 	{
 		public TargetMember TargetMembers { get; set; }
+		public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
 
-		public MemberConfig(TargetMember targetMembers = TargetMember.PublicFields)
+		public MemberConfig(TargetMember targetMembers = TargetMember.PublicFields, ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Off)
 		{
 			TargetMembers = targetMembers;
+			ReadonlyFieldHandling = readonlyFieldHandling;
 		}
 	}
 
+	/// <summary>
+	/// Use this to override global or class-level settings for a single field or property.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+	public sealed class ReadonlyConfig : Attribute
+	{
+		public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
+
+		public ReadonlyConfig(ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Off)
+		{
+			ReadonlyFieldHandling = readonlyFieldHandling;
+		}
+	}
+
+	/// <summary>
+	/// What members should be serialized and deserialized
+	/// </summary>
 	[Flags]
 	public enum TargetMember
 	{
@@ -80,8 +102,13 @@
 
 		All = PublicFields | PrivateFields | PublicProperties | PrivateProperties
 	}
-	
-	[AttributeUsage(AttributeTargets.Field)]
+
+	/// <summary>
+	/// Add this to a member if you have changed the type and you're using the VersionTolerance feature.
+	/// Ceras will use this to map old field names to the new one.
+	/// You can also use this to simply override what name is used to serialize the member, so as long as the attribute is around and does not change you can freely rename the member itself; this can be used to make the resulting serialized data smaller.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
 	public class PreviousNameAttribute : Attribute
 	{
 		public readonly string[] AlternativeNames = new string[0];
@@ -102,9 +129,9 @@
 			AlternativeNames = alternativeNames;
 		}
 	}
-	
 
-	
+
+
 
 
 
@@ -115,7 +142,7 @@
 	class PreviousFormatter : PreviousNameAttribute
 	{
 		public Type FormatterType { get; } // formatter that can read this old version
-		
+
 		public PreviousFormatter(Type formatterType) : base(null)
 		{
 			CheckType(formatterType);

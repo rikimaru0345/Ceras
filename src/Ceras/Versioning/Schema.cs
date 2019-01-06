@@ -96,9 +96,9 @@
 			if (_hash == -1)
 				unchecked
 				{
-					var hashSource = Type.FullName + string.Join("", Members.Select(m => 
+					var hashSource = Type.FullName + string.Join("", Members.Select(m =>
 					{
-						if(m.IsSkip)
+						if (m.IsSkip)
 							return "skip";
 						return m.Member.MemberType.FullName + m.Member.MemberInfo.Name;
 					}));
@@ -274,7 +274,7 @@
 			// todo: 
 			//if(CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
 			//	throw new InvalidOperationException("Cannot create a Schema for a framework type. This must be a bug, please report it on GitHub!");
-			
+
 
 			Schema schema = new Schema(true, type);
 
@@ -286,17 +286,18 @@
 			{
 				bool isPublic;
 				bool isField = false, isProp = false;
-				bool isReadonly = false;
 				bool isCompilerGenerated = false;
+
+				// Determine readonly field handling setting: member->class->global
+				var readonlyHandling = DetermineReadonlyHandlling(_config, m);
+
 
 				if (m is FieldInfo f)
 				{
 					// Skip readonly
 					if (f.IsInitOnly)
 					{
-						isReadonly = true;
-
-						if (_config.ReadonlyFieldHandling == ReadonlyFieldHandling.Off)
+						if (readonlyHandling == ReadonlyFieldHandling.Off)
 							continue;
 					}
 
@@ -330,8 +331,7 @@
 				else
 					continue;
 
-				bool allowReadonly = _config.ReadonlyFieldHandling != ReadonlyFieldHandling.Off;
-				var serializedMember = SerializedMember.Create(m, allowReadonly);
+				var serializedMember = SerializedMember.Create(m, allowReadonly: readonlyHandling != ReadonlyFieldHandling.Off);
 
 				// should we allow users to provide a formatter for each old-name (in case newer versions have changed the type of the element?)
 				var attrib = m.GetCustomAttribute<PreviousNameAttribute>();
@@ -344,7 +344,7 @@
 				}
 
 
-				var schemaMember = new SchemaMember(attrib?.Name ?? m.Name, serializedMember);
+				var schemaMember = new SchemaMember(attrib?.Name ?? m.Name, serializedMember, readonlyHandling);
 
 
 				//
@@ -429,6 +429,18 @@
 			return schema;
 		}
 
+		static ReadonlyFieldHandling DetermineReadonlyHandlling(SerializerConfig config, MemberInfo memberInfo)
+		{
+			ReadonlyConfig readonlyConfigAttribute = memberInfo.GetCustomAttribute<ReadonlyConfig>();
+			if (readonlyConfigAttribute != null)
+				return readonlyConfigAttribute.ReadonlyFieldHandling;
+
+			MemberConfig classConfig = memberInfo.DeclaringType.GetCustomAttribute<MemberConfig>();
+			if (classConfig != null)
+				return classConfig.ReadonlyFieldHandling;
+
+			return config.ReadonlyFieldHandling;
+		}
 
 
 		// Reads a schema from given data
@@ -441,7 +453,7 @@
 			// and if we have all of them already we can skip straight to the data
 			// which would save us quite a bit of time.
 
-			
+
 			// todo:
 			//if(CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
 			//	throw new InvalidOperationException("Cannot read a Schema for a framework type! This must be either a serious bug, or the given data has been tampered with. Please report it on GitHub!");
@@ -471,7 +483,11 @@
 				if (member == null)
 					schema.Members.Add(new SchemaMember(name));
 				else
-					schema.Members.Add(new SchemaMember(name, SerializedMember.Create(member, true)));
+				{
+					var readonlyFieldHandling = DetermineReadonlyHandlling(_config, member);
+
+					schema.Members.Add(new SchemaMember(name, SerializedMember.Create(member, true), readonlyFieldHandling));
+				}
 			}
 
 			//
@@ -558,18 +574,24 @@
 
 		public bool IsSkip => Member.MemberInfo == null; // If this is true, then member and override formatter are not used; while reading the element is skipped (by reading its size)
 
+		public readonly ReadonlyFieldHandling ReadonlyFieldHandling;
+
 		// public IFormatter OverrideFormatter;
 
-		public SchemaMember(string persistentName, SerializedMember serializedMember)
+
+		public SchemaMember(string persistentName, SerializedMember serializedMember, ReadonlyFieldHandling readonlyFieldHandling)
 		{
 			PersistentName = persistentName;
 			Member = serializedMember;
+			ReadonlyFieldHandling = readonlyFieldHandling;
 		}
 
+		// Used when reading a schema and the member was not found
 		public SchemaMember(string persistentName)
 		{
 			PersistentName = persistentName;
 			Member = default;
+			ReadonlyFieldHandling = ReadonlyFieldHandling.Off;
 		}
 
 		public override string ToString()
@@ -599,7 +621,7 @@
 
 			for (int i = 0; i < _schemata.Count; i++)
 				hash = hash * 31 + _schemata[i].GetHashCode();
-			
+
 			return hash;
 		}
 

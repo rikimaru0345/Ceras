@@ -214,6 +214,25 @@ namespace LiveTesting
 				Debug.Assert(container.Setting2 == "1134");
 			}
 
+			// Test #4:
+			// Everything should work fine when using the MemberConfig attribute as well
+			{
+				var ceras = new CerasSerializer();
+
+				var obj = new ReadonlyFieldsTest2();
+				obj.Numbers.Clear();
+				obj.Numbers.Add(234);
+
+				var data = ceras.Serialize(obj);
+
+				var clone = new ReadonlyFieldsTest2();
+				var originalList = clone.Numbers;
+				ceras.Deserialize(ref clone, data);
+				
+				Debug.Assert(originalList == clone.Numbers); // actual reference should not have changed
+				Debug.Assert(clone.Numbers.Count == 1); // amount of entries should have changed
+				Debug.Assert(clone.Numbers[0] == 234); // entry itself should be right
+			}
 
 			// todo: also test the case where the existing object does not match the expected type
 		}
@@ -253,6 +272,13 @@ namespace LiveTesting
 				public string String = "c";
 			}
 		}
+
+		[MemberConfig(ReadonlyFieldHandling = ReadonlyFieldHandling.Members)]
+		class ReadonlyFieldsTest2
+		{
+			public readonly List<int> Numbers = new List<int> { -1, -1, -1, -1 };
+		}
+
 
 
 
