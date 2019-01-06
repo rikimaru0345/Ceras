@@ -259,19 +259,16 @@
 		 */
 		SerializeDelegate<T> GetSpecificSerializerDispatcher(Type type)
 		{
-			if(_dispatchers.TryGetValue(type, out var dispatcher))
+			if (_dispatchers.TryGetValue(type, out var dispatcher))
 			{
-				if(dispatcher.CurrentSerializeDispatcher != null)
+				if (dispatcher.CurrentSerializeDispatcher != null)
 					return dispatcher.CurrentSerializeDispatcher;
 			}
 			else
 			{
 				var meta = _serializer.GetTypeMetaData(type);
-
-				dispatcher = new DispatcherEntry
-				{
-					CurrentSchema = meta.CurrentSchema
-				};
+				
+				dispatcher = new DispatcherEntry(type, meta.IsFrameworkType, meta.CurrentSchema);
 
 				_dispatchers.Add(type, dispatcher);
 			}
@@ -325,7 +322,11 @@
 			var f = Expression.Lambda<SerializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).Compile();
 #endif
 			dispatcher.CurrentSerializeDispatcher = f;
-			dispatcher.SchemaDispatchers.Add(dispatcher.CurrentSchema, new DispatcherPair(dispatcher.CurrentSerializeDispatcher, dispatcher.CurrentDeserializeDispatcher));
+
+			// Update the schema dispatchers (we do update instead of Add becasue the other method might have ran first)
+			// But only if we have a dict for that anyway (framework types do not)
+			if (!dispatcher.IsFrameworkType)
+				dispatcher.SchemaDispatchers[dispatcher.CurrentSchema] = new DispatcherPair(dispatcher.CurrentSerializeDispatcher, dispatcher.CurrentDeserializeDispatcher);
 
 			return f;
 		}
@@ -333,19 +334,16 @@
 		// See the comment on GetSpecificSerializerDispatcher
 		DeserializeDelegate<T> GetSpecificDeserializerDispatcher(Type type)
 		{
-			if(_dispatchers.TryGetValue(type, out var dispatcher))
+			if (_dispatchers.TryGetValue(type, out var dispatcher))
 			{
-				if(dispatcher.CurrentDeserializeDispatcher != null)
+				if (dispatcher.CurrentDeserializeDispatcher != null)
 					return dispatcher.CurrentDeserializeDispatcher;
 			}
 			else
 			{
 				var meta = _serializer.GetTypeMetaData(type);
-
-				dispatcher = new DispatcherEntry
-				{
-					CurrentSchema = meta.CurrentSchema
-				};
+				
+				dispatcher = new DispatcherEntry(type, meta.IsFrameworkType, meta.CurrentSchema);
 
 				_dispatchers.Add(type, dispatcher);
 			}
@@ -417,7 +415,11 @@
 			var f = Expression.Lambda<DeserializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).Compile();
 #endif
 			dispatcher.CurrentDeserializeDispatcher = f;
-			dispatcher.SchemaDispatchers.Add(dispatcher.CurrentSchema, new DispatcherPair(dispatcher.CurrentSerializeDispatcher, dispatcher.CurrentDeserializeDispatcher));
+
+			// Update the schema dispatchers (we do update instead of Add becasue the other method might have ran first)
+			// But only if we have a dict for that anyway (framework types do not)
+			if (!dispatcher.IsFrameworkType)
+				dispatcher.SchemaDispatchers[dispatcher.CurrentSchema] = new DispatcherPair(dispatcher.CurrentSerializeDispatcher, dispatcher.CurrentDeserializeDispatcher);
 
 			return f;
 		}
@@ -558,13 +560,13 @@
 		public void OnSchemaChanged(TypeMetaData meta)
 		{
 			// If we've encountered this specific type already...
-			if(_dispatchers.TryGetValue(meta.Type, out var entry))
+			if (_dispatchers.TryGetValue(meta.Type, out var entry))
 			{
 				// ...then we might have some stuff for this schema of this type.
 				//
 				// So if we have some cached dispatchers already, we activate them.
 				// If we don't have any, set them to null and they will be populated when actually needed
-				if(entry.SchemaDispatchers.TryGetValue(meta.CurrentSchema, out var pair))
+				if (entry.SchemaDispatchers.TryGetValue(meta.CurrentSchema, out var pair))
 				{
 					entry.CurrentSerializeDispatcher = pair.SerializeDispatcher;
 					entry.CurrentDeserializeDispatcher = pair.DeserializeDispatcher;
@@ -579,13 +581,26 @@
 
 		class DispatcherEntry
 		{
+			public readonly Type Type;
+			public readonly bool IsFrameworkType;
 			//public Func<object> Constructor;
 
 			public Schema CurrentSchema;
 			public SerializeDelegate<T> CurrentSerializeDispatcher;
 			public DeserializeDelegate<T> CurrentDeserializeDispatcher;
 
-			public readonly Dictionary<Schema, DispatcherPair> SchemaDispatchers = new Dictionary<Schema, DispatcherPair>();
+			public readonly Dictionary<Schema, DispatcherPair> SchemaDispatchers;
+
+			public DispatcherEntry(Type type, bool isFrameworkType, Schema currentSchema)
+			{
+				Type = type;
+				IsFrameworkType = isFrameworkType;
+				CurrentSchema = currentSchema;
+
+				// We only need a dictionary when the schema can actually change, which is never the case for framework types
+				if (!isFrameworkType)
+					SchemaDispatchers = new Dictionary<Schema, DispatcherPair>();
+			}
 		}
 
 		struct DispatcherPair

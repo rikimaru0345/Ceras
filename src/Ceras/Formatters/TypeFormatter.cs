@@ -102,19 +102,6 @@
 				// Register single type
 				typeCache.RegisterObject(type);
 			}
-
-			if (_serializer.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
-				if (!CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
-				{
-					// Write schema, if it hasn't been written already
-					var schema = _serializer.SchemaDb.GetOrCreatePrimarySchema(type);
-
-					if (!_serializer.InstanceData.WrittenSchemata.Contains(schema))
-					{
-						_serializer.InstanceData.WrittenSchemata.Add(schema);
-						SchemaDb.WriteSchema(ref buffer, ref offset, schema);
-					}
-				}
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Type type)
@@ -172,16 +159,6 @@
 
 				proxy.Value = type;
 			}
-
-
-			if (_serializer.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
-				if (!CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
-				{
-					// It's a new type, read the schema and activate it
-					var schema = _serializer.SchemaDb.ReadSchema(buffer, ref offset, type);
-					
-					_serializer.ActivateSchemaOverride(type, schema);
-				}
 		}
 	}
 }

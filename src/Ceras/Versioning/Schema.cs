@@ -96,7 +96,12 @@
 			if (_hash == -1)
 				unchecked
 				{
-					var hashSource = Type.FullName + string.Join("", Members.Select(m => m.Member.MemberType.FullName + m.Member.MemberInfo.Name));
+					var hashSource = Type.FullName + string.Join("", Members.Select(m => 
+					{
+						if(m.IsSkip)
+							return "skip";
+						return m.Member.MemberType.FullName + m.Member.MemberInfo.Name;
+					}));
 					_hash = hashSource.GetHashCode();
 
 				}
@@ -266,8 +271,9 @@
 			if (_typeToPrimary.TryGetValue(type, out Schema s))
 				return s;
 
-			if(CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
-				throw new InvalidOperationException("Cannot create a Schema for a framework type. This must be a bug, please report it on GitHub!");
+			// todo: 
+			//if(CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
+			//	throw new InvalidOperationException("Cannot create a Schema for a framework type. This must be a bug, please report it on GitHub!");
 			
 
 			Schema schema = new Schema(true, type);
@@ -436,8 +442,9 @@
 			// which would save us quite a bit of time.
 
 			
-			if(CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
-				throw new InvalidOperationException("Cannot read a Schema for a framework type! This must be either a serious bug, or the given data has been tampered with. Please report it on GitHub!");
+			// todo:
+			//if(CerasSerializer.FrameworkAssemblies.Contains(type.Assembly))
+			//	throw new InvalidOperationException("Cannot read a Schema for a framework type! This must be either a serious bug, or the given data has been tampered with. Please report it on GitHub!");
 
 
 			//

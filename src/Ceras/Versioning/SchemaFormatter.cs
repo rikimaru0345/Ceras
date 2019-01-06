@@ -58,12 +58,32 @@ namespace Ceras.Helpers
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
-			// _ceras.InstanceData.WrittenSchemata.Add(_schema);
+			// If this is the first time this type is being written,
+			// we need to write the Schema as well.
+			if (!_ceras.InstanceData.EncounteredSchemaTypes.Contains(typeof(T)))
+			{
+				_ceras.InstanceData.EncounteredSchemaTypes.Add(typeof(T));
+				SchemaDb.WriteSchema(ref buffer, ref offset, _currentSchema);
+			}
+
 			_serializer(ref buffer, ref offset, value);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
+			// If this is the first time we're reading this type,
+			// then we have to read the schema
+			var type = typeof(T);
+			if (!_ceras.InstanceData.EncounteredSchemaTypes.Contains(type))
+			{
+				_ceras.InstanceData.EncounteredSchemaTypes.Add(type);
+
+				// Read the schema in which the data was written
+				var schema = _ceras.SchemaDb.ReadSchema(buffer, ref offset, type);
+
+				_ceras.ActivateSchemaOverride(type, schema);
+			}
+
 			try
 			{
 				_deserializationDepth++;
@@ -216,9 +236,9 @@ namespace Ceras.Helpers
 			foreach (var member in primarySchema.Members)
 			{
 				var memberType = member.Member.MemberType;
-				
+
 				// Only value-types are important, ref-types are handled somewhere else (ref-formatter)
-				if(!memberType.IsValueType)
+				if (!memberType.IsValueType)
 					continue;
 
 				var memberMetaData = _ceras.GetTypeMetaData(member.Member.MemberType);
@@ -275,25 +295,23 @@ namespace Ceras.Helpers
 			// For now we only adapt to change to the current type schema.
 			// Do we have serializers prepared for this schema already?
 
-			if (_currentSchema == schema)
-				return;
-
 
 			// Important sanity check, if this happens the user should definitely know about it!
 			if (_deserializationDepth > 0)
-				if ()
+				if (schema.Type.IsValueType)
+					throw new InvalidOperationException("Schema of a value-type has changed while an object-type is being deserialized. This is feature is WIP, check out GitHub for more information.");
 
 
 
-					if (_generatedSerializerPairs.TryGetValue(schema, out var pair))
-					{
-						// Use already generated serializers 
-						_serializer = pair.Serializer;
-						_deserializer = pair.Deserializer;
+			if (_generatedSerializerPairs.TryGetValue(schema, out var pair))
+			{
+				// Use already generated serializers 
+				_serializer = pair.Serializer;
+				_deserializer = pair.Deserializer;
 
-						_currentSchema = schema;
-						return;
-					}
+				_currentSchema = schema;
+				return;
+			}
 
 			// We have to make a new serializer pair
 			if (schema.Members.Count == 0)

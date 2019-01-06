@@ -50,7 +50,7 @@ namespace Ceras
 			return _formatterConstructedTypes.Contains(type);
 		}
 
-		internal static HashSet<Assembly> FrameworkAssemblies = new HashSet<Assembly>
+		static HashSet<Assembly> FrameworkAssemblies = new HashSet<Assembly>
 		{
 				typeof(int).Assembly,
 				typeof(IList<>).Assembly,
@@ -240,7 +240,8 @@ namespace Ceras
 				d.CurrentRoot = null;
 				d.ObjectCache = new ObjectCache();
 				d.TypeCache = new ObjectCache();
-				d.WrittenSchemata = new HashSet<Schema>();
+				//d.WrittenSchemata = new HashSet<Schema>();
+				d.EncounteredSchemaTypes = new HashSet<Type>();
 
 				foreach (var t in Config.KnownTypes)
 				{
@@ -327,7 +328,8 @@ namespace Ceras
 			{
 				//
 				// Clear the root object again
-				InstanceData.WrittenSchemata.Clear();
+				//InstanceData.WrittenSchemata.Clear();
+				InstanceData.EncounteredSchemaTypes.Clear();
 				InstanceData.CurrentRoot = null;
 
 				LeaveRecursive(RecursionMode.Serialization);
@@ -514,28 +516,16 @@ namespace Ceras
 			// Depending on the VersionTolerance we use different formatters
 			if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
 			{
-				bool isFrameworkType = FrameworkAssemblies.Contains(type.Assembly);
-
-				if (type.IsArray)
-					// In the context of versioning, arrays are considered a framework type, because arrays are always serialized the same way.
-					// It's only the elements themselves that are serialized differently!
-					isFrameworkType = true;
-
-				if (isFrameworkType == false)
+				if (!meta.IsFrameworkType)
 				{
-					// Wait a second, if we somehow get here that would mean the TypeFormatter
-					// has not activated the correct SchemaFormatter override for us already.
-					// If it did, then the formatter would have been cached already!
-					throw new InvalidOperationException($"VersionToleranceError: resolving SchemaDynamicFormatter for '{type.FullName}' failed! The formatter was expected to be cached already. This is a bug, please report it on GitHub!");
+					// Create SchemaFormatter, it will automatically adjust itself to the schema when it's read.
+					var schema = SchemaDb.GetOrCreatePrimarySchema(type);
 
-					/*
-					// Probably a user type, which means it might change, which means it needs Schema-Data
-					var objectSchema = SchemaDb.GetOrCreatePrimarySchema(type);
-					
-					// SetSchemaOverride already adds the generated formatter to the formatter caches
-					var formatter = SetSchemaOverride(type, objectSchema);
-					return formatter;
-					*/
+					var formatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
+					var schemaFormatter = (IFormatter)Activator.CreateInstance(formatterType, args: new object[] { this, schema });
+
+					meta.SpecificFormatter = schemaFormatter;
+					return schemaFormatter;
 				}
 			}
 
@@ -572,7 +562,19 @@ namespace Ceras
 		{
 			if (!_metaData.TryGetValue(type, out var meta))
 			{
-				meta = new TypeMetaData(type);
+				bool isFrameworkType;
+				// In the context of versioning, arrays are considered a framework type, because arrays are always serialized the same way.
+				// It's only the elements themselves that are serialized differently!
+				if (type.IsArray)
+					isFrameworkType = true;
+				else
+					isFrameworkType = FrameworkAssemblies.Contains(type.Assembly);
+
+				meta = new TypeMetaData(type, isFrameworkType);
+
+				if (!isFrameworkType)
+					meta.CurrentSchema = SchemaDb.GetOrCreatePrimarySchema(type);
+
 				_metaData.Add(type, meta);
 			}
 
@@ -706,7 +708,11 @@ namespace Ceras
 		public IExternalRootObject CurrentRoot;
 
 		// Populated while writing so we know what schemata have actually been used.
-		public HashSet<Schema> WrittenSchemata;
+		// public HashSet<Schema> WrittenSchemata;
+
+		// Why <Type> instead of <Schema> ? Becasue while reading we'll never encounter multiple different schemata for the same type.
+		// And while writing we'll only ever use the primary schema.
+		public HashSet<Type> EncounteredSchemaTypes;
 	}
 
 	enum RecursionMode
@@ -1066,6 +1072,7 @@ namespace Ceras
 	class TypeMetaData
 	{
 		public readonly Type Type;
+		public readonly bool IsFrameworkType;
 
 		public IFormatter SpecificFormatter;
 		public IFormatter ReferenceFormatter;
@@ -1078,9 +1085,10 @@ namespace Ceras
 
 		// todo: PrimarySchema, List<Schema> secondarySchemata;
 
-		public TypeMetaData(Type type)
+		public TypeMetaData(Type type, bool isFrameworkType)
 		{
 			Type = type;
+			IsFrameworkType = isFrameworkType;
 		}
 	}
 }
