@@ -590,11 +590,6 @@ namespace LiveTesting
 			v1Data.VisualizePrint("data with version tolerance");
 			ceras.Deserialize<VersionTest2>(ref v2, v1Data);
 
-
-			var v1ObjData = ceras.Serialize<object>(v1);
-			Debug.Assert(v1Data.SequenceEqual(v1ObjData), "data should be the same (because VersionTolerance forces generic parameter to <object>)");
-
-
 			Debug.Assert(v1.A == v2.A, "normal prop did not persist");
 			Debug.Assert(v1.C == v2.C2, "expected prop 'C2' to be populated by prop previously named 'C'");
 		}
