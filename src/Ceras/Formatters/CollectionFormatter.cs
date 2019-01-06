@@ -18,7 +18,7 @@
 			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
 			
 			var itemMetaData = serializer.GetTypeMetaData(itemType);
-			itemMetaData.SchemaTaintedFormatters.Add((ISchemaTaintedFormatter)this);
+			itemMetaData.OnSchemaChangeTargets.Add((ISchemaTaintedFormatter)this);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TItem[] ar)
@@ -74,7 +74,7 @@
 			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
 
 			var itemMetaData = serializer.GetTypeMetaData(itemType);
-			itemMetaData.SchemaTaintedFormatters.Add((ISchemaTaintedFormatter)this);
+			itemMetaData.OnSchemaChangeTargets.Add((ISchemaTaintedFormatter)this);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TCollection value)

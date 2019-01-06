@@ -1,11 +1,11 @@
 ﻿namespace Ceras.Helpers
 {
+	using Ceras.Formatters;
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
-	using Ceras.Formatters;
 
 	/*
 	 * A schema just contains the
@@ -436,7 +436,7 @@
 			//
 			// Get list of secondary schemata
 			List<Schema> secondaries;
-			if(!_typeToSecondaries.TryGetValue(type, out secondaries))
+			if (!_typeToSecondaries.TryGetValue(type, out secondaries))
 			{
 				secondaries = new List<Schema>();
 				_typeToSecondaries.Add(type, secondaries);
@@ -454,7 +454,7 @@
 
 				var member = Schema.FindMemberInType(type, name);
 
-				if(member == null)
+				if (member == null)
 					schema.Members.Add(new SchemaMember(name));
 				else
 					schema.Members.Add(new SchemaMember(name, SerializedMember.Create(member, true)));
@@ -463,7 +463,7 @@
 			//
 			// Add entry or return existing
 			var existing = secondaries.IndexOf(schema);
-			if(existing == -1)
+			if (existing == -1)
 			{
 				secondaries.Add(schema);
 				return schema;
@@ -568,4 +568,49 @@
 		}
 	}
 
+	class SchemaComplex
+	{
+		readonly List<Schema> _schemata;
+		readonly int _hash;
+
+		public SchemaComplex(List<Schema> schemata)
+		{
+			_schemata = schemata;
+			_hash = CalculateHash();
+		}
+
+		int CalculateHash()
+		{
+			int hash = 17;
+
+			for (int i = 0; i < _schemata.Count; i++)
+				hash = hash * 31 + _schemata[i].GetHashCode();
+			
+			return hash;
+		}
+
+		public override int GetHashCode()
+		{
+			return _hash;
+		}
+
+		public override bool Equals(object obj)
+		{
+			var other = obj as SchemaComplex;
+			if (other == null)
+				return false;
+
+			if (_hash != other._hash)
+				return false;
+
+			if (_schemata.Count != other._schemata.Count)
+				return false;
+
+			for (int i = 0; i < _schemata.Count; i++)
+				if (!_schemata[i].Equals(other._schemata[i]))
+					return false;
+
+			return true;
+		}
+	}
 }

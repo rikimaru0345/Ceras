@@ -643,9 +643,9 @@ namespace Ceras
 
 
 			// 4. Notify every formatter that wants to know about schema changes to this type
-			for (int i = 0; i < meta.SchemaTaintedFormatters.Count; i++)
+			for (int i = 0; i < meta.OnSchemaChangeTargets.Count; i++)
 			{
-				var taintedFormatter = meta.SchemaTaintedFormatters[i];
+				var taintedFormatter = meta.OnSchemaChangeTargets[i];
 				taintedFormatter.OnSchemaChanged(meta);
 			}
 
@@ -1072,7 +1072,9 @@ namespace Ceras
 
 		public Schema CurrentSchema;
 
-		public readonly List<ISchemaTaintedFormatter> SchemaTaintedFormatters = new List<ISchemaTaintedFormatter>();
+		// Anyone (any formatter) who is interested in schema changes for this type should enter themselves in this list
+		public readonly List<ISchemaTaintedFormatter> OnSchemaChangeTargets = new List<ISchemaTaintedFormatter>();
+
 
 		// todo: PrimarySchema, List<Schema> secondarySchemata;
 

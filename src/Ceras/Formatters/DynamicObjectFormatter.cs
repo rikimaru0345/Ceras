@@ -7,6 +7,7 @@ namespace Ceras.Formatters
 	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
+	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
 
@@ -21,9 +22,14 @@ namespace Ceras.Formatters
 		static readonly MethodInfo SetValue = typeof(FieldInfo).GetMethod(
 				name: "SetValue",
 				bindingAttr: BindingFlags.Instance | BindingFlags.Public,
-				binder: null, 
+				binder: null,
 				types: new Type[] { typeof(object), typeof(object) },
 				modifiers: new ParameterModifier[2]);
+
+
+		// Instead of creating a new hash-set every time we need it, we just keep one around and re-use it.
+		// This one will only ever get used during one function call
+		static HashSet<Type> _tempHashSet = new HashSet<Type>();
 
 		CerasSerializer _ceras;
 
@@ -46,6 +52,32 @@ namespace Ceras.Formatters
 			{
 				_dynamicSerializer = GenerateSerializer(schema.Members);
 				_dynamicDeserializer = GenerateDeserializer(schema.Members);
+
+				if (_ceras.Config.VersionTolerance != VersionTolerance.Disabled)
+				{
+					// What Schema changes do we want to know about?
+					// When the schema of our own type or the schema of one of our members changes
+					// 1.) Collect all types of whos schema we (so that when it changes, we know that we should update ourselves)
+					_tempHashSet.Clear();
+
+					_tempHashSet.Add(type);
+					foreach(var m in schema.Members)
+						_tempHashSet.Add(m.Member.MemberType);
+
+					List<Schema> currentSchemata = new List<Schema>(_tempHashSet.Count);
+
+					// 2.) Enter ourselves into the "interested" lists so that we get notified
+					foreach(var t in _tempHashSet)
+					{
+						var meta = _ceras.GetTypeMetaData(t);
+						meta.OnSchemaChangeTargets.Add(this);
+						currentSchemata.Add(meta.CurrentSchema);
+					}
+					_tempHashSet.Clear();
+
+					// 3.) Create a schema complex that represents the sum of all schemata we're currently using
+					var currentSchemaComplex = new SchemaComplex(currentSchemata);
+				}
 			}
 			else
 			{
@@ -134,7 +166,7 @@ namespace Ceras.Formatters
 						// We just read the value into a local variable first,
 						// for value types we overwrite,
 						// for objects we type-check, and if the type matches we populate the fields as normal
-						
+
 						// 1. Read the data into a new local variable
 						var tempStore = Expression.Variable(type, member.Name + "_tempStoreForReadonly");
 						locals.Add(tempStore);
@@ -177,18 +209,18 @@ namespace Ceras.Formatters
 							// If the reference was changed there is potentially some trouble.
 							// If we're allowed to change it we use reflection, if not we throw an exception
 
-							
+
 							Expression onReassignment;
 							if (_ceras.Config.ReadonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
 								// field.SetValue(valueArg, tempStore)
 								onReassignment = Expression.Call(Expression.Constant(fieldInfo), SetValue, arg0: refValueArg, arg1: tempStore);
 							else
-								onReassignment = Expression.Throw(Expression.Constant(new Exception("The reference in the readonly-field '"+fieldInfo.Name+"' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
+								onReassignment = Expression.Throw(Expression.Constant(new Exception("The reference in the readonly-field '" + fieldInfo.Name + "' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
 
 							// Did the reference change?
 							block.Add(Expression.IfThenElse(
 								test: Expression.ReferenceEqual(tempStore, Expression.MakeMemberAccess(refValueArg, member.MemberInfo)),
-								
+
 								// Still the same. Whatever has happened (and there are a LOT of cases), it seems to be ok.
 								// Maybe the existing object's content was overwritten, or the instance reference was already as expected, or...
 								ifTrue: Expression.Empty(),
