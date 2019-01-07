@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.Net.Sdk">
   <!-- Global metadata -->
   <PropertyGroup>
-    <Version>2.1.0</Version>
+    <Version>2.1.8</Version>
     <Authors>rikimaru0345 (GitHub); Bloodskilled/Rikimaru#0345 (Discord)</Authors>
     <Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
     <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>

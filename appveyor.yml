@@ -1,4 +1,4 @@
-version: 2.1.{build}
+version: 2.1.8
 branches:
   only:
   - master
@@ -6,7 +6,7 @@ image: Visual Studio 2017
 configuration: Release
 platform: Any CPU
 dotnet_csproj:
-  patch: true
+  patch: false
   file: '**\*.csproj'
   version: '{version}'
 nuget:
