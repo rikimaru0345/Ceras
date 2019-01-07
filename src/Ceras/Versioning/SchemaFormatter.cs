@@ -57,7 +57,7 @@ namespace Ceras.Helpers
 			if (!_ceras.InstanceData.EncounteredSchemaTypes.Contains(typeof(T)))
 			{
 				_ceras.InstanceData.EncounteredSchemaTypes.Add(typeof(T));
-				SchemaDb.WriteSchema(ref buffer, ref offset, _currentSchema);
+				CerasSerializer.WriteSchema(ref buffer, ref offset, _currentSchema);
 			}
 
 			_serializer(ref buffer, ref offset, value);
@@ -73,7 +73,7 @@ namespace Ceras.Helpers
 				_ceras.InstanceData.EncounteredSchemaTypes.Add(type);
 
 				// Read the schema in which the data was written
-				var schema = _ceras.SchemaDb.ReadSchema(buffer, ref offset, type);
+				var schema = _ceras.ReadSchema(buffer, ref offset, type);
 
 				_ceras.ActivateSchemaOverride(type, schema);
 			}
@@ -230,7 +230,8 @@ namespace Ceras.Helpers
 
 			// We also need to know about changes to value-type schemata.
 			// But we have to ensure that we're recording ALL changes, not just the ones of the current schema (which might be missing entries!)
-			var primarySchema = _ceras.SchemaDb.GetOrCreatePrimarySchema(typeof(T));
+			var meta = _ceras.GetTypeMetaData(typeof(T));
+			var primarySchema = meta.PrimarySchema;
 
 			foreach (var member in primarySchema.Members)
 			{

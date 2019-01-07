@@ -77,7 +77,6 @@ namespace LiveTesting
 			// tutorial.Step9_VersionTolerance();
 			tutorial.Step10_ReadonlyHandling();
 
-			
 			/*
 			var summary = BenchmarkRunner.Run<SerializerBinaryBenchmarks>();
 			*/

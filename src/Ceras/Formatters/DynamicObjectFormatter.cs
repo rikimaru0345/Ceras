@@ -46,11 +46,12 @@ namespace Ceras.Formatters
 			_ceras = serializer;
 
 			var type = typeof(T);
+			var meta = _ceras.GetTypeMetaData(type);
 
 			BannedTypes.ThrowIfBanned(type);
 			BannedTypes.ThrowIfNonspecific(type);
 
-			var schema = _ceras.SchemaDb.GetOrCreatePrimarySchema(type);
+			var schema = meta.PrimarySchema;
 
 			if (schema.Members.Count > 0)
 			{

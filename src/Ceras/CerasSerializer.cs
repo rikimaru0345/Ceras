@@ -8,9 +8,9 @@ namespace Ceras
 	using System;
 	using System.Collections;
 	using System.Collections.Generic;
-	using System.Collections.Specialized;
 	using System.Linq;
 	using System.Reflection;
+	using System.Runtime.CompilerServices;
 	using System.Text;
 
 	/*
@@ -39,6 +39,11 @@ namespace Ceras
 	 * - RefProxyPool<T> is static, but has no support for multi-threading. So either lock it, or use a separate pool for each serializer instance (the latter is probably best)
 	 * 
 	 */
+	/// <summary>
+	/// <para>Ceras serializes any object to a byte-array and back.</para>
+	/// <para>Want more features? Or something not working right?</para>
+	/// <para>-> Then go here: https://github.com/rikimaru0345/Ceras </para>
+	/// </summary>
 	public class CerasSerializer
 	{
 		// Some types are constructed by the formatter directly
@@ -98,6 +103,8 @@ namespace Ceras
 
 		internal readonly SerializerConfig Config;
 
+		readonly IFormatter<Type> _typeFormatter;
+
 		// A special resolver. It creates instances of the "dynamic formatter", the DynamicObjectFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
 		// for a given object type.
 		readonly IFormatterResolver _dynamicResolver;
@@ -112,13 +119,9 @@ namespace Ceras
 		// If a resolver can't fulfill the request for a specific formatter, it returns null.
 		readonly List<IFormatterResolver> _resolvers = new List<IFormatterResolver>();
 
+
 		readonly Dictionary<Type, TypeMetaData> _metaData = new Dictionary<Type, TypeMetaData>();
-
-		readonly IFormatter<Type> _typeFormatter;
-
 		readonly FactoryPool<InstanceData> _instanceDataPool;
-
-		internal readonly SchemaDb SchemaDb;
 
 
 		readonly Stack<InstanceData> _recursionStack = new Stack<InstanceData>();
@@ -146,9 +149,6 @@ namespace Ceras
 				throw new InvalidOperationException($"{nameof(Config.GenerateChecksum)} must be true if {nameof(Config.EmbedChecksum)} is true!");
 			if (Config.EmbedChecksum && Config.PersistTypeCache)
 				throw new InvalidOperationException($"You can't have '{nameof(Config.EmbedChecksum)}' and also have '{nameof(Config.PersistTypeCache)}' because adding new types changes the checksum. You can use '{nameof(Config.GenerateChecksum)}' alone, but the checksum might change after every serialization call...");
-
-			SchemaDb = new SchemaDb(Config);
-
 
 			if (Config.ExternalObjectResolver == null)
 				Config.ExternalObjectResolver = new ErrorResolver();
@@ -206,15 +206,16 @@ namespace Ceras
 						continue;
 					}
 
-					var schema = SchemaDb.GetOrCreatePrimarySchema(t);
-					foreach (var m in schema.Members)
-					{
-						ProtocolChecksum.Add(m.Member.MemberType.FullName);
-						ProtocolChecksum.Add(m.Member.Name);
+					var meta = GetTypeMetaData(t);
+					if (meta.PrimarySchema != null)
+						foreach (var m in meta.PrimarySchema.Members)
+						{
+							ProtocolChecksum.Add(m.Member.MemberType.FullName);
+							ProtocolChecksum.Add(m.Member.Name);
 
-						foreach (var a in m.Member.MemberInfo.GetCustomAttributes(true))
-							ProtocolChecksum.Add(a.ToString());
-					}
+							foreach (var a in m.Member.MemberInfo.GetCustomAttributes(true))
+								ProtocolChecksum.Add(a.ToString());
+						}
 				}
 
 				ProtocolChecksum.Finish();
@@ -516,11 +517,9 @@ namespace Ceras
 			{
 				if (!meta.IsFrameworkType)
 				{
-					// Create SchemaFormatter, it will automatically adjust itself to the schema when it's read.
-					var schema = SchemaDb.GetOrCreatePrimarySchema(type);
-
+					// Create SchemaFormatter, it will automatically adjust itself to the schema when it's read
 					var formatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
-					var schemaFormatter = (IFormatter)Activator.CreateInstance(formatterType, args: new object[] { this, schema });
+					var schemaFormatter = (IFormatter)Activator.CreateInstance(formatterType, args: new object[] { this, meta.PrimarySchema });
 
 					meta.SpecificFormatter = schemaFormatter;
 					return schemaFormatter;
@@ -558,24 +557,22 @@ namespace Ceras
 
 		internal TypeMetaData GetTypeMetaData(Type type)
 		{
-			if (!_metaData.TryGetValue(type, out var meta))
-			{
-				bool isFrameworkType;
-				// In the context of versioning, arrays are considered a framework type, because arrays are always serialized the same way.
-				// It's only the elements themselves that are serialized differently!
-				if (type.IsArray)
-					isFrameworkType = true;
-				else
-					isFrameworkType = FrameworkAssemblies.Contains(type.Assembly);
+			if (_metaData.TryGetValue(type, out var meta))
+				return meta;
 
-				meta = new TypeMetaData(type, isFrameworkType);
+			bool isFrameworkType;
+			// In the context of versioning, arrays are considered a framework type, because arrays are always serialized the same way.
+			// It's only the elements themselves that are serialized differently!
+			if (type.IsArray)
+				isFrameworkType = true;
+			else
+				isFrameworkType = FrameworkAssemblies.Contains(type.Assembly);
 
-				if (!isFrameworkType)
-					meta.CurrentSchema = SchemaDb.GetOrCreatePrimarySchema(type);
+			meta = new TypeMetaData(type, isFrameworkType);
 
-				_metaData.Add(type, meta);
-			}
+			meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type);
 
+			_metaData.Add(type, meta);
 			return meta;
 		}
 
@@ -655,6 +652,293 @@ namespace Ceras
 			// todo: merge all dictionaries that use a Type as key. Could be really useful in SchemaDb
 
 		}
+
+
+
+
+
+		// Creates the primary schema for a given type
+		internal Schema CreatePrimarySchema(Type type)
+		{
+			//if (FrameworkAssemblies.Contains(type.Assembly))
+			//	throw new InvalidOperationException("Cannot create a Schema for a framework type. This must be a bug, please report it on GitHub!");
+
+			Schema schema = new Schema(true, type);
+
+			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+			var classConfig = type.GetCustomAttribute<MemberConfig>();
+
+			foreach (var m in type.GetFields(flags).Cast<MemberInfo>().Concat(type.GetProperties(flags)))
+			{
+				bool isPublic;
+				bool isField = false, isProp = false;
+				bool isCompilerGenerated = false;
+
+				// Determine readonly field handling setting: member->class->global
+				var readonlyHandling = DetermineReadonlyHandling(m);
+
+				if (m is FieldInfo f)
+				{
+					// Skip readonly
+					if (f.IsInitOnly)
+					{
+						if (readonlyHandling == ReadonlyFieldHandling.Off)
+							continue;
+					}
+
+					// Readonly auto-prop backing fields
+					if (f.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
+						isCompilerGenerated = true;
+
+					// By default we skip hidden/compiler generated fields, so we don't accidentally serialize properties twice (property, and then its automatic backing field as well)
+					if (isCompilerGenerated)
+						if (Config.SkipCompilerGeneratedFields)
+							continue;
+
+					isPublic = f.IsPublic;
+					isField = true;
+				}
+				else if (m is PropertyInfo p)
+				{
+					// There's no way we can serialize a prop that we can't read and write, even {private set;} props would be writeable,
+					// That is becasue there is actually physically no set() method we could possibly call. Just like a "computed property".
+					// As for readonly props (like string Name { get; } = "abc";), the only way to serialize them is serializing the backing fields, which is handled above (skipCompilerGenerated)
+					if (!p.CanRead || !p.CanWrite)
+						continue;
+
+					// This checks for indexers, an indexer is classified as a property
+					if (p.GetIndexParameters().Length != 0)
+						continue;
+
+					isPublic = p.GetMethod.IsPublic;
+					isProp = true;
+				}
+				else
+					continue;
+
+				var serializedMember = SerializedMember.Create(m, allowReadonly: readonlyHandling != ReadonlyFieldHandling.Off);
+
+				// should we allow users to provide a formatter for each old-name (in case newer versions have changed the type of the element?)
+				var attrib = m.GetCustomAttribute<PreviousNameAttribute>();
+
+				if (attrib != null)
+				{
+					VerifyName(attrib.Name);
+					foreach (var n in attrib.AlternativeNames)
+						VerifyName(n);
+				}
+
+
+				var schemaMember = new SchemaMember(attrib?.Name ?? m.Name, serializedMember, readonlyHandling);
+
+
+				//
+				// 1.) ShouldSerializeMember - use filter if there is one
+				if (Config.ShouldSerializeMember != null)
+				{
+					var filterResult = Config.ShouldSerializeMember(serializedMember);
+
+					if (filterResult == SerializationOverride.ForceInclude)
+					{
+						schema.Members.Add(schemaMember);
+						continue;
+					}
+					else if (filterResult == SerializationOverride.ForceSkip)
+					{
+						continue;
+					}
+				}
+
+				//
+				// 2.) Use member-attribute
+				var ignore = m.GetCustomAttribute<Ignore>(true) != null;
+				var include = m.GetCustomAttribute<Include>(true) != null;
+
+				if (ignore && include)
+					throw new Exception($"Member '{m.Name}' on type '{type.Name}' has both [Ignore] and [Include]!");
+
+				if (ignore)
+				{
+					continue;
+				}
+
+				if (include)
+				{
+					schema.Members.Add(schemaMember);
+					continue;
+				}
+
+
+				//
+				// After checking the user callback (ShouldSerializeMember) and the direct attributes (because it's possible to directly target a backing field like this: [field: Include])
+				// we now need to check for compiler generated fields again.
+				// The intent is that if 'skipCompilerGenerated==false' then we allow checking the callback, as well as the attributes.
+				// But (at least for now) we don't want those problematic fields to be included by default,
+				// which would happen if any of the class or global defaults tell us to include 'private fields', because it is too dangerous to do it globally.
+				// There are all sorts of spooky things that we never want to include like:
+				// - enumerator-state-machines
+				// - async-method-state-machines
+				// - events (maybe?)
+				// - cached method invokers for 'dynamic' objects
+				// Right now I'm not 100% certain all or any of those would be a problem, but I'd rather test it first before just blindly serializing this unintended stuff.
+				if (isCompilerGenerated)
+					continue;
+
+				//
+				// 3.) Use class-attribute
+				if (classConfig != null)
+				{
+					if (IsMatch(isField, isProp, isPublic, classConfig.TargetMembers))
+					{
+						schema.Members.Add(schemaMember);
+						continue;
+					}
+				}
+
+				//
+				// 4.) Use global defaults
+				if (IsMatch(isField, isProp, isPublic, Config.DefaultTargets))
+				{
+					schema.Members.Add(schemaMember);
+					continue;
+				}
+			}
+
+
+			// Need to sort by name to ensure fields are always in the same order (yes, that is actually a real problem that really happens, even on the same .NET version, same computer, ...) 
+			schema.Members.Sort(SchemaMemberComparer.Instance);
+
+			return schema;
+		}
+
+
+
+		internal Schema ReadSchema(byte[] buffer, ref int offset, Type type)
+		{
+			// todo 1: Skipping
+			// We should add some sort of skipping mechanism later.
+			// We would write the schema-hash as well, and when reading it again we can check for the
+			// hash and see of we already have that schema (and skip reading it!)
+			// Or maybe we could at least find some way to make reading it cheaper (not instantiating a schema and lists and stuff that we won't use anyway)
+
+			var meta = GetTypeMetaData(type);
+
+			if (meta.IsFrameworkType)
+				throw new InvalidOperationException("Cannot read a Schema for a framework type! This must be either a serious bug, or the given data has been tampered with. Please report it on GitHub!");
+
+			//
+			// Read Schema
+			var schema = new Schema(false, type);
+
+			var memberCount = SerializerBinary.ReadInt32(buffer, ref offset);
+			for (int i = 0; i < memberCount; i++)
+			{
+				var name = SerializerBinary.ReadString(buffer, ref offset);
+
+				var member = Schema.FindMemberInType(type, name);
+
+				if (member == null)
+					schema.Members.Add(new SchemaMember(name));
+				else
+				{
+					var readonlyFieldHandling = DetermineReadonlyHandling(member);
+
+					schema.Members.Add(new SchemaMember(name, SerializedMember.Create(member, true), readonlyFieldHandling));
+				}
+			}
+
+			//
+			// Add entry or return existing
+			List<Schema> secondaries = meta.SecondarySchemata;
+			var existing = secondaries.IndexOf(schema);
+			if (existing == -1)
+			{
+				secondaries.Add(schema);
+				return schema;
+			}
+			else
+			{
+				return secondaries[existing];
+			}
+		}
+
+		internal static void WriteSchema(ref byte[] buffer, ref int offset, Schema schema)
+		{
+			if (!schema.IsPrimary)
+				throw new InvalidOperationException("Can't write schema that doesn't match the primary. This is a bug, please report it on GitHub!");
+
+			// Write the schema...
+			var members = schema.Members;
+			SerializerBinary.WriteInt32(ref buffer, ref offset, members.Count);
+
+			for (int i = 0; i < members.Count; i++)
+				SerializerBinary.WriteString(ref buffer, ref offset, members[i].PersistentName);
+		}
+
+
+
+		ReadonlyFieldHandling DetermineReadonlyHandling(MemberInfo memberInfo)
+		{
+			ReadonlyConfig readonlyConfigAttribute = memberInfo.GetCustomAttribute<ReadonlyConfig>();
+			if (readonlyConfigAttribute != null)
+				return readonlyConfigAttribute.ReadonlyFieldHandling;
+
+			MemberConfig classConfig = memberInfo.DeclaringType.GetCustomAttribute<MemberConfig>();
+			if (classConfig != null)
+				return classConfig.ReadonlyFieldHandling;
+
+			return Config.ReadonlyFieldHandling;
+		}
+
+		static void VerifyName(string name)
+		{
+			if (string.IsNullOrWhiteSpace(name))
+				throw new Exception("Member name can not be null/empty");
+			if (char.IsNumber(name[0]) || char.IsControl(name[0]))
+				throw new Exception("Name must start with a letter");
+
+			const string allowedChars = "_";
+
+			for (int i = 1; i < name.Length; i++)
+				if (!char.IsLetterOrDigit(name[i]) && !allowedChars.Contains(name[i]))
+					throw new Exception($"The name '{name}' has character '{name[i]}' at index '{i}', which is not allowed. Must be a letter or digit.");
+		}
+
+		static bool IsMatch(bool isField, bool isProp, bool isPublic, TargetMember targetMembers)
+		{
+			if (isField)
+			{
+				if (isPublic)
+				{
+					if ((targetMembers & TargetMember.PublicFields) != 0)
+						return true;
+				}
+				else
+				{
+					if ((targetMembers & TargetMember.PrivateFields) != 0)
+						return true;
+				}
+			}
+
+			if (isProp)
+			{
+				if (isPublic)
+				{
+					if ((targetMembers & TargetMember.PublicProperties) != 0)
+						return true;
+				}
+				else
+				{
+					if ((targetMembers & TargetMember.PrivateProperties) != 0)
+						return true;
+				}
+			}
+
+			return false;
+		}
+
+
 
 
 		void EnterRecursive(RecursionMode enteringMode)
@@ -1077,11 +1361,13 @@ namespace Ceras
 
 		public Schema CurrentSchema;
 
+
+		public Schema PrimarySchema;
+		public readonly List<Schema> SecondarySchemata = new List<Schema>();
+
 		// Anyone (any formatter) who is interested in schema changes for this type should enter themselves in this list
 		public readonly List<ISchemaTaintedFormatter> OnSchemaChangeTargets = new List<ISchemaTaintedFormatter>();
 
-
-		// todo: PrimarySchema, List<Schema> secondarySchemata;
 
 		public TypeMetaData(Type type, bool isFrameworkType)
 		{
