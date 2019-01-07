@@ -2,6 +2,7 @@
 
 namespace LiveTesting
 {
+	using BenchmarkDotNet.Running;
 	using Ceras;
 	using System.Collections.Generic;
 	using System.Diagnostics;
@@ -75,6 +76,12 @@ namespace LiveTesting
 			// tutorial.Step8_DataUpgrade_OLD();
 			// tutorial.Step9_VersionTolerance();
 			tutorial.Step10_ReadonlyHandling();
+
+			
+			/*
+			var summary = BenchmarkRunner.Run<SerializerBinaryBenchmarks>();
+			*/
+
 		}
 
 		private static void BigIntegerTest()
