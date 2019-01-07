@@ -25,17 +25,21 @@ var s = new CerasSerializer();
 var bytes = s.Serialize(p);
 ```
 
-### [**>> You can find many more examples in the tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs)
+## [**>> You can find many more examples in the tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs)
+
+### [**>> Optimization & Usage Pitfalls**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
+
 
 # Features
 
 ### Major Features
 - Very fast, very small binary output
-- *Full* support for circular references (including object caching)
-- *Full* support for polymorphism / inheritance / interfaces
-- Can serialize objects into parts as "ExtenalObjects" (very useful for usage with databases)
+- **Full** support for circular references (including object caching)
+- **Full** support for polymorphism / inheritance / interfaces
+- Can serialize objects into parts as "ExtenalObjects" (useful in many many scenarios)
+- Automatic version-tolerance, no need to assign any attributes to your classes!
 
-### [**>> Full feature list (and planned features)**](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)
+## [**>> Full feature list (and planned features)**](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)
 
 
 
@@ -47,11 +51,22 @@ Personally my primary intentions were easy object persistance and network commun
 I've added many features over time and whenever someone can think of a good scenario that should be supported as well I'll make it happen. 
 
 Examples:
-- Saving objects to disk quickly without much trouble: settings, savegames (pretty much zero config) (see steps 1 and 2 in the [Usage Guide](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L21) )
+- **Settings:**
+Saving objects to disk quickly without much trouble: settings, savegames, whatever it  is. With pretty much zero config.
+See steps 1 and 2 in the [Usage Guide](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L21)
 
-- As object DB by using `IExternalRootObject` (see [External Objects Guide (Game DB example))](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L300))
+- **Splitting:**
+So your `Person` has reference to other `Person` objects, but each one should be serialized individually?
+No problem, use `IExternalRootObject`. It's super easy. (see [External Objects Guide (Game DB example))](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L300)).
 
-- Network communication, with Ceras doing the majority of the work to implement a very efficient protocol (see [Network Example Guide](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L278))
+- **Network:** 
+In the past people used to manually write network messages into some network stream or packet because serialization was slow.
+Receiving objects from the network also allocated a lot of 'garbage objects' because there was no easy way to recycle packets.
+Ceras can fix all this, with some simple setup you can implement a very efficient protocol (see [Network Example Guide](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L278)).
+If you want to, you can even let Ceras 'learn' the used types over a network-session so types will be automatically encoded to short IDs (or use `config.KnownTypes` to pre-establish types).
+
+- **More:**
+The above are just examples, Ceras is made so it can be used in pretty much every situation...
 
 ### When should I not use this?
 
@@ -59,7 +74,7 @@ Examples:
 
 - You plan to use this on a platform that does not support code generation. Serializers for user-types are created at runtime through code-generation. And if that isn't allowed (for example on iOS) Ceras won't be able to generate arbitrary object-formatters. Built-in types will still work though. There are ways to fix this though... (pre-generating the formatters)
 
-### [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
+## [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
 
 
 
