@@ -7,9 +7,9 @@ namespace Ceras.Formatters
 	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
-	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using static System.Linq.Expressions.Expression;
 
 #if FAST_EXP
 	using FastExpressionCompiler;
@@ -31,19 +31,9 @@ namespace Ceras.Formatters
 	 */
 	class DynamicObjectFormatter<T> : IFormatter<T>
 	{
-		static readonly MethodInfo SetValue = typeof(FieldInfo).GetMethod(
-				name: "SetValue",
-				bindingAttr: BindingFlags.Instance | BindingFlags.Public,
-				binder: null,
-				types: new Type[] { typeof(object), typeof(object) },
-				modifiers: new ParameterModifier[2]);
-
-
-
-		CerasSerializer _ceras;
-
-		SerializeDelegate<T> _dynamicSerializer;
-		DeserializeDelegate<T> _dynamicDeserializer;
+		readonly CerasSerializer _ceras;
+		readonly SerializeDelegate<T> _dynamicSerializer;
+		readonly DeserializeDelegate<T> _dynamicDeserializer;
 
 
 		public DynamicObjectFormatter(CerasSerializer serializer)
@@ -72,11 +62,11 @@ namespace Ceras.Formatters
 
 		SerializeDelegate<T> GenerateSerializer(List<SchemaMember> members)
 		{
-			var refBufferArg = Expression.Parameter(typeof(byte[]).MakeByRefType(), "buffer");
-			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
-			var valueArg = Expression.Parameter(typeof(T), "value");
+			var refBufferArg = Parameter(typeof(byte[]).MakeByRefType(), "buffer");
+			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
+			var valueArg = Parameter(typeof(T), "value");
 
-			List<Expression> block = new List<Expression>();
+			var block = new List<Expression>();
 
 
 			foreach (var sMember in members)
@@ -93,44 +83,41 @@ namespace Ceras.Formatters
 				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter " + formatter.GetType().FullName);
 
 				// Access the field that we want to serialize
-				var fieldExp = Expression.MakeMemberAccess(valueArg, member.MemberInfo);
+				var fieldExp = MakeMemberAccess(valueArg, member.MemberInfo);
 
 				// Call "Serialize"
-				var serializeCall = Expression.Call(Expression.Constant(formatter), serializeMethod, refBufferArg, refOffsetArg, fieldExp);
+				var serializeCall = Call(Constant(formatter), serializeMethod, refBufferArg, refOffsetArg, fieldExp);
 				block.Add(serializeCall);
 			}
 
-			var serializeBlock = Expression.Block(expressions: block);
+			var serializeBlock = Block(expressions: block);
 
 #if FAST_EXP
 			return Expression.Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg).CompileFast(true);
 #else
-			return Expression.Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg).Compile();
+			return Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg).Compile();
 #endif
 
 		}
 
 		DeserializeDelegate<T> GenerateDeserializer(List<SchemaMember> members)
 		{
-			var bufferArg = Expression.Parameter(typeof(byte[]), "buffer");
-			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
-			var refValueArg = Expression.Parameter(typeof(T).MakeByRefType(), "value");
+			var bufferArg = Parameter(typeof(byte[]), "buffer");
+			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
+			var refValueArg = Parameter(typeof(T).MakeByRefType(), "value");
 
-			List<Expression> block = new List<Expression>();
+			var block = new List<Expression>();
+			var locals = new List<ParameterExpression>();
 
-			List<ParameterExpression> locals = new List<ParameterExpression>();
-
-			// Go through all fields and assign them
 			foreach (var sMember in members)
 			{
 				var member = sMember.Member;
 				var type = member.MemberType;
-				// todo: what about Field attributes that tell us to:
-				// - use a specific formatter? (HalfFloat, Int32Fixed, MyUserFormatter) 
-				// - assume a type, or exception
-				// - Force ignore caching (as in not using the reference formatter)
+				// todo: what about some member-attributes for:
+				// - using a specific formatter? (HalfFloat, Int32Fixed, MyUserFormatter)
+				// - ignore caching (not using the reference formatter)
 
-				IFormatter formatter = _ceras.GetReferenceFormatter(type);
+				var formatter = _ceras.GetReferenceFormatter(type);
 
 				var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
@@ -138,177 +125,136 @@ namespace Ceras.Formatters
 
 				//
 				// We have everything we need to read and then assign the member.
-				// But what if the member is readonly?
 
-				if (member.MemberInfo is FieldInfo fieldInfo)
-					if (fieldInfo.IsInitOnly)
-					{
-						if (sMember.ReadonlyFieldHandling == ReadonlyFieldHandling.Off)
-							throw new InvalidOperationException($"Error while trying to generate a deserializer for the field '{member.MemberInfo.DeclaringType.FullName}.{member.MemberInfo.Name}' and the field is readonly, but ReadonlyFieldHandling is turned off in the serializer configuration.");
+				// 1. Read the data into a new local variable (Why? See explanation at the end of the file)
+				var tempStore = Variable(type, member.Name + "_local");
+				locals.Add(tempStore);
 
-						// We just read the value into a local variable first,
-						// for value types we overwrite,
-						// for objects we type-check, and if the type matches we populate the fields as normal
+				// 2. Init the local with the current value
+				block.Add(Assign(tempStore, MakeMemberAccess(refValueArg, member.MemberInfo)));
 
-						// 1. Read the data into a new local variable
-						var tempStore = Expression.Variable(type, member.Name + "_tempStoreForReadonly");
-						locals.Add(tempStore);
+				// 3. Deserialize the data into the local
+				var tempReadCall = Call(Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, tempStore);
+				block.Add(tempReadCall);
 
-						// 2. Init the local with the current value
-						block.Add(Expression.Assign(tempStore, Expression.MakeMemberAccess(refValueArg, member.MemberInfo)));
+				// 4. Write the data back to the member
+				if (member.MemberInfo is FieldInfo fieldInfo && fieldInfo.IsInitOnly)
+				{
+					// Readonly field
+					DynamicFormatterHelpers.EmitReadonlyWriteBack(type, sMember.ReadonlyFieldHandling, fieldInfo, refValueArg, tempStore, block);
+				}
+				else
+				{
+					// Normal field or property
+					var writeBack = Assign(
+						left: MakeMemberAccess(refValueArg, member.MemberInfo),
+						right: tempStore);
 
-						// 3. Read the value as usual, but use the temp variable as target
-						var tempReadCall = Expression.Call(Expression.Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, tempStore);
-						block.Add(tempReadCall);
-
-						// 4. ReferenceTypes and ValueTypes are handled a bit differently (Boxing, Equal-vs-ReferenceEqual, text in exception, ...)
-						if (type.IsValueType)
-						{
-							// Value types are simple.
-							// Either they match perfectly -> do nothing
-							// Or the values are not the same -> either throw an exception of do a forced overwrite
-
-							Expression onMismatch;
-							if (sMember.ReadonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
-								// field.SetValue(valueArg, tempStore)
-								onMismatch = Expression.Call(Expression.Constant(fieldInfo), SetValue, arg0: refValueArg, arg1: Expression.Convert(tempStore, typeof(object))); // Explicit boxing needed
-							else
-								onMismatch = Expression.Throw(Expression.Constant(new Exception($"The value-type in field '{fieldInfo.Name}' does not match the expected value, but the field is readonly and overwriting is not allowed in the serializer configuration. Fix the value, or make the field writeable, or enable 'ForcedOverwrite' in the serializer settings to allow Ceras to overwrite the readonly-field.")));
-
-							block.Add(Expression.IfThenElse(
-								test: Expression.Equal(tempStore, Expression.MakeMemberAccess(refValueArg, member.MemberInfo)),
-								ifTrue: Expression.Empty(),
-								ifFalse: onMismatch
-								));
-						}
-						else
-						{
-							// Either we already give the deserializer the existing object as target where it should write to, in which case its fine.
-							// Or the deserializer somehow gets its own object instance from somewhere else, in which case we can only proceed with overwriting the field anyway.
-
-							// So the most elegant way to handle this is to first let the deserializer do what it normally does,
-							// and then check if it has changed the reference.
-							// If it did not, everything is fine; meaning it must have accepted 'null' or whatever object is in there, or fixed its content.
-							// If the reference was changed there is potentially some trouble.
-							// If we're allowed to change it we use reflection, if not we throw an exception
-
-
-							Expression onReassignment;
-							if (sMember.ReadonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
-								// field.SetValue(valueArg, tempStore)
-								onReassignment = Expression.Call(Expression.Constant(fieldInfo), SetValue, arg0: refValueArg, arg1: tempStore);
-							else
-								onReassignment = Expression.Throw(Expression.Constant(new Exception("The reference in the readonly-field '" + fieldInfo.Name + "' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
-
-							// Did the reference change?
-							block.Add(Expression.IfThenElse(
-								test: Expression.ReferenceEqual(tempStore, Expression.MakeMemberAccess(refValueArg, member.MemberInfo)),
-
-								// Still the same. Whatever has happened (and there are a LOT of cases), it seems to be ok.
-								// Maybe the existing object's content was overwritten, or the instance reference was already as expected, or...
-								ifTrue: Expression.Empty(),
-
-								// Reference changed. Handle it depending on if its allowed or not
-								ifFalse: onReassignment
-								));
-
-						}
-
-						continue;
-					}
-
-
-				var fieldExp = Expression.MakeMemberAccess(refValueArg, member.MemberInfo);
-
-				var serializeCall = Expression.Call(Expression.Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, fieldExp);
-				block.Add(serializeCall);
+					block.Add(writeBack);
+				}
 			}
 
 
-			var serializeBlock = Expression.Block(variables: locals, expressions: block);
+			var serializeBlock = Block(variables: locals, expressions: block);
 #if FAST_EXP
 			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
 #else
-			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).Compile();
+			return Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).Compile();
 #endif
 
 		}
 
 
-		public void Serialize(ref byte[] buffer, ref int offset, T value)
-		{
-			_dynamicSerializer(ref buffer, ref offset, value);
-		}
 
-		public void Deserialize(byte[] buffer, ref int offset, ref T value)
-		{
-			_dynamicDeserializer(buffer, ref offset, ref value);
-		}
+		public void Serialize(ref byte[] buffer, ref int offset, T value) => _dynamicSerializer(ref buffer, ref offset, value);
 
+		public void Deserialize(byte[] buffer, ref int offset, ref T value) => _dynamicDeserializer(buffer, ref offset, ref value);
 	}
 
-	// Some types are banned from serialization
-	// and instead of throwing crazy errors that don't help the user at all, we give an explanation
-	static class BannedTypes
+	static class DynamicFormatterHelpers
 	{
-		struct BannedType
-		{
-			public readonly Type Type;
-			public readonly string BanReason;
-			public readonly bool AlsoCheckInherit;
+		static readonly MethodInfo _setValue = typeof(FieldInfo).GetMethod(
+			   name: "SetValue",
+			   bindingAttr: BindingFlags.Instance | BindingFlags.Public,
+			   binder: null,
+			   types: new Type[] { typeof(object), typeof(object) },
+			   modifiers: new ParameterModifier[2]);
 
-			public BannedType(Type type, string banReason, bool alsoCheckInherit)
+		internal static void EmitReadonlyWriteBack(Type type, ReadonlyFieldHandling readonlyFieldHandling, FieldInfo fieldInfo, ParameterExpression refValueArg, ParameterExpression tempStore, List<Expression> block)
+		{
+			if (readonlyFieldHandling == ReadonlyFieldHandling.Off)
+				throw new InvalidOperationException($"Error while trying to generate a deserializer for the field '{fieldInfo.DeclaringType.FullName}.{fieldInfo.Name}' and the field is readonly, but ReadonlyFieldHandling is turned off in the serializer configuration.");
+
+
+			// 4. ReferenceTypes and ValueTypes are handled a bit differently (Boxing, Equal-vs-ReferenceEqual, text in exception, ...)
+			if (type.IsValueType)
 			{
-				Type = type;
-				BanReason = banReason;
-				AlsoCheckInherit = alsoCheckInherit;
-			}
-		}
+				// Value types are simple.
+				// Either they match perfectly -> do nothing
+				// Or the values are not the same -> either throw an exception of do a forced overwrite
 
-		static List<BannedType> _bannedTypes = new List<BannedType>
-		{
-				new BannedType(typeof(System.Collections.IEnumerator), "Enumerators are potentially infinite, and also most likely have no way to be instantiated at deserialization-time. If you think this is a mistake, report it as a github issue or provide a custom IFormatter for this case.", true),
-
-				new BannedType(typeof(System.Delegate), "Delegates cannot be serialized easily because they often drag in a lot of unintended objects. Support for delegates to static methods is on the todo list though! If you want to know why this is complicated then check this out: https://github.com/rikimaru0345/Ceras/issues/11", true),
-		};
-
-
-		internal static void ThrowIfBanned(Type type)
-		{
-			for (var i = 0; i < _bannedTypes.Count; i++)
-			{
-				var ban = _bannedTypes[i];
-
-				bool isBanned = false;
-				if (ban.AlsoCheckInherit)
-				{
-					if (ban.Type.IsAssignableFrom(type))
-						isBanned = true;
-				}
+				Expression onMismatch;
+				if (readonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
+					// field.SetValue(valueArg, tempStore)
+					onMismatch = Call(Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: Convert(tempStore, typeof(object))); // Explicit boxing needed
 				else
-				{
-					if (type == ban.Type)
-						isBanned = true;
-				}
+					onMismatch = Throw(Constant(new Exception($"The value-type in field '{fieldInfo.Name}' does not match the expected value, but the field is readonly and overwriting is not allowed in the serializer configuration. Fix the value, or make the field writeable, or enable 'ForcedOverwrite' in the serializer settings to allow Ceras to overwrite the readonly-field.")));
 
-				if (isBanned)
-					throw new BannedTypeException($"The type '{type.FullName}' cannot be serialized, please mark the field/property with the [Ignore] attribute or filter it out using the 'ShouldSerialize' callback. Reason: {ban.BanReason}");
+				block.Add(IfThenElse(
+							test: Equal(tempStore, MakeMemberAccess(refValueArg, fieldInfo)),
+							ifTrue: Empty(),
+							ifFalse: onMismatch
+						   ));
+			}
+			else
+			{
+				// Either we already give the deserializer the existing object as target where it should write to, in which case its fine.
+				// Or the deserializer somehow gets its own object instance from somewhere else, in which case we can only proceed with overwriting the field anyway.
+
+				// So the most elegant way to handle this is to first let the deserializer do what it normally does,
+				// and then check if it has changed the reference.
+				// If it did not, everything is fine; meaning it must have accepted 'null' or whatever object is in there, or fixed its content.
+				// If the reference was changed there is potentially some trouble.
+				// If we're allowed to change it we use reflection, if not we throw an exception
+
+
+				Expression onReassignment;
+				if (readonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
+					// field.SetValue(valueArg, tempStore)
+					onReassignment = Call(Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: tempStore);
+				else
+					onReassignment = Throw(Constant(new Exception("The reference in the readonly-field '" + fieldInfo.Name + "' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
+
+				// Did the reference change?
+				block.Add(IfThenElse(
+							test: ReferenceEqual(tempStore, MakeMemberAccess(refValueArg, fieldInfo)),
+
+							// Still the same. Whatever has happened (and there are a LOT of cases), it seems to be ok.
+							// Maybe the existing object's content was overwritten, or the instance reference was already as expected, or...
+							ifTrue: Empty(),
+
+							// Reference changed. Handle it depending on if its allowed or not
+							ifFalse: onReassignment
+						   ));
 			}
 		}
 
-		internal static void ThrowIfNonspecific(Type type)
-		{
-			if (type.IsAbstract || type.IsInterface)
-				throw new InvalidOperationException("Can only generate code for specific types. The type " + type.Name + " is abstract or an interface.");
-		}
 
 	}
 
-	class BannedTypeException : Exception
-	{
-		public BannedTypeException(string message) : base(message)
-		{
-
-		}
-	}
 }
+
+/*
+ * - Why do we always have to read the existing value? And why do we always have to use a local instead of passing the field directly??
+ * 
+ * We always must use a local variable because properties cannot be passed by ref.
+ * And we must always read the existing value because many formatters rely on that.
+ * 
+ * Sure we might be able to figure out some complex rules to only read the value if its really neccesary, but that can be done later, and 
+ * compared to all the other possible optimizations this one would maybe give us +0.5% more speed? Which is NOTHING when compared to
+ * some caching stuff we could do, or avoiding useless lookups, which would easily give huge boosts (like +6% or more!!)
+ * So yea, there are things that could be done, but it costs time, and worst of all it makes the code more complex (which is actually a big deal).
+ * Idk about you, but I'd rather invest less time, get (comparatively) huge performance boosts, and have clean code all at the same time :P
+ * 
+ * 
+ */

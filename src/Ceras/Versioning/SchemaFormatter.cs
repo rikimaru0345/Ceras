@@ -9,10 +9,11 @@ namespace Ceras.Helpers
 	using System.Reflection;
 	using static System.Linq.Expressions.Expression;
 
-	// todo 1: if we read the same block (containing a schema) twice, we need to recognize that it's the same and re-use the DynamicSchemaFormatter
-	//			-> but that does not really happen, does it? every data-block contains only one schema per type.
-	//			-> but what about serializing/deserializing multiple times?
-	// todo 2: have a dictionary for known namespaces we write directly (without schema bc they never change)
+	// Ask community what they prefer:
+	// - fixed 4 byte length (best performance)
+	// - varInt encoding (slower but most compact)
+	// - maybe even fixed 2 byte encoding? (with exception for elements that are too large)
+	// What about a setting? But people would have to be very careful that they use the same settings for reading as they did while serializing.
 
 	class SchemaDynamicFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
 	{
@@ -22,14 +23,7 @@ namespace Ceras.Helpers
 		static readonly MethodInfo SizeReadMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadUInt32Fixed));
 
 
-		// Instead of creating a new hash-set every time we need it, we just keep one around and re-use it.
-		// This one will only ever get used during one function call
-		static HashSet<Type> _tempHashSet = new HashSet<Type>();
-
-
-
 		readonly CerasSerializer _ceras;
-
 		readonly Dictionary<Schema, SerializerPair> _generatedSerializerPairs = new Dictionary<Schema, SerializerPair>();
 
 		Schema _currentSchema;
@@ -125,10 +119,10 @@ namespace Ceras.Helpers
 				// startPos = offset; 
 				block.Add(Assign(startPos, refOffsetArg));
 
-				// offset += 4;
+				// offset += 4; to reserve space for the length prefix
 				block.Add(AddAssign(refOffsetArg, Constant(FieldSizePrefixBytes)));
 
-				// Serialize(...)
+				// Serialize(...) write the actual data
 				block.Add(Call(
 							   instance: Constant(formatter),
 							   method: serializeMethod,
@@ -137,10 +131,10 @@ namespace Ceras.Helpers
 							   arg2: MakeMemberAccess(valueArg, member.MemberInfo)
 						  ));
 
-				// size = (offset - startPos) - 4;
+				// size = (offset - startPos) - 4; // calculate the size of what we just wrote
 				block.Add(Assign(size, Subtract(Subtract(refOffsetArg, startPos), Constant(FieldSizePrefixBytes))));
 
-				// offset = startPos;
+				// offset = startPos; // go back to where we started and write the size into the reserved space
 				block.Add(Assign(refOffsetArg, startPos));
 
 				// WriteInt32( size )
@@ -151,7 +145,7 @@ namespace Ceras.Helpers
 							   arg2: Convert(size, SizeType)
 							   ));
 
-				// offset = startPos + skipOffset;
+				// offset = startPos + skipOffset; // continue serialization where we left off
 				block.Add(Assign(refOffsetArg, Add(Add(startPos, size), Constant(FieldSizePrefixBytes))));
 
 			}
@@ -186,27 +180,32 @@ namespace Ceras.Helpers
 				var member = sMember.Member;
 
 				// 1. Read block size
+				// blockSize = ReadSize();
 				block.Add(Assign(left: blockSize,
 								 right: Convert(Call(method: SizeReadMethod, arg0: bufferArg, arg1: refOffsetArg), typeof(int))));
 
 				if (sMember.IsSkip)
 				{
 					// 2. a) Skip over the field
+					// offset += blockSize;
 					block.Add(AddAssign(refOffsetArg, blockSize));
 				}
 				else
 				{
-					// 2. b) read normally
+					// 2. b) Read normally
+
+					// Prepare formatter...
 					var type = member.MemberType;
 					IFormatter formatter = _ceras.GetReferenceFormatter(type);
-
 					var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 					Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
 
+					// formatter.Deserialize(buffer, ref offset, ref field);
 					var fieldExp = MakeMemberAccess(refValueArg, member.MemberInfo);
+					var deserializeCall = Call(Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, fieldExp);
+					block.Add(deserializeCall);
 
-					var serializeCall = Call(Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, fieldExp);
-					block.Add(serializeCall);
+					// todo: we could optionally check if the expected blockSize matches what we've actually read.
 				}
 			}
 
