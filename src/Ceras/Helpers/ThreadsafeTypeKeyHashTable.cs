@@ -10,13 +10,13 @@ namespace Ceras.Helpers
 	// https://github.com/neuecc/MessagePack-CSharp/blob/master/src/MessagePack/Internal/ThreadsafeTypeKeyHashTable.cs
 
 	// Safe for multiple-read, single-write.
-    internal class ThreadsafeTypeKeyHashTable<TValue>
+	class ThreadsafeTypeKeyHashTable<TValue>
     {
-        Entry[] buckets;
-        int size; // only use in writer lock
+        Entry[] _buckets;
+        int _size; // only use in writer lock
 
-        readonly object writerLock = new object();
-        readonly float loadFactor;
+        readonly object _writerLock = new object();
+        readonly float _loadFactor;
 
         // IEqualityComparer.Equals is overhead if key only Type, don't use it.
         // readonly IEqualityComparer<TKey> comparer;
@@ -24,8 +24,8 @@ namespace Ceras.Helpers
         public ThreadsafeTypeKeyHashTable(int capacity = 4, float loadFactor = 0.75f)
         {
             var tableSize = CalculateCapacity(capacity, loadFactor);
-            this.buckets = new Entry[tableSize];
-            this.loadFactor = loadFactor;
+            _buckets = new Entry[tableSize];
+            _loadFactor = loadFactor;
         }
 
         public bool TryAdd(Type key, TValue value)
@@ -41,17 +41,17 @@ namespace Ceras.Helpers
 
         bool TryAddInternal(Type key, Func<Type, TValue> valueFactory, out TValue resultingValue)
         {
-            lock (writerLock)
+            lock (_writerLock)
             {
-                var nextCapacity = CalculateCapacity(size + 1, loadFactor);
+                var nextCapacity = CalculateCapacity(_size + 1, _loadFactor);
 
-                if (buckets.Length < nextCapacity)
+                if (_buckets.Length < nextCapacity)
                 {
                     // rehash
                     var nextBucket = new Entry[nextCapacity];
-                    for (int i = 0; i < buckets.Length; i++)
+                    for (int i = 0; i < _buckets.Length; i++)
                     {
-                        var e = buckets[i];
+                        var e = _buckets[i];
                         while (e != null)
                         {
                             var newEntry = new Entry { Key = e.Key, Value = e.Value, Hash = e.Hash };
@@ -64,16 +64,16 @@ namespace Ceras.Helpers
                     var successAdd = AddToBuckets(nextBucket, key, null, valueFactory, out resultingValue);
 
                     // replace field(threadsafe for read)
-                    VolatileWrite(ref buckets, nextBucket);
+                    VolatileWrite(ref _buckets, nextBucket);
 
-                    if (successAdd) size++;
+                    if (successAdd) _size++;
                     return successAdd;
                 }
                 else
                 {
                     // add entry(insert last is thread safe for read)
-                    var successAdd = AddToBuckets(buckets, key, null, valueFactory, out resultingValue);
-                    if (successAdd) size++;
+                    var successAdd = AddToBuckets(_buckets, key, null, valueFactory, out resultingValue);
+                    if (successAdd) _size++;
                     return successAdd;
                 }
             }
@@ -129,7 +129,7 @@ namespace Ceras.Helpers
 
         public bool TryGetValue(Type key, out TValue value)
         {
-            var table = buckets;
+            var table = _buckets;
             var hash = key.GetHashCode();
             var entry = table[hash & table.Length - 1];
 
@@ -159,8 +159,7 @@ namespace Ceras.Helpers
 
         public TValue GetOrAdd(Type key, Func<Type, TValue> valueFactory)
         {
-            TValue v;
-            if (TryGetValue(key, out v))
+	        if (TryGetValue(key, out var v))
             {
                 return v;
             }

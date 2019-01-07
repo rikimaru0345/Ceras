@@ -11,7 +11,7 @@ namespace Ceras.Test
     {
         CerasSerializer _s = new CerasSerializer();
 
-        private T Roundtrip<T>(T value)
+	    T Roundtrip<T>(T value)
         {
             return _s.Deserialize<T>(_s.Serialize(value));
         }

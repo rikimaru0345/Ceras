@@ -15,7 +15,7 @@ namespace Ceras.Helpers
 		public bool IsField => MemberInfo is FieldInfo;
 		public bool IsProperty => MemberInfo is PropertyInfo;
 
-		private SerializedMember(MemberInfo memberInfo)
+		SerializedMember(MemberInfo memberInfo)
 		{
 			MemberInfo = memberInfo;
 

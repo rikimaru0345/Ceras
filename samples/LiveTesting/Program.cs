@@ -83,7 +83,7 @@ namespace LiveTesting
 
 		}
 
-		private static void BigIntegerTest()
+		static void BigIntegerTest()
 		{
 			BigInteger big = new BigInteger(28364526879);
 			big = BigInteger.Pow(big, 6);
@@ -97,7 +97,7 @@ namespace LiveTesting
 			Debug.Assert(clone.ToString() == big.ToString());
 		}
 
-		private static void ReadonlyTest()
+		static void ReadonlyTest()
 		{
 			// Test #1:
 			// By default the setting is off. Fields are ignored.
@@ -291,7 +291,7 @@ namespace LiveTesting
 		static int Add1(int x) => x + 1;
 		static int Add2(int x) => x + 2;
 
-		private static void DelegatesTest()
+		static void DelegatesTest()
 		{
 			/*
 			Func<int, int> myFunc = Add1;
@@ -402,8 +402,8 @@ namespace LiveTesting
 			public PropertyInfo Property;
 			public MethodInfo Method;
 
-			private string property { get; set; }
-			private void method() { }
+			string property { get; set; }
+			void method() { }
 		}
 
 		class DelegateValueHolder
@@ -421,7 +421,7 @@ namespace LiveTesting
 
 		}
 
-		private static void SimpleDictionaryTest()
+		static void SimpleDictionaryTest()
 		{
 			var dict = new Dictionary<string, object>
 			{
@@ -439,7 +439,7 @@ namespace LiveTesting
 			Debug.Assert(n1 == n2);
 		}
 
-		private static void DictInObjArrayTest()
+		static void DictInObjArrayTest()
 		{
 			var dict = new Dictionary<string, object>
 			{
@@ -477,7 +477,7 @@ namespace LiveTesting
 			Debug.Assert(3.Equals(three));
 		}
 
-		private static void MaintainTypeTest()
+		static void MaintainTypeTest()
 		{
 			CerasSerializer ceras = new CerasSerializer();
 
@@ -525,7 +525,7 @@ namespace LiveTesting
 
 		}
 
-		private static void InterfaceFormatterTest()
+		static void InterfaceFormatterTest()
 		{
 			CerasSerializer ceras = new CerasSerializer();
 
@@ -1174,7 +1174,7 @@ namespace LiveTesting
 
 		public string PublicProp { get; set; } = "Public Prop (default value)";
 		internal string InternalProp { get; set; } = "Internal Prop (default value)";
-		private string PrivateProp { get; set; } = "Private Prop (default value)";
+		string PrivateProp { get; set; } = "Private Prop (default value)";
 		protected string ProtectedProp { get; set; } = "Protected Prop (default value)";
 		public string ReadonlyProp1 { get; private set; } = "ReadOnly Prop (default value)";
 
