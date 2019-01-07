@@ -34,6 +34,14 @@ namespace Ceras.Formatters
 	// - using a specific formatter? (HalfFloat, Int32Fixed, MyUserFormatter)
 	// - ignore caching (not using the reference formatter)
 
+	// todo: merge constants
+	// If there's an object that has multiple 'int' fields, then we would obtain multiple 'int' formatters which is bad.
+	// Instead we could put them into a dictionary and lookup what formatter to use for what type, so after compiling there is only one instance per formatter
+
+	// todo: access primitive writers directly
+	// Instead of obtaining an 'Int32Formatter' and the like, we should compile a call directly to SerializerBinary.WriteInt32() ...
+	// That would avoid quite some overhead: removing the vtable dispatch, enabling inlining!
+
 	class DynamicObjectFormatter<T> : IFormatter<T>
 	{
 		readonly CerasSerializer _ceras;
@@ -146,7 +154,7 @@ namespace Ceras.Formatters
 			}
 
 			//
-			// 3. Write values in one big batch
+			// 3. Write back values in one batch
 			for (int i = 0; i < members.Count; i++)
 			{
 				var sMember = members[i];

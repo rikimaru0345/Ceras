@@ -166,6 +166,7 @@ namespace Ceras.Helpers
 			 * We got a schema (read from the data), and need to use it to read things in the right order
 			 * and skip blocks that we want to skip
 			 */
+			var members = schema.Members;
 
 			var bufferArg = Parameter(typeof(byte[]), "buffer");
 			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
@@ -173,43 +174,92 @@ namespace Ceras.Helpers
 
 			List<Expression> block = new List<Expression>();
 
+			List<ParameterExpression> locals = new List<ParameterExpression>();
 			var blockSize = Variable(typeof(int), "blockSize");
+			locals.Add(blockSize);
 
-			foreach (var sMember in schema.Members)
+			Dictionary<MemberInfo, ParameterExpression> memberInfoToLocal = new Dictionary<MemberInfo, ParameterExpression>();
+
+
+			// 1. Read existing values into locals
+			for (int i = 0; i < schema.Members.Count; i++)
 			{
-				var member = sMember.Member;
+				var member = members[i].Member;
 
-				// 1. Read block size
-				// blockSize = ReadSize();
+				if (members[i].IsSkip)
+					continue; // Don't define local for skipped member
+
+				// Read the data into a new local variable 
+				var tempStore = Variable(member.MemberType, member.Name + "_local");
+				locals.Add(tempStore);
+				memberInfoToLocal.Add(member.MemberInfo, tempStore);
+
+				// Init the local with the current value
+				block.Add(Assign(tempStore, MakeMemberAccess(refValueArg, member.MemberInfo)));
+			}
+
+			// 2. Deserialize using local
+			for (var i = 0; i < members.Count; i++)
+			{
+				var member = members[i].Member;
+
+				// Read block size: blockSize = ReadSize();
 				block.Add(Assign(left: blockSize,
 								 right: Convert(Call(method: SizeReadMethod, arg0: bufferArg, arg1: refOffsetArg), typeof(int))));
 
-				if (sMember.IsSkip)
+				if (members[i].IsSkip)
 				{
-					// 2. a) Skip over the field
-					// offset += blockSize;
+					// Skip over the field: offset += blockSize;
+
 					block.Add(AddAssign(refOffsetArg, blockSize));
 				}
 				else
 				{
-					// 2. b) Read normally
+					// Read normally
 
 					// Prepare formatter...
-					var type = member.MemberType;
-					IFormatter formatter = _ceras.GetReferenceFormatter(type);
+					var formatter = _ceras.GetReferenceFormatter(member.MemberType);
 					var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 					Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
 
-					// formatter.Deserialize(buffer, ref offset, ref field);
-					var fieldExp = MakeMemberAccess(refValueArg, member.MemberInfo);
-					var deserializeCall = Call(Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, fieldExp);
-					block.Add(deserializeCall);
-
+					// formatter.Deserialize(buffer, ref offset, ref member_local);
+					var tempStore = memberInfoToLocal[member.MemberInfo];
+					var tempReadCall = Call(Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, tempStore);
+					block.Add(tempReadCall);
 					// todo: we could optionally check if the expected blockSize matches what we've actually read.
 				}
 			}
 
-			var serializeBlock = Block(variables: new ParameterExpression[] { blockSize }, expressions: block);
+			// 3. Write back values in one batch
+			for (int i = 0; i < members.Count; i++)
+			{
+				var sMember = members[i];
+
+				if (sMember.IsSkip)
+					continue; // Skipped members don't need write-back
+
+				var member = members[i].Member;
+				var tempStore = memberInfoToLocal[member.MemberInfo];
+				var type = member.MemberType;
+
+
+				if (member.MemberInfo is FieldInfo fieldInfo && fieldInfo.IsInitOnly)
+				{
+					// Readonly field
+					DynamicFormatterHelpers.EmitReadonlyWriteBack(type, sMember.ReadonlyFieldHandling, fieldInfo, refValueArg, tempStore, block);
+				}
+				else
+				{
+					// Normal field or property
+					var writeBack = Assign(
+										   left: MakeMemberAccess(refValueArg, member.MemberInfo),
+										   right: tempStore);
+
+					block.Add(writeBack);
+				}
+			}
+			
+			var serializeBlock = Block(variables: locals, expressions: block);
 #if FAST_EXP
 			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
 #else
