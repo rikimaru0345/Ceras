@@ -56,7 +56,7 @@ namespace Ceras
 			return _formatterConstructedTypes.Contains(type);
 		}
 
-		static HashSet<Assembly> FrameworkAssemblies = new HashSet<Assembly>
+		static HashSet<Assembly> _frameworkAssemblies = new HashSet<Assembly>
 		{
 				typeof(object).Assembly, // mscorelib
 				typeof(Uri).Assembly, // system.dll
@@ -102,9 +102,7 @@ namespace Ceras
 
 
 		internal readonly SerializerConfig Config;
-
-		readonly IFormatter<Type> _typeFormatter;
-
+		
 		// A special resolver. It creates instances of the "dynamic formatter", the DynamicObjectFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
 		// for a given object type.
 		readonly IFormatterResolver _dynamicResolver;
@@ -441,7 +439,7 @@ namespace Ceras
 		{
 			Type t = null;
 			int offset = 0;
-			_typeFormatter.Deserialize(buffer, ref offset, ref t);
+			GetFormatter<Type>().Deserialize(buffer, ref offset, ref t);
 
 			return t;
 		}
@@ -566,7 +564,7 @@ namespace Ceras
 			if (type.IsArray)
 				isFrameworkType = true;
 			else
-				isFrameworkType = FrameworkAssemblies.Contains(type.Assembly);
+				isFrameworkType = _frameworkAssemblies.Contains(type.Assembly);
 
 			meta = new TypeMetaData(type, isFrameworkType);
 
