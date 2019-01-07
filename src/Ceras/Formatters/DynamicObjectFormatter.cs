@@ -29,6 +29,11 @@ namespace Ceras.Formatters
 	 *   This one is used for framework-types that are not supported, and SchemaDynamicFormatter is used for user-types.
 	 *   Because user-types can change over time, and framework-types stay the same, and if they change that has to be dealt with in a completely different way anyway.
 	 */
+
+	// todo: what about some member-attributes for:
+	// - using a specific formatter? (HalfFloat, Int32Fixed, MyUserFormatter)
+	// - ignore caching (not using the reference formatter)
+
 	class DynamicObjectFormatter<T> : IFormatter<T>
 	{
 		readonly CerasSerializer _ceras;
@@ -109,35 +114,46 @@ namespace Ceras.Formatters
 			var block = new List<Expression>();
 			var locals = new List<ParameterExpression>();
 
-			foreach (var sMember in members)
+			//
+			// 1. Read existing values into locals (Why? See explanation at the end of the file)
+			for (var i = 0; i < members.Count; i++)
 			{
-				var member = sMember.Member;
-				var type = member.MemberType;
-				// todo: what about some member-attributes for:
-				// - using a specific formatter? (HalfFloat, Int32Fixed, MyUserFormatter)
-				// - ignore caching (not using the reference formatter)
+				var member = members[i].Member;
 
-				var formatter = _ceras.GetReferenceFormatter(type);
+				// Read the data into a new local variable 
+				var tempStore = Variable(member.MemberType, member.Name + "_local");
+				locals.Add(tempStore);
 
+				// Init the local with the current value
+				block.Add(Assign(tempStore, MakeMemberAccess(refValueArg, member.MemberInfo)));
+			}
+
+			//
+			// 2. Deserialize using local variable (faster and more robust than working with field/prop directly)
+			for (var i = 0; i < members.Count; i++)
+			{
+				var member = members[i].Member;
+				var tempStore = locals[i];
+
+				var formatter = _ceras.GetReferenceFormatter(member.MemberType);
 				var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
 
-
-				//
-				// We have everything we need to read and then assign the member.
-
-				// 1. Read the data into a new local variable (Why? See explanation at the end of the file)
-				var tempStore = Variable(type, member.Name + "_local");
-				locals.Add(tempStore);
-
-				// 2. Init the local with the current value
-				block.Add(Assign(tempStore, MakeMemberAccess(refValueArg, member.MemberInfo)));
-
-				// 3. Deserialize the data into the local
+				// Deserialize the data into the local
 				var tempReadCall = Call(Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, tempStore);
 				block.Add(tempReadCall);
+			}
 
-				// 4. Write the data back to the member
+			//
+			// 3. Write values in one big batch
+			for (int i = 0; i < members.Count; i++)
+			{
+				var sMember = members[i];
+				var member = members[i].Member;
+				var tempStore = locals[i];
+				var type = member.MemberType;
+				
+
 				if (member.MemberInfo is FieldInfo fieldInfo && fieldInfo.IsInitOnly)
 				{
 					// Readonly field
@@ -147,8 +163,8 @@ namespace Ceras.Formatters
 				{
 					// Normal field or property
 					var writeBack = Assign(
-						left: MakeMemberAccess(refValueArg, member.MemberInfo),
-						right: tempStore);
+										   left: MakeMemberAccess(refValueArg, member.MemberInfo),
+										   right: tempStore);
 
 					block.Add(writeBack);
 				}

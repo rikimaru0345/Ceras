@@ -25,6 +25,8 @@
 	 * What if the object in question has a sub-object, which contains a reference to the parent?
 	 * At that point we do not have that object yet since we're still "collecting" the individual members...
 	 * Pre-creating a deserialization proxy like we already do won't help! The proxy must have a value at the time the sub-object is created (which is of course not the case then)
+	 * And we can't just collect a few members and then call the ctor, because we have to read stuff in the order its given to us, we have barely any control over the serialization schema,
+	 * as it is optimized for other things and has to stay that way (robustness against renamings and base-class-switches, ...)
 	 * 
 	 * It seems like a pretty hard problem.
 	 * - Maybe I can think of something when I have more time, or someone else comes up with an idea
