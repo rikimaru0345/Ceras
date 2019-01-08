@@ -2,7 +2,6 @@
 
 namespace LiveTesting
 {
-	using BenchmarkDotNet.Running;
 	using Ceras;
 	using System.Collections.Generic;
 	using System.Diagnostics;
@@ -22,10 +21,12 @@ namespace LiveTesting
 			BigIntegerTest();
 
 			VersionToleranceTest();
-			
+
 			ReadonlyTest();
 
 			DelegatesTest();
+
+			MemberInfoAndTypeInfoTest();
 
 			SimpleDictionaryTest();
 
@@ -89,9 +90,9 @@ namespace LiveTesting
 			big = BigInteger.Pow(big, 6);
 
 			CerasSerializer ceras = new CerasSerializer();
-			
+
 			var data = ceras.Serialize(big);
-			
+
 			var clone = ceras.Deserialize<BigInteger>(data);
 
 			Debug.Assert(clone.ToString() == big.ToString());
@@ -234,7 +235,7 @@ namespace LiveTesting
 				var clone = new ReadonlyFieldsTest2();
 				var originalList = clone.Numbers;
 				ceras.Deserialize(ref clone, data);
-				
+
 				Debug.Assert(originalList == clone.Numbers); // actual reference should not have changed
 				Debug.Assert(clone.Numbers.Count == 1); // amount of entries should have changed
 				Debug.Assert(clone.Numbers[0] == 234); // entry itself should be right
@@ -286,13 +287,93 @@ namespace LiveTesting
 		}
 
 
+		static void MemberInfoAndTypeInfoTest()
+		{
+			var ceras = new CerasSerializer();
 
+			var multipleTypesHolder = new TypeTestClass();
+			multipleTypesHolder.Type1 = typeof(Person);
+			multipleTypesHolder.Type2 = typeof(Person);
+			multipleTypesHolder.Type3 = typeof(Person);
+
+			multipleTypesHolder.Object1 = new Person();
+			multipleTypesHolder.Object2 = new Person();
+			multipleTypesHolder.Object3 = multipleTypesHolder.Object1;
+
+			multipleTypesHolder.Member = typeof(TypeTestClass).GetMembers().First();
+			multipleTypesHolder.Method = typeof(TypeTestClass).GetMethods().First();
+
+
+			var data = ceras.Serialize(multipleTypesHolder);
+			data.VisualizePrint("member info");
+			var multipleTypesHolderClone = ceras.Deserialize<TypeTestClass>(data);
+
+			// todo: check object1 .. 3 as well.
+
+			Debug.Assert(multipleTypesHolder.Member.MetadataToken == multipleTypesHolderClone.Member.MetadataToken);
+			Debug.Assert(multipleTypesHolder.Method.MetadataToken == multipleTypesHolderClone.Method.MetadataToken);
+
+			Debug.Assert(multipleTypesHolder.Type1 == multipleTypesHolderClone.Type1);
+			Debug.Assert(multipleTypesHolder.Type2 == multipleTypesHolderClone.Type2);
+			Debug.Assert(multipleTypesHolder.Type3 == multipleTypesHolderClone.Type3);
+
+		}
 
 		static int Add1(int x) => x + 1;
 		static int Add2(int x) => x + 2;
 
 		static void DelegatesTest()
 		{
+			var ceras = new CerasSerializer();
+
+			// 1. Simple test: can ceras persist a static-delegate
+			{
+				Func<int, int> staticFunc = Add1;
+
+				var data = ceras.Serialize(staticFunc);
+
+				var staticFuncClone = ceras.Deserialize<Func<int, int>>(data);
+
+				Debug.Assert(staticFuncClone != null);
+				Debug.Assert(object.Equals(staticFunc, staticFuncClone) == true); // must be considered the same
+				Debug.Assert(object.ReferenceEquals(staticFunc, staticFuncClone) == false); // must be a new instance
+
+
+				Debug.Assert(staticFuncClone(5) == staticFunc(5));
+			}
+
+			// 2. What about a collection of them
+			{
+				var rng = new Random();
+				List<Func<int, int>> funcs = new List<Func<int, int>>();
+
+				for (int i = 0; i < rng.Next(15, 20); i++)
+				{
+					Func<int, int> f;
+
+					if (rng.Next(100) < 50)
+						f = Add1;
+					else
+						f = Add2;
+
+					funcs.Add(f);
+				}
+
+				var data = ceras.Serialize(funcs);
+				var cloneList = ceras.Deserialize<List<Func<int, int>>>(data);
+
+				// Check by checking if the result is the same
+				Debug.Assert(funcs.Count == cloneList.Count);
+				for (int i = 0; i < funcs.Count; i++)
+				{
+					var n = rng.Next();
+					Debug.Assert(funcs[i](n) == cloneList[i](n));
+				}
+			}
+
+
+
+			return;
 			/*
 			Func<int, int> myFunc = Add1;
 
@@ -317,24 +398,7 @@ namespace LiveTesting
 
 			*/
 
-			var ceras = new CerasSerializer();
 
-			var multipleTypesHolder = new TypeTestClass();
-			multipleTypesHolder.Type1 = typeof(Person);
-			multipleTypesHolder.Type2 = typeof(Person);
-			multipleTypesHolder.Type3 = typeof(Person);
-
-			multipleTypesHolder.Object1 = new Person();
-			multipleTypesHolder.Object2 = new Person();
-			multipleTypesHolder.Object3 = multipleTypesHolder.Object1;
-
-			multipleTypesHolder.Member = typeof(TypeTestClass).GetMembers().First();
-			multipleTypesHolder.Method = typeof(TypeTestClass).GetMethods().First();
-
-
-			var data = ceras.Serialize(multipleTypesHolder);
-			data.VisualizePrint("member info");
-			var multipleTypesHolderClone = ceras.Deserialize<TypeTestClass>(data);
 			// Expected: no type-name appears multiple times, and deserialization works correctly.
 
 
@@ -416,9 +480,6 @@ namespace LiveTesting
 		{
 			public event Action SimpleActionEvent;
 			public event Action<int> SimpleEventWithArg;
-
-
-
 		}
 
 		static void SimpleDictionaryTest()

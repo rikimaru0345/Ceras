@@ -53,6 +53,10 @@ namespace Ceras
 		internal static bool IsFormatterConstructed(Type type)
 		{
 			// Array is also always constructed by the caller, but it is handled separately
+
+			if(typeof(MulticastDelegate).IsAssignableFrom(type))
+				return true;
+
 			return _formatterConstructedTypes.Contains(type);
 		}
 

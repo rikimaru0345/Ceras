@@ -28,7 +28,9 @@ namespace Ceras.Formatters
 		{
 				new BannedType(typeof(System.Collections.IEnumerator), "Enumerators are potentially infinite, and also most likely have no way to be instantiated at deserialization-time. If you think this is a mistake, report it as a github issue or provide a custom IFormatter for this case.", true),
 
+				/*
 				new BannedType(typeof(System.Delegate), "Delegates cannot be serialized easily because they often drag in a lot of unintended objects. Support for delegates to static methods is on the todo list though! If you want to know why this is complicated then check this out: https://github.com/rikimaru0345/Ceras/issues/11", true),
+				*/
 		};
 
 

@@ -24,6 +24,13 @@
 				return (IFormatter)memberInfoFormatter;
 			}
 
+			if (typeof(MulticastDelegate).IsAssignableFrom(type))
+			{
+				var formatterType = typeof(DelegateFormatter<>).MakeGenericType(type);
+				var formatter = Activator.CreateInstance(formatterType, args: _serializer);
+				return (IFormatter)formatter;
+			}
+
 			return null;
 		}
 	}
