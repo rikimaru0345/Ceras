@@ -355,37 +355,49 @@ namespace Tutorial
 			});
 
 			// We want to save monsters and abilities in their their own files.
+			//
 			// Using other serializers this would be a terribly time-consuming task.
+			// How would a classic solution for that look like? (without Ceras)
 			// We would have to add attributes or maybe even write custom serializers so the "root objects"
 			// can be when they are referenced in another object..
 			// Then we'd need a separate field maybe where we'd save a list of IDs or something....
 			// And then at load(deserialization)-time we would have to manually load that list, and resolve the
 			// objects they stand for...
-			//
 			// And all that for literally every "foreign key" (as it is called in database terms). :puke: !
 			//
-			//
 			// Ceras offers a much better approach.
-			// You can implement IExternalRootObject, telling Ceras the "Id" of your object.
-			// You can generate that Id however you want, most people would proably opt to use some kind of auto-increment counter
-			// from their SQLite/SQL/MongoDB/LiteDB/...
+			// Just implement the 'IExternalRootObject' interface so Ceras can obtain an "ID" of your objects.
+			// So whenever Ceras sees one of your objects implementing that interface, it will just write the ID of the object instead.
+			// You can generate that ID however you want, most people would proably use some sort of counter.
 			//
-			// At load time Ceras will ask you to load the object again given its Id.
+			// When loading/deserializing an object again Ceras will ask you for the external objects (giving you the ID).
 			//
 
+
 			SerializerConfig config = new SerializerConfig();
+			// 1. Create a config with a (pretty simple) custom external-object-resolver.
 			var myGameObjectsResolver = new MyGameObjectsResolver();
 			config.ExternalObjectResolver = myGameObjectsResolver;
+			// 2. Using KnownTypes is not neccesary at all, it just makes the serialized data a bit smaller.
 			config.KnownTypes.Add(typeof(MyAbility));
 			config.KnownTypes.Add(typeof(MyMonster));
 			config.KnownTypes.Add(typeof(List<>));
 
 
-			// Ceras will call "OnExternalObject" (if you provide a function).
-			// It can be used to find all the IExternalRootObject's that Ceras encounters while
-			// serializing your object.
+			// Ceras will call "OnExternalObject" (if you provide a function) when it encounters one of your IExternalRootObjects.
 			// 
-			// In this example we just collect them in a list and then serialize them as well
+			// So what would you use that for?
+			// Pretty often when serializing one object, you probably also want to know about all the other IExternalRootObjects that
+			// part of the "object graph" in some way (referenced by the original object) so you can save them as well.
+			// 
+			// Maybe it would be a good idea to also include the last time an object has changed.
+			// Like, you could have an OnPropertyChanged and whenever something changes you'd set something like a 'LastModified' date.
+			// Then later you have the list of all the IExternalRootObjects and you can check LastModified to see if you have
+			// to serialize and save it into a file again, or if the object is still up to date.
+			//
+			// In our example that means when serializing our Monster, the OnExternalObject function would
+			// get called for the two abilities; that way we can save them as well.
+
 			List<IExternalRootObject> externalObjects = new List<IExternalRootObject>();
 
 			config.OnExternalObject = obj => { externalObjects.Add(obj); };
