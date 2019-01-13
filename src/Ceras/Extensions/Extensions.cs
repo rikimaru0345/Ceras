@@ -7,11 +7,9 @@ namespace Ceras.Helpers
 
 	public static class CerasNetworkingExampleExtensions
 	{
-		static byte[] _lengthPrefixBuffer = new byte[5];
-		static byte[] _streamBuffer = null;
+		[ThreadStatic] static byte[] _lengthPrefixBuffer;
+		[ThreadStatic] static byte[] _streamBuffer;
 
-		static byte[] _recvPrefixBuffer = new byte[1];
-		static byte[] _recvBuffer = new byte[0x1000];
 
 		/// <summary>
 		/// Writes an object into a stream. This method prefixes the data with the actual size (in VarInt encoding).
@@ -20,6 +18,10 @@ namespace Ceras.Helpers
 		/// </summary>
 		public static void WriteToStream(this CerasSerializer ceras, Stream stream, object obj)
 		{
+			if (_lengthPrefixBuffer == null)
+				_lengthPrefixBuffer = new byte[5];
+
+
 			// Serialize the object
 			int size = ceras.Serialize<object>(obj, ref _streamBuffer);
 
@@ -43,8 +45,7 @@ namespace Ceras.Helpers
 			// Read length bytes
 			var length = (int)await ReadVarIntFromStream(stream);
 
-			// Ensure we can read it into our buffer
-			SerializerBinary.EnsureCapacity(ref _recvBuffer, 0, length);
+			var recvBuffer = new byte[length];
 
 			// Keep reading until we have the full packet
 			int totalRead = 0;
@@ -53,7 +54,7 @@ namespace Ceras.Helpers
 			{
 				int leftToRead = length - totalRead;
 
-				int read = await stream.ReadAsync(_recvBuffer, totalRead, leftToRead);
+				int read = await stream.ReadAsync(recvBuffer, totalRead, leftToRead);
 
 				if (read <= 0)
 					throw new Exception("Stream closed");
@@ -62,7 +63,7 @@ namespace Ceras.Helpers
 			}
 
 			// We have the full packet; now deserialize it
-			var obj = ceras.Deserialize<object>(_recvBuffer);
+			var obj = ceras.Deserialize<object>(recvBuffer);
 
 			return obj;
 		}
@@ -70,17 +71,19 @@ namespace Ceras.Helpers
 
 		static async Task<uint> ReadVarIntFromStream(Stream stream)
 		{
+			var recvPrefixBuffer = new byte[1];
+			
 			int shift = 0;
 			ulong result = 0;
 			const int bits = 32;
 
 			while (true)
 			{
-				int n = await stream.ReadAsync(_recvPrefixBuffer, 0, 1);
+				int n = await stream.ReadAsync(recvPrefixBuffer, 0, 1);
 				if (n <= 0)
 					throw new Exception("Stream terminated");
 
-				ulong byteValue = _recvPrefixBuffer[0];
+				ulong byteValue = recvPrefixBuffer[0];
 
 				ulong tmp = byteValue & 0x7f;
 				result |= tmp << shift;
