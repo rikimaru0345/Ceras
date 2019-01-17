@@ -107,12 +107,14 @@ namespace Ceras
 
 		internal readonly SerializerConfig Config;
 		
+		Type[] _knownTypes; // Copy of the list given by the user in Config; Array iteration is faster though
+
 		// A special resolver. It creates instances of the "dynamic formatter", the DynamicObjectFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
 		// for a given object type.
 		readonly IFormatterResolver _dynamicResolver;
 
 		// The user provided resolver, will always be queried first
-		readonly FormatterResolverCallback _userResolver;
+		readonly FormatterResolverCallback[] _userResolvers;
 
 		// todo: allow the user to provide their own binder. So they can serialize a type-name however they want; but then again they could override the TypeFormatter anyway, so what's the point? maybe it would be best to completely remove the typeBinder (merging it into the default TypeFormatter)?
 		internal readonly ITypeBinder TypeBinder;
@@ -157,7 +159,7 @@ namespace Ceras
 
 			TypeBinder = Config.TypeBinder ?? new NaiveTypeBinder();
 
-			_userResolver = Config.OnResolveFormatter;
+			_userResolvers = Config.OnResolveFormatter.ToArray();
 
 			// Int, Float, Enum, String
 			_resolvers.Add(new PrimitiveResolver(this));
@@ -190,10 +192,14 @@ namespace Ceras
 			//
 			// Basic setup is done
 			// Now calculate the protocol checksum
-			Config.KnownTypes.Seal();
+			_knownTypes = Config.KnownTypes.ToArray();
+			if (Config.KnownTypes.Distinct().Count() != _knownTypes.Length)
+				throw new Exception("KnownTypes can not contain any type multiple times!");
+			Config.KnownTypes = null; // Ensure that any bugs will immediately show themselves, if anyone uses Config.KnownTypes from now on (they should use _knownTypes instead!)
+
 			if (Config.GenerateChecksum)
 			{
-				foreach (var t in Config.KnownTypes)
+				foreach (var t in _knownTypes)
 				{
 					ProtocolChecksum.Add(t.FullName);
 
@@ -227,7 +233,7 @@ namespace Ceras
 			// We can already pre-warm formatters
 			// - dynamic serializers generate their code
 			// - reference formatters generate their wrappers
-			foreach (var t in Config.KnownTypes)
+			foreach (var t in _knownTypes)
 				if (!t.ContainsGenericParameters)
 					GetReferenceFormatter(t);
 
@@ -244,7 +250,7 @@ namespace Ceras
 				//d.WrittenSchemata = new HashSet<Schema>();
 				d.EncounteredSchemaTypes = new HashSet<Type>();
 
-				foreach (var t in Config.KnownTypes)
+				foreach (var t in _knownTypes)
 				{
 					d.TypeCache.RegisterObject(t); // For serialization
 					d.TypeCache.AddKnownType(t);   // For deserialization
@@ -312,7 +318,7 @@ namespace Ceras
 				if (!Config.PersistTypeCache)
 				{
 					InstanceData.TypeCache.ClearSerializationCache();
-					foreach (var t in Config.KnownTypes)
+					foreach (var t in _knownTypes)
 						InstanceData.TypeCache.RegisterObject(t);
 				}
 
@@ -414,7 +420,7 @@ namespace Ceras
 				// Clearing and re-adding the known types is really bad...
 				// But how would we optimize it best?
 				// Maybe having a sort of fallback-cache? I guess it would be faster than what we're doing now,
-				// but then we'd have an additional if() check everytime :/
+				// but then we'd have an additional if() check every time :/
 				//
 				// The deserialization cache is a list, we'd check for out of range, and then check the secondary cache?
 				//
@@ -423,7 +429,7 @@ namespace Ceras
 				if (!Config.PersistTypeCache)
 				{
 					InstanceData.TypeCache.ClearDeserializationCache();
-					foreach (var t in Config.KnownTypes)
+					foreach (var t in _knownTypes)
 						InstanceData.TypeCache.AddKnownType(t);
 				}
 				if (!Config.PersistObjectCache)
@@ -502,9 +508,9 @@ namespace Ceras
 
 
 			// 2.) User
-			if (_userResolver != null)
+			for (int i = 0; i < _userResolvers.Length; i++)
 			{
-				var formatter = _userResolver(this, type);
+				var formatter = _userResolvers[i](this, type);
 				if (formatter != null)
 				{
 					meta.SpecificFormatter = formatter;
@@ -1102,18 +1108,19 @@ namespace Ceras
 		// todo: settings per-field: Formatter<> to override
 
 		/// <summary>
-		/// If you want to provide your own formatter resolver, use this.
+		/// A list of callbacks that Ceras calls when it needs a formatter for some type. The given methods in this list will be tried one after another until one of them returns a IFormatter instance. If all of them return null (or the list is empty) then Ceras will continue as usual, trying the built-in formatters.
 		/// </summary>
-		public FormatterResolverCallback OnResolveFormatter { get; set; } = null;
+		public List<FormatterResolverCallback> OnResolveFormatter { get; } = new List<FormatterResolverCallback>();
 
 		/// <summary>
 		/// Add all the types you want to serialize to this collection.
-		/// When Ceras serializes your objects, and the object field is not exactly matching (for example a base type) then ceras obviously has to write the type.
+		/// When Ceras serializes your objects, and the object field is not exactly matching (for example a base type) then it obviously has to write the type so the object can later be deserialized again.
 		/// Even though Ceras is optimized so it only writes the type once, that is sometimes unacceptable (networking for example).
 		/// So if you add types here, Ceras can *always* use a pre-calculated typeID directly. 
 		/// See the tutorial for more information.
+		/// <para>Ceras refers to the types by their index in this list! So for deserialization the same types must be present in the same order again! You can however have new types at the end of the list.</para>
 		/// </summary>
-		public KnownTypesCollection KnownTypes { get; } = new KnownTypesCollection();
+		public List<Type> KnownTypes { get; internal set; } = new List<Type>();
 
 		/// <summary>
 		/// Defaults to true to protect against unintended usage. 
@@ -1229,123 +1236,7 @@ namespace Ceras
 			_checksum = (int)_hash.Digest();
 		}
 	}
-
-	public class KnownTypesCollection : ICollection<Type>
-	{
-		ICollection<Type> _collection = new HashSet<Type>();
-
-		/* todo: eventually we want to make sure that serializer/deserializer stats NEVER go out of sync
-		 *
-		 * Stage 1 (soon):
-		 *
-		 * Write: every type, every field name, field type, all attributes
-		 * into a buffer and hash it.
-		 *
-		 * The serializer will provide its setup hash after initialization in a property.
-		 * The user is strongly recommended to use it.
-		 *
-		 * For networking the hash will be first thing that's sent before any data serialized by this serializer
-		 * For communication before that, a different serializer might be used that does everything the normal way.
-		 *
-		 * For writing to files the user should write the hash first, and then the serialized object graph.
-		 * And when reading, compare the hashes before anything else.
-		 *
-		 *
-		 * Stage 2 (eventually):
-		 *
-		 * To make debugging easier it would be helpful to know where things went wrong,
-		 * maybe, while creating the known types, we could already give it an expected hash.
-		 * And every change adds another int-sized hash or something (or maybe just after each full object type)
-		 * (or maybe write full object descriptions as hash, and for field-names(string) and fields(arrays) just write a single byte as count or so...)
-		 *
-		 * When something is added, and the hash is known, but the next hash update is not what it should be, then
-		 * we know for sure what object screwed up exactly and why. 
-		 * 
-		 */
-
-
-		// public string KnownTypeHash
-
-		// Means that the collection is now "sealed" and can't be changed anymore
-		bool _isClosed;
-
-		//public void AddHierarchy(Type baseTypeOrInterface)
-		//{
-		//	ThrowIfClosed();
-
-		//}
-
-		public void Seal()
-		{
-			if (_isClosed)
-				return;
-			_isClosed = true;
-
-			// While adding we need to make sure we have no duplicates.
-			// While using it, we need to maintain exact order.
-			var list = new List<Type>();
-
-			list.AddRange(_collection.OrderBy(t => t.FullName));
-
-			_collection = list;
-		}
-
-
-		void ThrowIfClosed()
-		{
-			if (_isClosed)
-				throw new InvalidOperationException("Can't change the type collection after it has been used by the serializer");
-		}
-
-
-		#region ICollection; thanks resharper
-
-		public int Count => _collection.Count;
-		public bool IsReadOnly => _isClosed || _collection.IsReadOnly;
-
-
-		public void Add(Type item)
-		{
-			ThrowIfClosed();
-			_collection.Add(item);
-		}
-
-		public void Clear()
-		{
-			ThrowIfClosed();
-			_collection.Clear();
-		}
-
-		public bool Remove(Type item)
-		{
-			ThrowIfClosed();
-			return _collection.Remove(item);
-		}
-
-
-		public bool Contains(Type item)
-		{
-			return _collection.Contains(item);
-		}
-
-		public void CopyTo(Type[] array, int arrayIndex)
-		{
-			_collection.CopyTo(array, arrayIndex);
-		}
-
-		public IEnumerator<Type> GetEnumerator()
-		{
-			return _collection.GetEnumerator();
-		}
-
-		IEnumerator IEnumerable.GetEnumerator()
-		{
-			return ((IEnumerable)_collection).GetEnumerator();
-		}
-
-		#endregion
-	}
-
+	
 	public interface ITypeBinder
 	{
 		string GetBaseName(Type type);
