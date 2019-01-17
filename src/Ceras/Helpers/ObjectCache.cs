@@ -6,7 +6,10 @@
 	// Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
 	class ObjectCache
 	{
+		// While serializing we add all encountered objects and give them an ID (their index), so when we encounter them again we can just write the index instead.
 		readonly Dictionary<object, int> _serializationCache = new Dictionary<object, int>();
+		// At deserialization-time we keep adding all new objects to this list, so when we find a back-reference we can take it from here.
+		// RefProxy enables us to deserialize even the most complex scenarios (For example: Objects that directly reference themselves, while they're not even fully constructed yet)
 		readonly List<RefProxy> _deserializationCache = new List<RefProxy>();
 
 
@@ -20,7 +23,7 @@
 
 		// Serialization:
 		// Save and object and assign an ID to it.
-		// If it gets encoutnered again, then TryGetExistingObjectId will give you the ID to it.
+		// If it gets encountered again, then TryGetExistingObjectId will give you the ID to it.
 		internal int RegisterObject<T>(T value)
 		{
 			var id = _serializationCache.Count;
@@ -59,7 +62,7 @@
 			// Answer:
 			// What if a specific object (MySpecificType) was entered into the deserializer as <object>
 			// because the field type was not known at the time?
-			// In that case we'd try to do this conversion:  (RefProxy<MyspecificType>)((object)((RefProxy<object>)reference))
+			// In that case we'd try to do this conversion:  (RefProxy<MySpecificType>)((object)((RefProxy<object>)reference))
 			// which of course doesn't work...
 
 #if DEBUG
