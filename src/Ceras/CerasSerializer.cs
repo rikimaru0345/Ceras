@@ -6,7 +6,6 @@ namespace Ceras
 	using Helpers;
 	using Resolvers;
 	using System;
-	using System.Collections;
 	using System.Collections.Generic;
 	using System.Linq;
 	using System.Reflection;
@@ -54,7 +53,10 @@ namespace Ceras
 		{
 			// Array is also always constructed by the caller, but it is handled separately
 
-			if(typeof(MulticastDelegate).IsAssignableFrom(type))
+			// All delegates are formatter constructed!
+			// Checking like that is slow, but that's ok because calls will be cached
+			// todo: this should be removed later, when we can notify ceras that a type is formatter-constructed (either automatically by attribute on a formatter, or through some public method)
+			if (typeof(MulticastDelegate).IsAssignableFrom(type))
 				return true;
 
 			return _formatterConstructedTypes.Contains(type);
@@ -71,7 +73,9 @@ namespace Ceras
 		{
 			// Type
 			var type = typeof(Type);
-			_rtTypeType = type.GetType();
+
+			// ReSharper disable once PossibleMistakenCallToGetType.2
+			_rtTypeType = type.GetType(); // It's extremely rare, but yes, we do indeed want to call GetType() on Type
 
 			_formatterConstructedTypes.Add(type);
 			_formatterConstructedTypes.Add(_rtTypeType);
@@ -106,7 +110,7 @@ namespace Ceras
 
 
 		internal readonly SerializerConfig Config;
-		
+
 		Type[] _knownTypes; // Copy of the list given by the user in Config; Array iteration is faster though
 
 		// A special resolver. It creates instances of the "dynamic formatter", the DynamicObjectFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
@@ -352,7 +356,7 @@ namespace Ceras
 		/// </summary>
 		public T Deserialize<T>(byte[] buffer)
 		{
-			T value = default(T);
+			T value = default;
 			int offset = 0;
 			Deserialize(ref value, buffer, ref offset);
 			return value;
@@ -603,21 +607,29 @@ namespace Ceras
 			{
 				var t = f.FieldType;
 
+				// Reference to the serializer
 				if (t == typeof(CerasSerializer))
 				{
 					f.SetValue(formatter, this);
 					continue;
 				}
+
+				// Any formatter?
+				if (!typeof(IFormatter).IsAssignableFrom(t))
+					continue;
+				
+				// A field like 'IFormatter<...>'
+				var formatterType = ReflectionHelper.FindClosedType(t, typeof(IFormatter<>));
+				if (formatterType != null)
+				{
+					var formattedType = formatterType.GetGenericArguments()[0];
+					var requestedFormatter = GetReferenceFormatter(formattedType);
+
+					f.SetValue(formatter, requestedFormatter);
+				}
 				else
 				{
-					var formatterType = ReflectionHelper.FindClosedType(t, typeof(IFormatter<>));
-					if (formatterType != null)
-					{
-						var formattedType = formatterType.GetGenericArguments()[0];
-						var requestedFormatter = GetReferenceFormatter(formattedType);
-
-						f.SetValue(formatter, requestedFormatter);
-					}
+					// Are we looking for a very specific formatter?
 				}
 			}
 		}
@@ -631,7 +643,7 @@ namespace Ceras
 			//
 			// 1. Is this schema already active for the current type?
 			//    Maybe we're still set from last serialization/deserialization?
-			if (meta.CurrentSchema == schema)
+			if (Equals(meta.CurrentSchema, schema))
 				return;
 
 
@@ -1123,14 +1135,22 @@ namespace Ceras
 		public List<Type> KnownTypes { get; internal set; } = new List<Type>();
 
 		/// <summary>
-		/// Defaults to true to protect against unintended usage. 
-		/// Which means that when KnownTypes has any entries the TypeFormatter will be sealed to prevent adding more types.
-		/// The idea is that when someone uses KnownTypes, they have a fixed list of types
-		/// they want to serialize (to minimize overhead from serializing type names initially), which is usually done in networking scenarios;
+		/// This setting is only used when KnownTypes is used (has >0 entries).
+		/// When set to true, and a new Type (so a Type that is not contained in KnownTypes) is encountered in either serialization or deserialization, an exception is thrown.
+		/// 
+		/// <para>!! Defaults to true to protect against exploits and bugs.</para>
+		/// <para>!! Don't disable this unless you know what you're doing.</para>
+		///
+		/// If you use KnownTypes you're most likely using Ceras in a network-scenario.
+		/// If you then turn off this setting, you're basically allowing the other side (client or server) to construct whatever object they want on your side (which is known to be a huge attack vector for networked software).
+		///
+		/// It also protects against bugs by ensuring you are 100% aware of all the types that get serialized.
+		/// You could easily end up including stuff like passwords, usernames, access-keys, ... completely by accident. 
+		/// 
+		/// The idea is that when someone uses KnownTypes, they have a fixed list of types they want to serialize (to minimize overhead from serializing type names initially),
+		/// which is usually done in networking scenarios;
 		/// While working on a project you might add more types or add new fields or things like that, and a common mistake is accidentally adding a new type (or even whole graph!)
-		/// to the object graph that was not intended; which is obviously extremely problematic (super risky if sensitive 
-		/// stuff gets suddenly dragged into the serialization; or might even just crash when encountering types that can't even be serialized correctly; ...).
-		/// Don't disable this unless you know what you're doing.
+		/// to the object graph that was not intended; which is obviously extremely problematic (super risky if sensitive stuff gets suddenly dragged into the serialization)
 		/// </summary>
 		public bool SealTypesWhenUsingKnownTypes { get; set; } = true;
 
@@ -1236,7 +1256,7 @@ namespace Ceras
 			_checksum = (int)_hash.Digest();
 		}
 	}
-	
+
 	public interface ITypeBinder
 	{
 		string GetBaseName(Type type);

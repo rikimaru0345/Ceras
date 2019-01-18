@@ -7,7 +7,7 @@
 	using System.Numerics;
 	using static SerializerBinary;
 
-	public class BclFormatterResolver : Resolvers.IFormatterResolver
+	class BclFormatterResolver : Resolvers.IFormatterResolver
 	{
 		static readonly Dictionary<Type, IFormatter> _primitiveFormatters = new Dictionary<Type, IFormatter>
 		{
@@ -44,122 +44,20 @@
 			return null;
 		}
 
-		public class DateTimeFormatter : IFormatter<DateTime>
-		{
-			public void Serialize(ref byte[] buffer, ref int offset, DateTime value)
-			{
-				var v = value.ToBinary();
-				WriteInt64Fixed(ref buffer, ref offset, v);
-			}
 
-			public void Deserialize(byte[] buffer, ref int offset, ref DateTime value)
-			{
-				var v = ReadInt64Fixed(buffer, ref offset);
-				value = DateTime.FromBinary(v);
-			}
-		}
-
-		public class DateTimeOffsetFormatter : IFormatter<DateTimeOffset>
-		{
-			public void Serialize(ref byte[] buffer, ref int offset, DateTimeOffset value)
-			{
-				WriteInt64Fixed(ref buffer, ref offset, value.Ticks);
-				WriteInt16Fixed(ref buffer, ref offset, (short)value.Offset.TotalMinutes);
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref DateTimeOffset value)
-			{
-				var dtTicks = ReadInt64Fixed(buffer, ref offset);
-				var timeOffset = ReadInt16Fixed(buffer, ref offset);
-
-				value = new DateTimeOffset(dtTicks, TimeSpan.FromMinutes(timeOffset));
-			}
-		}
-
-		public class TimeSpanFormatter : IFormatter<TimeSpan>
-		{
-			public void Serialize(ref byte[] buffer, ref int offset, TimeSpan value)
-			{
-				WriteInt64Fixed(ref buffer, ref offset, value.Ticks);
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref TimeSpan value)
-			{
-				value = new TimeSpan(ReadInt64Fixed(buffer, ref offset));
-			}
-		}
-
-		public class GuidFormatter : IFormatter<Guid>
-		{
-			public void Serialize(ref byte[] buffer, ref int offset, Guid value)
-			{
-				WriteGuid(ref buffer, ref offset, value);
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref Guid value)
-			{
-				value = ReadGuid(buffer, ref offset);
-			}
-		}
-
-		public unsafe class DecimalFormatter : IFormatter<decimal>
-		{
-			public void Serialize(ref byte[] buffer, ref int offset, decimal value)
-			{
-				SerializerBinary.EnsureCapacity(ref buffer, offset, 16);
-				fixed (byte* dst = &buffer[offset])
-				{
-					var src = &value;
-
-					*(decimal*)(dst) = *src;
-
-					offset += 16;
-				}
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref decimal value)
-			{
-				fixed (byte* src = &buffer[offset])
-				{
-					value = *(decimal*)(src);
-					offset += 16;
-				}
-			}
-		}
-
-
-		/*
-		public class TupleFormatter<T1, T2> : IFormatter<Tuple<T1, T2>>
-		{
-			IFormatter<T1> _f1;
-			IFormatter<T2> _f2;
-
-			public TupleFormatter(CerasSerializer serializer)
-			{
-				_f1 = (IFormatter<T1>)serializer.GetSpecificFormatter(typeof(T1));
-				_f2 = (IFormatter<T2>)serializer.GetSpecificFormatter(typeof(T2));
-			}
-
-
-			public void Serialize(ref byte[] buffer, ref int offset, Tuple<T1, T2> value)
-			{
-
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref Tuple<T1, T2> value)
-			{
-			}
-		}
-		*/
-
-
+		
 		[SuppressMessage("ReSharper", "ConvertNullableToShortForm")]
-		public class NullableFormatter<T> : IFormatter<Nullable<T>> where T : struct
+		[SuppressMessage("ReSharper", "RedundantExplicitNullableCreation")]
+		[SuppressMessage("General", "IDE0001")]
+		class NullableFormatter<T> : IFormatter<Nullable<T>> where T : struct
 		{
 			IFormatter<T> _specificFormatter;
 
 			public NullableFormatter(CerasSerializer serializer)
 			{
+				if (!typeof(T).IsValueType)
+					throw new InvalidOperationException($"Trying to create a 'NullableFormatter<>' for generic T = '{typeof(T).FullName}', which is not a value-type!");
+
 				_specificFormatter = (IFormatter<T>)serializer.GetSpecificFormatter(typeof(T));
 			}
 
@@ -181,7 +79,7 @@
 				bool hasValue = ReadByte(buffer, ref offset) != 0;
 				if (hasValue)
 				{
-					T innerValue = default(T);
+					T innerValue = default;
 					_specificFormatter.Deserialize(buffer, ref offset, ref innerValue);
 					value = new Nullable<T>(innerValue);
 				}
@@ -192,6 +90,90 @@
 			}
 		}
 		
+
+		class DateTimeFormatter : IFormatter<DateTime>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, DateTime value)
+			{
+				var v = value.ToBinary();
+				WriteInt64Fixed(ref buffer, ref offset, v);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref DateTime value)
+			{
+				var v = ReadInt64Fixed(buffer, ref offset);
+				value = DateTime.FromBinary(v);
+			}
+		}
+
+		class DateTimeOffsetFormatter : IFormatter<DateTimeOffset>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, DateTimeOffset value)
+			{
+				WriteInt64Fixed(ref buffer, ref offset, value.Ticks);
+				WriteInt16Fixed(ref buffer, ref offset, (short)value.Offset.TotalMinutes);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref DateTimeOffset value)
+			{
+				var dtTicks = ReadInt64Fixed(buffer, ref offset);
+				var timeOffset = ReadInt16Fixed(buffer, ref offset);
+
+				value = new DateTimeOffset(dtTicks, TimeSpan.FromMinutes(timeOffset));
+			}
+		}
+
+		class TimeSpanFormatter : IFormatter<TimeSpan>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, TimeSpan value)
+			{
+				WriteInt64Fixed(ref buffer, ref offset, value.Ticks);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref TimeSpan value)
+			{
+				value = new TimeSpan(ReadInt64Fixed(buffer, ref offset));
+			}
+		}
+
+		class GuidFormatter : IFormatter<Guid>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, Guid value)
+			{
+				WriteGuid(ref buffer, ref offset, value);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref Guid value)
+			{
+				value = ReadGuid(buffer, ref offset);
+			}
+		}
+
+		class DecimalFormatter : IFormatter<decimal>
+		{
+			public unsafe void Serialize(ref byte[] buffer, ref int offset, decimal value)
+			{
+				EnsureCapacity(ref buffer, offset, 16);
+				fixed (byte* dst = &buffer[offset])
+				{
+					var src = &value;
+
+					*(decimal*)(dst) = *src;
+
+					offset += 16;
+				}
+			}
+
+			public unsafe void Deserialize(byte[] buffer, ref int offset, ref decimal value)
+			{
+				fixed (byte* src = &buffer[offset])
+				{
+					value = *(decimal*)(src);
+					offset += 16;
+				}
+			}
+		}
+
 		class BitVector32Formatter : IFormatter<BitVector32>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, BitVector32 value)
@@ -234,5 +216,31 @@
 				value = new BigInteger(bytes);
 			}
 		}
-	}
+	
+
+		/*
+		class TupleFormatter<T1, T2> : IFormatter<Tuple<T1, T2>>
+		{
+			IFormatter<T1> _f1;
+			IFormatter<T2> _f2;
+
+			public TupleFormatter(CerasSerializer serializer)
+			{
+				_f1 = (IFormatter<T1>)serializer.GetSpecificFormatter(typeof(T1));
+				_f2 = (IFormatter<T2>)serializer.GetSpecificFormatter(typeof(T2));
+			}
+
+
+			public void Serialize(ref byte[] buffer, ref int offset, Tuple<T1, T2> value)
+			{
+
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref Tuple<T1, T2> value)
+			{
+			}
+		}
+		*/
+
+}
 }

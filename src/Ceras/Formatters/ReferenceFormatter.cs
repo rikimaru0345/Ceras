@@ -73,7 +73,7 @@
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
-			if (EqualityComparer<T>.Default.Equals(value, default(T)))
+			if (EqualityComparer<T>.Default.Equals(value, default))
 			{
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, Null, Bias);
 				return;
@@ -143,7 +143,7 @@
 				if (value != null)
 					_serializer.Config.DiscardObjectMethod?.Invoke(value);
 
-				value = default(T);
+				value = default;
 				return;
 			}
 

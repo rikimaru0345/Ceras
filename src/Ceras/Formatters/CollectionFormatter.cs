@@ -100,7 +100,7 @@
 
 			for (int i = 0; i < itemCount; i++)
 			{
-				TItem item = default(TItem);
+				TItem item = default;
 				f.Deserialize(buffer, ref offset, ref item);
 				value.Add(item);
 			}

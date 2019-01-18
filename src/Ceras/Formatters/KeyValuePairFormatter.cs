@@ -22,10 +22,10 @@
 
 		public void Deserialize(byte[] buffer, ref int offset, ref KeyValuePair<TKey, TValue> kvp)
 		{
-			TKey key = default(TKey);
+			TKey key = default;
 			_keyFormatter.Deserialize(buffer, ref offset, ref key);
 
-			TValue value = default(TValue);
+			TValue value = default;
 			_valueFormatter.Deserialize(buffer, ref offset, ref value);
 
 			kvp = new KeyValuePair<TKey, TValue>(key, value);
