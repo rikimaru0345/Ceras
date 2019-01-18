@@ -3,6 +3,8 @@
 namespace LiveTesting
 {
 	using Ceras;
+	using Ceras.Formatters;
+	using Ceras.Resolvers;
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Linq;
@@ -18,6 +20,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			InjectSpecificFormatterTest();
+
 			BigIntegerTest();
 
 			VersionToleranceTest();
@@ -82,6 +86,38 @@ namespace LiveTesting
 			var summary = BenchmarkRunner.Run<SerializerBinaryBenchmarks>();
 			*/
 
+		}
+
+		static void InjectSpecificFormatterTest()
+		{
+			var config = new SerializerConfig();
+			config.OnResolveFormatter.Add((c, t) =>
+			{
+				if (t == typeof(Person))
+					return new DependencyInjectionTestFormatter();
+				return null;
+			});
+
+			var ceras = new CerasSerializer(config);
+
+			var f = ceras.GetSpecificFormatter(typeof(Person));
+			
+			DependencyInjectionTestFormatter exampleFormatter = (DependencyInjectionTestFormatter)f;
+			
+			Debug.Assert(exampleFormatter.Ceras == ceras);
+			Debug.Assert(exampleFormatter.EnumFormatter != null);
+			Debug.Assert(exampleFormatter == exampleFormatter.Self);
+
+		}
+
+		class DependencyInjectionTestFormatter : IFormatter<Person>
+		{
+			public CerasSerializer Ceras;
+			public EnumFormatter<ByteEnum> EnumFormatter;
+			public DependencyInjectionTestFormatter Self;
+
+			public void Serialize(ref byte[] buffer, ref int offset, Person value) => throw new NotImplementedException();
+			public void Deserialize(byte[] buffer, ref int offset, ref Person value) => throw new NotImplementedException();
 		}
 
 		static void BigIntegerTest()

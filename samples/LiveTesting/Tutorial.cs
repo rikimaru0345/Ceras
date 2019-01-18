@@ -285,12 +285,12 @@ namespace Tutorial
 			 */
 
 			SerializerConfig config = new SerializerConfig();
-			config.OnResolveFormatter = (s, t) =>
+			config.OnResolveFormatter.Add((s, t) =>
 			{
 				if (t == typeof(Person))
 					return new MyCustomPersonFormatter();
 				return null;
-			};
+			});
 
 			var serializer = new CerasSerializer(config);
 

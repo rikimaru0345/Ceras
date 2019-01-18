@@ -617,19 +617,52 @@ namespace Ceras
 				// Any formatter?
 				if (!typeof(IFormatter).IsAssignableFrom(t))
 					continue;
-				
-				// A field like 'IFormatter<...>'
-				var formatterType = ReflectionHelper.FindClosedType(t, typeof(IFormatter<>));
-				if (formatterType != null)
-				{
-					var formattedType = formatterType.GetGenericArguments()[0];
-					var requestedFormatter = GetReferenceFormatter(formattedType);
 
-					f.SetValue(formatter, requestedFormatter);
-				}
-				else
+
+				var formatterInterface = ReflectionHelper.FindClosedType(t, typeof(IFormatter<>));
+
+				if (formatterInterface == null)
+					continue; // Not a formatter? Then that's not something we can handle
+
+				var formattedType = formatterInterface.GetGenericArguments()[0];
+
+				// Any formatter that can handle the given type
+				if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(IFormatter<>))
 				{
-					// Are we looking for a very specific formatter?
+					var requestedFormatter = GetReferenceFormatter(formattedType);
+					
+					f.SetValue(formatter, requestedFormatter);
+
+					continue;
+				}
+
+				// Some very specific formatter
+				if (ReflectionHelper.IsAssignableToGenericType(t, typeof(IFormatter<>)))
+				{
+					var refFormatter = GetReferenceFormatter(formattedType);
+
+					if (refFormatter.GetType() == t)
+					{
+						// This was the formatter we were looking for
+						f.SetValue(formatter, refFormatter);
+						continue;
+					}
+
+					// Maybe we're dealing with a reference type and the user explicitly wants the direct formatter?
+					// todo: there should be some kind of warning maybe, but how/where would we output it?
+					// If the formattedType is a referenceType and the user uses the direct formatter things could get ugly (references are not handled at all, user has to do it on his own)
+					var directFormatter = GetSpecificFormatter(formattedType);
+
+					if (directFormatter.GetType() == t)
+					{
+						f.SetValue(formatter, directFormatter);
+						continue;
+					}
+
+
+					var anyExisting = directFormatter ?? refFormatter;
+
+					throw new InvalidOperationException($"The formatter '{formatter.GetType().FullName}' has a dependency on '{t.GetType().FullName}' (via the field '{f.Name}') to format '{formattedType.FullName}', but this Ceras instance is already using '{anyExisting.GetType().FullName}' to handle this type.");
 				}
 			}
 		}

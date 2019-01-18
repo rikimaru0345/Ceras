@@ -43,5 +43,32 @@
 
 			return null;
 		}
+
+		public static bool IsAssignableToGenericType(Type givenType, Type genericType)
+		{
+			if (genericType.IsAssignableFrom(givenType))
+				return true;
+
+			var interfaceTypes = givenType.GetInterfaces();
+
+			foreach (var it in interfaceTypes)
+			{
+				// Ok, we lied, we also allow it if 'genericType' is an interface and 'givenType' implements it
+				if (it == genericType)
+					return true;
+
+				if (it.IsGenericType && it.GetGenericTypeDefinition() == genericType)
+					return true;
+			}
+
+			if (givenType.IsGenericType && givenType.GetGenericTypeDefinition() == genericType)
+				return true;
+
+			Type baseType = givenType.BaseType;
+			if (baseType == null)
+				return false;
+
+			return IsAssignableToGenericType(baseType, genericType);
+		}
 	}
 }
