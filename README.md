@@ -25,23 +25,27 @@ var s = new CerasSerializer();
 var bytes = s.Serialize(p);
 ```
 
-## [**>> You can find many more examples in the tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs)
-
-### [**>> Optimization & Usage Pitfalls**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
+## [**>> 1. Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs)
+## [**>> 2. Detailed guides for specific scenarios on my blog**](https://www.rikidev.com/)
+## [**>> 3. Read 'Optimization & Usage Pitfalls'**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
 
 
 # Features
 
 ### Major Features
 - Very fast, very small binary output
+- Supports pretty much any type:
+	- [Hand-written formatters for all common .NET types](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features#built-in-types)
+	- Generates new formatters at runtime for any new/user type
+	- [Very easy to extend and customize](https://www.rikidev.com/extending-ceras-with-a-custom-formatter/)
 - **Full** support for circular references (including object caching)
 - **Full** support for polymorphism / inheritance / interfaces
 - Can serialize objects into parts as "ExtenalObjects" (useful in many many scenarios)
 - Automatic version-tolerance, no need to assign any attributes to your classes!
 
 ## [**>> Full feature list (and planned features)**](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)
-
-
+## [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
+## [**>> Using Ceras to easily send C# objects over TCP/UDP**](https://rikidev.com/networking-with-ceras-part-1/)
 
 # What can this be used for?
 
@@ -60,10 +64,11 @@ So your `Person` has reference to other `Person` objects, but each one should be
 No problem, use `IExternalRootObject`. It's super easy. (see [External Objects Guide (Game DB example))](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L300)).
 
 - **Network:** 
-In the past people used to manually write network messages into some network stream or packet because serialization was slow.
+In the past people used to manually write network messages into a network stream or packet because serialization was either too slow or couldn't handle complicated object-graphs.
 Receiving objects from the network also allocated a lot of 'garbage objects' because there was no easy way to recycle packets.
-Ceras can fix all this, with some simple setup you can implement a very efficient protocol (see [Network Example Guide](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L278)).
-If you want to, you can even let Ceras 'learn' the used types over a network-session so types will be automatically encoded to short IDs (or use `config.KnownTypes` to pre-establish types).
+Other serializers always write long type names...
+Ceras fixes all of this, with some simple setup you can implement a very efficient protocol (see [Network Example Guide](https://rikidev.com/networking-with-ceras-part-1/)).
+If you want to, you can even let Ceras 'learn' types that get sent so types will be automatically encoded to short IDs (or use `config.KnownTypes` to register network types for maximum efficiency).
 
 - **More:**
 The above are just examples, Ceras is made so it can be used in pretty much every situation...
@@ -74,8 +79,12 @@ The above are just examples, Ceras is made so it can be used in pretty much ever
 
 - You plan to use this on a platform that does not support code generation. Serializers for user-types are created at runtime through code-generation. And if that isn't allowed (for example on iOS) Ceras won't be able to generate arbitrary object-formatters. Built-in types will still work though. There are ways to fix this though... (pre-generating the formatters)
 
-## [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
-## [**>> Usage guides on my blog**](https://rikidev.com/networking-with-ceras-part-1/)
+
+# Support
+
+- Open an issue
+- Join the discord server (link at the top of this page)
+
 
 
 
