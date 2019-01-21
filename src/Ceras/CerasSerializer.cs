@@ -128,7 +128,7 @@ namespace Ceras
 		readonly List<IFormatterResolver> _resolvers = new List<IFormatterResolver>();
 
 
-		readonly Dictionary<Type, TypeMetaData> _metaData = new Dictionary<Type, TypeMetaData>();
+		readonly TypeDictionary<TypeMetaData> _metaData = new TypeDictionary<TypeMetaData>();
 		readonly FactoryPool<InstanceData> _instanceDataPool;
 
 
@@ -199,7 +199,6 @@ namespace Ceras
 			_knownTypes = Config.KnownTypes.ToArray();
 			if (Config.KnownTypes.Distinct().Count() != _knownTypes.Length)
 				throw new Exception("KnownTypes can not contain any type multiple times!");
-			Config.KnownTypes = null; // Ensure that any bugs will immediately show themselves, if anyone uses Config.KnownTypes from now on (they should use _knownTypes instead!)
 
 			if (Config.GenerateChecksum)
 			{
@@ -250,15 +249,8 @@ namespace Ceras
 				var d = new InstanceData();
 				d.CurrentRoot = null;
 				d.ObjectCache = new ObjectCache();
-				d.TypeCache = new ObjectCache();
-				//d.WrittenSchemata = new HashSet<Schema>();
+				d.TypeCache = new TypeCache(_knownTypes);
 				d.EncounteredSchemaTypes = new HashSet<Type>();
-
-				foreach (var t in _knownTypes)
-				{
-					d.TypeCache.RegisterObject(t); // For serialization
-					d.TypeCache.AddKnownType(t);   // For deserialization
-				}
 
 				return d;
 			});
@@ -321,17 +313,11 @@ namespace Ceras
 				//
 				// After we're done, we have to clear all our caches!
 				// Only very rarely can we avoid that
-				// todo: would it be more efficient to have one static and one dynamic dictionary??
+				// todo: implement check-pointing inside the TypeDictionary itself
 				if (!Config.PersistTypeCache)
-				{
-					InstanceData.TypeCache.ClearSerializationCache();
-					foreach (var t in _knownTypes)
-						InstanceData.TypeCache.RegisterObject(t);
-				}
-
-				if (!Config.PersistObjectCache)
-					InstanceData.ObjectCache.ClearSerializationCache();
-
+					InstanceData.TypeCache.ResetSerializationCache();
+				
+				InstanceData.ObjectCache.ClearSerializationCache();
 
 				int dataSize = offsetAfterWrite - offsetBeforeWrite;
 
@@ -434,13 +420,9 @@ namespace Ceras
 				// Or maybe the most straight-forward approach would be to simply remember at what index the KnownTypes end and the dynamic types start,
 				// and then we can just RemoveRange() everything above the known index...
 				if (!Config.PersistTypeCache)
-				{
-					InstanceData.TypeCache.ClearDeserializationCache();
-					foreach (var t in _knownTypes)
-						InstanceData.TypeCache.AddKnownType(t);
-				}
-				if (!Config.PersistObjectCache)
-					InstanceData.ObjectCache.ClearDeserializationCache();
+					InstanceData.TypeCache.ResetDeserializationCache();
+				
+				InstanceData.ObjectCache.ClearDeserializationCache();
 			}
 			finally
 			{
@@ -572,7 +554,8 @@ namespace Ceras
 
 		internal TypeMetaData GetTypeMetaData(Type type)
 		{
-			if (_metaData.TryGetValue(type, out var meta))
+			ref var meta = ref _metaData.GetOrAddValueRef(type);
+			if(meta != null)
 				return meta;
 
 			bool isFrameworkType;
@@ -587,7 +570,6 @@ namespace Ceras
 
 			meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type);
 
-			_metaData.Add(type, meta);
 			return meta;
 		}
 
@@ -1040,7 +1022,7 @@ namespace Ceras
 	// some values for each call.
 	struct InstanceData
 	{
-		public ObjectCache TypeCache;
+		public TypeCache TypeCache;
 		public ObjectCache ObjectCache;
 
 		public IExternalRootObject CurrentRoot;
@@ -1083,17 +1065,6 @@ namespace Ceras
 		/// the same configuration as it (unless you really know exactly what you're doing)
 		/// </summary>
 		public bool PersistTypeCache { get; set; } = false;
-
-		/// <summary>
-		/// Same as PersistTypeCache, but if turned on, all other objects will get cached as well.
-		/// Pretty interesting for networking as objects that have previously been sent to the other side will
-		/// be serialized as a very short ID when they are encountered again (the other sides deserializer will keep the objects in memory as well).
-		/// It is strongly suggested that you either completely clear, or manually remove objects from the object cache when an object is no longer used,
-		/// as this frees up ID-space (making the connection more efficient) and also allows objects to be garbage collected.
-		/// That means if you don't manage (clear/remove) the object cache explicitly, you'll eventually get an OutOfMemoryException.
-		/// (Again, ONLY for networking purposes as serializer and deserializer have to stay in perfect sync!)
-		/// </summary>
-		public bool PersistObjectCache { get; set; } = false;
 
 
 		/// <summary>

@@ -1,21 +1,44 @@
-﻿namespace Ceras.Helpers
-{
-	using System;
-	using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 
-	// Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
-	class ObjectCache
+namespace Ceras.Helpers
+{
+	// A copy of ObjectCache, but specialized to Types
+	class TypeCache
 	{
+		readonly Type[] _knownTypes;
+
 		// While serializing we add all encountered objects and give them an ID (their index), so when we encounter them again we can just write the index instead.
-		readonly Dictionary<object, int> _serializationCache = new Dictionary<object, int>();
+		readonly TypeDictionary<int> _serializationCache = new TypeDictionary<int>();
+
 		// At deserialization-time we keep adding all new objects to this list, so when we find a back-reference we can take it from here.
 		// RefProxy enables us to deserialize even the most complex scenarios (For example: Objects that directly reference themselves, while they're not even fully constructed yet)
-		readonly List<RefProxy> _deserializationCache = new List<RefProxy>();
+		readonly List<TypeRefProxy> _deserializationCache = new List<TypeRefProxy>();
+
+		readonly FactoryPool<TypeRefProxy> _typeRefProxyPool = new FactoryPool<TypeRefProxy>(p => new TypeRefProxy(), 8);
+
+
+		public TypeCache(Type[] knownTypes)
+		{
+			_knownTypes = knownTypes;
+			
+			for (int i = 0; i < knownTypes.Length; i++)
+			{
+				var t = knownTypes[i];
+
+				// Serialization
+				RegisterObject(t);
+
+				// Deserialization
+				var p = CreateDeserializationProxy();
+				p.Type = t;
+			}
+		}
 
 
 		// Serialization:
 		// If this object was encountered before, retrieve its ID
-		internal bool TryGetExistingObjectId<T>(T value, out int id)
+		internal bool TryGetExistingObjectId(Type value, out int id)
 		{
 			return _serializationCache.TryGetValue(value, out id);
 		}
@@ -23,27 +46,30 @@
 		// Serialization:
 		// Save and object and assign an ID to it.
 		// If it gets encountered again, then TryGetExistingObjectId will give you the ID to it.
-		internal int RegisterObject<T>(T value)
+		internal int RegisterObject(Type value)
 		{
 			var id = _serializationCache.Count;
-			_serializationCache[value] = id;
+
+			_serializationCache.GetOrAddValueRef(value) = id;
+
 			return id;
 		}
 
 		// Deserialization:
 		// When encountering a new object
-		internal RefProxy<T> CreateDeserializationProxy<T>()
+		internal TypeRefProxy CreateDeserializationProxy()
 		{
-			var p = RefProxyPool<T>.Rent();
+			var p = _typeRefProxyPool.RentObject();
 			_deserializationCache.Add(p);
 
 			return p;
 		}
 
 
+
 		// For deserialization:
 		// Returns an object that was deserialized previously (seen already, and created by CreateDeserializationProxy)
-		internal T GetExistingObject<T>(int id)
+		internal Type GetExistingObject(int id)
 		{
 			// In case you're wondering what's up here:
 			// Why are we not directly casting to RefProxy<T> and then return .Value ??
@@ -59,77 +85,50 @@
 #endif
 
 			var reference = _deserializationCache[id];
-			return (T)reference.ObjectValue;
+			return reference.Type;
 		}
 
 
-		internal void ClearSerializationCache()
+		internal void ResetSerializationCache()
 		{
+			// Do we even have to clear the cache?
+			if (_serializationCache.Count == _knownTypes.Length)
+				return; // No modifications, no need to reset
+
 			_serializationCache.Clear();
+
+			for (int i = 0; i < _knownTypes.Length; i++)
+			{
+				var t = _knownTypes[i];
+				RegisterObject(t);
+			}
 		}
 
-		internal void ClearDeserializationCache()
+
+		internal void ResetDeserializationCache()
 		{
-			for (int i = 0; i < _deserializationCache.Count; i++)
+			for (int i = _knownTypes.Length; i < _deserializationCache.Count; i++)
 			{
 				var proxy = _deserializationCache[i];
 				// The pool will keep the ref proxy alive, so we absolutely have to make sure
 				// that we're not keeping any outside objects alive (they're potentially really large!)
-				proxy.ResetAndReturn();
+				_typeRefProxyPool.ReturnObject(proxy);
 			}
 
-			_deserializationCache.Clear();
+			// Remove all entries above the KnownTypes
+			var addedTypes = _deserializationCache.Count - _knownTypes.Length;
+			_deserializationCache.RemoveRange(_knownTypes.Length, addedTypes);
 		}
 
 
-		internal abstract class RefProxy
+
+		internal class TypeRefProxy
 		{
-			public abstract object ObjectValue { get; set; }
-			public abstract void ResetAndReturn();
-		}
-
-		internal class RefProxy<T> : RefProxy
-		{
-			FactoryPool<RefProxy<T>> _sourcePool;
-			public T Value;
-
-			public override object ObjectValue
-			{
-				get => Value;
-				set => Value = (T)value;
-			}
-
-			public RefProxy(FactoryPool<RefProxy<T>> sourcePool)
-			{
-				_sourcePool = sourcePool;
-			}
-
-			public override void ResetAndReturn()
-			{
-				// Make sure we don't hold any references!
-				Value = default;
-				// Go back to the pool
-				_sourcePool.ReturnObject(this);
-			}
+			public Type Type;
 
 			public override string ToString()
 			{
-				return $"RefProxy({typeof(T).Name}): {Value}";
-			}
-		}
-
-		static class RefProxyPool<T>
-		{
-			readonly static FactoryPool<RefProxy<T>> _proxyPool = new FactoryPool<RefProxy<T>>(CreateRefProxy, 8);
-			
-			internal static RefProxy<T> Rent()
-			{
-				return _proxyPool.RentObject();
-			}
-
-			static RefProxy<T> CreateRefProxy(FactoryPool<RefProxy<T>> pool)
-			{
-				return new RefProxy<T>(pool);
+				return $"TypeRefProxy: {Type}";
 			}
 		}
 	}

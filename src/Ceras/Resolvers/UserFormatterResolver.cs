@@ -8,7 +8,8 @@ namespace Ceras.Resolvers
 {
 	using Formatters;
 
-	public class UserFormatterResolver : IFormatterResolver
+	// Unused for now, maybe we'll add it back later...
+	class UserFormatterResolver : IFormatterResolver
 	{
 		Dictionary<Type, IFormatter> _userFormatters = new Dictionary<Type, IFormatter>();
 

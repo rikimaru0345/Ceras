@@ -124,7 +124,7 @@
 			if (mode >= 0)
 			{
 				var id = mode;
-				type = typeCache.GetExistingObject<Type>(id);
+				type = typeCache.GetExistingObject(id);
 				return;
 			}
 
@@ -148,22 +148,22 @@
 
 
 				// Read construct full composite (example: Dictionary<string, object>)
-				var compositeProxy = typeCache.CreateDeserializationProxy<Type>();
+				var compositeProxy = typeCache.CreateDeserializationProxy();
 
 				type = _typeBinder.GetTypeFromBaseAndAgruments(baseType.FullName, genericArgs);
-				compositeProxy.Value = type; // make it available for future deserializations
+				compositeProxy.Type = type; // make it available for future deserializations
 
 				if (_isSealed)
 					ThrowSealed(type, false);
 			}
 			else
 			{
-				var proxy = typeCache.CreateDeserializationProxy<Type>();
+				var proxy = typeCache.CreateDeserializationProxy();
 
 				string baseTypeName = SerializerBinary.ReadString(buffer, ref offset);
 				type = _typeBinder.GetTypeFromBase(baseTypeName);
 
-				proxy.Value = type;
+				proxy.Type = type;
 				
 				if (_isSealed)
 					ThrowSealed(type, false);

@@ -5,28 +5,27 @@
 	using System.Collections.Specialized;
 	using System.Diagnostics.CodeAnalysis;
 	using System.Numerics;
+	using Helpers;
 	using static SerializerBinary;
 
 	class BclFormatterResolver : Resolvers.IFormatterResolver
 	{
-		static readonly Dictionary<Type, IFormatter> _primitiveFormatters = new Dictionary<Type, IFormatter>
-		{
-			[typeof(DateTime)] = new DateTimeFormatter(),
-			[typeof(DateTimeOffset)] = new DateTimeOffsetFormatter(),
-			[typeof(TimeSpan)] = new TimeSpanFormatter(),
-			[typeof(Guid)] = new GuidFormatter(),
-			[typeof(decimal)] = new DecimalFormatter(),
-
-			[typeof(BitVector32)] = new BitVector32Formatter(),
-
-			[typeof(BigInteger)] = new BigIntegerFormatter(),
-		};
+		static readonly TypeDictionary<IFormatter> _primitiveFormatters = new TypeDictionary<IFormatter>();
 
 		CerasSerializer _serializer;
 
 		public BclFormatterResolver(CerasSerializer serializer)
 		{
 			_serializer = serializer;
+
+			_primitiveFormatters.GetOrAddValueRef(typeof(DateTime)) = new DateTimeFormatter();
+			_primitiveFormatters.GetOrAddValueRef(typeof(DateTimeOffset)) = new DateTimeOffsetFormatter();
+			_primitiveFormatters.GetOrAddValueRef(typeof(TimeSpan)) = new TimeSpanFormatter();
+			_primitiveFormatters.GetOrAddValueRef(typeof(Guid)) = new GuidFormatter();
+			_primitiveFormatters.GetOrAddValueRef(typeof(decimal)) = new DecimalFormatter();
+			_primitiveFormatters.GetOrAddValueRef(typeof(BitVector32)) = new BitVector32Formatter();
+			_primitiveFormatters.GetOrAddValueRef(typeof(BigInteger)) = new BigIntegerFormatter();
+
 		}
 
 		public IFormatter GetFormatter(Type type)

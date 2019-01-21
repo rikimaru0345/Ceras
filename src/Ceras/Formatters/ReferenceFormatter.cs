@@ -53,12 +53,12 @@
 		const int Bias = 5; // Using WriteUInt32Bias is more efficient than WriteInt32(), but it requires a known bias
 
 
-		IFormatter<Type> _typeFormatter;
+		readonly TypeFormatter _typeFormatter;
 		readonly CerasSerializer _serializer;
 
-		static Dictionary<Type, Func<object>> _globalObjectConstructors = new Dictionary<Type, Func<object>>();
+		static TypeDictionary<Func<object>> _globalObjectConstructors = new TypeDictionary<Func<object>>();
 
-		readonly Dictionary<Type, DispatcherEntry> _dispatchers = new Dictionary<Type, DispatcherEntry>();
+		readonly TypeDictionary<DispatcherEntry> _dispatchers = new TypeDictionary<DispatcherEntry>();
 
 
 
@@ -66,7 +66,7 @@
 		{
 			_serializer = serializer;
 
-			_typeFormatter = (IFormatter<Type>)serializer.GetSpecificFormatter(typeof(Type));
+			_typeFormatter = (TypeFormatter)serializer.GetSpecificFormatter(typeof(Type));
 		}
 
 
@@ -259,7 +259,8 @@
 		 */
 		SerializeDelegate<T> GetSpecificSerializerDispatcher(Type type)
 		{
-			if (_dispatchers.TryGetValue(type, out var dispatcher))
+			ref var dispatcher = ref _dispatchers.GetOrAddValueRef(type);
+			if (dispatcher != null)
 			{
 				if (dispatcher.CurrentSerializeDispatcher != null)
 					return dispatcher.CurrentSerializeDispatcher;
@@ -269,8 +270,6 @@
 				var meta = _serializer.GetTypeMetaData(type);
 				
 				dispatcher = new DispatcherEntry(type, meta.IsFrameworkType, meta.CurrentSchema);
-
-				_dispatchers.Add(type, dispatcher);
 			}
 
 			// What does this method do?
@@ -334,7 +333,8 @@
 		// See the comment on GetSpecificSerializerDispatcher
 		DeserializeDelegate<T> GetSpecificDeserializerDispatcher(Type type)
 		{
-			if (_dispatchers.TryGetValue(type, out var dispatcher))
+			ref var dispatcher = ref _dispatchers.GetOrAddValueRef(type);
+			if (dispatcher != null)
 			{
 				if (dispatcher.CurrentDeserializeDispatcher != null)
 					return dispatcher.CurrentDeserializeDispatcher;
@@ -344,8 +344,6 @@
 				var meta = _serializer.GetTypeMetaData(type);
 				
 				dispatcher = new DispatcherEntry(type, meta.IsFrameworkType, meta.CurrentSchema);
-
-				_dispatchers.Add(type, dispatcher);
 			}
 
 			var formatter = _serializer.GetSpecificFormatter(type);
@@ -454,7 +452,8 @@
 			lock (_globalObjectConstructors)
 			{
 				// Fast path: return already constructed object!
-				if (_globalObjectConstructors.TryGetValue(type, out var f))
+				ref var f = ref _globalObjectConstructors.GetOrAddValueRef(type);
+				if (f != null)
 					return f;
 
 				if (type.IsArray)
@@ -479,7 +478,6 @@
 					f = (Func<object>)CreateConstructorDelegate(ctor, typeof(Func<object>));
 				}
 
-				_globalObjectConstructors[type] = f;
 				return f;
 			}
 		}

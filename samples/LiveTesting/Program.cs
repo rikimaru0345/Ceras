@@ -10,6 +10,7 @@ namespace LiveTesting
 	using System.Linq;
 	using System.Numerics;
 	using System.Reflection;
+	using BenchmarkDotNet.Running;
 	using Tutorial;
 	using Xunit;
 
@@ -20,9 +21,20 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			/*
-			var summary = BenchmarkRunner.Run<SerializerBinaryBenchmarks>();
-			*/
+			//var b = new DictionaryBenchmarks();
+			//b.Setup();
+			//b.Dictionary();
+			//b.NewDictionary();
+			//var summary = BenchmarkRunner.Run<DictionaryBenchmarks>();
+
+			//var c = new SerializerComparisonBenchmarks();
+			//c.Setup();
+			//c.Ceras_Single();
+			//c.MessagePackCSharp_Single();
+			//var summary = BenchmarkRunner.Run<SerializerComparisonBenchmarks>();
+
+			//return;
+
 
 			EnsureSealedTypesThrowsException();
 

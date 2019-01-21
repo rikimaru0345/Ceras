@@ -1,14 +1,13 @@
 ﻿namespace Ceras.Resolvers
 {
-	using System;
-	using System.Collections.Generic;
 	using Formatters;
 	using Helpers;
+	using System;
 
 	class DynamicObjectFormatterResolver : IFormatterResolver
 	{
 		CerasSerializer _serializer;
-		Dictionary<Type, IFormatter> _dynamicFormatters = new Dictionary<Type, IFormatter>();
+		TypeDictionary<IFormatter> _dynamicFormatters = new TypeDictionary<IFormatter>();
 
 		public DynamicObjectFormatterResolver(CerasSerializer serializer)
 		{
@@ -17,14 +16,13 @@
 
 		public IFormatter GetFormatter(Type type)
 		{
-			if (_dynamicFormatters.TryGetValue(type, out var formatter)) 
+			ref var formatter = ref _dynamicFormatters.GetOrAddValueRef(type);
+			if (formatter != null)
 				return formatter;
 
 			var dynamicFormatterType = typeof(DynamicObjectFormatter<>).MakeGenericType(type);
 			formatter = (IFormatter)Activator.CreateInstance(dynamicFormatterType, _serializer);
-				
-			_dynamicFormatters[type] = formatter;
-
+			
 			return formatter;
 		}
 	}
