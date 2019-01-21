@@ -131,10 +131,6 @@
 	}
 
 
-
-
-
-
 	// todo: previous type / previous formatter would be nice to have. It's supposed to auto-convert old data to the new format (or let the user provide a formatter to read the old data)
 	// at the moment the problem is that we never know in what format the data was written; we'd have to embed the data type (ewww! that would make the binary huge!), or add a version number that the user provides
 	// so we always know in what format we can expect the data. version number would be simply added to the binary data. 

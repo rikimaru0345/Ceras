@@ -49,6 +49,11 @@ namespace Ceras
 		internal static readonly Type _rtTypeType, _rtFieldType, _rtPropType, _rtCtorType, _rtMethodType;
 		static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
 
+		public static void AddFormatterConstructedType(Type type)
+		{
+			_formatterConstructedTypes.Add(type);
+		}
+
 		internal static bool IsFormatterConstructed(Type type)
 		{
 			// Array is also always constructed by the caller, but it is handled separately
@@ -582,7 +587,7 @@ namespace Ceras
 		}
 
 
-		void InjectDependencies(IFormatter formatter)
+		internal void InjectDependencies(IFormatter formatter)
 		{
 			// Extremely simple DI system
 
@@ -1264,12 +1269,6 @@ namespace Ceras
 		}
 	}
 
-	public interface ITypeBinder
-	{
-		string GetBaseName(Type type);
-		Type GetTypeFromBase(string baseTypeName);
-		Type GetTypeFromBaseAndAgruments(string baseTypeName, params Type[] genericTypeArguments);
-	}
 
 	class TypeMetaData
 	{

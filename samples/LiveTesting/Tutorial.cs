@@ -263,6 +263,9 @@ namespace Tutorial
 
 		public void Step5_CustomFormatters()
 		{
+			// Read this guide as well, it explains some more things:
+			// https://www.rikidev.com/extending-ceras-with-a-custom-formatter/
+
 			/*
 			 * Scenario:
 			 * - An object is somehow special an needs to be serialized in a very special way

@@ -3,6 +3,13 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Reflection;
+	
+	public interface ITypeBinder
+	{
+		string GetBaseName(Type type);
+		Type GetTypeFromBase(string baseTypeName);
+		Type GetTypeFromBaseAndAgruments(string baseTypeName, params Type[] genericTypeArguments);
+	}
 
 	public class NaiveTypeBinder : ITypeBinder
 	{

@@ -1,16 +1,46 @@
 ﻿namespace Ceras.Formatters
 {
+	using Helpers;
 	using System;
-	using System.Collections.Generic;
 	using System.Collections.Specialized;
 	using System.Diagnostics.CodeAnalysis;
+	using System.Linq;
 	using System.Numerics;
-	using Helpers;
 	using static SerializerBinary;
 
 	class BclFormatterResolver : Resolvers.IFormatterResolver
 	{
 		static readonly TypeDictionary<IFormatter> _primitiveFormatters = new TypeDictionary<IFormatter>();
+
+		static readonly Type[] _tupleFormatterTypes = new Type[]
+		{
+				null, // [0] doesn't exist
+				typeof(TupleFormatter<>), // 1
+				typeof(TupleFormatter<,>), // 2
+				typeof(TupleFormatter<,,>), // 3
+				typeof(TupleFormatter<,,,>), // 4
+				typeof(TupleFormatter<,,,,,>), // 5
+				typeof(TupleFormatter<,,,,,,>), // 6
+				typeof(TupleFormatter<,,,,,,,>), // 7
+		};
+
+#if NETSTANDARD
+		static readonly Type[] _valueTupleFormatterTypes = new Type[]
+		{
+				null, // [0] doesn't exist
+				typeof(ValueTupleFormatter<>), // 1
+				typeof(ValueTupleFormatter<,>), // 2
+				typeof(ValueTupleFormatter<,,>), // 3
+				typeof(ValueTupleFormatter<,,,>), // 4
+				typeof(ValueTupleFormatter<,,,,,>), // 5
+				typeof(ValueTupleFormatter<,,,,,,>), // 6
+				typeof(ValueTupleFormatter<,,,,,,,>), // 7
+		};
+#endif
+		
+		// implemented by both tuple and value tuple
+		static readonly Type _iTupleInterface = typeof(Tuple<>).GetInterfaces().First(t => t.Name == "ITuple");
+
 
 		CerasSerializer _serializer;
 
@@ -33,18 +63,53 @@
 			if (_primitiveFormatters.TryGetValue(type, out var f))
 				return f;
 
-			if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+			if (type.IsGenericType)
 			{
-				var innerType = type.GetGenericArguments()[0];
-				var formatterType = typeof(NullableFormatter<>).MakeGenericType(innerType);
-				return (IFormatter)Activator.CreateInstance(formatterType, _serializer);
+				if (type.GetGenericTypeDefinition() == typeof(Nullable<>))
+				{
+					var innerType = type.GetGenericArguments()[0];
+					var formatterType = typeof(NullableFormatter<>).MakeGenericType(innerType);
+					return (IFormatter)Activator.CreateInstance(formatterType, _serializer);
+				}
+
+				if (_iTupleInterface.IsAssignableFrom(type))
+				{
+#if NETSTANDARD
+					if (type.IsValueType) // ValueTuple
+					{
+						var nArgs = type.GenericTypeArguments.Length;
+						var formatterType = _valueTupleFormatterTypes[nArgs];
+						formatterType = formatterType.MakeGenericType(type.GenericTypeArguments);
+
+						var formatter = (IFormatter)Activator.CreateInstance(formatterType);
+						_serializer.InjectDependencies(formatter);
+					
+						CerasSerializer.AddFormatterConstructedType(type);
+
+						return formatter;
+					}
+#endif
+					if (type.IsClass) // Tuple
+					{
+						var nArgs = type.GenericTypeArguments.Length;
+						var formatterType = _tupleFormatterTypes[nArgs];
+						formatterType = formatterType.MakeGenericType(type.GenericTypeArguments);
+
+						var formatter = (IFormatter)Activator.CreateInstance(formatterType);
+						_serializer.InjectDependencies(formatter);
+					
+						CerasSerializer.AddFormatterConstructedType(type);
+
+						return formatter;
+					}
+				}
 			}
 
 			return null;
 		}
 
 
-		
+
 		[SuppressMessage("ReSharper", "ConvertNullableToShortForm")]
 		[SuppressMessage("ReSharper", "RedundantExplicitNullableCreation")]
 		[SuppressMessage("General", "IDE0001")]
@@ -88,7 +153,7 @@
 				}
 			}
 		}
-		
+
 
 		class DateTimeFormatter : IFormatter<DateTime>
 		{
@@ -199,7 +264,7 @@
 				// Bytes
 				EnsureCapacity(ref buffer, offset, data.Length);
 				Buffer.BlockCopy(data, 0, buffer, offset, data.Length);
-				
+
 				offset += data.Length;
 			}
 
@@ -215,7 +280,7 @@
 				value = new BigInteger(bytes);
 			}
 		}
-	
+
 
 		/*
 		class TupleFormatter<T1, T2> : IFormatter<Tuple<T1, T2>>
@@ -241,5 +306,5 @@
 		}
 		*/
 
-}
+	}
 }

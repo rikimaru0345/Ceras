@@ -2,6 +2,7 @@
 
 namespace LiveTesting
 {
+	using BenchmarkDotNet.Running;
 	using Ceras;
 	using Ceras.Formatters;
 	using Ceras.Resolvers;
@@ -10,7 +11,6 @@ namespace LiveTesting
 	using System.Linq;
 	using System.Numerics;
 	using System.Reflection;
-	using BenchmarkDotNet.Running;
 	using Tutorial;
 	using Xunit;
 
@@ -21,20 +21,10 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			//var b = new DictionaryBenchmarks();
-			//b.Setup();
-			//b.Dictionary();
-			//b.NewDictionary();
-			//var summary = BenchmarkRunner.Run<DictionaryBenchmarks>();
-
-			//var c = new SerializerComparisonBenchmarks();
-			//c.Setup();
-			//c.Ceras_Single();
-			//c.MessagePackCSharp_Single();
-			//var summary = BenchmarkRunner.Run<SerializerComparisonBenchmarks>();
-
+			//var summary = BenchmarkRunner.Run<PrimitiveBenchmarks>();
 			//return;
 
+			TuplesTest();
 
 			EnsureSealedTypesThrowsException();
 
@@ -100,6 +90,27 @@ namespace LiveTesting
 			// tutorial.Step9_VersionTolerance();
 			tutorial.Step10_ReadonlyHandling();
 
+		}
+
+		static void TuplesTest()
+		{
+			var ceras = new CerasSerializer();
+
+			var obj1 = Tuple.Create(5, "a", DateTime.Now, 3.141);
+
+			var data = ceras.Serialize<object>(obj1);
+			var clone = ceras.Deserialize<object>(data);
+
+			Debug.Assert(obj1.Equals(clone));
+
+
+
+			var obj2 = (234, "bsdasdasdf", DateTime.Now, 34.23424);
+
+			data = ceras.Serialize<object>(obj2);
+			clone = ceras.Deserialize<object>(data);
+
+			Debug.Assert(obj2.Equals(clone));
 		}
 
 		static void EnsureSealedTypesThrowsException()
