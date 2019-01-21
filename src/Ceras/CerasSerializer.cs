@@ -182,7 +182,7 @@ namespace Ceras
 			// Type formatter is the basis for all complex objects,
 			// It is special and has its own caching system (so no wrapping in a ReferenceFormatter)
 			var typeFormatter = new TypeFormatter(this);
-
+			
 			var runtimeType = GetType().GetType();
 
 			SetFormatters(typeof(Type), typeFormatter, typeFormatter);
@@ -264,6 +264,9 @@ namespace Ceras
 			});
 			InstanceData = _instanceDataPool.RentObject();
 
+			if (Config.SealTypesWhenUsingKnownTypes)
+				if(_knownTypes.Length > 0)
+					typeFormatter.Seal();
 		}
 
 

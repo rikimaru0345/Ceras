@@ -13,7 +13,6 @@
 		readonly List<RefProxy> _deserializationCache = new List<RefProxy>();
 
 
-
 		// Serialization:
 		// If this object was encountered before, retrieve its ID
 		internal bool TryGetExistingObjectId<T>(T value, out int id)
@@ -92,7 +91,6 @@
 
 			_deserializationCache.Clear();
 		}
-
 
 
 		internal abstract class RefProxy

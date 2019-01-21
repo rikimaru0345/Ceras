@@ -20,6 +20,12 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			/*
+			var summary = BenchmarkRunner.Run<SerializerBinaryBenchmarks>();
+			*/
+
+			EnsureSealedTypesThrowsException();
+
 			InjectSpecificFormatterTest();
 
 			BigIntegerTest();
@@ -82,9 +88,69 @@ namespace LiveTesting
 			// tutorial.Step9_VersionTolerance();
 			tutorial.Step10_ReadonlyHandling();
 
-			/*
-			var summary = BenchmarkRunner.Run<SerializerBinaryBenchmarks>();
-			*/
+		}
+
+		static void EnsureSealedTypesThrowsException()
+		{
+			//
+			// 1. Check while serializing
+			//
+			var obj = new List<object>();
+			obj.Add(5);
+			obj.Add(DateTime.Now);
+			obj.Add("asdasdas");
+			obj.Add(new Person() { Name = "abc" });
+
+			var config = new SerializerConfig();
+			config.KnownTypes.Add(typeof(List<>));
+			config.KnownTypes.Add(typeof(int));
+			// Some types not added on purpose
+
+			// Should be true by default!
+			Debug.Assert(config.SealTypesWhenUsingKnownTypes);
+
+			var ceras = new CerasSerializer(config);
+
+			try
+			{
+				ceras.Serialize(obj);
+
+				Debug.Assert(false, "this line should not be reached, we want an exception here!");
+			}
+			catch (Exception e)
+			{
+				// all good
+				Console.WriteLine("KnownTypes sealing check successful.");
+			}
+
+			//
+			// 2. Check while deserializing
+			//
+			config = new SerializerConfig();
+			config.KnownTypes.Add(typeof(List<>));
+			config.KnownTypes.Add(typeof(int));
+			config.SealTypesWhenUsingKnownTypes = false;
+			ceras = new CerasSerializer(config);
+
+			var data = ceras.Serialize(obj);
+
+			config = new SerializerConfig();
+			config.KnownTypes.Add(typeof(List<>));
+			config.KnownTypes.Add(typeof(int));
+			config.SealTypesWhenUsingKnownTypes = true;
+			ceras = new CerasSerializer(config);
+
+			try
+			{
+				ceras.Deserialize<List<object>>(data);
+
+				Debug.Assert(false, "this line should not be reached, we want an exception here!");
+			}
+			catch (Exception e)
+			{
+				// all good
+				Console.WriteLine("KnownTypes sealing check successful.");
+			}
 
 		}
 
@@ -101,9 +167,9 @@ namespace LiveTesting
 			var ceras = new CerasSerializer(config);
 
 			var f = ceras.GetSpecificFormatter(typeof(Person));
-			
+
 			DependencyInjectionTestFormatter exampleFormatter = (DependencyInjectionTestFormatter)f;
-			
+
 			Debug.Assert(exampleFormatter.Ceras == ceras);
 			Debug.Assert(exampleFormatter.EnumFormatter != null);
 			Debug.Assert(exampleFormatter == exampleFormatter.Self);

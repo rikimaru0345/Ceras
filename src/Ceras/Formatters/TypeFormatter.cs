@@ -1,6 +1,5 @@
 ﻿namespace Ceras.Formatters
 {
-	using Ceras.Helpers;
 	using System;
 
 
@@ -39,6 +38,8 @@
 
 		const int Bias = 3;
 
+		bool _isSealed;
+
 		public TypeFormatter(CerasSerializer serializer)
 		{
 			_serializer = serializer;
@@ -63,6 +64,8 @@
 				return;
 			}
 
+			if (_isSealed)
+				ThrowSealed(type, true);
 
 			//
 			// From here on we know it's a new type
@@ -149,6 +152,9 @@
 
 				type = _typeBinder.GetTypeFromBaseAndAgruments(baseType.FullName, genericArgs);
 				compositeProxy.Value = type; // make it available for future deserializations
+
+				if (_isSealed)
+					ThrowSealed(type, false);
 			}
 			else
 			{
@@ -158,8 +164,30 @@
 				type = _typeBinder.GetTypeFromBase(baseTypeName);
 
 				proxy.Value = type;
+				
+				if (_isSealed)
+					ThrowSealed(type, false);
 			}
 		}
+
+		static void ThrowSealed(Type type, bool serializing)
+		{
+			if (serializing)
+			{
+				throw new InvalidOperationException($"Serialization Error: The type '{type.FullName}' cannot be added to the TypeCache because the cache is sealed (most likely on purpose to protect against exploits). Check your SerializerConfig (KnownTypes, SealType... ), or open a github issue if you think this is not supposed to happen with your settings.");
+			}
+			else
+			{
+				throw new InvalidOperationException($"Deserialization Error: The data contained the type '{type.FullName}', but embedding of types that are not known in advance is not allowed in the current SerializerConfig (most likely on purpose to protect against exploits). Check your SerializerConfig (KnownTypes, SealType... ), or open a github issue if you think this is not supposed to happen with your settings.");
+			}
+		}
+
+
+		public void Seal()
+		{
+			_isSealed = true;
+		}
+
 	}
 }
 
