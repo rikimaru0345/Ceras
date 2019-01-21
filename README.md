@@ -81,9 +81,11 @@ The above are just examples, Ceras is made so it can be used in pretty much ever
 
 
 # Support
+Want me to help you? These are your options:
 
 - Open an issue
-- Join the discord server (link at the top of this page)
+- Join my [Discord](https://discord.gg/FGaCX4c) (probably the best for direct one-on-one help)
+- Make sure you've read [FAQ](https://github.com/rikimaru0345/Ceras/wiki/FAQ) and [Optimization & Pitfalls](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
 
 
 
