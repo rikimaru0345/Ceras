@@ -25,7 +25,7 @@ var s = new CerasSerializer();
 var bytes = s.Serialize(p);
 ```
 
-## [**>> 1. Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/LiveTesting/Tutorial.cs)
+## [**>> 1. Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Tutorial.cs)
 ## [**>> 2. Detailed guides for specific scenarios on my blog**](https://www.rikidev.com/)
 ## [**>> 3. Read 'Optimization & Usage Pitfalls'**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
 
@@ -61,7 +61,7 @@ See steps 1 and 2 in the [Usage Guide](https://github.com/rikimaru0345/Ceras/blo
 
 - **Splitting:**
 So your `Person` has reference to other `Person` objects, but each one should be serialized individually?
-No problem, use `IExternalRootObject`. It's super easy. (see [External Objects Guide (Game DB example))](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L300)).
+No problem, use `IExternalRootObject`. It's super easy. (see [External Objects Guide (Game DB example))](https://github.com/rikimaru0345/Ceras/blob/6a435a6c21c31cc9548dcc40b2d2c1d1d35d9000/samples/LiveTesting/Tutorial.cs#L327)).
 
 - **Network:** 
 In the past people used to manually write network messages into a network stream or packet because serialization was either too slow or couldn't handle complicated object-graphs.
