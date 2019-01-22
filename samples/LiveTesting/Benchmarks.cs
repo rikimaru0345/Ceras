@@ -18,6 +18,10 @@ namespace LiveTesting
 	using System.Runtime.Serialization;
 	using Tutorial;
 
+
+	// todo: compare if using constants in generated code eliminates the virtual dispatch
+
+
 	[ClrJob]
 	[MarkdownExporter, HtmlExporter, CsvExporter(BenchmarkDotNet.Exporters.Csv.CsvSeparator.Comma)]
 	public class DictionaryBenchmarks
@@ -407,12 +411,8 @@ namespace LiveTesting
 		}
 	}
 
-	// todo: compare write string without get string length
 
-	// todo: compare if using constants in generated code eliminates the virtual dispatch
-
-
-	[SimpleJob(runStrategy: BenchmarkDotNet.Engines.RunStrategy.Throughput, launchCount: 1, warmupCount: 3, targetCount: 8, invocationCount: 200 * 1000, id: "QuickJob")]
+	[SimpleJob(runStrategy: BenchmarkDotNet.Engines.RunStrategy.Throughput, launchCount: 1, warmupCount: 3, targetCount: 8, invocationCount: 30 * 1000, id: "QuickJob")]
 	[MarkdownExporter, HtmlExporter, CsvExporter(BenchmarkDotNet.Exporters.Csv.CsvSeparator.Comma)]
 	[GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory), Orderer(BenchmarkDotNet.Order.SummaryOrderPolicy.FastestToSlowest)]
 	[CategoriesColumn]
@@ -446,11 +446,16 @@ namespace LiveTesting
 			[DataMember]
 			[ProtoMember(5)]
 			public virtual Person Parent1 { get; set; }
-
+			
 			[Key(5)]
 			[DataMember]
 			[ProtoMember(6)]
 			public virtual Person Parent2 { get; set; }
+
+			[Key(6)]
+			[DataMember]
+			[ProtoMember(7)]
+			public virtual int[] LuckyNumbers { get; set; }
 
 			public override bool Equals(object obj)
 			{
@@ -476,8 +481,9 @@ namespace LiveTesting
 		}
 
 
-		Person person;
-		IList<Person> list;
+		Person _person;
+		Person _person2;
+		IList<Person> _list;
 
 		static byte[] _buffer;
 		static MemoryStream _memStream = new MemoryStream();
@@ -491,17 +497,17 @@ namespace LiveTesting
 			{
 				Age = 123,
 				FirstName = "1",
-				LastName = "qeqeqweqweqweqweqweqe",
+				LastName = "08zu",
 				Sex = Sex.Male,
 			};
 			var parent2 = new Person
 			{
 				Age = 345636234,
 				FirstName = "2",
-				LastName = "asdasdadadadasdasdasd",
+				LastName = "sgh6tzr",
 				Sex = Sex.Female,
 			};
-			person = new Person
+			_person = new Person
 			{
 				Age = 99999,
 				FirstName = "3",
@@ -511,7 +517,18 @@ namespace LiveTesting
 				Parent2 = parent2,
 			};
 
-			list = Enumerable.Range(25000, 100).Select(x => new Person { Age = x, FirstName = "asdasd", LastName = "qwert", Sex = Sex.Female }).ToArray();
+			_person2 = new Person
+			{
+				Age = 234,
+				FirstName = "rstgsrhsarhy",
+				LastName = "gsdfghdfhxnxfcxg",
+				Sex = Sex.Unknown,
+				LuckyNumbers = Enumerable.Range(2000, 200).ToArray(),
+			};
+			
+
+
+			_list = Enumerable.Range(25000, 100).Select(x => new Person { Age = x, FirstName = "a", LastName = "qwert", Sex = Sex.Female }).ToArray();
 
 			var config = new SerializerConfig();
 			config.DefaultTargets = TargetMember.AllPublic;
@@ -523,13 +540,13 @@ namespace LiveTesting
 			// Run each serializer once to verify they work correctly!
 			void ThrowError() => throw new InvalidOperationException("Cannot continue with the benchmark because a serializer does not round-trip an object correctly. (Benchmark results will be wrong)");
 
-			if (!Equals(RunJson(person), person))
+			if (!Equals(RunJson(_person), _person))
 				ThrowError();
-			if (!Equals(RunMessagePackCSharp(person), person))
+			if (!Equals(RunMessagePackCSharp(_person), _person))
 				ThrowError();
-			if (!Equals(RunProtobuf(person), person))
+			if (!Equals(RunProtobuf(_person), _person))
 				ThrowError();
-			if (!Equals(RunCeras(person), person))
+			if (!Equals(RunCeras(_person), _person))
 				ThrowError();
 
 		}
@@ -538,19 +555,34 @@ namespace LiveTesting
 		[BenchmarkCategory("Single"), Benchmark]
 		public void Ceras_Single()
 		{
-			RunCeras(person);
+			RunCeras(_person);
 		}
 
 		[BenchmarkCategory("Single"), Benchmark(Baseline = true)]
 		public void MessagePackCSharp_Single()
 		{
-			RunMessagePackCSharp(person);
+			RunMessagePackCSharp(_person);
 		}
 
 		[BenchmarkCategory("Single"), Benchmark]
 		public void Protobuf_Single()
 		{
-			RunProtobuf(person);
+			RunProtobuf(_person);
+		}
+
+
+
+
+		[BenchmarkCategory("Single2"), Benchmark]
+		public void Ceras_Single2()
+		{
+			RunCeras(_person2);
+		}
+
+		[BenchmarkCategory("Single2"), Benchmark(Baseline = true)]
+		public void MessagePackCSharp_Single2()
+		{
+			RunMessagePackCSharp(_person2);
 		}
 
 		/*
@@ -566,8 +598,8 @@ namespace LiveTesting
 		}
 		*/
 
-		
-		
+
+
 		/*
 		[BenchmarkCategory("List"), Benchmark(OperationsPerInvoke = 1)]
 		public void Ceras_List()

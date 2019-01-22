@@ -161,7 +161,7 @@
 				// But maybe we're recycling an object and it still contains an instance.
 				// Lets return it to the user
 				if (value != null)
-					_serializer.Config.DiscardObjectMethod?.Invoke(value);
+					_serializer.DiscardObjectMethod?.Invoke(value);
 
 				value = default;
 				return;
@@ -219,7 +219,7 @@
 					if (value.GetType() != specificType)
 					{
 						// Discard the old value
-						_serializer.Config.DiscardObjectMethod?.Invoke(value);
+						_serializer.DiscardObjectMethod?.Invoke(value);
 
 						// Create instance of the right type
 						value = (T)entry.Constructor();
@@ -313,7 +313,7 @@
 				throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
 
 			// Create a custom factory method, but also respect the userFactory if there is one
-			var userFactory = _serializer.Config.ObjectFactoryMethod;
+			var userFactory = _serializer.Config.Advanced.ObjectFactoryMethod;
 
 			if (userFactory == null)
 			{

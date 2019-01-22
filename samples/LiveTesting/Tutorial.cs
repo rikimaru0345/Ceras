@@ -84,7 +84,7 @@ namespace Tutorial
 
 			config.DefaultTargets = TargetMember.PublicProperties | TargetMember.PrivateFields;
 
-			config.ShouldSerializeMember = m => SerializationOverride.NoOverride;
+			config.Advanced.ShouldSerializeMember = m => SerializationOverride.NoOverride;
 
 
 
@@ -192,14 +192,14 @@ namespace Tutorial
 			MyVerySimplePool<Person> pool = new MyVerySimplePool<Person>();
 
 			SerializerConfig config = new SerializerConfig();
-			config.ObjectFactoryMethod = type =>
+			config.Advanced.ObjectFactoryMethod = type =>
 			{
 				if (type != typeof(Person))
 					return null;
 
 				return pool.GetFromPool();
 			};
-			config.DiscardObjectMethod = obj =>
+			config.Advanced.DiscardObjectMethod = obj =>
 			{
 				pool.ReturnToPool((Person)obj);
 			};

@@ -21,7 +21,7 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			//Benchmarks();
+			Benchmarks();
 
 			TuplesTest();
 
@@ -95,32 +95,33 @@ namespace LiveTesting
 
 		static void Benchmarks()
 		{
+			return;
 
-			var x = new SerializerComparisonBenchmarks();
-			x.Setup();
+			//var x = new SerializerComparisonBenchmarks();
+			//x.Setup();
 
-			Console.WriteLine("any key to prep...");
-			Console.ReadKey(true);
+			//Console.WriteLine("any key to prep...");
+			//Console.ReadKey(true);
 
-			for (int j = 0; j < 10 * 1000; j++)
-				x.Ceras_Single();
+			//for (int j = 0; j < 10 * 1000; j++)
+			//	x.Ceras_Single();
 
-			Console.WriteLine("done! any key to start...");
-			Console.ReadKey(true);
+			//Console.WriteLine("done! any key to start...");
+			//Console.ReadKey(true);
 
-			Stopwatch sw = Stopwatch.StartNew();
-			for (int i = 0; i < 64; i++)
-			{
-				for (int j = 0; j < 10 * 1000; j++)
-				{
-					x.Ceras_Single();
-				}
-			}
-			sw.Stop();
+			//Stopwatch sw = Stopwatch.StartNew();
+			//for (int i = 0; i < 64; i++)
+			//{
+			//	for (int j = 0; j < 10 * 1000; j++)
+			//	{
+			//		x.Ceras_Single();
+			//	}
+			//}
+			//sw.Stop();
 
-			Console.WriteLine($"done! {sw.ElapsedMilliseconds}ms");
+			//Console.WriteLine($"done! {sw.ElapsedMilliseconds}ms");
 
-			Console.ReadLine();
+			//Console.ReadLine();
 
 			//var summary = BenchmarkRunner.Run<CtorBenchmarks>();
 			var summary = BenchmarkRunner.Run<SerializerComparisonBenchmarks>();
@@ -166,7 +167,7 @@ namespace LiveTesting
 			// Some types not added on purpose
 
 			// Should be true by default!
-			Debug.Assert(config.SealTypesWhenUsingKnownTypes);
+			Debug.Assert(config.Advanced.SealTypesWhenUsingKnownTypes);
 
 			var ceras = new CerasSerializer(config);
 
@@ -188,7 +189,7 @@ namespace LiveTesting
 			config = new SerializerConfig();
 			config.KnownTypes.Add(typeof(List<>));
 			config.KnownTypes.Add(typeof(int));
-			config.SealTypesWhenUsingKnownTypes = false;
+			config.Advanced.SealTypesWhenUsingKnownTypes = false;
 			ceras = new CerasSerializer(config);
 
 			var data = ceras.Serialize(obj);
@@ -196,7 +197,7 @@ namespace LiveTesting
 			config = new SerializerConfig();
 			config.KnownTypes.Add(typeof(List<>));
 			config.KnownTypes.Add(typeof(int));
-			config.SealTypesWhenUsingKnownTypes = true;
+			config.Advanced.SealTypesWhenUsingKnownTypes = true;
 			ceras = new CerasSerializer(config);
 
 			try
@@ -283,8 +284,8 @@ namespace LiveTesting
 			{
 				SerializerConfig config = new SerializerConfig();
 				// Only use the two "primitives" for this test (string is not a primitive in the original sense tho)
-				config.ShouldSerializeMember = m => (m.Name == "Int" || m.Name == "String") ? SerializationOverride.ForceInclude : SerializationOverride.ForceSkip;
-				config.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+				config.Advanced.ShouldSerializeMember = m => (m.Name == "Int" || m.Name == "String") ? SerializationOverride.ForceInclude : SerializationOverride.ForceSkip;
+				config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
 
 				CerasSerializer ceras = new CerasSerializer(config);
 
@@ -313,8 +314,8 @@ namespace LiveTesting
 			{
 				SerializerConfig config = new SerializerConfig();
 				// We only want the container field, and its contents, but not the two "primitives"
-				config.ShouldSerializeMember = m => (m.Name == "Int" || m.Name == "String") ? SerializationOverride.ForceSkip : SerializationOverride.ForceInclude;
-				config.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+				config.Advanced.ShouldSerializeMember = m => (m.Name == "Int" || m.Name == "String") ? SerializationOverride.ForceSkip : SerializationOverride.ForceInclude;
+				config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
 
 				CerasSerializer ceras = new CerasSerializer(config);
 
@@ -348,7 +349,7 @@ namespace LiveTesting
 			// which means that it should work exactly like as if the field were not readonly.
 			{
 				SerializerConfig config = new SerializerConfig();
-				config.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
+				config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
 				CerasSerializer ceras = new CerasSerializer(config);
 
 				// This time we want Ceras to fix everything, reference mismatches and value mismatches alike.
@@ -850,7 +851,7 @@ namespace LiveTesting
 			var config = new SerializerConfig();
 			config.VersionTolerance = VersionTolerance.AutomaticEmbedded;
 
-			config.TypeBinder = new DebugVersionTypeBinder();
+			config.Advanced.TypeBinder = new DebugVersionTypeBinder();
 
 			// We are using a new ceras instance every time.
 			// We want to make sure that no caching is going on.
@@ -1214,10 +1215,8 @@ namespace LiveTesting
 
 		static void NetworkTest()
 		{
-			var config = new SerializerConfig
-			{
-				PersistTypeCache = true,
-			};
+			var config = new SerializerConfig();
+			config.Advanced.PersistTypeCache = true;
 			config.KnownTypes.Add(typeof(SetName));
 			config.KnownTypes.Add(typeof(NewPlayer));
 			config.KnownTypes.Add(typeof(LongEnum));
