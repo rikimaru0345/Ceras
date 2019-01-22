@@ -7,15 +7,15 @@
 	class ObjectCache
 	{
 		// While serializing we add all encountered objects and give them an ID (their index), so when we encounter them again we can just write the index instead.
-		readonly Dictionary<object, int> _serializationCache = new Dictionary<object, int>();
+		readonly RefDictionary<object, int> _serializationCache = new RefDictionary<object, int>(32, 0.66f);
 		// At deserialization-time we keep adding all new objects to this list, so when we find a back-reference we can take it from here.
 		// RefProxy enables us to deserialize even the most complex scenarios (For example: Objects that directly reference themselves, while they're not even fully constructed yet)
-		readonly List<RefProxy> _deserializationCache = new List<RefProxy>();
+		readonly List<RefProxy> _deserializationCache = new List<RefProxy>(64);
 
 
 		// Serialization:
 		// If this object was encountered before, retrieve its ID
-		internal bool TryGetExistingObjectId<T>(T value, out int id)
+		internal bool TryGetExistingObjectId<T>(T value, out int id) where T : class
 		{
 			return _serializationCache.TryGetValue(value, out id);
 		}
@@ -23,16 +23,18 @@
 		// Serialization:
 		// Save and object and assign an ID to it.
 		// If it gets encountered again, then TryGetExistingObjectId will give you the ID to it.
-		internal int RegisterObject<T>(T value)
+		internal int RegisterObject<T>(T value) where T : class
 		{
 			var id = _serializationCache.Count;
-			_serializationCache[value] = id;
+
+			_serializationCache.GetOrAddValueRef(value) = id;
+
 			return id;
 		}
 
 		// Deserialization:
 		// When encountering a new object
-		internal RefProxy<T> CreateDeserializationProxy<T>()
+		internal RefProxy<T> CreateDeserializationProxy<T>() where T : class
 		{
 			var p = RefProxyPool<T>.Rent();
 			_deserializationCache.Add(p);
@@ -43,7 +45,7 @@
 
 		// For deserialization:
 		// Returns an object that was deserialized previously (seen already, and created by CreateDeserializationProxy)
-		internal T GetExistingObject<T>(int id)
+		internal T GetExistingObject<T>(int id) where T : class
 		{
 			// In case you're wondering what's up here:
 			// Why are we not directly casting to RefProxy<T> and then return .Value ??
@@ -84,7 +86,7 @@
 
 		internal abstract class RefProxy
 		{
-			public abstract object ObjectValue { get; set; }
+			public abstract object ObjectValue { get; }
 			public abstract void ResetAndReturn();
 		}
 
@@ -96,7 +98,6 @@
 			public override object ObjectValue
 			{
 				get => Value;
-				set => Value = (T)value;
 			}
 
 			public RefProxy(FactoryPool<RefProxy<T>> sourcePool)

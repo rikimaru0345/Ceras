@@ -42,7 +42,7 @@ namespace Ceras.Formatters
 	// Instead of obtaining an 'Int32Formatter' and the like, we should compile a call directly to SerializerBinary.WriteInt32() ...
 	// That would avoid quite some overhead: removing the vtable dispatch, enabling inlining!
 
-	class DynamicObjectFormatter<T> : IFormatter<T>
+	sealed class DynamicObjectFormatter<T> : IFormatter<T>
 	{
 		readonly CerasSerializer _ceras;
 		readonly SerializeDelegate<T> _dynamicSerializer;
@@ -271,15 +271,7 @@ namespace Ceras.Formatters
 
 /*
  * - Why do we always have to read the existing value? And why do we always have to use a local instead of passing the field directly??
- * 
  * We always must use a local variable because properties cannot be passed by ref.
- * And we must always read the existing value because many formatters rely on that.
- * 
- * Sure we might be able to figure out some complex rules to only read the value if its really neccesary, but that can be done later, and 
- * compared to all the other possible optimizations this one would maybe give us +0.5% more speed? Which is NOTHING when compared to
- * some caching stuff we could do, or avoiding useless lookups, which would easily give huge boosts (like +6% or more!!)
- * So yea, there are things that could be done, but it costs time, and worst of all it makes the code more complex (which is actually a big deal).
- * Idk about you, but I'd rather invest less time, get (comparatively) huge performance boosts, and have clean code all at the same time :P
  * 
  * 
  */

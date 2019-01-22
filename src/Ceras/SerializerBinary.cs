@@ -101,6 +101,16 @@
 			return value;
 		}
 
+
+		// Same as WriteUInt32Bias, but without the capacity size check (make sure you reserve 5 bytes for this method)
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteUInt32BiasNoCheck(ref byte[] buffer, ref int offset, int value, int bias)
+		{
+			value += bias;
+			WriteVarInt(ref buffer, ref offset, (ulong)value);
+		}
+
+
 		#endregion
 
 
@@ -240,49 +250,6 @@
 			} while (value != 0);
 		}
 
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		static void WriteVarIntTEST(ref byte[] buffer, ref int offset, ulong value)
-		{
-			// 1nd byte
-			var byteVal = value & 0x7f;
-			value >>= 7;
-
-			if (value != 0)
-				byteVal |= 0b1000_0000;
-
-			buffer[offset++] = (byte)byteVal;
-
-			if (value == 0)
-				return;
-
-
-			// 2nd byte
-			byteVal = value & 0x7f;
-			value >>= 7;
-
-			if (value != 0)
-				byteVal |= 0b1000_0000;
-
-			buffer[offset++] = (byte)byteVal;
-
-			if (value == 0)
-				return;
-
-
-
-			//do
-			//{
-			//	var byteVal = value & 0x7f;
-			//	value >>= 7;
-
-			//	if (value != 0)
-			//		byteVal |= 0x80;
-
-			//	buffer[offset++] = (byte)byteVal;
-
-			//} while (value != 0);
-		}
-
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		static ulong ReadVarInt(byte[] bytes, ref int offset, int bits)
@@ -393,31 +360,37 @@
 		}
 
 
-	    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-	    public static void WriteString(ref byte[] buffer, ref int offset, string value)
-	    {
-	        if(value == null)
-	        {
-	            WriteUInt32Bias(ref buffer, ref offset, -1, 1);
-	            return;
-	        }
+		static readonly UTF8Encoding _utf8Encoding = new UTF8Encoding(false, true);
 
-            // todo: maybe we can replace Encoding.UTF8.GetByteCount with reasonable estimation?
-            // default implementation Encoding.GetByteCount still allocates a new array
-            // but Encoding.UTF8 overrides it with more efficient implementation.
-	        // If Encoding.UTF8 will be replaced in future - original implementation
-	        // might be even faster.
-            var valueBytesCount = Encoding.UTF8.GetByteCount(value);
-	        EnsureCapacity(ref buffer, offset, valueBytesCount + 5); // 5 bytes space for the varint
 
-	        // Length
-	        WriteUInt32Bias(ref buffer, ref offset, valueBytesCount, 1);
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteString(ref byte[] buffer, ref int offset, string value)
+		{
+			if (value == null)
+			{
+				WriteUInt32Bias(ref buffer, ref offset, -1, 1);
+				return;
+			}
 
-	        var realBytesCount = Encoding.UTF8.GetBytes(value, 0, value.Length, buffer, offset);
-	        offset += realBytesCount;
-	    }
+			// todo: maybe we can replace Encoding.UTF8.GetByteCount with reasonable estimation?
+			// default implementation Encoding.GetByteCount still allocates a new array
+			// but Encoding.UTF8 overrides it with more efficient implementation.
+			// If Encoding.UTF8 will be replaced in future - original implementation
+			// might be even faster.
 
-	    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+			var encoding = _utf8Encoding;
+			
+			var valueBytesCount = encoding.GetByteCount(value);
+			EnsureCapacity(ref buffer, offset, valueBytesCount + 5); // 5 bytes space for the VarInt
+
+			// Length
+			WriteUInt32BiasNoCheck(ref buffer, ref offset, valueBytesCount, 1);
+
+			var realBytesCount = encoding.GetBytes(value, 0, value.Length, buffer, offset);
+			offset += realBytesCount;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static string ReadString(byte[] buffer, ref int offset)
 		{
 			// Length
@@ -427,21 +400,21 @@
 				return null;
 
 			// Data
-			var str = Encoding.UTF8.GetString(buffer, offset, length);
+			var str = _utf8Encoding.GetString(buffer, offset, length);
 			offset += length;
-
+			
 			return str;
 		}
 
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		static long EncodeZigZag(long value, int bitLength)
+		public static long EncodeZigZag(long value, int bitLength)
 		{
 			return (value << 1) ^ (value >> (bitLength - 1));
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		static long DecodeZigZag(ulong value)
+		public static long DecodeZigZag(ulong value)
 		{
 			if ((value & 0x1) == 0x1)
 			{
@@ -455,12 +428,6 @@
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void EnsureCapacity(ref byte[] buffer, int offset, int size)
 		{
-			if (buffer == null)
-			{
-				buffer = new byte[0x4000]; // 16k
-				return;
-			}
-
 			int newSize = offset + size;
 
 			if (buffer.Length >= newSize)

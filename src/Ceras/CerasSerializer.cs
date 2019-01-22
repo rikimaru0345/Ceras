@@ -183,6 +183,11 @@ namespace Ceras
 			// That is because we only want to have specific resolvers in the resolvers-list
 			_dynamicResolver = new DynamicObjectFormatterResolver(this);
 
+			// String Formatter should never be wrapped in a RefFormatter, that's too slow
+
+			var stringFormatter = new StringFormatter();
+			SetFormatters(typeof(string), stringFormatter, stringFormatter);
+
 			//
 			// Type formatter is the basis for all complex objects,
 			// It is special and has its own caching system (so no wrapping in a ReferenceFormatter)
@@ -292,6 +297,9 @@ namespace Ceras
 		public int Serialize<T>(T obj, ref byte[] buffer, int offset = 0)
 		{
 			EnterRecursive(RecursionMode.Serialization);
+			
+			if (buffer == null)
+				buffer = new byte[0x4000]; // 16k			
 
 			try
 			{
@@ -460,15 +468,15 @@ namespace Ceras
 		/// </summary>
 		public IFormatter GetReferenceFormatter(Type type)
 		{
-			if (type.IsValueType)
+			var meta = GetTypeMetaData(type);
+
+			if (meta.IsValueType)
 			{
 				// Value types are not reference types, so they are not wrapped
-				return GetSpecificFormatter(type);
+				return GetSpecificFormatter(type, meta);
 			}
 
 			// 1.) Cache
-			var meta = GetTypeMetaData(type);
-
 			if (meta.ReferenceFormatter != null)
 				return meta.ReferenceFormatter;
 
@@ -1274,6 +1282,7 @@ namespace Ceras
 	{
 		public readonly Type Type;
 		public readonly bool IsFrameworkType;
+		public readonly bool IsValueType;
 
 		public IFormatter SpecificFormatter;
 		public IFormatter ReferenceFormatter;
@@ -1292,6 +1301,7 @@ namespace Ceras
 		{
 			Type = type;
 			IsFrameworkType = isFrameworkType;
+			IsValueType = type.IsValueType;
 		}
 	}
 }

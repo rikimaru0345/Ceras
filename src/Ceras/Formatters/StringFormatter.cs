@@ -1,6 +1,6 @@
 ﻿namespace Ceras.Formatters
 {
-	class StringFormatter : IFormatter<string>
+	sealed class StringFormatter : IFormatter<string>
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, string value)
 		{

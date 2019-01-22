@@ -10,10 +10,6 @@
 		/// The sum of the objects that are not used and still in the pool, plus the objects that are currently in use (rented out)
 		/// </summary>
 		int Capacity { get; }
-		/// <summary>
-		/// The number of objects that the pool has still available
-		/// </summary>
-		int ObjectsAvailableInPool { get; }
 
 		T RentObject();
 		void ReturnObject(T objectToReturn);
@@ -24,7 +20,6 @@
 		readonly Func<FactoryPool<T>, T> _factoryMethod;
 
 		public int Capacity { get; set; }
-		public int ObjectsAvailableInPool { get; set; }
 
 
 		public FactoryPool(Func<FactoryPool<T>, T> factoryMethod, int startSize = 0)
@@ -45,7 +40,6 @@
 				{
 					// Return existing object
 					var obj = _objects.Pop();
-					ObjectsAvailableInPool--;
 					return obj;
 				}
 				else
@@ -63,7 +57,6 @@
 			lock (_objects)
 			{
 				_objects.Push(objectToReturn);
-				ObjectsAvailableInPool++;
 			}
 		}
 

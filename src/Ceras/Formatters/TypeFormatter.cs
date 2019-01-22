@@ -27,7 +27,7 @@
 	 * Would it be faster? Would serialization performance be impacted negatively when not using VersionTolerance because of the virtual methods?
 	 */
 
-	class TypeFormatter : IFormatter<Type>
+	sealed class TypeFormatter : IFormatter<Type>
 	{
 		readonly CerasSerializer _serializer;
 		readonly ITypeBinder _typeBinder;

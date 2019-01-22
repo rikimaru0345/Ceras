@@ -21,8 +21,7 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			//var summary = BenchmarkRunner.Run<PrimitiveBenchmarks>();
-			//return;
+			Benchmarks();
 
 			TuplesTest();
 
@@ -90,6 +89,41 @@ namespace LiveTesting
 			// tutorial.Step9_VersionTolerance();
 			tutorial.Step10_ReadonlyHandling();
 
+		}
+
+		static void Benchmarks()
+		{
+
+			var x = new SerializerComparisonBenchmarks();
+			x.Setup();
+
+			Console.WriteLine("any key to prep...");
+			Console.ReadKey(true);
+
+			for (int j = 0; j < 10 * 1000; j++)
+				x.Ceras_Single();
+
+			Console.WriteLine("done! any key to start...");
+			Console.ReadKey(true);
+
+			Stopwatch sw = Stopwatch.StartNew();
+			for (int i = 0; i < 64; i++)
+			{
+				for (int j = 0; j < 10 * 1000; j++)
+				{
+					x.Ceras_Single();
+				}
+			}
+			sw.Stop();
+
+			Console.WriteLine($"done! {sw.ElapsedMilliseconds}ms");
+
+			Console.ReadLine();
+
+			//var summary = BenchmarkRunner.Run<CtorBenchmarks>();
+			var summary = BenchmarkRunner.Run<SerializerComparisonBenchmarks>();
+
+			Environment.Exit(0);
 		}
 
 		static void TuplesTest()
@@ -720,7 +754,7 @@ namespace LiveTesting
 			List<int> list = new List<int> { 1, 2, 3, 4 };
 
 
-			byte[] buffer = null;
+			byte[] buffer = new byte[200];
 			int offset = 0;
 			intListFormatter.Serialize(ref buffer, ref offset, list);
 

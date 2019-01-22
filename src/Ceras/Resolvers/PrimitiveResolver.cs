@@ -5,7 +5,7 @@
 	using System.Collections.Generic;
 	using System.Linq.Expressions;
 
-	class PrimitiveResolver : IFormatterResolver
+	sealed class PrimitiveResolver : IFormatterResolver
 	{
 		readonly CerasSerializer _serializer;
 
@@ -29,10 +29,7 @@
 
 			[typeof(float)] = new FloatFormatter(),
 			[typeof(double)] = new DoubleFormatter(),
-
-			[typeof(string)] = new StringFormatter(),
-
-
+			
 			[typeof(IntPtr)] = new IntPtrFormatter(),
 			[typeof(UIntPtr)] = new UIntPtrFormatter(),
 		};
@@ -54,7 +51,7 @@
 			return null;
 		}
 
-		class ByteFormatter : IFormatter<byte>
+		sealed class ByteFormatter : IFormatter<byte>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, byte value)
 			{
@@ -66,7 +63,7 @@
 				value = SerializerBinary.ReadByte(buffer, ref offset);
 			}
 		}
-		class SByteFormatter : IFormatter<sbyte>
+		sealed class SByteFormatter : IFormatter<sbyte>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, sbyte value)
 			{
@@ -78,7 +75,7 @@
 				value = (sbyte)SerializerBinary.ReadByte(buffer, ref offset);
 			}
 		}
-		class BoolFormatter : IFormatter<bool>
+		sealed class BoolFormatter : IFormatter<bool>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, bool value)
 			{
@@ -90,7 +87,7 @@
 				value = SerializerBinary.ReadInt32(buffer, ref offset) != 0;
 			}
 		}
-		class CharFormatter : IFormatter<char>
+		sealed class CharFormatter : IFormatter<char>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, char value)
 			{
@@ -102,7 +99,7 @@
 				value = (char)SerializerBinary.ReadInt16Fixed(buffer, ref offset);
 			}
 		}
-		class Int16Formatter : IFormatter<short>
+		sealed class Int16Formatter : IFormatter<short>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, short value)
 			{
@@ -114,7 +111,7 @@
 				value = SerializerBinary.ReadInt16Fixed(buffer, ref offset);
 			}
 		}
-		class UInt16Formatter : IFormatter<ushort>
+		sealed class UInt16Formatter : IFormatter<ushort>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, ushort value)
 			{
@@ -126,7 +123,7 @@
 				value = (ushort)SerializerBinary.ReadInt16Fixed(buffer, ref offset);
 			}
 		}
-		class Int32Formatter : IFormatter<int>
+		sealed class Int32Formatter : IFormatter<int>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, int value)
 			{
@@ -138,7 +135,7 @@
 				value = SerializerBinary.ReadInt32(buffer, ref offset);
 			}
 		}
-		class UInt32Formatter : IFormatter<uint>
+		sealed class UInt32Formatter : IFormatter<uint>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, uint value)
 			{
@@ -150,7 +147,7 @@
 				value = SerializerBinary.ReadUInt32(buffer, ref offset);
 			}
 		}
-		class FloatFormatter : IFormatter<float>
+		sealed class FloatFormatter : IFormatter<float>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, float value)
 			{
@@ -162,7 +159,7 @@
 				value = SerializerBinary.ReadFloat32Fixed(buffer, ref offset);
 			}
 		}
-		class DoubleFormatter : IFormatter<double>
+		sealed class DoubleFormatter : IFormatter<double>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, double value)
 			{
@@ -174,7 +171,7 @@
 				value = SerializerBinary.ReadDouble64Fixed(buffer, ref offset);
 			}
 		}
-		class Int64Formatter : IFormatter<long>
+		sealed class Int64Formatter : IFormatter<long>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, long value)
 			{
@@ -186,7 +183,7 @@
 				value = SerializerBinary.ReadInt64Fixed(buffer, ref offset);
 			}
 		}
-		class UInt64Formatter : IFormatter<ulong>
+		sealed class UInt64Formatter : IFormatter<ulong>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, ulong value)
 			{
@@ -199,7 +196,7 @@
 			}
 		}
 
-		class IntPtrFormatter : IFormatter<IntPtr>
+		sealed class IntPtrFormatter : IFormatter<IntPtr>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, IntPtr IntPtr)
 			{
@@ -212,7 +209,7 @@
 			}
 		}
 
-		class UIntPtrFormatter : IFormatter<UIntPtr>
+		sealed class UIntPtrFormatter : IFormatter<UIntPtr>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, UIntPtr IntPtr)
 			{
@@ -228,7 +225,7 @@
 
 	}
 	
-	public class EnumFormatter<T> : IFormatter<T>
+	public sealed class EnumFormatter<T> : IFormatter<T>
 	{
 		delegate void WriteEnum(ref byte[] buffer, ref int offset, T enumVal);
 		delegate void ReadEnum(byte[] buffer, ref int offset, out T enumVal);

@@ -8,7 +8,6 @@
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
-	using System.Reflection.Emit;
 
 #if FAST_EXP
 	using FastExpressionCompiler;
@@ -31,9 +30,27 @@
 	 *		   we actually need is getting(or creating) the DispatcherEntry and then only work with that.
 	 *		 - globalObjectConstructors is supposed to cache generic constructors, but we always check if there is a user-factory-method, which is not needed.
 	 *		   we could compile that into the constructor, but at that point it is not a global ctor anymore, which is fine if we only cache it into the dispatcherEntry.
-	 * 
+	 *
+	 *
+	 * todo: we might be able to eliminate the following check:
+	 *			if (value is IExternalRootObject externalObj)
+	 *		 by moving it out of here and into the DynamicObjectFormatter.
+	 *		 There we know what concrete type we're dealing with and if it is an IExternalObject.
+	 *		 So that way we only have to check if the current object is equal to the current root object, easy!
+	 *		 For deserialization we can statically compile in the check for the external resolver as well!
+	 *			Downside: users that write their own formatters would have to manually take care of external object serialization, which is not cool
+	 *
+	 * todo: statically compile everything
+	 *		we have many variables based on the specificType that will never ever change.
+	 *		instead of having Serialize/Deserialize do those checks all the time, we could compile everything into a delegate.
+	 *		Then we'd merge all our "sub-delegates" (like ctor and so on), into that one big delegate as well.
+	 *		That way we'd save a lot of performance because entire if-chains would be completely gone.
+	 *		We *always* have to do GetDispatcherEntry() anyway, so if we could instantly call into a super-optimized delegate, that'd be awesome.
+	 *			Downside: Makes the actual code **really** hard to follow and understand, and impossible to debug.
+	 *
 	 */
-	class ReferenceFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
+	sealed class ReferenceFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
+	where T : class
 	{
 		// -5: To support stuff like 'object obj = typeof(Bla);'. The story is more complicated and explained at the end of the file.
 		// -4: For external objects that the user has to resolve
@@ -56,10 +73,7 @@
 		readonly TypeFormatter _typeFormatter;
 		readonly CerasSerializer _serializer;
 
-		static TypeDictionary<Func<object>> _globalObjectConstructors = new TypeDictionary<Func<object>>();
-
 		readonly TypeDictionary<DispatcherEntry> _dispatchers = new TypeDictionary<DispatcherEntry>();
-
 
 
 		public ReferenceFormatter(CerasSerializer serializer)
@@ -70,25 +84,31 @@
 		}
 
 
-
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
-			if (EqualityComparer<T>.Default.Equals(value, default))
+			if (ReferenceEquals(value, null))
 			{
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, Null, Bias);
 				return;
 			}
 
-			if (value is Type type)
+
+			var specificType = value.GetType();
+			var entry = GetOrCreateEntry(specificType);
+
+
+			if (entry.IsType) // This is very rare, so we cache the check itself, and do the cast below
 			{
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, InlineType, Bias);
-				_typeFormatter.Serialize(ref buffer, ref offset, type);
+				_typeFormatter.Serialize(ref buffer, ref offset, (Type)(object)value);
 				return;
 			}
 
-			if (value is IExternalRootObject externalObj)
+			if (entry.IsExternalRootObject)
 			{
-				if (!object.ReferenceEquals(_serializer.InstanceData.CurrentRoot, value))
+				var externalObj = (IExternalRootObject)value;
+
+				if (!ReferenceEquals(_serializer.InstanceData.CurrentRoot, value))
 				{
 					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, ExternalObject, Bias);
 
@@ -101,6 +121,7 @@
 				}
 			}
 
+
 			if (_serializer.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id))
 			{
 				// Existing value
@@ -108,11 +129,11 @@
 			}
 			else
 			{
-				// Important: Insert the ID for this value into our dictionary BEFORE calling SerializeFirstTime, as that might recursively call us again (maybe with the same value!)
+				// Register new object
 				_serializer.InstanceData.ObjectCache.RegisterObject(value);
 
-				var specificType = value.GetType();
-				if (typeof(T) == specificType)
+				// Embedd type (if needed)
+				if (ReferenceEquals(typeof(T), specificType))
 				{
 					// New value (same type)
 					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewValueSameType, Bias);
@@ -124,8 +145,8 @@
 					_typeFormatter.Serialize(ref buffer, ref offset, specificType);
 				}
 
-				// Write the object normally
-				GetSpecificSerializerDispatcher(specificType)(ref buffer, ref offset, value);
+				// Write object
+				entry.CurrentSerializeDispatcher(ref buffer, ref offset, value);
 			}
 		}
 
@@ -176,15 +197,17 @@
 			// New object, see Note#1
 			Type specificType = null;
 			if (objId == NewValue)
+				// == NewValue (EmbeddedType)
 				_typeFormatter.Deserialize(buffer, ref offset, ref specificType);
-			else // if (objId == NewValueSameType) commented out, its the only possible remaining case
+			else
+				// == NewValueSameType
 				specificType = typeof(T);
 
 
-			// At this point we know that the 'value' will not be 'null', so if 'value' (the variable) is null we need to create an instance
-			bool isRefType = !specificType.IsValueType;
+			var entry = GetOrCreateEntry(specificType);
 
-			if (isRefType)
+			// At this point we know that the 'value' will not be 'null', so if 'value' (the variable) is null we need to create an instance
+			if (!entry.IsValueType) // still possible that we're dealing with a boxed value;
 			{
 				// Do we already have an object?
 				if (value != null)
@@ -200,7 +223,7 @@
 						_serializer.Config.DiscardObjectMethod?.Invoke(value);
 
 						// Create instance of the right type
-						value = CreateInstance(specificType);
+						value = (T)entry.Constructor();
 					}
 					else
 					{
@@ -210,15 +233,12 @@
 				else
 				{
 					// Instance is null, create one
-					// Note: that we *could* check if the type is one of the types that we cannot instantiate (String, Type, MemberInfo, ...) and then
-					//       just not call CreateInstance, but the check itself would be expensive as well (HashSet look up?), so what's the point of complicating the code more?
-					//       CreateInstance will do a dictionary lookup for us and simply return null for those types.
-					value = CreateInstance(specificType);
+					value = (T)entry.Constructor();
 				}
 			}
 			else
 			{
-				// Not a reference type. So it doesn't matter.
+				// Not a reference type. So it doesn't matter anyway.
 			}
 
 
@@ -232,10 +252,96 @@
 			objectProxy.Value = value;
 
 			// 3. Actually read the object
-			GetSpecificDeserializerDispatcher(specificType)(buffer, ref offset, ref objectProxy.Value);
+			entry.CurrentDeserializeDispatcher(buffer, ref offset, ref objectProxy.Value);
 
 			// 4. Write back the actual value, which instantly resolves all references
 			value = objectProxy.Value;
+		}
+
+
+		DispatcherEntry GetOrCreateEntry(Type type)
+		{
+			ref var entry = ref _dispatchers.GetOrAddValueRef(type);
+			if (entry != null)
+				return entry;
+
+			// Get type meta-data and create a dispatcher entry
+			var meta = _serializer.GetTypeMetaData(type);
+			entry = new DispatcherEntry(type, meta.IsFrameworkType, meta.CurrentSchema);
+
+			if (entry.IsType)
+				return entry; // Don't need to do anything else...
+
+			// Obtain the formatter for this specific type
+			var formatter = _serializer.GetSpecificFormatter(type);
+
+			// Create dispatchers and ctor
+			entry.CurrentSerializeDispatcher = CreateSpecificSerializerDispatcher(type, formatter);
+			entry.CurrentDeserializeDispatcher = CreateSpecificDeserializerDispatcher(type, formatter);
+			entry.Constructor = CreateObjectConstructor(type);
+
+			if (!meta.IsFrameworkType) // Framework types do not have a schemata dict
+			{
+				var pair = new DispatcherPair(entry.CurrentSerializeDispatcher, entry.CurrentDeserializeDispatcher);
+				entry.SchemaDispatchers[entry.CurrentSchema] = pair;
+			}
+
+			return entry;
+		}
+
+
+		Func<object> CreateObjectConstructor(Type type)
+		{
+			// todo: the idea here is that we compile a function that has the check against the user provided factory built in
+			// and if it returns null, we fall back to normal creation,
+			// and if there's no user factory, we only do the normal ctor!
+
+			if (type.IsArray)
+			{
+				// ArrayFormatter will create a new array
+				return () => null;
+			}
+			else if (CerasSerializer.IsFormatterConstructed(type) || type.IsValueType)
+			{
+				// The formatter that handles this type also handles its creation, so we return null
+				return () => null;
+			}
+
+
+			var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+						   .FirstOrDefault(c => c.GetParameters().Length == 0);
+			if (ctor == null)
+				throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
+
+			// Create a custom factory method, but also respect the userFactory if there is one
+			var userFactory = _serializer.Config.ObjectFactoryMethod;
+
+			if (userFactory == null)
+			{
+				var lambda = Expression.Lambda<Func<object>>(Expression.New(ctor));
+				return lambda.Compile();
+			}
+			else
+			{
+				// Need to call the user factory, and only use 'New()' when we get null from it
+				var userFactoryMethod = userFactory.GetMethodInfo();
+				var userObj = Expression.Variable(type);
+
+				var callAndAssignUserObj = Expression.Assign(userObj, Expression.Call(Expression.Constant(userFactory), userFactoryMethod));
+
+				var coalesce = Expression.IfThenElse(
+									  // if userObj is null
+									  test: Expression.ReferenceEqual(userObj, Expression.Constant(null, typeof(object))),
+									  // then use new()
+									  ifTrue: Expression.New(ctor),
+									  // else use the given user obj
+									  ifFalse: userObj);
+
+				var body = Expression.Block(callAndAssignUserObj, coalesce);
+
+				var lambda = Expression.Lambda<Func<object>>(body, userObj);
+				return lambda.Compile();
+			}
 		}
 
 
@@ -257,21 +363,8 @@
 		 * But in our case we actually know (well, unless we get corrupted data of course) that everything will work.
 		 * So to bypass that limitation we compile our own special delegate that does the forwards and backwards casting for us.
 		 */
-		SerializeDelegate<T> GetSpecificSerializerDispatcher(Type type)
+		static SerializeDelegate<T> CreateSpecificSerializerDispatcher(Type type, IFormatter specificFormatter)
 		{
-			ref var dispatcher = ref _dispatchers.GetOrAddValueRef(type);
-			if (dispatcher != null)
-			{
-				if (dispatcher.CurrentSerializeDispatcher != null)
-					return dispatcher.CurrentSerializeDispatcher;
-			}
-			else
-			{
-				var meta = _serializer.GetTypeMetaData(type);
-				
-				dispatcher = new DispatcherEntry(type, meta.IsFrameworkType, meta.CurrentSchema);
-			}
-
 			// What does this method do?
 			// It creates a cast+call dynamically
 			// Why is that needed?
@@ -280,9 +373,7 @@
 			//    IFormatter<object> formatter = new ReferenceFormatter<Person>();
 			// The line of code above obviously does not work since the types do not match, which is what this method fixes.
 
-			var formatter = _serializer.GetSpecificFormatter(type);
-
-			var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
+			var serializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
 			Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter");
 
 			// What we want to emulate:
@@ -309,7 +400,7 @@
 
 
 			var body = Expression.Block(
-										Expression.Call(Expression.Constant(formatter), serializeMethod,
+										Expression.Call(Expression.Constant(specificFormatter), serializeMethod,
 														arg0: refBufferArg,
 														arg1: refOffsetArg,
 														arg2: convertedValueArg)
@@ -320,35 +411,14 @@
 #else
 			var f = Expression.Lambda<SerializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).Compile();
 #endif
-			dispatcher.CurrentSerializeDispatcher = f;
-
-			// Update the schema dispatchers (we do update instead of Add becasue the other method might have ran first)
-			// But only if we have a dict for that anyway (framework types do not)
-			if (!dispatcher.IsFrameworkType)
-				dispatcher.SchemaDispatchers[dispatcher.CurrentSchema] = new DispatcherPair(dispatcher.CurrentSerializeDispatcher, dispatcher.CurrentDeserializeDispatcher);
 
 			return f;
 		}
 
 		// See the comment on GetSpecificSerializerDispatcher
-		DeserializeDelegate<T> GetSpecificDeserializerDispatcher(Type type)
+		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher(Type type, IFormatter specificFormatter)
 		{
-			ref var dispatcher = ref _dispatchers.GetOrAddValueRef(type);
-			if (dispatcher != null)
-			{
-				if (dispatcher.CurrentDeserializeDispatcher != null)
-					return dispatcher.CurrentDeserializeDispatcher;
-			}
-			else
-			{
-				var meta = _serializer.GetTypeMetaData(type);
-				
-				dispatcher = new DispatcherEntry(type, meta.IsFrameworkType, meta.CurrentSchema);
-			}
-
-			var formatter = _serializer.GetSpecificFormatter(type);
-
-			var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
+			var deserializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 			Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
 
 			// What we want to emulate:
@@ -399,7 +469,7 @@
 										{
 											intro,
 
-											Expression.Call(Expression.Constant(formatter), deserializeMethod,
+											Expression.Call(Expression.Constant(specificFormatter), deserializeMethod,
 															arg0: bufferArg,
 															arg1: refOffsetArg,
 															arg2: valAsSpecific),
@@ -412,147 +482,10 @@
 #else
 			var f = Expression.Lambda<DeserializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).Compile();
 #endif
-			dispatcher.CurrentDeserializeDispatcher = f;
-
-			// Update the schema dispatchers (we do update instead of Add becasue the other method might have ran first)
-			// But only if we have a dict for that anyway (framework types do not)
-			if (!dispatcher.IsFrameworkType)
-				dispatcher.SchemaDispatchers[dispatcher.CurrentSchema] = new DispatcherPair(dispatcher.CurrentSerializeDispatcher, dispatcher.CurrentDeserializeDispatcher);
-
 			return f;
 		}
 
 
-		// Create an instance of a given type
-		T CreateInstance(Type specificType)
-		{
-			// todo:
-			// we can easily merge null-check (in the caller) and GetConstructor() into GetSpecificDeserializerDispatcher() 
-			// which would let us avoid one dictionary lookup, the type check, checking if a factory method is set, ...
-			// directly using Expression.New() will likely be faster as well
-			// todo 2:
-			// in fact, we can even *directly* inline the serializer sometimes!
-			// if the specific serializer is a DynamicSerializer, we could just take the expression-tree it generates, and directly inline it here.
-			// that would avoid even more overhead!
-
-			// Some objects can not be instantiated directly. Like 'Type', 'string', or 'MemberInfo', ... we return a constructor for them that always returns null. 
-
-			T value;
-			var factory = _serializer.Config.ObjectFactoryMethod;
-			if (factory != null)
-				value = (T)_serializer.Config.ObjectFactoryMethod(specificType);
-			else
-				value = (T)GetConstructor(specificType)();
-			return value;
-		}
-
-		// Get a 'constructor' function that creates an instance of a type
-		static Func<object> GetConstructor(Type type)
-		{
-			lock (_globalObjectConstructors)
-			{
-				// Fast path: return already constructed object!
-				ref var f = ref _globalObjectConstructors.GetOrAddValueRef(type);
-				if (f != null)
-					return f;
-
-				if (type.IsArray)
-				{
-					// ArrayFormatter will create a new array
-					f = () => null;
-				}
-				else if (CerasSerializer.IsFormatterConstructed(type))
-				{
-					// The formatter that handles this type also handles its creation, so we return null
-					f = () => null;
-				}
-				else
-				{
-					// We create a new instances using the default constructor
-					var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-						.FirstOrDefault(c => c.GetParameters().Length == 0);
-
-					if (ctor == null)
-						throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
-
-					f = (Func<object>)CreateConstructorDelegate(ctor, typeof(Func<object>));
-				}
-
-				return f;
-			}
-		}
-
-		static Delegate CreateConstructorDelegate(ConstructorInfo constructor, Type delegateType)
-		{
-			if (constructor == null)
-				throw new ArgumentNullException(nameof(constructor));
-
-			if (delegateType == null)
-				throw new ArgumentNullException(nameof(delegateType));
-
-
-			MethodInfo delMethod = delegateType.GetMethod("Invoke");
-			//if (delMethod.ReturnType != constructor.DeclaringType)
-			//	throw new InvalidOperationException("The return type of the delegate must match the constructors delclaring type");
-
-
-			// Validate the signatures
-			ParameterInfo[] delParams = delMethod.GetParameters();
-			ParameterInfo[] constructorParam = constructor.GetParameters();
-			if (delParams.Length != constructorParam.Length)
-			{
-				throw new InvalidOperationException("The delegate signature does not match that of the constructor");
-			}
-			for (int i = 0; i < delParams.Length; i++)
-			{
-				if (delParams[i].ParameterType != constructorParam[i].ParameterType ||  // Probably other things we should check ??
-					delParams[i].IsOut)
-				{
-					throw new InvalidOperationException("The delegate signature does not match that of the constructor");
-				}
-			}
-			// Create the dynamic method
-			DynamicMethod method =
-				new DynamicMethod(
-					string.Format("{0}__{1}", constructor.DeclaringType.Name, Guid.NewGuid().ToString().Replace("-", "")),
-					constructor.DeclaringType,
-					Array.ConvertAll<ParameterInfo, Type>(constructorParam, p => p.ParameterType),
-					true
-					);
-
-
-			// Create the il
-			ILGenerator gen = method.GetILGenerator();
-			for (int i = 0; i < constructorParam.Length; i++)
-			{
-				if (i < 4)
-				{
-					switch (i)
-					{
-						case 0:
-						gen.Emit(OpCodes.Ldarg_0);
-						break;
-						case 1:
-						gen.Emit(OpCodes.Ldarg_1);
-						break;
-						case 2:
-						gen.Emit(OpCodes.Ldarg_2);
-						break;
-						case 3:
-						gen.Emit(OpCodes.Ldarg_3);
-						break;
-					}
-				}
-				else
-				{
-					gen.Emit(OpCodes.Ldarg_S, i);
-				}
-			}
-			gen.Emit(OpCodes.Newobj, constructor);
-			gen.Emit(OpCodes.Ret);
-
-			return method.CreateDelegate(delegateType);
-		}
 
 
 		public void OnSchemaChanged(TypeMetaData meta)
@@ -581,7 +514,12 @@
 		{
 			public readonly Type Type;
 			public readonly bool IsFrameworkType;
-			//public Func<object> Constructor;
+
+			public Func<object> Constructor;
+
+			public readonly bool IsType;
+			public readonly bool IsExternalRootObject;
+			public readonly bool IsValueType;
 
 			public Schema CurrentSchema;
 			public SerializeDelegate<T> CurrentSerializeDispatcher;
@@ -594,6 +532,10 @@
 				Type = type;
 				IsFrameworkType = isFrameworkType;
 				CurrentSchema = currentSchema;
+
+				IsType = typeof(Type).IsAssignableFrom(type);
+				IsExternalRootObject = typeof(IExternalRootObject).IsAssignableFrom(type);
+				IsValueType = type.IsValueType;
 
 				// We only need a dictionary when the schema can actually change, which is never the case for framework types
 				if (!isFrameworkType)
