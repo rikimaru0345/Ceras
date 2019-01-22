@@ -1,10 +1,10 @@
 ﻿namespace Ceras.Resolvers
 {
+	using Formatters;
+	using Helpers;
 	using System;
 	using System.Collections.Generic;
 	using System.Reflection;
-	using Formatters;
-	using Helpers;
 
 	class ReflectionTypesFormatterResolver : IFormatterResolver
 	{
@@ -62,8 +62,7 @@
 			return null;
 		}
 	}
-	
-	// todo: Only few collections support a 'capacity'-constructor, but List<> and Dictionar<> do! So we should make special version of the collection formatter for them!
+
 	class CollectionFormatterResolver : IFormatterResolver
 	{
 		readonly CerasSerializer _serializer;
@@ -90,6 +89,13 @@
 			{
 				var itemType = type.GetElementType();
 
+				if (itemType == typeof(byte))
+				{
+					formatter = new ByteArrayFormatter();
+					_formatterInstances[type] = formatter;
+					return formatter;
+				}
+
 				var formatterType = typeof(ArrayFormatter<>).MakeGenericType(itemType);
 				formatter = (IFormatter)Activator.CreateInstance(formatterType, _serializer);
 
@@ -108,6 +114,28 @@
 			if (closedCollection != null)
 			{
 				var itemType = closedCollection.GetGenericArguments()[0];
+				
+				if (type.GetGenericTypeDefinition() == typeof(List<>))
+				{
+					var listFormatterType = typeof(ListFormatter<>).MakeGenericType(itemType);
+					formatter = (IFormatter)Activator.CreateInstance(listFormatterType, _serializer);
+
+					_formatterInstances[type] = formatter;
+					return formatter;
+				}
+
+				if (type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+				{
+					// itemType is KeyValuePair<,> so we need to deconstruct it
+					var kvpTypes = itemType.GetGenericArguments();
+
+					var listFormatterType = typeof(DictionaryFormatter<,>).MakeGenericType(kvpTypes);
+					formatter = (IFormatter)Activator.CreateInstance(listFormatterType, _serializer);
+
+					_formatterInstances[type] = formatter;
+					return formatter;
+				}
+
 
 				var formatterType = typeof(CollectionFormatter<,>).MakeGenericType(type, itemType);
 				formatter = (IFormatter)Activator.CreateInstance(formatterType, _serializer);

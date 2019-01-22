@@ -7,7 +7,7 @@
 	class ObjectCache
 	{
 		// While serializing we add all encountered objects and give them an ID (their index), so when we encounter them again we can just write the index instead.
-		readonly RefDictionary<object, int> _serializationCache = new RefDictionary<object, int>(32, 0.66f);
+		readonly RefDictionary<object, int> _serializationCache = new RefDictionary<object, int>(32, 0.75f);
 		// At deserialization-time we keep adding all new objects to this list, so when we find a back-reference we can take it from here.
 		// RefProxy enables us to deserialize even the most complex scenarios (For example: Objects that directly reference themselves, while they're not even fully constructed yet)
 		readonly List<RefProxy> _deserializationCache = new List<RefProxy>(64);

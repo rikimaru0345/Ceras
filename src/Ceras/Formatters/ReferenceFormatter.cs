@@ -92,10 +92,9 @@
 				return;
 			}
 
-
 			var specificType = value.GetType();
 			var entry = GetOrCreateEntry(specificType);
-
+			
 
 			if (entry.IsType) // This is very rare, so we cache the check itself, and do the cast below
 			{

@@ -18,10 +18,9 @@ namespace Ceras.Helpers
 	class SchemaDynamicFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
 	{
 		const int FieldSizePrefixBytes = 4;
-		static readonly Type SizeType = typeof(uint);
-		static readonly MethodInfo SizeWriteMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.WriteUInt32Fixed));
-		static readonly MethodInfo SizeReadMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadUInt32Fixed));
-
+		static readonly Type _sizeType = typeof(uint);
+		static readonly MethodInfo _sizeWriteMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.WriteUInt32Fixed));
+		static readonly MethodInfo _sizeReadMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadUInt32Fixed));
 
 		readonly CerasSerializer _ceras;
 		readonly Dictionary<Schema, SerializerPair> _generatedSerializerPairs = new Dictionary<Schema, SerializerPair>();
@@ -139,10 +138,10 @@ namespace Ceras.Helpers
 
 				// WriteInt32( size )
 				block.Add(Call(
-							   method: SizeWriteMethod,
+							   method: _sizeWriteMethod,
 							   arg0: refBufferArg,
 							   arg1: refOffsetArg,
-							   arg2: Convert(size, SizeType)
+							   arg2: Convert(size, _sizeType)
 							   ));
 
 				// offset = startPos + skipOffset; // continue serialization where we left off
@@ -205,7 +204,7 @@ namespace Ceras.Helpers
 
 				// Read block size: blockSize = ReadSize();
 				block.Add(Assign(left: blockSize,
-								 right: Convert(Call(method: SizeReadMethod, arg0: bufferArg, arg1: refOffsetArg), typeof(int))));
+								 right: Convert(Call(method: _sizeReadMethod, arg0: bufferArg, arg1: refOffsetArg), typeof(int))));
 
 				if (members[i].IsSkip)
 				{

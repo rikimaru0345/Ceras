@@ -8,7 +8,7 @@
 	// -> No! We'd still need a reference formatter to ensure references are maintained. And at that point we have saved absolutely nothing because that check already encodes type IF its needed!
 	// Which means that we'd not even save a single byte, because there are no bytes to save. We already do not waste any bytes on encoding "yup same type" because that information is packed into the reference-formatters "serialization mode id". We'd have to either write the ID of an existing object or use one byte for "new object" anyway. And the thing is: This unavoidable byte is already used to also encode that...
 
-	class ArrayFormatter<TItem> : IFormatter<TItem[]>, ISchemaTaintedFormatter
+	sealed class ArrayFormatter<TItem> : IFormatter<TItem[]>
 	{
 		IFormatter<TItem> _itemFormatter;
 
@@ -16,9 +16,6 @@
 		{
 			var itemType = typeof(TItem);
 			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
-			
-			var itemMetaData = serializer.GetTypeMetaData(itemType);
-			itemMetaData.OnSchemaChangeTargets.Add(this);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TItem[] ar)
@@ -53,18 +50,9 @@
 			for (int i = 0; i < length; i++)
 				f.Deserialize(buffer, ref offset, ref ar[i]);
 		}
-
-
-		public void OnSchemaChanged(TypeMetaData meta)
-		{
-			if (meta.Type.IsValueType)
-				_itemFormatter = (IFormatter<TItem>)meta.SpecificFormatter;
-			else
-				_itemFormatter = (IFormatter<TItem>)meta.ReferenceFormatter;
-		}
 	}
 	
-	class CollectionFormatter<TCollection, TItem> : ISchemaTaintedFormatter, IFormatter<TCollection>
+	sealed class CollectionFormatter<TCollection, TItem> : IFormatter<TCollection>
 		where TCollection : ICollection<TItem>
 	{
 		IFormatter<TItem> _itemFormatter;
@@ -73,9 +61,6 @@
 		{
 			var itemType = typeof(TItem);
 			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
-
-			var itemMetaData = serializer.GetTypeMetaData(itemType);
-			itemMetaData.OnSchemaChangeTargets.Add(this);
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TCollection value)
@@ -104,15 +89,6 @@
 				f.Deserialize(buffer, ref offset, ref item);
 				value.Add(item);
 			}
-		}
-
-		
-		public void OnSchemaChanged(TypeMetaData meta)
-		{
-			if (meta.Type.IsValueType)
-				_itemFormatter = (IFormatter<TItem>)meta.SpecificFormatter;
-			else
-				_itemFormatter = (IFormatter<TItem>)meta.ReferenceFormatter;
 		}
 	}
 }

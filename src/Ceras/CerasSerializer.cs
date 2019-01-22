@@ -682,12 +682,9 @@ namespace Ceras
 			meta.CurrentSchema = schema;
 
 
-			// 3. Do we have a specific formatter for this one? If not create it
-			if (meta.SpecificFormatter == null)
-			{
-				// Will create and set the formatter
-				GetSpecificFormatter(type, meta);
-			}
+			// 3. Ensure 'SpecificFormatter' is prepared and set
+			//    (can only be SchemaDynamicFormatter<>)
+			GetSpecificFormatter(type, meta);
 
 
 			// 4. Notify every formatter that wants to know about schema changes to this type
@@ -696,12 +693,6 @@ namespace Ceras
 				var taintedFormatter = meta.OnSchemaChangeTargets[i];
 				taintedFormatter.OnSchemaChanged(meta);
 			}
-
-
-			// todo: make every formatter that uses some other formatter listen to schema-changes that it is interested in
-
-			// todo: merge all dictionaries that use a Type as key. Could be really useful in SchemaDb
-
 		}
 
 
