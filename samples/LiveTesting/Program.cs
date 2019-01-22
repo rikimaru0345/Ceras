@@ -21,7 +21,7 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			Benchmarks();
+			//Benchmarks();
 
 			TuplesTest();
 
@@ -89,6 +89,8 @@ namespace LiveTesting
 			// tutorial.Step9_VersionTolerance();
 			tutorial.Step10_ReadonlyHandling();
 
+			Console.WriteLine("All tests completed.");
+			Console.ReadKey();
 		}
 
 		static void Benchmarks()
@@ -1077,11 +1079,11 @@ namespace LiveTesting
 		{
 			var obj = new ConstructorTest(5);
 			var ceras = new CerasSerializer();
-			var data = ceras.Serialize(obj);
 
 			// This is expected to throw an exception
 			try
 			{
+				var data = ceras.Serialize(obj);
 				var clone = ceras.Deserialize<ConstructorTest>(data);
 
 				Debug.Assert(false, "deserialization was supposed to fail, but it didn't!");
