@@ -56,7 +56,6 @@ namespace Ceras.Formatters
 			var type = typeof(T);
 			var meta = _ceras.GetTypeMetaData(type);
 
-			BannedTypes.ThrowIfBanned(type);
 			BannedTypes.ThrowIfNonspecific(type);
 
 			var schema = meta.PrimarySchema;

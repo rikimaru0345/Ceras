@@ -21,6 +21,10 @@ namespace LiveTesting
 
 	// todo: compare if using constants in generated code eliminates the virtual dispatch
 
+	// todo: come up with some actual real world benchmarks
+
+	// todo: add Jil, and msgpack-cli 
+
 
 	[ClrJob]
 	[MarkdownExporter, HtmlExporter, CsvExporter(BenchmarkDotNet.Exporters.Csv.CsvSeparator.Comma)]

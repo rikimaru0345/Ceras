@@ -1,5 +1,6 @@
 ﻿namespace Ceras.Formatters
 {
+	using System;
 	using System.Collections.Generic;
 
 	// todo: at the moment we refer to the item formatter through an interface field. Would we get a performance improvement if we'd compile a dedicated formatter that has the itemFormatter built-in as a constant instead? (just like the DynamicObjectFormatter already does)? Would we save performance if we'd cache the itemFormatter into a local variable before entering the loops?
@@ -10,12 +11,15 @@
 
 	sealed class ArrayFormatter<TItem> : IFormatter<TItem[]>
 	{
-		IFormatter<TItem> _itemFormatter;
+		readonly IFormatter<TItem> _itemFormatter;
+		readonly uint _maxSize;
 
 		public ArrayFormatter(CerasSerializer serializer)
 		{
 			var itemType = typeof(TItem);
 			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
+
+			_maxSize = serializer.Config.Advanced.SizeLimits.MaxArraySize;
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TItem[] ar)
@@ -43,6 +47,9 @@
 				return;
 			}
 
+			if (length > _maxSize)
+				throw new InvalidOperationException($"The data contains a '{typeof(TItem)}'-array of size '{length}', which exceeds the allowed limit of '{_maxSize}'");
+
 			if (ar == null || ar.Length != length)
 				ar = new TItem[length];
 
@@ -56,11 +63,13 @@
 		where TCollection : ICollection<TItem>
 	{
 		IFormatter<TItem> _itemFormatter;
+		readonly uint _maxSize;
 
 		public CollectionFormatter(CerasSerializer serializer)
 		{
 			var itemType = typeof(TItem);
 			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
+			_maxSize = serializer.Config.Advanced.SizeLimits.MaxCollectionSize;
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TCollection value)
@@ -78,6 +87,10 @@
 		{
 			// How many items?
 			var itemCount = SerializerBinary.ReadUInt32(buffer, ref offset);
+
+			if (itemCount > _maxSize)
+				throw new InvalidOperationException($"The data contains a '{typeof(TCollection)}' with '{itemCount}' entries, which exceeds the allowed limit of '{_maxSize}'");
+
 
 			value.Clear();
 

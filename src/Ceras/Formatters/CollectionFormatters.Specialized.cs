@@ -1,9 +1,17 @@
 ﻿namespace Ceras.Formatters
 {
+	using System;
 	using System.Collections.Generic;
 
 	sealed class ByteArrayFormatter : IFormatter<byte[]>
 	{
+		readonly uint _maxSize;
+
+		public ByteArrayFormatter(CerasSerializer ceras)
+		{
+			_maxSize = ceras.Config.Advanced.SizeLimits.MaxByteArraySize;
+		}
+
 		public void Serialize(ref byte[] buffer, ref int offset, byte[] ar)
 		{
 			if (ar == null)
@@ -35,6 +43,9 @@
 				return;
 			}
 
+			if (length > _maxSize)
+				throw new InvalidOperationException($"The data contains a byte-array of size '{length}', which exceeds the allowed limit of '{_maxSize}'");
+
 			if (ar == null || ar.Length != length)
 				ar = new byte[length];
 
@@ -45,6 +56,7 @@
 	sealed class ListFormatter<TItem> : IFormatter<List<TItem>>
 	{
 		IFormatter<TItem> _itemFormatter;
+		readonly uint _maxSize;
 
 		public ListFormatter(CerasSerializer serializer)
 		{
@@ -53,6 +65,8 @@
 
 			// We'll handle instantiation ourselves in order to call the capacity ctor
 			CerasSerializer.AddFormatterConstructedType(typeof(List<TItem>));
+
+			_maxSize = serializer.Config.Advanced.SizeLimits.MaxCollectionSize;
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, List<TItem> value)
@@ -74,6 +88,9 @@
 			// How many items?
 			var itemCount = SerializerBinary.ReadUInt32(buffer, ref offset);
 
+			if (itemCount > _maxSize)
+				throw new InvalidOperationException($"The data contains a '{typeof(TItem)}'-List with '{itemCount}' elements, which exceeds the allowed limit of '{_maxSize}'");
+
 			if (value == null)
 				value = new List<TItem>((int)itemCount);
 			else
@@ -93,6 +110,7 @@
 	sealed class DictionaryFormatter<TKey, TValue> : IFormatter<Dictionary<TKey, TValue>>
 	{
 		IFormatter<KeyValuePair<TKey, TValue>> _itemFormatter;
+		readonly uint _maxSize;
 
 		public DictionaryFormatter(CerasSerializer serializer)
 		{
@@ -101,6 +119,8 @@
 
 			// We'll handle instantiation ourselves in order to call the capacity ctor
 			CerasSerializer.AddFormatterConstructedType(typeof(Dictionary<TKey, TValue>));
+
+			_maxSize = serializer.Config.Advanced.SizeLimits.MaxCollectionSize;
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, Dictionary<TKey, TValue> value)
@@ -110,7 +130,7 @@
 
 			// Write each item
 			var f = _itemFormatter;
-			foreach(var kvp in value)
+			foreach (var kvp in value)
 				f.Serialize(ref buffer, ref offset, kvp);
 		}
 
@@ -118,6 +138,9 @@
 		{
 			// How many items?
 			var itemCount = SerializerBinary.ReadUInt32(buffer, ref offset);
+
+			if (itemCount > _maxSize)
+				throw new InvalidOperationException($"The data contains a '{typeof(TKey)} {typeof(TValue)}'-Dictionary with '{itemCount}' elements, which exceeds the allowed limit of '{_maxSize}'");
 
 			if (value == null)
 				value = new Dictionary<TKey, TValue>((int)itemCount);

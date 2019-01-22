@@ -157,7 +157,7 @@ namespace Ceras
 		public CerasSerializer(SerializerConfig config = null)
 		{
 			Config = config ?? new SerializerConfig();
-			
+
 			if (Config.ExternalObjectResolver == null)
 				Config.ExternalObjectResolver = new ErrorResolver();
 
@@ -181,7 +181,11 @@ namespace Ceras
 
 			// String Formatter should never be wrapped in a RefFormatter, that's too slow
 
-			var stringFormatter = new StringFormatter();
+			IFormatter stringFormatter;
+			if (Config.Advanced.SizeLimits.MaxStringLength < uint.MaxValue)
+				stringFormatter = new MaxSizeStringFormatter(Config.Advanced.SizeLimits.MaxStringLength);
+			else
+				stringFormatter = new StringFormatter();
 			SetFormatters(typeof(string), stringFormatter, stringFormatter);
 
 			//
@@ -575,6 +579,8 @@ namespace Ceras
 				isFrameworkType = true;
 			else
 				isFrameworkType = _frameworkAssemblies.Contains(type.Assembly);
+
+			BannedTypes.ThrowIfBanned(type);
 
 			meta = new TypeMetaData(type, isFrameworkType);
 
@@ -1055,7 +1061,7 @@ namespace Ceras
 	/// <summary>
 	/// Allows detailed configuration of the <see cref="CerasSerializer"/>. Advanced options can be found inside <see cref="Advanced"/>
 	/// </summary>
-	public class SerializerConfig : IAdvancedConfigOptions
+	public class SerializerConfig : IAdvancedConfigOptions, ISizeLimitsConfig
 	{
 		/// <summary>
 		/// Add all the types you want to serialize to this collection.
@@ -1112,7 +1118,7 @@ namespace Ceras
 		/// Advanced options. In here is everything that is very rarely used, dangerous, or otherwise special. 
 		/// </summary>
 		public IAdvancedConfigOptions Advanced => this;
-		
+
 		/// <summary>
 		/// Whenever Ceras needs to create a new object it will use the factory method (if you have provided one)
 		/// The primary intended use for this is object pooling; for example when receiving network messages you obviously don't want to 'new()' a new packet every time a message arrives, instead you want to take them from a pool. When doing so, you should of course also provide a 'DiscardObjectMethod' so Ceras can give you objects back when they are not used anymore (happens when you use the ref-version of deserialize to overwrite existing objects).
@@ -1137,7 +1143,7 @@ namespace Ceras
 		/// Explaining this setting here would take too much space, check out the tutorial section for details.
 		/// </summary>
 		ReadonlyFieldHandling IAdvancedConfigOptions.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.Off;
-		
+
 		/// <summary>
 		/// Embed protocol/serializer checksum at the start of any serialized data, and read it back when deserializing to make sure we're not reading incompatible data on accident
 		/// </summary>
@@ -1153,7 +1159,7 @@ namespace Ceras
 		/// the same configuration as it (unless you really know exactly what you're doing)
 		/// </summary>
 		bool IAdvancedConfigOptions.PersistTypeCache { get; set; } = false;
-		
+
 		/// <summary>
 		/// This setting is only used when KnownTypes is used (has >0 entries).
 		/// When set to true, and a new Type (so a Type that is not contained in KnownTypes) is encountered in either serialization or deserialization, an exception is thrown.
@@ -1185,7 +1191,7 @@ namespace Ceras
 		/// For 99% of all use cases this is exactly what you want. For more information read the 'readonly properties' section in the tutorial.
 		/// </summary>
 		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
-		
+
 		/// <summary>
 		/// A TypeBinder simply converts a 'Type' to a string and back.
 		/// It's easy and really useful to provide your own type binder in many situations.
@@ -1196,6 +1202,12 @@ namespace Ceras
 		/// See the readme on github for more information.
 		/// </summary>
 		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = null;
+
+		ISizeLimitsConfig IAdvancedConfigOptions.SizeLimits => this;
+		uint ISizeLimitsConfig.MaxStringLength { get; set; } = uint.MaxValue;
+		uint ISizeLimitsConfig.MaxArraySize { get; set; } = uint.MaxValue;
+		uint ISizeLimitsConfig.MaxByteArraySize { get; set; } = uint.MaxValue;
+		uint ISizeLimitsConfig.MaxCollectionSize { get; set; } = uint.MaxValue;
 	}
 
 	public interface IAdvancedConfigOptions
@@ -1224,7 +1236,7 @@ namespace Ceras
 		/// Explaining this setting here would take too much space, check out the tutorial section for details.
 		/// </summary>
 		ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
-		
+
 		/// <summary>
 		/// Embed protocol/serializer checksum at the start of any serialized data, and read it back when deserializing to make sure we're not reading incompatible data on accident
 		/// </summary>
@@ -1240,7 +1252,7 @@ namespace Ceras
 		/// the same configuration as it (unless you really know exactly what you're doing)
 		/// </summary>
 		bool PersistTypeCache { get; set; }
-		
+
 		/// <summary>
 		/// This setting is only used when KnownTypes is used (has >0 entries).
 		/// When set to true, and a new Type (so a Type that is not contained in KnownTypes) is encountered in either serialization or deserialization, an exception is thrown.
@@ -1272,7 +1284,7 @@ namespace Ceras
 		/// For 99% of all use cases this is exactly what you want. For more information read the 'readonly properties' section in the tutorial.
 		/// </summary>
 		bool SkipCompilerGeneratedFields { get; set; }
-		
+
 		/// <summary>
 		/// A TypeBinder simply converts a 'Type' to a string and back.
 		/// It's easy and really useful to provide your own type binder in many situations.
@@ -1283,6 +1295,32 @@ namespace Ceras
 		/// See the readme on github for more information.
 		/// </summary>
 		ITypeBinder TypeBinder { get; set; }
+
+
+		/// <summary>
+		/// Protect against malicious input while deserializing by setting size limits for strings, arrays, and collections
+		/// </summary>
+		ISizeLimitsConfig SizeLimits { get; }
+	}
+
+	public interface ISizeLimitsConfig
+	{
+		/// <summary>
+		/// Maximum string length
+		/// </summary>
+		uint MaxStringLength { get; set; }
+		/// <summary>
+		/// Maximum size of any byte[] members
+		/// </summary>
+		uint MaxArraySize { get; set; }
+		/// <summary>
+		/// Maximum size of any array members (except byte arrays)
+		/// </summary>
+		uint MaxByteArraySize { get; set; }
+		/// <summary>
+		/// Maximum number of elements to read for any collection (everything that implements ICollection, so List, Dictionary, ...)
+		/// </summary>
+		uint MaxCollectionSize { get; set; }
 	}
 
 	/// <summary>

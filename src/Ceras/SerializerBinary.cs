@@ -406,6 +406,26 @@
 			return str;
 		}
 
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static string ReadStringLimited(byte[] buffer, ref int offset, uint maxLength)
+		{
+			// Length
+			int length = ReadUInt32Bias(buffer, ref offset, 1);
+
+			if (length == -1)
+				return null;
+
+			if ((uint) length > maxLength)
+				throw new InvalidOperationException($"The current data contains a string of length '{length}', but the maximum allowed string length is '{maxLength}'");
+
+
+			// Data
+			var str = _utf8Encoding.GetString(buffer, offset, length);
+			offset += length;
+			
+			return str;
+		}
+
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static long EncodeZigZag(long value, int bitLength)

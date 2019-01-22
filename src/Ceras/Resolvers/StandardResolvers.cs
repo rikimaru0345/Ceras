@@ -91,7 +91,7 @@
 
 				if (itemType == typeof(byte))
 				{
-					formatter = new ByteArrayFormatter();
+					formatter = new ByteArrayFormatter(_serializer);
 					_formatterInstances[type] = formatter;
 					return formatter;
 				}

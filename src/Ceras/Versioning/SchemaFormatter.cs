@@ -40,9 +40,8 @@ namespace Ceras.Helpers
 
 			var type = typeof(T);
 
-			BannedTypes.ThrowIfBanned(type);
 			BannedTypes.ThrowIfNonspecific(type);
-
+			
 			ActivateSchema(_currentSchema);
 
 			RegisterForSchemaChanges();
@@ -257,7 +256,7 @@ namespace Ceras.Helpers
 					block.Add(writeBack);
 				}
 			}
-			
+
 			var serializeBlock = Block(variables: locals, expressions: block);
 #if FAST_EXP
 			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
