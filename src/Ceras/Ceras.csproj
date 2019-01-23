@@ -13,7 +13,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <TargetFrameworks>net45;netstandard2.0;</TargetFrameworks>
+    <TargetFrameworks>net45;net47;netstandard2.0;</TargetFrameworks>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>7.3</LangVersion>
     <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
@@ -32,6 +32,13 @@
       <LastGenOutput>ValueTupleFormatter.cs</LastGenOutput>
     </None>
 
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <None Update="Formatters\ValueTupleFormatter.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>ValueTupleFormatter.cs</LastGenOutput>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

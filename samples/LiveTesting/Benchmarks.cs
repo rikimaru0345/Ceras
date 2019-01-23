@@ -26,6 +26,7 @@ namespace LiveTesting
 	using System.Reflection.Emit;
 	using System.Runtime.CompilerServices;
 	using System.Runtime.Serialization;
+	using Ceras.Helpers;
 	using Tutorial;
 
 
@@ -267,10 +268,10 @@ namespace LiveTesting
 		{
 			_memStream.Position = 0;
 
-			Serializer.Serialize(_memStream, obj);
+			ProtoBuf.Serializer.SerializeWithLengthPrefix(_memStream, obj, PrefixStyle.Fixed32);
 			_memStream.Position = 0;
-			var clone = Serializer.Deserialize<T>(_memStream);
-
+			var clone = ProtoBuf.Serializer.DeserializeWithLengthPrefix<T>(_memStream, PrefixStyle.Fixed32);
+			
 			return clone;
 		}
 		
@@ -296,8 +297,6 @@ namespace LiveTesting
 
 			return clone;
 		}
-
-		
 	}
 
 	public class DictionaryBenchmarks
