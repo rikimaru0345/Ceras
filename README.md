@@ -1,8 +1,6 @@
 # Ceras
 
-[![AppVeyor](https://ci.appveyor.com/api/projects/status/github/rikimaru0345/Ceras?branch=master&svg=true)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts)  [![Test Results](https://img.shields.io/appveyor/tests/rikimaru0345/ceras.svg)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/tests) [![LICENSE](https://img.shields.io/github/license/rikimaru0345/Ceras.svg)](https://github.com/rikimaru0345/Ceras/blob/master/LICENSE) [![Discord](https://discordapp.com/api/guilds/367211057787305985/embed.png)](https://discord.gg/FGaCX4c)
-
-[![NuGet](https://img.shields.io/nuget/v/Ceras.svg?logo=nuget&logoColor=ddd)](https://www.nuget.org/packages/Ceras/)  [![Release](https://img.shields.io/badge/download-70kb%20%5Brelease.zip%5D-blue.svg?logo=appveyor )](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts) 
+[![AppVeyor](https://ci.appveyor.com/api/projects/status/github/rikimaru0345/Ceras?branch=master&svg=true)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts)  [![Test Results](https://img.shields.io/appveyor/tests/rikimaru0345/ceras.svg)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/tests) [![LICENSE](https://img.shields.io/github/license/rikimaru0345/Ceras.svg)](https://github.com/rikimaru0345/Ceras/blob/master/LICENSE) [![Discord](https://discordapp.com/api/guilds/367211057787305985/embed.png)](https://discord.gg/FGaCX4c) [![NuGet](https://img.shields.io/nuget/v/Ceras.svg?logo=nuget&logoColor=ddd)](https://www.nuget.org/packages/Ceras/)  [![Release](https://img.shields.io/badge/download-70kb%20%5Brelease.zip%5D-blue.svg?logo=appveyor )](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts) 
 
 Ceras is a binary serializer. It converts *any* object into a `byte[]` and back.
 It goes above and beyond in terms of features, speed, and compfort.
@@ -11,14 +9,12 @@ Supports reference loops, large/complicated inheritance chains, splitting object
 # Quick start
 
 ```csharp
-using Ceras;
-
 class ExamplePerson { public string Name; public int Number; }
 var p = new ExamplePerson { Name = "test", Number = 5 };
 
-var s = new CerasSerializer();
+var ceras = new CerasSerializer();
 
-var bytes = s.Serialize(p);
+var bytes = ceras.Serialize(p);
 ```
 
 ### [**>> 1. Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Tutorial.cs)
@@ -29,34 +25,31 @@ var bytes = s.Serialize(p);
 # Features
 
 ### Major Features
-- Very fast, small binary output (see [Performance ](https://github.com/rikimaru0345/Ceras/blob/master/README.md#performance))
+- Very fast, small binary output (see **[Performance](https://github.com/rikimaru0345/Ceras/blob/master/README.md#performance)**)
 - Supports pretty much any type:
 	- [Hand-written formatters for all common .NET types](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features#built-in-types)
+	- [Comes with formatters for all common Unity types](https://github.com/rikimaru0345/Ceras/tree/master/src/Ceras.UnityAddon)
 	- Generates new formatters at runtime for any new/user type
 	- [Very easy to extend and customize](https://www.rikidev.com/extending-ceras-with-a-custom-formatter/)
-- **Full** support for circular references (including object caching)
+- **Full** support for reference persistence (including circular references!)
 - **Full** support for polymorphism / inheritance / interfaces
 - Can serialize objects into parts as "ExtenalObjects" (useful in many many scenarios)
-- Automatic version-tolerance, no need to assign any attributes to your classes!
-- *many more (too many to list), check out the full list below*
-
-### [**>> Full feature list (and planned features)**](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)
-### [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
-### [**>> Using Ceras to easily send C# objects over TCP/UDP**](https://rikidev.com/networking-with-ceras-part-1/)
+- Automatic version-tolerance, no need to place any attributes on your classes!
+- ### [*full feature list (and planned features)*](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)
 
 # Performance benchmarks
-To get an idea of how Ceras performs here are the preliminary benchmark results.
-The project is still heavily work-in-progress, meaning that over time more optimizations will get implemented (your feedback is important here!).
-
 Ceras generally ranks at the top end of the performance spectrum, together with NetSerializer and MessagePack-CSharp.
+To get an idea of how Ceras performs here are the preliminary benchmark results.
 The resulting binary size is about the same as MessagePack-CSharp.
-
-The shown results are obtained from **[this code](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Benchmarks.cs)** and I encourage you to not only try it yourself, but to also provide feedback about scenarios you had good and bad results with.
 
 ![Single object performance benchmark](https://i.imgur.com/Q896UgV.png)
 
+The shown results are obtained from **[this code](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Benchmarks.cs)** and I encourage you to not only try it yourself, but to also provide feedback about scenarios you had good and bad results with.
+
 Don't forget to tune the settings in `SerializerConfig` for your specific situation.
-Using Ceras to read/write network packets might require different settings than, lets say, saving settings into a file, or cloning objects, or persisting items/spells/monsters in a game, or ... 
+Using Ceras to read/write network packets might require different settings than, lets say, saving a settings-object to a file, or persisting items/spells/monsters in a game, or ... 
+
+The project is still heavily work-in-progress, meaning that over time more optimizations will get implemented (your feedback is important here!).
 
 # What can this be used for?
 
@@ -90,6 +83,8 @@ The above are just examples, Ceras is made so it can be used in pretty much ever
 
 - You plan to use this on a platform that does not support code generation. Serializers for user-types are created at runtime through code-generation. And if that isn't allowed (for example on iOS) Ceras won't be able to generate arbitrary object-formatters. Built-in types will still work though. There are ways to fix this though... (pre-generating the formatters)
 
+
+### [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
 
 # Support
 - Open an issue
