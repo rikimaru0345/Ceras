@@ -26,7 +26,7 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			// Benchmarks();
+			Benchmarks();
 
 			TuplesTest();
 
@@ -100,8 +100,9 @@ namespace LiveTesting
 
 		static void Benchmarks()
 		{
+			new SerializerComparisonBenchmarks().Setup();
+
 			var config = new CerasGlobalBenchmarkConfig();
-			BenchmarkRunner.Run<Switch_vs_If_Benchmarks>(config);
 			BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
 
 			Environment.Exit(0);

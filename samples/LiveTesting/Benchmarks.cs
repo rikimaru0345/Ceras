@@ -3,7 +3,17 @@ using System;
 
 namespace LiveTesting
 {
+	using BenchmarkDotNet.Columns;
 	using BenchmarkDotNet.Configs;
+	using BenchmarkDotNet.Environments;
+	using BenchmarkDotNet.Exporters;
+	using BenchmarkDotNet.Exporters.Csv;
+	using BenchmarkDotNet.Jobs;
+	using BenchmarkDotNet.Loggers;
+	using BenchmarkDotNet.Mathematics;
+	using BenchmarkDotNet.Order;
+	using BenchmarkDotNet.Reports;
+	using BenchmarkDotNet.Toolchains.CsProj;
 	using Ceras;
 	using MessagePack;
 	using Newtonsoft.Json;
@@ -16,18 +26,6 @@ namespace LiveTesting
 	using System.Reflection.Emit;
 	using System.Runtime.CompilerServices;
 	using System.Runtime.Serialization;
-	using BenchmarkDotNet.Columns;
-	using BenchmarkDotNet.Environments;
-	using BenchmarkDotNet.Exporters;
-	using BenchmarkDotNet.Exporters.Csv;
-	using BenchmarkDotNet.Jobs;
-	using BenchmarkDotNet.Loggers;
-	using BenchmarkDotNet.Mathematics;
-	using BenchmarkDotNet.Order;
-	using BenchmarkDotNet.Reports;
-	using BenchmarkDotNet.Running;
-	using BenchmarkDotNet.Toolchains;
-	using BenchmarkDotNet.Toolchains.CsProj;
 	using Tutorial;
 
 
@@ -43,11 +41,11 @@ namespace LiveTesting
 		public CerasGlobalBenchmarkConfig()
 		{
 			Add(Job.ShortRun
-			       .WithOutlierMode(OutlierMode.OnlyUpper)
-			       .With(Platform.X64)
-			       .With(Runtime.Core)
-			       .With(CsProjCoreToolchain.NetCoreApp22)
-			       .WithLaunchCount(1));
+				   .WithOutlierMode(OutlierMode.OnlyUpper)
+				   .With(Platform.X64)
+				   .With(Runtime.Core)
+				   .With(CsProjCoreToolchain.NetCoreApp22)
+				   .WithLaunchCount(1));
 
 			Add(MarkdownExporter.GitHub);
 			Add(HtmlExporter.Default);
@@ -60,7 +58,7 @@ namespace LiveTesting
 
 			Set(new DefaultOrderer(SummaryOrderPolicy.FastestToSlowest, MethodOrderPolicy.Declared));
 			Add(BenchmarkLogicalGroupRule.ByCategory);
-			
+
 			Add(CategoriesColumn.Default);
 			Add(TargetMethodColumn.Method);
 			Add(BaselineRatioColumn.RatioMean);
@@ -68,6 +66,238 @@ namespace LiveTesting
 
 			Add(new ConsoleLogger());
 		}
+	}
+
+
+	public class SerializerComparisonBenchmarks
+	{
+		[MessagePackObject]
+		[ProtoContract]
+		[Serializable]
+		public class Person : IEquatable<Person>
+		{
+			[Key(0)]
+			[DataMember]
+			[ProtoMember(1)]
+			public virtual int Age { get; set; }
+
+			[Key(1)]
+			[DataMember]
+			[ProtoMember(2)]
+			public virtual string FirstName { get; set; }
+
+			[Key(2)]
+			[DataMember]
+			[ProtoMember(3)]
+			public virtual string LastName { get; set; }
+
+			[Key(3)]
+			[DataMember]
+			[ProtoMember(4)]
+			public virtual Sex Sex { get; set; }
+
+			[Key(4)]
+			[DataMember]
+			[ProtoMember(5)]
+			public virtual Person Parent1 { get; set; }
+
+			[Key(5)]
+			[DataMember]
+			[ProtoMember(6)]
+			public virtual Person Parent2 { get; set; }
+
+			[Key(6)]
+			[DataMember]
+			[ProtoMember(7)]
+			public virtual int[] LuckyNumbers { get; set; } = new int[0];
+
+			public override bool Equals(object obj)
+			{
+				if (obj is Person other)
+					return Equals(other);
+				return false;
+			}
+
+			public bool Equals(Person other)
+			{
+				return Age == other.Age
+					   && FirstName == other.FirstName
+					   && LastName == other.LastName
+					   && Sex == other.Sex
+					   && Equals(Parent1, other.Parent1)
+					   && Equals(Parent2, other.Parent2)
+					   && LuckyNumbers.SequenceEqual(other.LuckyNumbers);
+			}
+		}
+
+		public enum Sex : sbyte
+		{
+			Unknown, Male, Female,
+		}
+		
+		Person _person;
+		IList<Person> _list;
+
+		static Wire.Serializer _wire;
+		static NetSerializer.Serializer _netSerializer;
+
+		static byte[] _buffer;
+		static MemoryStream _memStream = new MemoryStream();
+		static CerasSerializer _ceras;
+
+
+		[GlobalSetup]
+		public void Setup()
+		{
+			//
+			// Create example data
+			var parent1 = new Person
+			{
+				Age = -901,
+				FirstName = "Parent 1",
+				LastName = "abc",
+				Sex = Sex.Male,
+			};
+			var parent2 = new Person
+			{
+				Age = 7881964,
+				FirstName = "Parent 2",
+				LastName = "xyz",
+				Sex = Sex.Female,
+			};
+			_person = new Person
+			{
+				Age = 5,
+				FirstName = "Riki",
+				LastName = "Example Person Object",
+				Sex = Sex.Unknown,
+				Parent1 = parent1,
+				Parent2 = parent2,
+			};
+			
+			_list = Enumerable.Range(25000, 100).Select(x => new Person { Age = x, FirstName = "a", LastName = "b", Sex = Sex.Female }).ToArray();
+
+			//
+			// Config Serializers
+			_wire = new Wire.Serializer(new Wire.SerializerOptions(knownTypes: new Type[] { typeof(Person), typeof(Person[]) }));
+
+			_netSerializer = new NetSerializer.Serializer(rootTypes: new Type[] { typeof(Person), typeof(Person[]) });
+
+			var config = new SerializerConfig();
+			config.DefaultTargets = TargetMember.AllPublic;
+			var knownTypes = new[] { typeof(Person), typeof(List<>), typeof(Person[]) };
+			config.KnownTypes.AddRange(knownTypes);
+			config.PreserveReferences = false;
+			_ceras = new CerasSerializer(config);
+			
+			//
+			// Run each serializer once to verify they work correctly!
+			if (!Equals(RunCeras(_person), _person))
+				ThrowError();
+			if (!Equals(RunJson(_person), _person))
+				ThrowError();
+			if (!Equals(RunMessagePackCSharp(_person), _person))
+				ThrowError();
+			if (!Equals(RunProtobuf(_person), _person))
+				ThrowError();
+			if (!Equals(RunWire(_person), _person))
+				ThrowError();
+			if (!Equals(RunNetSerializer(_person), _person))
+				ThrowError();
+
+			void ThrowError() => throw new InvalidOperationException("Cannot continue with the benchmark because a serializer does not round-trip an object correctly. (Benchmark results will be wrong)");
+		}
+
+
+
+		[BenchmarkCategory("Single"), Benchmark]
+		public void MessagePackCSharp_Single() => RunMessagePackCSharp(_person);
+		[BenchmarkCategory("Single"), Benchmark(Baseline = true)]
+		public void Ceras_Single() => RunCeras(_person);
+		[BenchmarkCategory("Single"), Benchmark]
+		public void Protobuf_Single() => RunProtobuf(_person);
+		[BenchmarkCategory("Single"), Benchmark]
+		public void JsonNet_Single() => RunJson(_person);
+		[BenchmarkCategory("Single"), Benchmark]
+		public void Wire_Single() => RunWire(_person);
+		[BenchmarkCategory("Single"), Benchmark]
+		public void NetSerializer_Single() => RunNetSerializer(_person);
+
+		[BenchmarkCategory("List"), Benchmark(Baseline = true)]
+		public void Ceras_List() => RunCeras(_list);
+		[BenchmarkCategory("List"), Benchmark]
+		public void MessagePackCSharp_List() => RunMessagePackCSharp(_list);
+		[BenchmarkCategory("List"), Benchmark]
+		public void Protobuf_List() => RunProtobuf(_list);
+		[BenchmarkCategory("List"), Benchmark]
+		public void Json_List() => RunJson(_list);
+		[BenchmarkCategory("List"), Benchmark]
+		public void Wire_List() => RunWire(_list);
+		[BenchmarkCategory("List"), Benchmark]
+		public void NetSerializer_List() => RunNetSerializer(_list);
+
+
+		static T RunCeras<T>(T obj) // Size = 76
+		{
+			T clone = default;
+
+			int size = _ceras.Serialize(obj, ref _buffer);
+			_ceras.Deserialize(ref clone, _buffer);
+
+			return clone;
+		}
+
+		static T RunMessagePackCSharp<T>(T obj) // Size = 75
+		{
+			var data = MessagePackSerializer.Serialize(obj);
+			var copy = MessagePackSerializer.Deserialize<T>(data);
+
+			return copy;
+		}
+
+		static T RunJson<T>(T obj) // Size = 330
+		{
+			var data = JsonConvert.SerializeObject(obj);
+			var clone = JsonConvert.DeserializeObject<T>(data);
+
+			return clone;
+		}
+
+		static T RunProtobuf<T>(T obj) // Size = 85
+		{
+			_memStream.Position = 0;
+
+			Serializer.Serialize(_memStream, obj);
+			_memStream.Position = 0;
+			var clone = Serializer.Deserialize<T>(_memStream);
+
+			return clone;
+		}
+		
+		static T RunWire<T>(T obj) // Size = 169
+		{
+			_memStream.Position = 0;
+			_wire.Serialize(obj, _memStream);
+			_memStream.Position = 0;
+			var clone = _wire.Deserialize<T>(_memStream);
+			_memStream.Position = 0;
+
+			return clone;
+		}
+
+		static T RunNetSerializer<T>(T obj) // Size = 79
+		{
+			_memStream.Position = 0;
+			_netSerializer.Serialize(_memStream, obj);
+			_memStream.Position = 0;
+			_netSerializer.Deserialize(_memStream, out object cloneObj);
+
+			var clone = (T)cloneObj;
+
+			return clone;
+		}
+
+		
 	}
 
 	public class DictionaryBenchmarks
@@ -202,9 +432,6 @@ namespace LiveTesting
 		}
 	}
 
-
-	[GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
-	[CategoriesColumn]
 	public class CreateBenchmarks
 	{
 		List<Type> _createdTypes = new List<Type>();
@@ -287,7 +514,6 @@ namespace LiveTesting
 		}
 
 	}
-	
 
 	public class PrimitiveBenchmarks
 	{
@@ -451,7 +677,7 @@ namespace LiveTesting
 		}
 	}
 
-	public class SerializerComparisonBenchmarks
+	public class PersistRefs_Benchmarks
 	{
 		[MessagePackObject]
 		[ProtoContract]
@@ -481,251 +707,7 @@ namespace LiveTesting
 			[DataMember]
 			[ProtoMember(5)]
 			public virtual Person Parent1 { get; set; }
-			
-			[Key(5)]
-			[DataMember]
-			[ProtoMember(6)]
-			public virtual Person Parent2 { get; set; }
 
-			[Key(6)]
-			[DataMember]
-			[ProtoMember(7)]
-			public virtual int[] LuckyNumbers { get; set; }
-
-			public override bool Equals(object obj)
-			{
-				if (obj is Person other)
-					return Equals(other);
-				return false;
-			}
-
-			public bool Equals(Person other)
-			{
-				return Age == other.Age
-					   && FirstName == other.FirstName
-					   && LastName == other.LastName
-					   && Sex == other.Sex
-					   && Equals(Parent1, other.Parent1)
-					   && Equals(Parent2, other.Parent2);
-			}
-		}
-
-		public enum Sex : sbyte
-		{
-			Unknown, Male, Female,
-		}
-
-
-		Person _person;
-		Person _person2;
-		IList<Person> _list;
-
-		static byte[] _buffer;
-		static MemoryStream _memStream = new MemoryStream();
-		static CerasSerializer _ceras;
-
-
-		[GlobalSetup]
-		public void Setup()
-		{
-			var parent1 = new Person
-			{
-				Age = 123,
-				FirstName = "1",
-				LastName = "08zu",
-				Sex = Sex.Male,
-			};
-			var parent2 = new Person
-			{
-				Age = 345636234,
-				FirstName = "2",
-				LastName = "sgh6tzr",
-				Sex = Sex.Female,
-			};
-			_person = new Person
-			{
-				Age = 99999,
-				FirstName = "3",
-				LastName = "child",
-				Sex = Sex.Unknown,
-				Parent1 = parent1,
-				Parent2 = parent2,
-			};
-
-			_person2 = new Person
-			{
-				Age = 234,
-				FirstName = "rstgsrhsarhy",
-				LastName = "gsdfghdfhxnxfcxg",
-				Sex = Sex.Unknown,
-				LuckyNumbers = Enumerable.Range(2000, 26).ToArray(),
-			};
-			
-
-
-			_list = Enumerable.Range(25000, 100).Select(x => new Person { Age = x, FirstName = "a", LastName = "qwert", Sex = Sex.Female }).ToArray();
-
-			var config = new SerializerConfig();
-			config.DefaultTargets = TargetMember.AllPublic;
-			config.KnownTypes.Add(typeof(Person));
-			config.KnownTypes.Add(typeof(List<>));
-			config.KnownTypes.Add(typeof(Person[]));
-			config.PreserveReferences = false;
-			_ceras = new CerasSerializer(config);
-
-			// Run each serializer once to verify they work correctly!
-			void ThrowError() => throw new InvalidOperationException("Cannot continue with the benchmark because a serializer does not round-trip an object correctly. (Benchmark results will be wrong)");
-
-			if (!Equals(RunJson(_person), _person))
-				ThrowError();
-			if (!Equals(RunMessagePackCSharp(_person), _person))
-				ThrowError();
-			if (!Equals(RunProtobuf(_person), _person))
-				ThrowError();
-			if (!Equals(RunCeras(_person), _person))
-				ThrowError();
-		}
-
-
-
-		[BenchmarkCategory("Single"), Benchmark(Baseline = true)]
-		public void MessagePackCSharp_Single()
-		{
-			RunMessagePackCSharp(_person);
-		}
-
-		[BenchmarkCategory("Single"), Benchmark]
-		public void Ceras_Single()
-		{
-			RunCeras(_person);
-		}
-		
-		[BenchmarkCategory("Single"), Benchmark]
-		public void Protobuf_Single()
-		{
-			RunProtobuf(_person);
-		}
-
-
-
-
-		[BenchmarkCategory("Single2"), Benchmark(Baseline = true)]
-		public void MessagePackCSharp_Single2()
-		{
-			RunMessagePackCSharp(_person2);
-		}
-		
-		[BenchmarkCategory("Single2"), Benchmark]
-		public void Ceras_Single2()
-		{
-			RunCeras(_person2);
-		}
-
-		/*
-		[Benchmark, BenchmarkCategory("Single")]
-		public void Json_Single()
-		{
-			RunJson(person);
-		}
-		[Benchmark, BenchmarkCategory("List")]
-		public void Json_List()
-		{
-			RunJson(list);
-		}
-		*/
-
-
-
-		/*
-		[BenchmarkCategory("List"), Benchmark(OperationsPerInvoke = 1)]
-		public void Ceras_List()
-		{
-			RunCeras(list);
-		}
-		[BenchmarkCategory("List"), Benchmark(Baseline = true, OperationsPerInvoke = 1)]
-		public void MessagePackCSharp_List()
-		{
-			RunMessagePackCSharp(list);
-		}
-		[BenchmarkCategory("List"), Benchmark(OperationsPerInvoke = 1)]
-		public void Protobuf_List()
-		{
-			RunProtobuf(list);
-		}
-		*/
-
-
-		static T RunCeras<T>(T obj)
-		{
-			T clone = default(T);
-
-			_ceras.Serialize(obj, ref _buffer);
-			_ceras.Deserialize(ref clone, _buffer);
-
-			return clone;
-		}
-
-		static T RunMessagePackCSharp<T>(T obj)
-		{
-			var data = MessagePackSerializer.Serialize(obj);
-			var copy = MessagePackSerializer.Deserialize<T>(data);
-
-			return copy;
-		}
-
-		static T RunJson<T>(T obj)
-		{
-			var data = JsonConvert.SerializeObject(obj);
-			var clone = JsonConvert.DeserializeObject<T>(data);
-
-			return clone;
-		}
-
-		static T RunProtobuf<T>(T obj)
-		{
-			_memStream.Position = 0;
-
-			Serializer.Serialize(_memStream, obj);
-			_memStream.Position = 0;
-			var clone = Serializer.Deserialize<T>(_memStream);
-
-			return clone;
-		}
-
-
-	}
-	
-	public class Switch_vs_If_Benchmarks
-	{
-		[MessagePackObject]
-		[ProtoContract]
-		public class Person : IEquatable<Person>
-		{
-			[Key(0)]
-			[DataMember]
-			[ProtoMember(1)]
-			public virtual int Age { get; set; }
-
-			[Key(1)]
-			[DataMember]
-			[ProtoMember(2)]
-			public virtual string FirstName { get; set; }
-
-			[Key(2)]
-			[DataMember]
-			[ProtoMember(3)]
-			public virtual string LastName { get; set; }
-
-			[Key(3)]
-			[DataMember]
-			[ProtoMember(4)]
-			public virtual Sex Sex { get; set; }
-
-			[Key(4)]
-			[DataMember]
-			[ProtoMember(5)]
-			public virtual Person Parent1 { get; set; }
-			
 			[Key(5)]
 			[DataMember]
 			[ProtoMember(6)]
@@ -801,7 +783,7 @@ namespace LiveTesting
 			config.KnownTypes.Add(typeof(Person[]));
 
 			_cerasNormal = new CerasSerializer(config);
-			
+
 
 			config = new SerializerConfig();
 			config.DefaultTargets = TargetMember.AllPublic;
@@ -829,7 +811,7 @@ namespace LiveTesting
 			_cerasNormal.Serialize(_person, ref _buffer);
 			_cerasNormal.Deserialize(ref clone, _buffer);
 		}
-		
+
 		[BenchmarkCategory("Single"), Benchmark]
 		public void Ceras_NoRefs()
 		{
@@ -838,8 +820,8 @@ namespace LiveTesting
 			_cerasNoRefs.Serialize(_person, ref _buffer);
 			_cerasNoRefs.Deserialize(ref clone, _buffer);
 		}
-		
-		
+
+
 		static T RunMessagePackCSharp<T>(T obj)
 		{
 			var data = MessagePackSerializer.Serialize(obj);
