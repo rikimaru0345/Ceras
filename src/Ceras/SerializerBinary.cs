@@ -272,6 +272,17 @@
 				shift += 7;
 			}
 		}
+		
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteFloat32FixedNoCheck(ref byte[] buffer, ref int offset, float value)
+		{
+			fixed (byte* pBuffer = buffer)
+			{
+				*((float*)(pBuffer + offset)) = value;
+			}
+
+			offset += 4;
+		}
 
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -66,8 +66,10 @@ namespace Ceras
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Vector2 value)
 		{
-			WriteFloat32Fixed(ref buffer, ref offset, value.x);
-			WriteFloat32Fixed(ref buffer, ref offset, value.y);
+			EnsureCapacity(ref buffer, offset, 2 * 4);
+
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.x);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.y);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Vector2 value)
@@ -81,9 +83,11 @@ namespace Ceras
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
 		{
-			WriteFloat32Fixed(ref buffer, ref offset, value.x);
-			WriteFloat32Fixed(ref buffer, ref offset, value.y);
-			WriteFloat32Fixed(ref buffer, ref offset, value.z);
+			EnsureCapacity(ref buffer, offset, 3 * 4);
+
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.x);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.y);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.z);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value)
@@ -98,10 +102,12 @@ namespace Ceras
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Vector4 value)
 		{
-			WriteFloat32Fixed(ref buffer, ref offset, value.x);
-			WriteFloat32Fixed(ref buffer, ref offset, value.y);
-			WriteFloat32Fixed(ref buffer, ref offset, value.z);
-			WriteFloat32Fixed(ref buffer, ref offset, value.w);
+			EnsureCapacity(ref buffer, offset, 4 * 4);
+
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.x);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.y);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.z);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.w);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Vector4 value)
@@ -118,10 +124,12 @@ namespace Ceras
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Quaternion value)
 		{
-			WriteFloat32Fixed(ref buffer, ref offset, value.w);
-			WriteFloat32Fixed(ref buffer, ref offset, value.x);
-			WriteFloat32Fixed(ref buffer, ref offset, value.y);
-			WriteFloat32Fixed(ref buffer, ref offset, value.z);
+			EnsureCapacity(ref buffer, offset, 4 * 4);
+
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.w);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.x);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.y);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.z);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Quaternion value)
@@ -137,25 +145,27 @@ namespace Ceras
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Matrix4x4 value)
 		{
-			WriteFloat32Fixed(ref buffer, ref offset, value.m00);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m01);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m02);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m03);
+			EnsureCapacity(ref buffer, offset, 4 * 4 * 4);
 
-			WriteFloat32Fixed(ref buffer, ref offset, value.m10);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m11);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m12);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m13);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m00);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m01);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m02);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m03);
 
-			WriteFloat32Fixed(ref buffer, ref offset, value.m20);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m21);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m22);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m23);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m10);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m11);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m12);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m13);
 
-			WriteFloat32Fixed(ref buffer, ref offset, value.m30);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m31);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m32);
-			WriteFloat32Fixed(ref buffer, ref offset, value.m33);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m20);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m21);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m22);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m23);
+
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m30);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m31);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m32);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.m33);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Matrix4x4 value)
@@ -188,10 +198,12 @@ namespace Ceras
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Color value)
 		{
-			WriteFloat32Fixed(ref buffer, ref offset, value.r);
-			WriteFloat32Fixed(ref buffer, ref offset, value.g);
-			WriteFloat32Fixed(ref buffer, ref offset, value.b);
-			WriteFloat32Fixed(ref buffer, ref offset, value.a);
+			EnsureCapacity(ref buffer, offset, 4 * 4);
+
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.r);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.g);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.b);
+			WriteFloat32FixedNoCheck(ref buffer, ref offset, value.a);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Color value)
