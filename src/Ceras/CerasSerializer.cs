@@ -749,6 +749,11 @@ namespace Ceras
 						if (Config.Advanced.SkipCompilerGeneratedFields)
 							continue;
 
+					// Respect 'NonSerializedAttribute' if it's there
+					if(Config.RespectNonSerializedAttribute)
+						if (f.GetCustomAttribute<NonSerializedAttribute>() != null)
+							continue;
+
 					isPublic = f.IsPublic;
 					isField = true;
 				}
@@ -1088,6 +1093,7 @@ namespace Ceras
 		/// If your object implement IExternalRootObject they are written as their external ID, so at deserialization-time you need to provide a resolver for Ceras so it can get back the Objects from their IDs.
 		/// When would you use this?
 		/// There's a lot of really interesting use cases for this, be sure to read the tutorial section 'GameDatabase' even if you're not making a game.
+		/// <para>Default: null</para>
 		/// </summary>
 		public IExternalObjectResolver ExternalObjectResolver { get; set; }
 
@@ -1096,6 +1102,7 @@ namespace Ceras
 		/// That means this external object for which only the ID was written, was not serialized itself. But often you want to sort of "collect" all the elements
 		/// that belong into an object-graph and save them at the same time. That's when you'd use this callback. 
 		/// Make sure to read the 'GameDatabase' example in the tutorial even if you're not making a game.
+		/// <para>Default: null</para>
 		/// </summary>
 		public Action<IExternalRootObject> OnExternalObject { get; set; } = null;
 
@@ -1112,15 +1119,23 @@ namespace Ceras
 		public bool PreserveReferences { get; set; } = true;
 
 		/// <summary>
+		/// If true, Ceras will skip fields with the '[System.NonSerialized]' attribute
+		/// <para>Default: true</para>
+		/// </summary>
+		public bool RespectNonSerializedAttribute { get; set; } = true;
+
+		/// <summary>
 		/// Sometimes you want to persist objects even while they evolve (fields being added, removed, renamed).
 		/// Type changes are not supported (yet, nobody has requested it so far).
 		/// Check out the tutorial for more information (and a way to deal with changing types)
+		/// <para>Default: Disabled</para>
 		/// </summary>
 		public VersionTolerance VersionTolerance { get; set; } = VersionTolerance.Disabled;
 
 		/// <summary>
 		/// If all the other things (ShouldSerializeMember / Attributes) don't produce a decision, then this setting is used to determine if a member should be included.
 		/// By default only public fields are serialized. ReadonlyHandling is a separate option found inside <see cref="Advanced"/>
+		/// <para>Default: PublicFields</para>
 		/// </summary>
 		public TargetMember DefaultTargets { get; set; } = TargetMember.PublicFields;
 
