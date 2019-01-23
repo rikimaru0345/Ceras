@@ -26,7 +26,7 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			Benchmarks();
+			// Benchmarks();
 
 			TuplesTest();
 

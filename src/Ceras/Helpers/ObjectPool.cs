@@ -3,24 +3,13 @@
 	using System;
 	using System.Collections.Generic;
 
-	public interface IPool<T>
-	{
-		/// <summary>
-		/// How many objects the pool has in total.
-		/// The sum of the objects that are not used and still in the pool, plus the objects that are currently in use (rented out)
-		/// </summary>
-		int Capacity { get; }
-
-		T RentObject();
-		void ReturnObject(T objectToReturn);
-	}
-
-	class FactoryPool<T> : IPool<T>
+	class FactoryPool<T>
 	{
 		readonly Func<FactoryPool<T>, T> _factoryMethod;
 
 		public int Capacity { get; set; }
 
+		Stack<T> _objects = new Stack<T>();
 
 		public FactoryPool(Func<FactoryPool<T>, T> factoryMethod, int startSize = 0)
 		{
@@ -30,7 +19,6 @@
 				ReturnObject(_factoryMethod(this));
 		}
 
-		Stack<T> _objects = new Stack<T>();
 
 		public T RentObject()
 		{

@@ -10,13 +10,14 @@ namespace Ceras.Helpers
 	using System.Diagnostics;
 	using System.Runtime.CompilerServices;
 
-	// The normal "DictionarySlim" with the following changes:
-	// - Type is replaced to always be 'Type'. Since that's what we'll always use it for.
-	// - The IEquatable restriction is removed
-	// - We're always using ReferenceEquals to compare keys
-	// - Replaced all .GetHashCode with RuntimeHelpers.GetHashCode to save on a lot of additional overhead (the call will end up there anyway, so we just jump over it)
-
+	// Based on: 
 	// https://github.com/dotnet/corefxlab/blob/master/src/Microsoft.Experimental.Collections/Microsoft/Collections/Extensions/DictionarySlim.cs
+	//
+	// With the following changes:
+	// - TKey is replaced to always be 'Type'. Since that's what we'll always use it for. (by now we could probably merge this with RefDictionary)
+	// - IEquatable restriction removed
+	// - We're always using ReferenceEquals to compare keys
+	// - Hashing is forced to be done with RuntimeHelpers.GetHashCode() instead of .GetHashCode() to save quite some additional overhead (with 'Type' the call will end up there anyway)
 
 	/// <summary>
     /// A lightweight Dictionary with three principal differences compared to <see cref="Dictionary{Type, TValue}"/>

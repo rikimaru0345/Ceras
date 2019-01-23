@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>..\..\..\..\..\..\..\..\Program Files\Unity\Hub\Editor\2018.3.0b10\Editor\Data\Managed\UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="Ceras">
+      <HintPath>..\Ceras\bin\Release\netstandard2.0\Ceras.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

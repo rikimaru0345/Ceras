@@ -164,7 +164,7 @@
 				type = _typeBinder.GetTypeFromBase(baseTypeName);
 
 				proxy.Type = type;
-				
+
 				if (_isSealed)
 					ThrowSealed(type, false);
 			}

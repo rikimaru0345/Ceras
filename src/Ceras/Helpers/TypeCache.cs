@@ -15,7 +15,7 @@ namespace Ceras.Helpers
 		// RefProxy enables us to deserialize even the most complex scenarios (For example: Objects that directly reference themselves, while they're not even fully constructed yet)
 		readonly List<TypeRefProxy> _deserializationCache = new List<TypeRefProxy>();
 
-		readonly FactoryPool<TypeRefProxy> _typeRefProxyPool = new FactoryPool<TypeRefProxy>(p => new TypeRefProxy(), 8);
+		readonly StackSlim<TypeRefProxy> _typeRefProxyPool = new StackSlim<TypeRefProxy>(16);
 
 
 		public TypeCache(Type[] knownTypes)
@@ -59,10 +59,16 @@ namespace Ceras.Helpers
 		// When encountering a new object
 		internal TypeRefProxy CreateDeserializationProxy()
 		{
-			var p = _typeRefProxyPool.RentObject();
-			_deserializationCache.Add(p);
+			TypeRefProxy proxy;
 
-			return p;
+			if (_typeRefProxyPool.Count == 0)
+				proxy = new TypeRefProxy();
+			else
+				proxy = _typeRefProxyPool.Pop();
+
+			_deserializationCache.Add(proxy);
+
+			return proxy;
 		}
 
 
@@ -110,9 +116,10 @@ namespace Ceras.Helpers
 			for (int i = _knownTypes.Length; i < _deserializationCache.Count; i++)
 			{
 				var proxy = _deserializationCache[i];
-				// The pool will keep the ref proxy alive, so we absolutely have to make sure
-				// that we're not keeping any outside objects alive (they're potentially really large!)
-				_typeRefProxyPool.ReturnObject(proxy);
+
+				// No need to clear the inner value of the proxy because they're 'Type's.
+
+				_typeRefProxyPool.Push(proxy);
 			}
 
 			// Remove all entries above the KnownTypes
