@@ -11,6 +11,11 @@ namespace LiveTesting
 	using System.Linq;
 	using System.Numerics;
 	using System.Reflection;
+	using BenchmarkDotNet.Configs;
+	using BenchmarkDotNet.Environments;
+	using BenchmarkDotNet.Jobs;
+	using BenchmarkDotNet.Order;
+	using BenchmarkDotNet.Toolchains.CsProj;
 	using Tutorial;
 	using Xunit;
 
@@ -95,36 +100,9 @@ namespace LiveTesting
 
 		static void Benchmarks()
 		{
-			return;
-
-			//var x = new SerializerComparisonBenchmarks();
-			//x.Setup();
-
-			//Console.WriteLine("any key to prep...");
-			//Console.ReadKey(true);
-
-			//for (int j = 0; j < 10 * 1000; j++)
-			//	x.Ceras_Single();
-
-			//Console.WriteLine("done! any key to start...");
-			//Console.ReadKey(true);
-
-			//Stopwatch sw = Stopwatch.StartNew();
-			//for (int i = 0; i < 64; i++)
-			//{
-			//	for (int j = 0; j < 10 * 1000; j++)
-			//	{
-			//		x.Ceras_Single();
-			//	}
-			//}
-			//sw.Stop();
-
-			//Console.WriteLine($"done! {sw.ElapsedMilliseconds}ms");
-
-			//Console.ReadLine();
-
-			//var summary = BenchmarkRunner.Run<CtorBenchmarks>();
-			var summary = BenchmarkRunner.Run<SerializerComparisonBenchmarks>();
+			var config = new CerasGlobalBenchmarkConfig();
+			//var summary = BenchmarkRunner.Run<Switch_vs_If_Benchmarks>(config);
+			var summary = BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
 
 			Environment.Exit(0);
 		}

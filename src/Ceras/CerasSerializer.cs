@@ -1,4 +1,6 @@
 ﻿// ReSharper disable RedundantTypeArgumentsOfMethod
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("LiveTesting")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.Test")]
 namespace Ceras
 {
 	using Exceptions;
@@ -45,6 +47,7 @@ namespace Ceras
 	/// </summary>
 	public class CerasSerializer
 	{
+
 		// Some types are constructed by the formatter directly
 		internal static readonly Type _rtTypeType, _rtFieldType, _rtPropType, _rtCtorType, _rtMethodType;
 		static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
@@ -150,7 +153,7 @@ namespace Ceras
 		/// <para>Keep in mind that many things like <see cref="SerializerConfig.ShouldSerializeMember"/> obviously cannot contribute to the checksum, but are still able to influence the serialization (and thus break network interoperability even when the checksum matches)</para>
 		/// </summary>
 		public ProtocolChecksum ProtocolChecksum { get; } = new ProtocolChecksum();
-
+		
 		/// <summary>
 		/// Creates a new CerasSerializer, be sure to check out the tutorial.
 		/// </summary>
@@ -483,7 +486,12 @@ namespace Ceras
 
 
 			// 2.) Create a reference formatter (which internally obtains the matching specific one)
-			var refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
+
+			// var refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
+			Type refFormatterType;
+
+			refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
+
 			var referenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
 
 			meta.ReferenceFormatter = referenceFormatter;
@@ -1096,7 +1104,12 @@ namespace Ceras
 		/// </summary>
 		public List<FormatterResolverCallback> OnResolveFormatter { get; } = new List<FormatterResolverCallback>();
 
-
+		/// <summary>
+		/// Whether or not to handle object references.
+		/// This feature will correctly handle circular references (which would otherwise just crash with a StackOverflowException), but comes at a (very) small performance cost; so turn it off if you know that you won't need it.
+		/// <para>Default: true</para>
+		/// </summary>
+		public bool PreserveReferences { get; set; } = true;
 
 		/// <summary>
 		/// Sometimes you want to persist objects even while they evolve (fields being added, removed, renamed).

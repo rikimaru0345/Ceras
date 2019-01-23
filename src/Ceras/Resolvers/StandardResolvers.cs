@@ -96,6 +96,13 @@
 					return formatter;
 				}
 
+				if (itemType == typeof(int))
+				{
+					formatter = new IntArrayFormatter(_serializer);
+					_formatterInstances[type] = formatter;
+					return formatter;
+				}
+
 				var formatterType = typeof(ArrayFormatter<>).MakeGenericType(itemType);
 				formatter = (IFormatter)Activator.CreateInstance(formatterType, _serializer);
 
@@ -114,7 +121,7 @@
 			if (closedCollection != null)
 			{
 				var itemType = closedCollection.GetGenericArguments()[0];
-				
+
 				if (type.GetGenericTypeDefinition() == typeof(List<>))
 				{
 					var listFormatterType = typeof(ListFormatter<>).MakeGenericType(itemType);

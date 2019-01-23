@@ -16,6 +16,18 @@ namespace LiveTesting
 	using System.Reflection.Emit;
 	using System.Runtime.CompilerServices;
 	using System.Runtime.Serialization;
+	using BenchmarkDotNet.Columns;
+	using BenchmarkDotNet.Environments;
+	using BenchmarkDotNet.Exporters;
+	using BenchmarkDotNet.Exporters.Csv;
+	using BenchmarkDotNet.Jobs;
+	using BenchmarkDotNet.Loggers;
+	using BenchmarkDotNet.Mathematics;
+	using BenchmarkDotNet.Order;
+	using BenchmarkDotNet.Reports;
+	using BenchmarkDotNet.Running;
+	using BenchmarkDotNet.Toolchains;
+	using BenchmarkDotNet.Toolchains.CsProj;
 	using Tutorial;
 
 
@@ -26,8 +38,38 @@ namespace LiveTesting
 	// todo: add Jil, and msgpack-cli 
 
 
-	[ClrJob]
-	[MarkdownExporter, HtmlExporter, CsvExporter(BenchmarkDotNet.Exporters.Csv.CsvSeparator.Comma)]
+	class CerasGlobalBenchmarkConfig : ManualConfig
+	{
+		public CerasGlobalBenchmarkConfig()
+		{
+			Add(Job.ShortRun
+			       .WithOutlierMode(OutlierMode.OnlyUpper)
+			       .With(Platform.X64)
+			       .With(Runtime.Core)
+			       .With(CsProjCoreToolchain.NetCoreApp22)
+			       .WithLaunchCount(1));
+
+			Add(MarkdownExporter.GitHub);
+			Add(HtmlExporter.Default);
+			Add(new CsvExporter(CsvSeparator.Comma, new SummaryStyle
+			{
+				PrintUnitsInContent = false,
+				PrintUnitsInHeader = true,
+			}));
+
+
+			Set(new DefaultOrderer(SummaryOrderPolicy.FastestToSlowest, MethodOrderPolicy.Declared));
+			Add(BenchmarkLogicalGroupRule.ByCategory);
+			
+			Add(CategoriesColumn.Default);
+			Add(TargetMethodColumn.Method);
+			Add(BaselineRatioColumn.RatioMean);
+			Add(StatisticColumn.Mean, StatisticColumn.StdErr);
+
+			Add(new ConsoleLogger());
+		}
+	}
+
 	public class DictionaryBenchmarks
 	{
 		List<Type> _allTypes = new List<Type>();
@@ -160,8 +202,7 @@ namespace LiveTesting
 		}
 	}
 
-	[ClrJob]
-	[MarkdownExporter, HtmlExporter, CsvExporter(BenchmarkDotNet.Exporters.Csv.CsvSeparator.Comma)]
+
 	[GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
 	[CategoriesColumn]
 	public class CreateBenchmarks
@@ -174,7 +215,7 @@ namespace LiveTesting
 			_createdTypes.Add(typeof(List<int>));
 			_createdTypes.Add(typeof(List<bool>));
 			_createdTypes.Add(typeof(List<DateTime>));
-			_createdTypes.Add(typeof(System.IO.MemoryStream));
+			_createdTypes.Add(typeof(MemoryStream));
 			_createdTypes.Add(typeof(Person));
 		}
 
@@ -246,13 +287,8 @@ namespace LiveTesting
 		}
 
 	}
+	
 
-
-
-	[SimpleJob(runStrategy: BenchmarkDotNet.Engines.RunStrategy.Throughput, launchCount: 1, warmupCount: 3, targetCount: 8, invocationCount: 10000, id: "QuickJob")]
-	[MarkdownExporter, HtmlExporter, CsvExporter(BenchmarkDotNet.Exporters.Csv.CsvSeparator.Comma)]
-	[GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory), Orderer(BenchmarkDotNet.Order.SummaryOrderPolicy.FastestToSlowest)]
-	[CategoriesColumn]
 	public class PrimitiveBenchmarks
 	{
 		int _someBaseNumber;
@@ -415,11 +451,6 @@ namespace LiveTesting
 		}
 	}
 
-
-	[SimpleJob(runStrategy: BenchmarkDotNet.Engines.RunStrategy.Throughput, launchCount: 1, warmupCount: 3, targetCount: 8, invocationCount: 30 * 1000, id: "QuickJob")]
-	[MarkdownExporter, HtmlExporter, CsvExporter(BenchmarkDotNet.Exporters.Csv.CsvSeparator.Comma)]
-	[GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory), Orderer(BenchmarkDotNet.Order.SummaryOrderPolicy.FastestToSlowest)]
-	[CategoriesColumn]
 	public class SerializerComparisonBenchmarks
 	{
 		[MessagePackObject]
@@ -527,7 +558,7 @@ namespace LiveTesting
 				FirstName = "rstgsrhsarhy",
 				LastName = "gsdfghdfhxnxfcxg",
 				Sex = Sex.Unknown,
-				LuckyNumbers = Enumerable.Range(2000, 200).ToArray(),
+				LuckyNumbers = Enumerable.Range(2000, 26).ToArray(),
 			};
 			
 
@@ -539,6 +570,7 @@ namespace LiveTesting
 			config.KnownTypes.Add(typeof(Person));
 			config.KnownTypes.Add(typeof(List<>));
 			config.KnownTypes.Add(typeof(Person[]));
+			config.PreserveReferences = false;
 			_ceras = new CerasSerializer(config);
 
 			// Run each serializer once to verify they work correctly!
@@ -552,15 +584,9 @@ namespace LiveTesting
 				ThrowError();
 			if (!Equals(RunCeras(_person), _person))
 				ThrowError();
-
 		}
 
 
-		[BenchmarkCategory("Single"), Benchmark]
-		public void Ceras_Single()
-		{
-			RunCeras(_person);
-		}
 
 		[BenchmarkCategory("Single"), Benchmark(Baseline = true)]
 		public void MessagePackCSharp_Single()
@@ -568,6 +594,12 @@ namespace LiveTesting
 			RunMessagePackCSharp(_person);
 		}
 
+		[BenchmarkCategory("Single"), Benchmark]
+		public void Ceras_Single()
+		{
+			RunCeras(_person);
+		}
+		
 		[BenchmarkCategory("Single"), Benchmark]
 		public void Protobuf_Single()
 		{
@@ -577,16 +609,16 @@ namespace LiveTesting
 
 
 
-		[BenchmarkCategory("Single2"), Benchmark]
-		public void Ceras_Single2()
-		{
-			RunCeras(_person2);
-		}
-
 		[BenchmarkCategory("Single2"), Benchmark(Baseline = true)]
 		public void MessagePackCSharp_Single2()
 		{
 			RunMessagePackCSharp(_person2);
+		}
+		
+		[BenchmarkCategory("Single2"), Benchmark]
+		public void Ceras_Single2()
+		{
+			RunCeras(_person2);
 		}
 
 		/*
@@ -635,8 +667,8 @@ namespace LiveTesting
 
 		static T RunMessagePackCSharp<T>(T obj)
 		{
-			var data = MessagePack.MessagePackSerializer.Serialize(obj);
-			var copy = MessagePack.MessagePackSerializer.Deserialize<T>(data);
+			var data = MessagePackSerializer.Serialize(obj);
+			var copy = MessagePackSerializer.Deserialize<T>(data);
 
 			return copy;
 		}
@@ -653,20 +685,185 @@ namespace LiveTesting
 		{
 			_memStream.Position = 0;
 
-			ProtoBuf.Serializer.Serialize(_memStream, obj);
+			Serializer.Serialize(_memStream, obj);
 			_memStream.Position = 0;
-			var clone = ProtoBuf.Serializer.Deserialize<T>(_memStream);
+			var clone = Serializer.Deserialize<T>(_memStream);
 
 			return clone;
 		}
 
 
 	}
+	
+	public class Switch_vs_If_Benchmarks
+	{
+		[MessagePackObject]
+		[ProtoContract]
+		public class Person : IEquatable<Person>
+		{
+			[Key(0)]
+			[DataMember]
+			[ProtoMember(1)]
+			public virtual int Age { get; set; }
 
-	[SimpleJob(runStrategy: BenchmarkDotNet.Engines.RunStrategy.Throughput, launchCount: 1, warmupCount: 3, targetCount: 8, invocationCount: 4 * 1000 * 1000, id: "QuickJob")]
-	[MarkdownExporter, HtmlExporter, CsvExporter(BenchmarkDotNet.Exporters.Csv.CsvSeparator.Comma)]
-	[GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory), Orderer(BenchmarkDotNet.Order.SummaryOrderPolicy.FastestToSlowest)]
-	[CategoriesColumn]
+			[Key(1)]
+			[DataMember]
+			[ProtoMember(2)]
+			public virtual string FirstName { get; set; }
+
+			[Key(2)]
+			[DataMember]
+			[ProtoMember(3)]
+			public virtual string LastName { get; set; }
+
+			[Key(3)]
+			[DataMember]
+			[ProtoMember(4)]
+			public virtual Sex Sex { get; set; }
+
+			[Key(4)]
+			[DataMember]
+			[ProtoMember(5)]
+			public virtual Person Parent1 { get; set; }
+			
+			[Key(5)]
+			[DataMember]
+			[ProtoMember(6)]
+			public virtual Person Parent2 { get; set; }
+
+			[Key(6)]
+			[DataMember]
+			[ProtoMember(7)]
+			public virtual int[] LuckyNumbers { get; set; }
+
+			public override bool Equals(object obj)
+			{
+				if (obj is Person other)
+					return Equals(other);
+				return false;
+			}
+
+			public bool Equals(Person other)
+			{
+				return Age == other.Age
+					   && FirstName == other.FirstName
+					   && LastName == other.LastName
+					   && Sex == other.Sex
+					   && Equals(Parent1, other.Parent1)
+					   && Equals(Parent2, other.Parent2);
+			}
+		}
+
+		public enum Sex : sbyte
+		{
+			Unknown, Male, Female,
+		}
+
+
+		Person _person;
+
+		static byte[] _buffer;
+		static CerasSerializer _cerasNormal;
+		static CerasSerializer _cerasRepl;
+		static CerasSerializer _ceras3;
+		static CerasSerializer _ceras4;
+
+
+		[GlobalSetup]
+		public void Setup()
+		{
+			var parent1 = new Person
+			{
+				Age = 123,
+				FirstName = "1",
+				LastName = "08zu",
+				Sex = Sex.Male,
+			};
+			var parent2 = new Person
+			{
+				Age = 345636234,
+				FirstName = "2",
+				LastName = "sgh6tzr",
+				Sex = Sex.Female,
+			};
+			_person = new Person
+			{
+				Age = 99999,
+				FirstName = "3",
+				LastName = "child",
+				Sex = Sex.Unknown,
+				Parent1 = parent1,
+				Parent2 = parent2,
+			};
+
+			var config = new SerializerConfig();
+			config.DefaultTargets = TargetMember.AllPublic;
+			config.KnownTypes.Add(typeof(Person));
+			config.KnownTypes.Add(typeof(List<>));
+			config.KnownTypes.Add(typeof(Person[]));
+
+			_cerasNormal = new CerasSerializer(config);
+			
+			_cerasRepl = new CerasSerializer(config, 1);
+
+			_ceras3 = new CerasSerializer(config, 2);
+			_ceras4 = new CerasSerializer(config, 3);
+
+		}
+
+		[BenchmarkCategory("Single"), Benchmark(Baseline = true)]
+		public void MessagePackCSharp_Single()
+		{
+			RunMessagePackCSharp(_person);
+		}
+
+
+		[BenchmarkCategory("Single"), Benchmark()]
+		public void Ceras_Normal()
+		{
+			Person clone = default;
+
+			_cerasNormal.Serialize(_person, ref _buffer);
+			_cerasNormal.Deserialize(ref clone, _buffer);
+		}
+		
+		
+		[BenchmarkCategory("Single"), Benchmark]
+		public void Ceras_ReplacedRefFormatter()
+		{
+			Person clone = default;
+
+			_cerasRepl.Serialize(_person, ref _buffer);
+			_cerasRepl.Deserialize(ref clone, _buffer);
+		}
+		
+		[BenchmarkCategory("Single"), Benchmark]
+		public void Ceras_IfCheck_Allow()
+		{
+			Person clone = default;
+
+			_ceras3.Serialize(_person, ref _buffer);
+			_ceras3.Deserialize(ref clone, _buffer);
+		}
+		[BenchmarkCategory("Single"), Benchmark]
+		public void Ceras_IfCheck_Forbid()
+		{
+			Person clone = default;
+
+			_ceras4.Serialize(_person, ref _buffer);
+			_ceras4.Deserialize(ref clone, _buffer);
+		}
+
+		
+		static T RunMessagePackCSharp<T>(T obj)
+		{
+			var data = MessagePackSerializer.Serialize(obj);
+			var copy = MessagePackSerializer.Deserialize<T>(data);
+
+			return copy;
+		}
+	}
+
 	public class WriteBenchmarks
 	{
 		int[] _numbers;
@@ -717,11 +914,6 @@ namespace LiveTesting
 
 	}
 
-
-	[SimpleJob(runStrategy: BenchmarkDotNet.Engines.RunStrategy.Throughput, launchCount: 1, warmupCount: 3, targetCount: 12, invocationCount: 2 * 1000 * 1000, id: "QuickJob")]
-	[MarkdownExporter, HtmlExporter, CsvExporter(BenchmarkDotNet.Exporters.Csv.CsvSeparator.Comma)]
-	[GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory), Orderer(BenchmarkDotNet.Order.SummaryOrderPolicy.FastestToSlowest)]
-	[CategoriesColumn]
 	public class CtorBenchmarks
 	{
 		List<Type> _createdTypes;
@@ -879,11 +1071,6 @@ namespace LiveTesting
 
 	}
 
-
-	[SimpleJob(runStrategy: BenchmarkDotNet.Engines.RunStrategy.Throughput, launchCount: 1, warmupCount: 3, targetCount: 8, invocationCount: 2000, id: "QuickJob")]
-	[MarkdownExporter, HtmlExporter, CsvExporter(BenchmarkDotNet.Exporters.Csv.CsvSeparator.Comma)]
-	[GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory), Orderer(BenchmarkDotNet.Order.SummaryOrderPolicy.FastestToSlowest)]
-	[CategoriesColumn]
 	public class TemplateBenchmarks
 	{
 
@@ -904,5 +1091,4 @@ namespace LiveTesting
 		{
 		}
 	}
-
 }

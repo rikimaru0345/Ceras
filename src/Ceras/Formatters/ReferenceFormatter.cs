@@ -75,12 +75,15 @@
 
 		readonly TypeDictionary<DispatcherEntry> _dispatchers = new TypeDictionary<DispatcherEntry>();
 
+		readonly bool _allowReferences = false;
 
 		public ReferenceFormatter(CerasSerializer serializer)
 		{
 			_serializer = serializer;
 
 			_typeFormatter = (TypeFormatter)serializer.GetSpecificFormatter(typeof(Type));
+
+			_allowReferences = _serializer.Config.PreserveReferences;
 		}
 
 
@@ -94,7 +97,7 @@
 
 			var specificType = value.GetType();
 			var entry = GetOrCreateEntry(specificType);
-			
+
 
 			if (entry.IsType) // This is very rare, so we cache the check itself, and do the cast below
 			{
@@ -120,17 +123,37 @@
 				}
 			}
 
-
-			if (_serializer.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id))
+			if (_allowReferences)
 			{
-				// Existing value
-				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, id, Bias);
+				if (_serializer.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id))
+				{
+					// Existing value
+					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, id, Bias);
+				}
+				else
+				{
+					// Register new object
+					_serializer.InstanceData.ObjectCache.RegisterObject(value);
+
+					// Embedd type (if needed)
+					if (ReferenceEquals(typeof(T), specificType))
+					{
+						// New value (same type)
+						SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewValueSameType, Bias);
+					}
+					else
+					{
+						// New value (type included)
+						SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewValue, Bias);
+						_typeFormatter.Serialize(ref buffer, ref offset, specificType);
+					}
+
+					// Write object
+					entry.CurrentSerializeDispatcher(ref buffer, ref offset, value);
+				}
 			}
 			else
 			{
-				// Register new object
-				_serializer.InstanceData.ObjectCache.RegisterObject(value);
-
 				// Embedd type (if needed)
 				if (ReferenceEquals(typeof(T), specificType))
 				{
@@ -147,6 +170,7 @@
 				// Write object
 				entry.CurrentSerializeDispatcher(ref buffer, ref offset, value);
 			}
+
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
@@ -241,6 +265,11 @@
 			}
 
 
+			if (!_allowReferences)
+			{
+				entry.CurrentDeserializeDispatcher(buffer, ref offset, ref value);
+				return;
+			}
 
 			//
 			// Deserialize the object
@@ -554,65 +583,6 @@
 			}
 		}
 	}
-
-
-
-	/*
-	 * The idea for the 'Members' mode of readonly field handling is that
-	 * we populate the fields only. Which (and that's just our current interpretation) requires
-	 * that the reference itself is already exactly what it should be.
-	 * 
-	 * That means 'Members' only succeeds when:
-	 * - Value is null and data requires null
-	 * - KnownObject resolves to what's already there
-	 * - ExternalObject resolves to what's already there
-	 * - Inline type is the same one that's already there
-	 * - NewObject with matching type.
-	 * 
-	 * The last one is a bit of a special case. It requires a new object, but since we *want* to populate an existing object,
-	 * we can just "adopt" the already existing object, which fulfilles the idea of 'Members' as well.
-	 * 
-	 * - "Why even have this and not just always do the 'read and overwrite' thing??"
-	 * -> Because for readonly fields we have more options than just 'do or don't handle them'.
-	 *    We also support 'members', aka 'populate only'. And for that we must know if we should immediately throw an exception.
-	 *    
-	 *    
-	 * But wait a second.
-	 * Can we not completely see if there are any field-writes needed just by checking if the ReferenceFormatter has changed the given ref-variable??
-	
-	enum ReferenceRecycleWriteDecision
-	{
-		//
-		// Success:
-		// Cases where everything matches already
-		Success_Null, // Expected null, and we got null.
-		Success_MatchingInstance, // Expected a specific instance (previous object, external object, inline type) and that's what we got.
-
-
-		//
-		// Valid:
-		// Case where we get a new object, and we have a matching object present already that can accept the incoming data.
-		Valid_TypeMatch, // Expected an instance, and (as expected) there is already an object of the correct type present. We can continue in 'populate' mode.
-
-
-		//
-		// Failure:
-		// Cases where the content of the field does not match; we would have to fix it somehow
-
-		Fail_ShouldWriteNull, // The field contains an instance, but the data tells us the field should be null!
-		// -> Fix: Read as normal and assign
-		
-		Fail_InstanceExpected, // The field currently contains null, but the data says there should be an object in there. 
-		// -> Fix: Read as normal and assign
-
-		Fail_InstanceMismatch, // The field already contains an instance, but not the right one. The data tells us there should be a very specific object in there, but it's not
-		// -> Fix: Read as normal and assign
-
-		Fail_TypeMismatch, // The value is not null, as the data tells us. But the type of the existing object does not match the expected one (so populating fields is impossible)
-		// -> Fix: Read as normal and assign
-	}
-	*/
-
 
 	// This is here so we are able to get specific internal framework types.
 	// Such as "System.RtFieldInfo" or "System.RuntimeTypeInfo", ...

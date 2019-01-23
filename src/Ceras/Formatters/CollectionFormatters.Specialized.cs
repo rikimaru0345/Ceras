@@ -50,6 +50,65 @@
 				ar = new byte[length];
 
 			System.Array.Copy(buffer, offset, ar, 0, length);
+			offset += length;
+		}
+	}
+
+	
+	sealed class IntArrayFormatter : IFormatter<int[]>
+	{
+		readonly uint _maxSize;
+
+		public IntArrayFormatter(CerasSerializer ceras)
+		{
+			_maxSize = ceras.Config.Advanced.SizeLimits.MaxArraySize;
+		}
+
+		public void Serialize(ref byte[] buffer, ref int offset, int[] ar)
+		{
+			if (ar == null)
+			{
+				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, -1, 1);
+				return;
+			}
+
+			var len = ar.Length;
+
+			var byteLen = len * 4;
+
+			// Ensure we have enough space for the worst-case VarInt plus the byte array itself
+			SerializerBinary.EnsureCapacity(ref buffer, offset, 5 + byteLen);
+
+			// Write the length, no need to check the capacity (we did that here)
+			SerializerBinary.WriteUInt32BiasNoCheck(ref buffer, ref offset, len, 1);
+
+			// Blit the array
+			Buffer.BlockCopy(ar, 0, buffer, offset, byteLen);
+
+			offset += byteLen;
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref int[] ar)
+		{
+			int length = SerializerBinary.ReadUInt32Bias(buffer, ref offset, 1);
+
+			if (length == -1)
+			{
+				ar = null;
+				return;
+			}
+
+			if (length > _maxSize)
+				throw new InvalidOperationException($"The data contains a byte-array of size '{length}', which exceeds the allowed limit of '{_maxSize}'");
+
+			if (ar == null || ar.Length != length)
+				ar = new int[length];
+
+			int byteLen = length * 4;
+
+			Buffer.BlockCopy(buffer, offset, ar, 0, byteLen);
+
+			offset += byteLen;
 		}
 	}
 

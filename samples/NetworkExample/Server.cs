@@ -29,7 +29,7 @@ namespace NetworkExample
 			// That means when the other side sends us a type (using the full name) we never want to transmit that again,
 			// the type should (from then on) be known as a some ID.
 			var config = new SerializerConfig();
-			config.PersistTypeCache = true;
+			config.Advanced.PersistTypeCache = true;
 			
 			_sendCeras = new CerasSerializer(config);
 			_receiveCeras = new CerasSerializer(config);

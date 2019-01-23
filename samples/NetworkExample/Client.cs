@@ -27,7 +27,7 @@
 			// !! Important:
 			// !! The settings of the serializers for client and server must be the same!
 			var config = new SerializerConfig();
-			config.PersistTypeCache = true;
+			config.Advanced.PersistTypeCache = true;
 			
 			_sendCeras = new CerasSerializer(config);
 			_receiveCeras = new CerasSerializer(config);
