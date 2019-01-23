@@ -38,25 +38,25 @@ var bytes = s.Serialize(p);
 - **Full** support for polymorphism / inheritance / interfaces
 - Can serialize objects into parts as "ExtenalObjects" (useful in many many scenarios)
 - Automatic version-tolerance, no need to assign any attributes to your classes!
+- *many more (too many to list), check out the full list below*
 
-## [**>> Full feature list (and planned features)**](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)
-## [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
-## [**>> Using Ceras to easily send C# objects over TCP/UDP**](https://rikidev.com/networking-with-ceras-part-1/)
+### [**>> Full feature list (and planned features)**](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)
+### [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
+### [**>> Using Ceras to easily send C# objects over TCP/UDP**](https://rikidev.com/networking-with-ceras-part-1/)
 
 # Performance benchmarks
 To get an idea of how Ceras performs here are the preliminary benchmark results.
 The project is still heavily work-in-progress, meaning that over time more optimizations will get implemented (your feedback is important here!).
 
 Ceras generally ranks at the top end of the performance spectrum, together with NetSerializer and MessagePack-CSharp.
-
-![Single object performance benchmark](https://i.imgur.com/Q896UgV.png)
-The shown results are obtained from **[this code](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Benchmarks.cs)** and I encourage you to not only try it yourself, but to also provide feedback about scenarios you had good and bad results with.
-
 The resulting binary size is about the same as MessagePack-CSharp.
 
-Don't forget to tune the settings in `SerializerConfig` for your specific situation.
-Using Ceras to read/write network packets will require very different settings than, lets say, saving settings into a file, or cloning objects, or persisting items/spells/monsters in a game, ... when in doubt you can always open an issue or join the discord server! :)
+The shown results are obtained from **[this code](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Benchmarks.cs)** and I encourage you to not only try it yourself, but to also provide feedback about scenarios you had good and bad results with.
 
+![Single object performance benchmark](https://i.imgur.com/Q896UgV.png)
+
+Don't forget to tune the settings in `SerializerConfig` for your specific situation.
+Using Ceras to read/write network packets might require different settings than, lets say, saving settings into a file, or cloning objects, or persisting items/spells/monsters in a game, or ... 
 
 # What can this be used for?
 
