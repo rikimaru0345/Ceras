@@ -9,8 +9,8 @@ Supports reference loops, large/complicated inheritance chains, splitting object
 ## Quick start
 
 ```csharp
-class ExamplePerson { public string Name; public int Number; }
-var p = new ExamplePerson { Name = "test", Number = 5 };
+class Person { public string Name; public int Age; }
+var p = new Person { Name = "riki", Age = 5 };
 
 var ceras = new CerasSerializer();
 
@@ -83,13 +83,13 @@ The above are just examples, Ceras is made so it can be used in pretty much ever
 - You plan to use this on a platform that does not support code generation. Serializers for user-types are created at runtime through code-generation. And if that isn't allowed (for example on iOS) Ceras won't be able to generate arbitrary object-formatters. Built-in types will still work though. There are ways to fix this though... (pre-generating the formatters)
 
 
-### [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
 
 # Support
 - Open an issue
 - Join my [Discord](https://discord.gg/FGaCX4c) (probably the best for direct one-on-one help)
 - Make sure you've read [FAQ](https://github.com/rikimaru0345/Ceras/wiki/FAQ) and [Optimization & Pitfalls](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
 
-
+## [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
+## [**>> Development Blog**](https://rikidev.com/)
 
 
