@@ -1,12 +1,12 @@
-# Ceras
-
+Ceras
+===
 [![AppVeyor](https://ci.appveyor.com/api/projects/status/github/rikimaru0345/Ceras?branch=master&svg=true)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts)  [![Test Results](https://img.shields.io/appveyor/tests/rikimaru0345/ceras.svg)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/tests) [![LICENSE](https://img.shields.io/github/license/rikimaru0345/Ceras.svg)](https://github.com/rikimaru0345/Ceras/blob/master/LICENSE) [![Discord](https://discordapp.com/api/guilds/367211057787305985/embed.png)](https://discord.gg/FGaCX4c) [![NuGet](https://img.shields.io/nuget/v/Ceras.svg?logo=nuget&logoColor=ddd)](https://www.nuget.org/packages/Ceras/)  [![Release](https://img.shields.io/badge/download-70kb%20%5Brelease.zip%5D-blue.svg?logo=appveyor )](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts) 
 
 Ceras is a binary serializer. It converts *any* object into a `byte[]` and back.
 It goes above and beyond in terms of features, speed, and compfort.
 Supports reference loops, large/complicated inheritance chains, splitting objects into parts, ...
 
-# Quick start
+## Quick start
 
 ```csharp
 class ExamplePerson { public string Name; public int Number; }
@@ -17,15 +17,14 @@ var ceras = new CerasSerializer();
 var bytes = ceras.Serialize(p);
 ```
 
-### [**>> 1. Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Tutorial.cs)
-### [**>> 2. Detailed guides for specific scenarios on my blog**](https://www.rikidev.com/)
-### [**>> 3. Read 'Optimization & Usage Pitfalls'**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
+1. [**>> Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Tutorial.cs)
+2. [**>> Detailed guides for specific scenarios on my blog**](https://www.rikidev.com/)
+3. [**>> Read 'Optimization & Usage Pitfalls'**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
 
 
-# Features
+## Features
 
-### Major Features
-- Very fast, small binary output (see **[Performance](https://github.com/rikimaru0345/Ceras/blob/master/README.md#performance)**)
+- Very fast, small binary output (see **[Performance](https://github.com/rikimaru0345/Ceras#performance-benchmarks)**)
 - Supports pretty much any type:
 	- [Hand-written formatters for all common .NET types](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features#built-in-types)
 	- [Comes with formatters for all common Unity types](https://github.com/rikimaru0345/Ceras/tree/master/src/Ceras.UnityAddon)
@@ -35,9 +34,9 @@ var bytes = ceras.Serialize(p);
 - **Full** support for polymorphism / inheritance / interfaces
 - Can serialize objects into parts as "ExtenalObjects" (useful in many many scenarios)
 - Automatic version-tolerance, no need to place any attributes on your classes!
-- ### [*full feature list (and planned features)*](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)
+- ***[full feature list (and planned features)](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)***
 
-# Performance benchmarks
+## Performance benchmarks
 Ceras generally ranks at the top end of the performance spectrum, together with NetSerializer and MessagePack-CSharp.
 To get an idea of how Ceras performs here are the preliminary benchmark results.
 The resulting binary size is about the same as MessagePack-CSharp.
@@ -51,7 +50,7 @@ Using Ceras to read/write network packets might require different settings than,
 
 The project is still heavily work-in-progress, meaning that over time more optimizations will get implemented (your feedback is important here!).
 
-# What can this be used for?
+## What can this be used for?
 
 ### Example usages
 The primary goal is to make an universal serializer that can be used in every situation.
