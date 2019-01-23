@@ -4,12 +4,8 @@
 
 [![NuGet](https://img.shields.io/nuget/v/Ceras.svg?logo=nuget&logoColor=ddd)](https://www.nuget.org/packages/Ceras/)  [![Release](https://img.shields.io/badge/download-70kb%20%5Brelease.zip%5D-blue.svg?logo=appveyor )](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts) 
 
-
-
-###### Universal binary serializer for a wide variety of scenarios, lots of features, and tuned for performance 
-Ceras is a binary serializer. It converts whatever object you give it into a `byte[]` and back.
-It's not just a replacement for BinaryFormatter or MessagePack, it also adds tons of features on top. 
-
+Ceras is a binary serializer. It converts *any* object into a `byte[]` and back.
+It goes above and beyond in terms of features, speed, and compfort.
 Supports reference loops, large/complicated inheritance chains, splitting objects into parts, ...
 
 # Quick start
@@ -25,15 +21,15 @@ var s = new CerasSerializer();
 var bytes = s.Serialize(p);
 ```
 
-## [**>> 1. Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Tutorial.cs)
-## [**>> 2. Detailed guides for specific scenarios on my blog**](https://www.rikidev.com/)
-## [**>> 3. Read 'Optimization & Usage Pitfalls'**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
+### [**>> 1. Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Tutorial.cs)
+### [**>> 2. Detailed guides for specific scenarios on my blog**](https://www.rikidev.com/)
+### [**>> 3. Read 'Optimization & Usage Pitfalls'**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
 
 
 # Features
 
 ### Major Features
-- Very fast, very small binary output
+- Very fast, small binary output (see [Performance ](https://github.com/rikimaru0345/Ceras/blob/master/README.md#performance))
 - Supports pretty much any type:
 	- [Hand-written formatters for all common .NET types](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features#built-in-types)
 	- Generates new formatters at runtime for any new/user type
@@ -46,6 +42,21 @@ var bytes = s.Serialize(p);
 ## [**>> Full feature list (and planned features)**](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)
 ## [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
 ## [**>> Using Ceras to easily send C# objects over TCP/UDP**](https://rikidev.com/networking-with-ceras-part-1/)
+
+# Performance benchmarks
+To get an idea of how Ceras performs here are the preliminary benchmark results.
+The project is still heavily work-in-progress, meaning that over time more optimizations will get implemented (your feedback is important here!).
+
+Ceras generally ranks at the top end of the performance spectrum, together with NetSerializer and MessagePack-CSharp.
+
+![Single object performance benchmark](https://i.imgur.com/Q896UgV.png)
+The shown results are obtained from **[this code](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Benchmarks.cs)** and I encourage you to not only try it yourself, but to also provide feedback about scenarios you had good and bad results with.
+
+The resulting binary size is about the same as MessagePack-CSharp.
+
+Don't forget to tune the settings in `SerializerConfig` for your specific situation.
+Using Ceras to read/write network packets will require very different settings than, lets say, saving settings into a file, or cloning objects, or persisting items/spells/monsters in a game, ... when in doubt you can always open an issue or join the discord server! :)
+
 
 # What can this be used for?
 
@@ -60,15 +71,15 @@ Saving objects to disk quickly without much trouble: settings, savegames, whatev
 See steps 1 and 2 in the [Usage Guide](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L21)
 
 - **Splitting:**
-So your `Person` has reference to other `Person` objects, but each one should be serialized individually?
-No problem, use `IExternalRootObject`. It's super easy. (see [External Objects Guide (Game DB example))](https://github.com/rikimaru0345/Ceras/blob/6a435a6c21c31cc9548dcc40b2d2c1d1d35d9000/samples/LiveTesting/Tutorial.cs#L327)).
+So your `Person` has references to other `Person` objects, but each one should be serialized individually!? (without the references quickly dragging in essentially your whole program).
+Maybe you want to be able to put each `Person` into its own file, or send them over the network one-by-one as needed?
+**No problem!** Using `IExternalRootObject` it's not an issue! See [External Objects Guide (Game DB example))](https://github.com/rikimaru0345/Ceras/blob/6a435a6c21c31cc9548dcc40b2d2c1d1d35d9000/samples/LiveTesting/Tutorial.cs#L327).
 
 - **Network:** 
-In the past people used to manually write network messages into a network stream or packet because serialization was either too slow or couldn't handle complicated object-graphs.
-Receiving objects from the network also allocated a lot of 'garbage objects' because there was no easy way to recycle packets.
-Other serializers always write long type names...
-Ceras fixes all of this, with some simple setup you can implement a very efficient protocol (see [Network Example Guide](https://rikidev.com/networking-with-ceras-part-1/)).
-If you want to, you can even let Ceras 'learn' types that get sent so types will be automatically encoded to short IDs (or use `config.KnownTypes` to register network types for maximum efficiency).
+Because of its simple API and vast set of features Ceras is uniquely suited to implement a full 'network-protocol' for you.
+I wrote **[a short guide]([Network Example Guide](https://rikidev.com/networking-with-ceras-part-1/))** that shows off how a basic  TCP implementation could look like:
+Just `Send(myObject);` it, then `var obj = await Receive();` on the other side, that's it! It literally can't get any easier than that.
+At the moment the guide only has 2 parts, but when I have some (and if there are requests for it) I'd like to continue the series, eventually building that sample into a full-fledged, robust, and battle-tested networking system.
 
 - **More:**
 The above are just examples, Ceras is made so it can be used in pretty much every situation...
@@ -81,8 +92,6 @@ The above are just examples, Ceras is made so it can be used in pretty much ever
 
 
 # Support
-Want me to help you? These are your options:
-
 - Open an issue
 - Join my [Discord](https://discord.gg/FGaCX4c) (probably the best for direct one-on-one help)
 - Make sure you've read [FAQ](https://github.com/rikimaru0345/Ceras/wiki/FAQ) and [Optimization & Pitfalls](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
