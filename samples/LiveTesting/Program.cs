@@ -101,8 +101,8 @@ namespace LiveTesting
 		static void Benchmarks()
 		{
 			var config = new CerasGlobalBenchmarkConfig();
-			//var summary = BenchmarkRunner.Run<Switch_vs_If_Benchmarks>(config);
-			var summary = BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
+			BenchmarkRunner.Run<Switch_vs_If_Benchmarks>(config);
+			BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
 
 			Environment.Exit(0);
 		}

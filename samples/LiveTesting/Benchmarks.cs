@@ -764,9 +764,7 @@ namespace LiveTesting
 
 		static byte[] _buffer;
 		static CerasSerializer _cerasNormal;
-		static CerasSerializer _cerasRepl;
-		static CerasSerializer _ceras3;
-		static CerasSerializer _ceras4;
+		static CerasSerializer _cerasNoRefs;
 
 
 		[GlobalSetup]
@@ -804,10 +802,15 @@ namespace LiveTesting
 
 			_cerasNormal = new CerasSerializer(config);
 			
-			_cerasRepl = new CerasSerializer(config, 1);
 
-			_ceras3 = new CerasSerializer(config, 2);
-			_ceras4 = new CerasSerializer(config, 3);
+			config = new SerializerConfig();
+			config.DefaultTargets = TargetMember.AllPublic;
+			config.KnownTypes.Add(typeof(Person));
+			config.KnownTypes.Add(typeof(List<>));
+			config.KnownTypes.Add(typeof(Person[]));
+			config.PreserveReferences = false;
+
+			_cerasNoRefs = new CerasSerializer(config);
 
 		}
 
@@ -827,33 +830,15 @@ namespace LiveTesting
 			_cerasNormal.Deserialize(ref clone, _buffer);
 		}
 		
-		
 		[BenchmarkCategory("Single"), Benchmark]
-		public void Ceras_ReplacedRefFormatter()
+		public void Ceras_NoRefs()
 		{
 			Person clone = default;
 
-			_cerasRepl.Serialize(_person, ref _buffer);
-			_cerasRepl.Deserialize(ref clone, _buffer);
+			_cerasNoRefs.Serialize(_person, ref _buffer);
+			_cerasNoRefs.Deserialize(ref clone, _buffer);
 		}
 		
-		[BenchmarkCategory("Single"), Benchmark]
-		public void Ceras_IfCheck_Allow()
-		{
-			Person clone = default;
-
-			_ceras3.Serialize(_person, ref _buffer);
-			_ceras3.Deserialize(ref clone, _buffer);
-		}
-		[BenchmarkCategory("Single"), Benchmark]
-		public void Ceras_IfCheck_Forbid()
-		{
-			Person clone = default;
-
-			_ceras4.Serialize(_person, ref _buffer);
-			_ceras4.Deserialize(ref clone, _buffer);
-		}
-
 		
 		static T RunMessagePackCSharp<T>(T obj)
 		{
