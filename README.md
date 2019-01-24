@@ -69,7 +69,7 @@ Maybe you want to be able to put each `Person` into its own file, or send them o
 
 - **Network:** 
 Because of its simple API and vast set of features Ceras is uniquely suited to implement a full 'network-protocol' for you.
-I wrote **[a short guide]([Network Example Guide](https://rikidev.com/networking-with-ceras-part-1/))** that shows off how a basic  TCP implementation could look like:
+I wrote [a short guide](https://rikidev.com/networking-with-ceras-part-1/) that shows off how a basic  TCP implementation could look like:
 Just `Send(myObject);` it, then `var obj = await Receive();` on the other side, that's it! It literally can't get any easier than that.
 At the moment the guide only has 2 parts, but when I have some (and if there are requests for it) I'd like to continue the series, eventually building that sample into a full-fledged, robust, and battle-tested networking system.
 
