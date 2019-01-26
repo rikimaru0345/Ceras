@@ -26,6 +26,9 @@
 
 			if (typeof(MulticastDelegate).IsAssignableFrom(type))
 			{
+				if (!_serializer.Config.Advanced.AllowDelegateSerialization)
+					throw new InvalidOperationException($"The type '{type.FullName}' can not be serialized because it is a delegate; and 'config.Advanced.AllowDelegateSerialization' is turned off.");
+
 				var formatterType = typeof(DelegateFormatter<>).MakeGenericType(type);
 				var formatter = Activator.CreateInstance(formatterType, args: _serializer);
 				return (IFormatter)formatter;

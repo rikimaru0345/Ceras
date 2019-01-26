@@ -14,13 +14,13 @@ namespace Ceras.Test
 			byte[] data;
 
 			data = _s.Serialize<object>(null);
-			Assert.Single(data);
+			Assert.Equal(new byte[1] { 4 }, data); // Must be 4, because we're encoding a biased int marker
 
 			data = _s.Serialize<string>(null);
-			Assert.Equal(new byte[1] { 4 }, data);
+			Assert.Equal(new byte[1] { 0 }, data); // Strings do not use the reference formatter (maybe adding that later as an option if any good use cases are presented). The string formatter uses its own bias-encoding for even more efficient packing, so 0 = null, 1 = string of length 0, 2 = string of length 1, ...
 
 			data = _s.Serialize(0);
-			Assert.Equal(new byte[1] { 0 }, data);
+			Assert.Equal(new byte[1] { 0 }, data); // VarInt encoding should not use a bias
 		}
 
 		[Fact]
@@ -49,7 +49,7 @@ namespace Ceras.Test
 
 
 			data = _s.Serialize("12345");
-		    Assert.Equal(new byte[] {2, 6, 49, 50, 51, 52, 53}, data);// 1byte length, 5bytes content
+		    Assert.Equal(new byte[] { 6, 49, 50, 51, 52, 53}, data); // 1byte length, 5bytes content
 		}
 
 		[Fact]

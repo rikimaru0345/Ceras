@@ -15,6 +15,7 @@ namespace LiveTesting
 	using BenchmarkDotNet.Reports;
 	using BenchmarkDotNet.Toolchains.CsProj;
 	using Ceras;
+	using Ceras.Formatters;
 	using MessagePack;
 	using Newtonsoft.Json;
 	using ProtoBuf;
@@ -26,22 +27,17 @@ namespace LiveTesting
 	using System.Reflection.Emit;
 	using System.Runtime.CompilerServices;
 	using System.Runtime.Serialization;
-	using Ceras.Helpers;
 	using Tutorial;
 
 
-	// todo: compare if using constants in generated code eliminates the virtual dispatch
-
-	// todo: come up with some actual real world benchmarks
-
-	// todo: add Jil, and msgpack-cli 
 
 
 	class CerasGlobalBenchmarkConfig : ManualConfig
 	{
 		public CerasGlobalBenchmarkConfig()
 		{
-			Add(Job.ShortRun
+			//Add(Job.ShortRun
+			Add(Job.MediumRun
 				   .WithOutlierMode(OutlierMode.OnlyUpper)
 				   .With(Platform.X64)
 				   .With(Runtime.Core)
@@ -65,10 +61,284 @@ namespace LiveTesting
 			Add(BaselineRatioColumn.RatioMean);
 			Add(StatisticColumn.Mean, StatisticColumn.StdErr);
 
+
+			Add(BenchmarkDotNet.Columns.DefaultColumnProviders.Params);
+
 			Add(new ConsoleLogger());
+
+			StopOnFirstError = true;
+			//KeepBenchmarkFiles = true;
 		}
 	}
 
+
+	public class MergeBlittingBenchmarks
+	{
+		public struct Vector3
+		{
+			public float X;
+			public float Y;
+			public float Z;
+		}
+
+
+		class Vector3Formatter_Normal : IFormatter<Vector3>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+			{
+				SerializerBinary.WriteFloat32Fixed(ref buffer, ref offset, value.X);
+				SerializerBinary.WriteFloat32Fixed(ref buffer, ref offset, value.Y);
+				SerializerBinary.WriteFloat32Fixed(ref buffer, ref offset, value.Z);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
+		}
+
+		class Vector3Formatter_MergeBlit1 : IFormatter<Vector3>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+			{
+				const int v3Size = 3 * 4;
+				SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
+
+				SerializerBinary.WriteFloat32FixedNoCheck(ref buffer, ref offset, value.X);
+				SerializerBinary.WriteFloat32FixedNoCheck(ref buffer, ref offset, value.Y);
+				SerializerBinary.WriteFloat32FixedNoCheck(ref buffer, ref offset, value.Z);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
+		}
+
+		class Vector3Formatter_MergeBlit2 : IFormatter<Vector3>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+			{
+				const int v3Size = 3 * 4;
+
+				SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
+
+				var bufferLocal = buffer;
+
+				SerializerBinary.WriteFloat32FixedNoCheck(ref bufferLocal, ref offset, value.X);
+				SerializerBinary.WriteFloat32FixedNoCheck(ref bufferLocal, ref offset, value.Y);
+				SerializerBinary.WriteFloat32FixedNoCheck(ref bufferLocal, ref offset, value.Z);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
+		}
+
+
+		class Vector3Formatter_MergeBlit3 : IFormatter<Vector3>
+		{
+			public unsafe void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+			{
+				const int v3Size = 3 * 4;
+
+				SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
+
+				var bufferLocal = buffer;
+
+				fixed (byte* pBuffer = buffer)
+				{
+					var ptr = (float*)(pBuffer + offset);
+
+					*ptr = value.X;
+					ptr++;
+
+					*ptr = value.Y;
+					ptr++;
+
+					*ptr = value.Z;
+				}
+
+
+				offset += v3Size;
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
+		}
+
+		class Vector3Formatter_MergeBlit4 : IFormatter<Vector3>
+		{
+			public unsafe void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+			{
+				const int v3Size = 3 * 4;
+
+				SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
+
+				var bufferLocal = buffer;
+
+				fixed (byte* pBuffer = buffer)
+				{
+					var ptr = (float*)(pBuffer + offset);
+
+					*ptr = value.X;
+				}
+				offset += 4;
+
+				fixed (byte* pBuffer = buffer)
+				{
+					var ptr = (float*)(pBuffer + offset);
+
+					*ptr = value.Y;
+				}
+				offset += 4;
+
+				fixed (byte* pBuffer = buffer)
+				{
+					var ptr = (float*)(pBuffer + offset);
+
+					*ptr = value.Z;
+				}
+				offset += 4;
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
+		}
+
+
+		class Vector3Formatter_MergeBlit5 : IFormatter<Vector3>
+		{
+			public unsafe void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+			{
+				const int v3Size = 3 * 4;
+
+				SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
+
+				var bufferLocal = buffer;
+
+				fixed (byte* pBuffer = buffer)
+				{
+					var ptr = (float*)(pBuffer + offset);
+
+					*ptr = value.X;
+				}
+
+				fixed (byte* pBuffer = buffer)
+				{
+					var ptr = (float*)(pBuffer + offset + 4);
+
+					*ptr = value.Y;
+				}
+
+				fixed (byte* pBuffer = buffer)
+				{
+					var ptr = (float*)(pBuffer + offset + 8);
+
+					*ptr = value.Z;
+				}
+				offset += v3Size;
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
+		}
+
+		class Vector3Formatter_Interface : IFormatter<Vector3>
+		{
+			IFormatter<float> _f;
+
+			public Vector3Formatter_Interface()
+			{
+				_f = new FloatFormatter();
+			}
+
+			public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+			{
+				_f.Serialize(ref buffer, ref offset, value.X);
+				_f.Serialize(ref buffer, ref offset, value.Y);
+				_f.Serialize(ref buffer, ref offset, value.Z);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
+		}
+		sealed class FloatFormatter : IFormatter<float>
+		{
+			public void Serialize(ref byte[] buffer, ref int offset, float value)
+			{
+				SerializerBinary.WriteFloat32Fixed(ref buffer, ref offset, value);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref float value)
+			{
+				value = SerializerBinary.ReadFloat32Fixed(buffer, ref offset);
+			}
+		}
+
+		// Not possible to do this with expressions unfortunately. Will have to come back later to just do it in a DynamicMethod.
+		/*
+		class Vector3Formatter_ExpressionAutoGen : IFormatter<Vector3>
+		{
+			readonly SerializeDelegate<Vector3> _dynamicSerializer;
+
+			public Vector3Formatter_ExpressionAutoGen()
+			{
+				List<Expression> body = new List<Expression>();
+				List<ParameterExpression> parameters = new List<ParameterExpression>();
+				List<ParameterExpression> locals = new List<ParameterExpression>();
+
+				// Parameters
+				var refBuffer = Expression.Parameter(typeof(byte[]).MakeByRefType());
+				var refOffset = Expression.Parameter(typeof(int).MakeByRefType());
+				var value = Expression.Parameter(typeof(Vector3));
+				parameters.AddRange(new[] { refBuffer, refOffset, value });
+
+				// Ensure capacity
+				var v3Size = 3 * 4;
+				var ensureCapacity = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.EnsureCapacity));
+
+				body.Add(Expression.Call(ensureCapacity, arg0: refBuffer, arg1: refOffset, Expression.Constant(v3Size)));
+				
+				// Buffer to ptr
+				var bytePtr = Expression.Variable(typeof(byte*));
+				Expression.
+
+				_dynamicSerializer = Expression.Lambda<SerializeDelegate<Vector3>>(Expression.Block(locals, body), parameters).Compile();
+			}
+			
+			public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+			{
+				const int v3Size = 3 * 4;
+
+				SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
+
+
+			}
+		}
+		*/
+
+
+		IFormatter<Vector3>[] _formatterInstances =
+		{
+				new Vector3Formatter_Normal(),
+				new Vector3Formatter_MergeBlit1(),
+				new Vector3Formatter_MergeBlit2(),
+				new Vector3Formatter_MergeBlit3(),
+				new Vector3Formatter_MergeBlit4(),
+				new Vector3Formatter_MergeBlit5(),
+				new Vector3Formatter_Interface(),
+		};
+		[Params(0, 1, 2, 3, 4, 5, 6)] // ParamsSource doesn't seem to work at all, must be a bug in benchmarkdotnet
+		public int TypeIndex { get; set; }
+
+
+		Vector3 _vector3 = new Vector3 { X = -5, Y = 3.121f, Z = 7.2f };
+		IFormatter<Vector3> _formatter;
+		byte[] _buffer = new byte[100];
+
+
+		[GlobalSetup]
+		public void Setup()
+		{
+			_formatter = _formatterInstances[TypeIndex];
+		}
+
+		[Benchmark]
+		public void Test()
+		{
+			int offset = 0;
+			_formatter.Serialize(ref _buffer, ref offset, _vector3);
+		}
+	}
 
 	public class SerializerComparisonBenchmarks
 	{
@@ -135,7 +405,7 @@ namespace LiveTesting
 		{
 			Unknown, Male, Female,
 		}
-		
+
 		Person _person;
 		IList<Person> _list;
 
@@ -175,7 +445,7 @@ namespace LiveTesting
 				Parent1 = parent1,
 				Parent2 = parent2,
 			};
-			
+
 			_list = Enumerable.Range(25000, 100).Select(x => new Person { Age = x, FirstName = "a", LastName = "b", Sex = Sex.Female }).ToArray();
 
 			//
@@ -190,7 +460,7 @@ namespace LiveTesting
 			config.KnownTypes.AddRange(knownTypes);
 			config.PreserveReferences = false;
 			_ceras = new CerasSerializer(config);
-			
+
 			//
 			// Run each serializer once to verify they work correctly!
 			if (!Equals(RunCeras(_person), _person))
@@ -212,13 +482,11 @@ namespace LiveTesting
 
 
 		[BenchmarkCategory("Single"), Benchmark]
-		public void MessagePackCSharp_Single() => RunMessagePackCSharp(_person);
+		public void MessagePack_Single() => RunMessagePackCSharp(_person);
 		[BenchmarkCategory("Single"), Benchmark(Baseline = true)]
 		public void Ceras_Single() => RunCeras(_person);
 		[BenchmarkCategory("Single"), Benchmark]
 		public void Protobuf_Single() => RunProtobuf(_person);
-		[BenchmarkCategory("Single"), Benchmark]
-		public void JsonNet_Single() => RunJson(_person);
 		[BenchmarkCategory("Single"), Benchmark]
 		public void Wire_Single() => RunWire(_person);
 		[BenchmarkCategory("Single"), Benchmark]
@@ -227,16 +495,22 @@ namespace LiveTesting
 		[BenchmarkCategory("List"), Benchmark(Baseline = true)]
 		public void Ceras_List() => RunCeras(_list);
 		[BenchmarkCategory("List"), Benchmark]
-		public void MessagePackCSharp_List() => RunMessagePackCSharp(_list);
+		public void MessagePack_List() => RunMessagePackCSharp(_list);
 		[BenchmarkCategory("List"), Benchmark]
 		public void Protobuf_List() => RunProtobuf(_list);
-		[BenchmarkCategory("List"), Benchmark]
-		public void Json_List() => RunJson(_list);
 		[BenchmarkCategory("List"), Benchmark]
 		public void Wire_List() => RunWire(_list);
 		[BenchmarkCategory("List"), Benchmark]
 		public void NetSerializer_List() => RunNetSerializer(_list);
 
+
+		// Json is way too slow, it messes with the graph I want to draw
+		/*
+		[BenchmarkCategory("Single"), Benchmark]
+		public void JsonNet_Single() => RunJson(_person);
+		[BenchmarkCategory("List"), Benchmark]
+		public void Json_List() => RunJson(_list);
+		*/
 
 		static T RunCeras<T>(T obj) // Size = 76
 		{
@@ -271,10 +545,10 @@ namespace LiveTesting
 			ProtoBuf.Serializer.SerializeWithLengthPrefix(_memStream, obj, PrefixStyle.Fixed32);
 			_memStream.Position = 0;
 			var clone = ProtoBuf.Serializer.DeserializeWithLengthPrefix<T>(_memStream, PrefixStyle.Fixed32);
-			
+
 			return clone;
 		}
-		
+
 		static T RunWire<T>(T obj) // Size = 169
 		{
 			_memStream.Position = 0;
@@ -1057,4 +1331,12 @@ namespace LiveTesting
 		{
 		}
 	}
+
+
+	// todo: compare if using constants in generated code eliminates the virtual dispatch
+
+	// todo: add more real world benchmarks
+
+	// todo: add Jil, and msgpack-cli 
+
 }

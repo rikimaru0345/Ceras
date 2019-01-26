@@ -100,10 +100,15 @@ namespace LiveTesting
 
 		static void Benchmarks()
 		{
+			return;
+
 			new SerializerComparisonBenchmarks().Setup();
 
 			var config = new CerasGlobalBenchmarkConfig();
-			BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
+			BenchmarkRunner.Run<MergeBlittingBenchmarks>(config);
+			//BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
+
+			
 
 			Environment.Exit(0);
 		}
@@ -465,7 +470,9 @@ namespace LiveTesting
 
 		static void DelegatesTest()
 		{
-			var ceras = new CerasSerializer();
+			var config = new SerializerConfig();
+			config.Advanced.AllowDelegateSerialization = true;
+			var ceras = new CerasSerializer(config);
 
 			// 1. Simple test: can ceras persist a static-delegate
 			{

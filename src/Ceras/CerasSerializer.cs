@@ -153,7 +153,7 @@ namespace Ceras
 		/// <para>Keep in mind that many things like <see cref="SerializerConfig.ShouldSerializeMember"/> obviously cannot contribute to the checksum, but are still able to influence the serialization (and thus break network interoperability even when the checksum matches)</para>
 		/// </summary>
 		public ProtocolChecksum ProtocolChecksum { get; } = new ProtocolChecksum();
-		
+
 		/// <summary>
 		/// Creates a new CerasSerializer, be sure to check out the tutorial.
 		/// </summary>
@@ -279,7 +279,7 @@ namespace Ceras
 
 		/// <summary>!! Only use this method for testing !!
 		/// <para>This method is pretty inefficient because it has to allocate an array for you and later resize it!</para>
-		/// <para>For much better performance use <see cref="Serialize{T}(T, ref byte[], int)"/> instead.</para>
+		/// For much better performance use <see cref="Serialize{T}(T, ref byte[], int)"/> instead.
 		/// <para>Take a quick look at the first step of the tutorial (it's on GitHub) if you are not sure how.</para>
 		/// </summary>
 		public byte[] Serialize<T>(T obj)
@@ -750,7 +750,7 @@ namespace Ceras
 							continue;
 
 					// Respect 'NonSerializedAttribute' if it's there
-					if(Config.RespectNonSerializedAttribute)
+					if (Config.RespectNonSerializedAttribute)
 						if (f.GetCustomAttribute<NonSerializedAttribute>() != null)
 							continue;
 
@@ -1147,95 +1147,23 @@ namespace Ceras
 		/// </summary>
 		public IAdvancedConfigOptions Advanced => this;
 
-		/// <summary>
-		/// Whenever Ceras needs to create a new object it will use the factory method (if you have provided one)
-		/// The primary intended use for this is object pooling; for example when receiving network messages you obviously don't want to 'new()' a new packet every time a message arrives, instead you want to take them from a pool. When doing so, you should of course also provide a 'DiscardObjectMethod' so Ceras can give you objects back when they are not used anymore (happens when you use the ref-version of deserialize to overwrite existing objects).
-		/// Another thing this can be used for is when you have a type that only has a static Create method instead of a parameterless constructor.
-		/// </summary>
-		Func<Type, object> IAdvancedConfigOptions.ObjectFactoryMethod { get; set; } = null;
-
-		/// <summary>
-		/// Set this to a function you provide. Ceras will call it when an object instance is no longer needed.
-		/// For example you want to populate an existing object with data, and one of the fields already has a value (a left-over from the last time it was used),
-		/// but the current data says that the field should be 'null'. That's when Ceras will call this this method so you can recycle the object (maybe return it to your object-pool)
-		/// </summary>
-		Action<object> IAdvancedConfigOptions.DiscardObjectMethod { get; set; } = null;
-
-		/// <summary>
-		/// This is the very first thing that ceras uses to determine whether or not to serialize something. While not the most comfortable, it is useful because it is called for types you don't control (types from other libraries where you don't have the source code...).
-		/// Important: Compiler generated fields are always skipped by default, for more information about that see the 'readonly properties' section in the tutorial where all of this is explained in detail.
-		/// </summary>
-		Func<SerializedMember, SerializationOverride> IAdvancedConfigOptions.ShouldSerializeMember { get; set; } = null;
-
-		/// <summary>
-		/// Explaining this setting here would take too much space, check out the tutorial section for details.
-		/// </summary>
-		ReadonlyFieldHandling IAdvancedConfigOptions.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.Off;
-
-		/// <summary>
-		/// Embed protocol/serializer checksum at the start of any serialized data, and read it back when deserializing to make sure we're not reading incompatible data on accident
-		/// </summary>
-		bool IAdvancedConfigOptions.EmbedChecksum { get; set; } = false;
-
-		/// <summary>
-		/// Determines whether to keep Type-To-Id maps after serialization/deserialization.
-		/// This is ***ONLY*** intended for networking, where the deserializer keeps the state as well, and all serialized data is ephemeral (not saved to anywhere)
-		/// This will likely save a huge amount of memory and cpu cycles over the lifespan of a network-session, because it will serialize type-information only once.
-		/// 
-		/// If the serializer is used as a network protocol serializer, this option should definitely be turned on!
-		/// Don't use this when serializing to anything persistent (files, database, ...) as you cannot deserialize any data if the deserializer type-cache is not in **EXACTLY**
-		/// the same configuration as it (unless you really know exactly what you're doing)
-		/// </summary>
-		bool IAdvancedConfigOptions.PersistTypeCache { get; set; } = false;
-
-		/// <summary>
-		/// This setting is only used when KnownTypes is used (has >0 entries).
-		/// When set to true, and a new Type (so a Type that is not contained in KnownTypes) is encountered in either serialization or deserialization, an exception is thrown.
-		/// 
-		/// <para>!! Defaults to true to protect against exploits and bugs.</para>
-		/// <para>!! Don't disable this unless you know what you're doing.</para>
-		///
-		/// If you use KnownTypes you're most likely using Ceras in a network-scenario.
-		/// If you then turn off this setting, you're basically allowing the other side (client or server) to construct whatever object they want on your side (which is known to be a huge attack vector for networked software).
-		///
-		/// It also protects against bugs by ensuring you are 100% aware of all the types that get serialized.
-		/// You could easily end up including stuff like passwords, usernames, access-keys, ... completely by accident. 
-		/// 
-		/// The idea is that when someone uses KnownTypes, they have a fixed list of types they want to serialize (to minimize overhead from serializing type names initially),
-		/// which is usually done in networking scenarios;
-		/// While working on a project you might add more types or add new fields or things like that, and a common mistake is accidentally adding a new type (or even whole graph!)
-		/// to the object graph that was not intended; which is obviously extremely problematic (super risky if sensitive stuff gets suddenly dragged into the serialization)
-		/// </summary>
-		bool IAdvancedConfigOptions.SealTypesWhenUsingKnownTypes { get; set; } = true;
-
-		/// <summary>
-		/// !! Important:
-		/// You may believe you know what you're doing when including things compiler-generated fields, but there are tons of other problems you most likely didn't even realize unless you've read the github issue here: https://github.com/rikimaru0345/Ceras/issues/11. 
-		/// 
-		/// Hint: You may end up including all sorts of stuff like enumerator statemachines, delegates, remanants of 'dynamic' objects, ...
-		/// So here's your warning: Don't set this to false unless you know what you're doing.
-		/// 
-		/// This defaults to true, which means that fields marked as [CompilerGenerated] are skipped without asking your 'ShouldSerializeMember' function (if you have set one).
-		/// For 99% of all use cases this is exactly what you want. For more information read the 'readonly properties' section in the tutorial.
-		/// </summary>
-		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
-
-		/// <summary>
-		/// A TypeBinder simply converts a 'Type' to a string and back.
-		/// It's easy and really useful to provide your own type binder in many situations.
-		/// <para>Examples:</para>
-		/// <para>- Mapping server objects to client objects</para>
-		/// <para>- Shortening / abbreviating type-names to save space and performance</para>
-		/// The default type binder (NaiveTypeBinder) simply uses '.FullName'
-		/// See the readme on github for more information.
-		/// </summary>
-		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = null;
 
 		ISizeLimitsConfig IAdvancedConfigOptions.SizeLimits => this;
 		uint ISizeLimitsConfig.MaxStringLength { get; set; } = uint.MaxValue;
 		uint ISizeLimitsConfig.MaxArraySize { get; set; } = uint.MaxValue;
 		uint ISizeLimitsConfig.MaxByteArraySize { get; set; } = uint.MaxValue;
 		uint ISizeLimitsConfig.MaxCollectionSize { get; set; } = uint.MaxValue;
+
+		Func<Type, object> IAdvancedConfigOptions.ObjectFactoryMethod { get; set; } = null;
+		Action<object> IAdvancedConfigOptions.DiscardObjectMethod { get; set; } = null;
+		Func<SerializedMember, SerializationOverride> IAdvancedConfigOptions.ShouldSerializeMember { get; set; } = null;
+		ReadonlyFieldHandling IAdvancedConfigOptions.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.Off;
+		bool IAdvancedConfigOptions.EmbedChecksum { get; set; } = false;
+		bool IAdvancedConfigOptions.PersistTypeCache { get; set; } = false;
+		bool IAdvancedConfigOptions.SealTypesWhenUsingKnownTypes { get; set; } = true;
+		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
+		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = null;
+		bool IAdvancedConfigOptions.AllowDelegateSerialization { get; set; } = false;
 	}
 
 	public interface IAdvancedConfigOptions
@@ -1262,11 +1190,14 @@ namespace Ceras
 
 		/// <summary>
 		/// Explaining this setting here would take too much space, check out the tutorial section for details.
+		/// <para>Default: Off</para>
 		/// </summary>
 		ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
 
 		/// <summary>
-		/// Embed protocol/serializer checksum at the start of any serialized data, and read it back when deserializing to make sure we're not reading incompatible data on accident
+		/// Embed protocol/serializer checksum at the start of any serialized data, and read it back when deserializing to make sure we're not reading incompatible data on accident.
+		/// Intended to be used when writing to files, for networking this should not be used (since it would prefix every message with the serializer-checksum which makes no sense)
+		/// <para>Default: false</para>
 		/// </summary>
 		bool EmbedChecksum { get; set; }
 
@@ -1278,6 +1209,7 @@ namespace Ceras
 		/// If the serializer is used as a network protocol serializer, this option should definitely be turned on!
 		/// Don't use this when serializing to anything persistent (files, database, ...) as you cannot deserialize any data if the deserializer type-cache is not in **EXACTLY**
 		/// the same configuration as it (unless you really know exactly what you're doing)
+		/// <para>Default: false</para>
 		/// </summary>
 		bool PersistTypeCache { get; set; }
 
@@ -1298,6 +1230,7 @@ namespace Ceras
 		/// which is usually done in networking scenarios;
 		/// While working on a project you might add more types or add new fields or things like that, and a common mistake is accidentally adding a new type (or even whole graph!)
 		/// to the object graph that was not intended; which is obviously extremely problematic (super risky if sensitive stuff gets suddenly dragged into the serialization)
+		/// <para>Default: true</para>
 		/// </summary>
 		bool SealTypesWhenUsingKnownTypes { get; set; }
 
@@ -1310,6 +1243,7 @@ namespace Ceras
 		/// 
 		/// This defaults to true, which means that fields marked as [CompilerGenerated] are skipped without asking your 'ShouldSerializeMember' function (if you have set one).
 		/// For 99% of all use cases this is exactly what you want. For more information read the 'readonly properties' section in the tutorial.
+		/// <para>Default: true</para>
 		/// </summary>
 		bool SkipCompilerGeneratedFields { get; set; }
 
@@ -1324,11 +1258,16 @@ namespace Ceras
 		/// </summary>
 		ITypeBinder TypeBinder { get; set; }
 
-
 		/// <summary>
 		/// Protect against malicious input while deserializing by setting size limits for strings, arrays, and collections
 		/// </summary>
 		ISizeLimitsConfig SizeLimits { get; }
+
+		/// <summary>
+		/// If set to true Ceras will serialize and deserialize delegates.
+		/// <para>Default: false</para>
+		/// </summary>
+		bool AllowDelegateSerialization { get; set; }
 	}
 
 	public interface ISizeLimitsConfig
