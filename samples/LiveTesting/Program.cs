@@ -100,6 +100,7 @@ namespace LiveTesting
 
 		static void Benchmarks()
 		{
+			return;
 			var config = new CerasGlobalBenchmarkConfig();
 
 			BenchmarkRunner.Run<MergeBlittingBenchmarks>(config);

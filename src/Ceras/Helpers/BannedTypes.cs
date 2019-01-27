@@ -50,10 +50,9 @@ namespace Ceras.Formatters
 				Type = null;
 				FullName = null;
 				CustomIsBannedCheck = customCheck;
-				BanReason = banReason;
 
+				BanReason = banReason;
 				AlsoCheckInherit = false;
-				CustomIsBannedCheck = null;
 			}
 		}
 
@@ -98,9 +97,8 @@ namespace Ceras.Formatters
 			{
 				if(t.FullName == unityObject)
 					return true;
-
-				if (t.BaseType != null)
-					t = t.BaseType;
+				
+				t = t.BaseType;
 			}
 
 			return false;
@@ -164,12 +162,15 @@ namespace Ceras.Formatters
 							isBanned = true;
 					}
 				}
-				else // if(ban.CustomIsBannedCheck != null)
+				else if(ban.CustomIsBannedCheck != null)
 				{
 					if (ban.CustomIsBannedCheck(type))
 						isBanned = true;
 				}
-
+				else
+				{
+					Debug.Assert(false, "unreachable");
+				}
 
 				if (isBanned)
 					throw new BannedTypeException($"The type '{type.FullName}' cannot be serialized, please mark the field/property that caused this Type to be included with the [Ignore] attribute or filter it out using the 'ShouldSerialize' callback. Specific reason for this type being banned: \"{ban.BanReason}\". You should open an issue on GitHub or join the Discord server for support.");
