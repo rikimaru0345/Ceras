@@ -20,8 +20,8 @@ before_build:
 - cmd: nuget restore
 
 build_script:
-  - msbuild "C:\projects\ceras\src\Ceras\Ceras.csproj" /verbosity:minimal /logger:"C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll"
-  - msbuild "C:\projects\ceras\tests\Ceras.Test\Ceras.Test.csproj" /verbosity:minimal /logger:"C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll"
+  - msbuild "C:\projects\ceras\src\Ceras\Ceras.csproj" /clp:ErrorsOnly /logger:"C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll"
+  - msbuild "C:\projects\ceras\tests\Ceras.Test\Ceras.Test.csproj" /clp:ErrorsOnly /logger:"C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll"
 
 before_package:
 - cmd: >-
