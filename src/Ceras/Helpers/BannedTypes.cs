@@ -23,10 +23,14 @@ namespace Ceras.Formatters
 			public readonly string BanReason;
 			public readonly bool AlsoCheckInherit;
 
+			public readonly Func<Type, bool> CustomIsBannedCheck;
+
 			public BannedType(Type type, string banReason, bool alsoCheckInherit)
 			{
 				Type = type;
 				FullName = null;
+				CustomIsBannedCheck = null;
+
 				BanReason = banReason;
 				AlsoCheckInherit = alsoCheckInherit;
 			}
@@ -35,8 +39,21 @@ namespace Ceras.Formatters
 			{
 				Type = null;
 				FullName = fullName;
+				CustomIsBannedCheck = null;
+
 				BanReason = banReason;
 				AlsoCheckInherit = alsoCheckInherit;
+			}
+
+			public BannedType(Func<Type, bool> customCheck, string banReason)
+			{
+				Type = null;
+				FullName = null;
+				CustomIsBannedCheck = customCheck;
+				BanReason = banReason;
+
+				AlsoCheckInherit = false;
+				CustomIsBannedCheck = null;
 			}
 		}
 
@@ -64,12 +81,36 @@ namespace Ceras.Formatters
 			Ban(typeof(System.CodeDom.Compiler.TempFileCollection), reasonExploit);
 			Ban(typeof(System.Security.Policy.HashMembershipCondition), reasonExploit);
 #endif
+
+			// Ban all 'native' unity objects by banning the base type.
+			// Component, MonoBehaviour, GameObject, Transform, ...
+			// If there are requests, we can add specialized formatters for them.
+			// Note: The types handled in the UnityAddon are structs and don't inherit from UnityEngine.Object
+			BanCustom(IsUnityNativeType,
+			reason: "Native Unity objects cannot be serialized because they're not real C#/.NET objects. It is possible to create specialized formatters for some situations so Ceras can handle those objects, but it's not really possible to do this in a general and reliable way.");
+		}
+
+		static bool IsUnityNativeType(Type t)
+		{
+			const string unityObject = "UnityEngine.Object";
+
+			while (t != null)
+			{
+				if(t.FullName == unityObject)
+					return true;
+
+				if (t.BaseType != null)
+					t = t.BaseType;
+			}
+
+			return false;
 		}
 
 		static void Ban(Type type, string reason) => _bannedTypes.Add(new BannedType(type, reason, false));
 		static void Ban(string fullName, string reason) => _bannedTypes.Add(new BannedType(fullName, reason, false));
 		static void BanBase(Type type, string reason) => _bannedTypes.Add(new BannedType(type, reason, true));
 		static void BanBase(string fullName, string reason) => _bannedTypes.Add(new BannedType(fullName, reason, true));
+		static void BanCustom(Func<Type, bool> isBanned, string reason) => _bannedTypes.Add(new BannedType(isBanned, reason));
 
 
 		internal static void ThrowIfBanned(Type type)
@@ -94,7 +135,7 @@ namespace Ceras.Formatters
 							isBanned = true;
 					}
 				}
-				else
+				else if (ban.FullName != null)
 				{
 					if (ban.AlsoCheckInherit)
 					{
@@ -110,7 +151,7 @@ namespace Ceras.Formatters
 
 							if (t.GetInterfaces().Any(x => x.FullName == ban.FullName))
 							{
-								isBanned =true;
+								isBanned = true;
 								break;
 							}
 
@@ -119,15 +160,19 @@ namespace Ceras.Formatters
 					}
 					else
 					{
-						if(type.FullName == ban.FullName)
+						if (type.FullName == ban.FullName)
 							isBanned = true;
 					}
 				}
-
+				else // if(ban.CustomIsBannedCheck != null)
+				{
+					if (ban.CustomIsBannedCheck(type))
+						isBanned = true;
+				}
 
 
 				if (isBanned)
-					throw new BannedTypeException($"The type '{type.FullName}' cannot be serialized, please mark the field/property with the [Ignore] attribute or filter it out using the 'ShouldSerialize' callback. Reason: {ban.BanReason}");
+					throw new BannedTypeException($"The type '{type.FullName}' cannot be serialized, please mark the field/property that caused this Type to be included with the [Ignore] attribute or filter it out using the 'ShouldSerialize' callback. Specific reason for this type being banned: \"{ban.BanReason}\". You should open an issue on GitHub or join the Discord server for support.");
 			}
 		}
 

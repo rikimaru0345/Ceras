@@ -39,9 +39,11 @@ namespace LiveTesting
 			//Add(Job.ShortRun
 			Add(Job.MediumRun
 				   .WithOutlierMode(OutlierMode.OnlyUpper)
-				   .With(Platform.X64)
-				   .With(Runtime.Core)
+
 				   .With(CsProjCoreToolchain.NetCoreApp22)
+				   .With(Runtime.Core)
+				   
+				   .With(Platform.X64)
 				   .WithLaunchCount(1));
 
 			Add(MarkdownExporter.GitHub);

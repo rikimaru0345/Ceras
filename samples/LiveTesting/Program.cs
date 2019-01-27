@@ -100,15 +100,12 @@ namespace LiveTesting
 
 		static void Benchmarks()
 		{
-			return;
-
-			new SerializerComparisonBenchmarks().Setup();
-
 			var config = new CerasGlobalBenchmarkConfig();
+
 			BenchmarkRunner.Run<MergeBlittingBenchmarks>(config);
 			//BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
 
-			
+
 
 			Environment.Exit(0);
 		}
