@@ -1182,6 +1182,7 @@ namespace Ceras
 		/// </summary>
 		Action<object> DiscardObjectMethod { get; set; }
 
+
 		/// <summary>
 		/// This is the very first thing that ceras uses to determine whether or not to serialize something. While not the most comfortable, it is useful because it is called for types you don't control (types from other libraries where you don't have the source code...).
 		/// Important: Compiler generated fields are always skipped by default, for more information about that see the 'readonly properties' section in the tutorial where all of this is explained in detail.
@@ -1289,6 +1290,32 @@ namespace Ceras
 		/// </summary>
 		uint MaxCollectionSize { get; set; }
 	}
+
+
+	/*
+	todo: this feature will be delayed until there's more need. Delegates work fine for now, maybe we want auto-pooling per object type as well at some point?=
+
+	/// <summary>
+	/// This interface marks the 3 different pooling implementations you can use: DelegatePoolingImplementation, StaticTypePoolingImplementation, InstancePoolingImplementation. I strongly recommend reading the guide to get an idea of when to use which pooling implementation.
+	/// </summary>
+	interface IPoolingImplementation { }
+
+	public class DelegatePoolingImplementation : IPoolingImplementation
+	{
+		Func<Type, object> ObjectFactoryMethod { get; set; }
+		Action<object> DiscardObjectMethod { get; set; }
+	}
+
+	public class StaticTypePoolingImplementation : IPoolingImplementation
+	{
+		public Type StaticPoolType;
+	}
+
+	public class InstancePoolingImplementation : IPoolingImplementation
+	{
+		public object PoolInstance;
+	}
+	*/
 
 	/// <summary>
 	/// Options how Ceras handles readonly fields. Check the description of each entry.

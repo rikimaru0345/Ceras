@@ -11,11 +11,6 @@ namespace LiveTesting
 	using System.Linq;
 	using System.Numerics;
 	using System.Reflection;
-	using BenchmarkDotNet.Configs;
-	using BenchmarkDotNet.Environments;
-	using BenchmarkDotNet.Jobs;
-	using BenchmarkDotNet.Order;
-	using BenchmarkDotNet.Toolchains.CsProj;
 	using Tutorial;
 	using Xunit;
 
@@ -80,6 +75,10 @@ namespace LiveTesting
 
 			ListTest();
 
+			// todo: sounded like a good idea initially, but some preliminary investigation suggests that it actually won't really improve performance all that much, so we'll maybe do that later...
+			// TestDirectPoolingMethods();
+
+
 
 			var tutorial = new Tutorial();
 
@@ -96,6 +95,57 @@ namespace LiveTesting
 
 			Console.WriteLine("All tests completed.");
 			Console.ReadKey();
+		}
+
+		static void TestDirectPoolingMethods()
+		{
+			// Idea:
+			// We have 'ObjectFactoryMethod' and 'DiscardObjectMethod'
+			// but the problem with them is that they need type-checks since the format is always "object ObjectFactoryMethod(Type type)"
+			// 
+			// But what if we could use methods of a static class instead?
+			// The user would give us either a typeof(MyObjectManager), or 'myObjectManagerInstance', and we could easily call the methods on it.
+			// ReferenceFormatter can cache created delegates for each specific type and invoke them when needed.
+			//
+
+
+
+			//SerializerConfig config = new SerializerConfig();
+			//config.Advanced.ObjectFactoryMethod
+
+		}
+
+		static class StaticPoolingMethodsTest
+		{
+			static Stack<PooledObjectTest> _objects = new Stack<PooledObjectTest>();
+
+			public static PooledObjectTest CreatePooledObjectTest()
+			{
+				if (_objects.Count > 0)
+				{
+					var obj = _objects.Pop();
+					obj.IncreaseRecycleCount();
+					return obj;
+				}
+
+				return new PooledObjectTest();
+			}
+
+			public static void DiscardPooledObjectTest(PooledObjectTest obj)
+			{
+				_objects.Push(obj);
+			}
+		}
+
+		class PooledObjectTest
+		{
+			public int RecycleCount { get; private set; }
+			public string Name;
+
+			public void IncreaseRecycleCount()
+			{
+				RecycleCount++;
+			}
 		}
 
 		static void Benchmarks()
