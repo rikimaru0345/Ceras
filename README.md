@@ -20,6 +20,7 @@ var bytes = ceras.Serialize(p);
 1. [**>> Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Tutorial.cs)
 2. [**>> Detailed guides for specific scenarios on my blog**](https://www.rikidev.com/)
 3. [**>> Read 'Optimization & Usage Pitfalls'**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
+4. [**>> Changelog - New features in v3.0**](https://www.rikidev.com/new-features-in-ceras-3-0-2/)
 
 
 ## Features
