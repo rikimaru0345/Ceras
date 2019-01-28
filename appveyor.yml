@@ -20,14 +20,14 @@ before_build:
 - cmd: nuget restore
 
 build_script:
-  - msbuild "C:\projects\ceras\src\Ceras\Ceras.csproj" /verbosity:minimal /p:Configuration=Release /logger:"C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll"
-  - msbuild "C:\projects\ceras\tests\Ceras.Test\Ceras.Test.csproj" /verbosity:minimal /p:Configuration=Release /logger:"C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll"
+  - dotnet build "C:\projects\ceras\src\Ceras\Ceras.csproj" --verbosity m --configuration Release
+  - dotnet build "C:\projects\ceras\tests\Ceras.Test\Ceras.Test.csproj" --verbosity m --configuration Release
 
 before_package:
 - cmd: >-
-    7z a ceras_net45.zip "src\Ceras\bin\Release\net45\Ceras.dll" "src\Ceras\bin\Release\net45\Ceras.pdb" "src\Ceras\bin\Release\net45\Ceras.xml"
-    7z a ceras_net47.zip "src\Ceras\bin\Release\net47\Ceras.dll" "src\Ceras\bin\Release\net47\Ceras.pdb" "src\Ceras\bin\Release\net47\Ceras.xml"
-    7z a ceras_netstandard2.0.zip "src\Ceras\bin\Release\netstandard2.0\Ceras.dll" "src\Ceras\bin\Release\netstandard2.0\Ceras.pdb"  "src\Ceras\bin\Release\netstandard2.0\Ceras.xml"
+    7z a ceras_net45.zip "src\Ceras\bin\Release\net45\*"
+    7z a ceras_net47.zip "src\Ceras\bin\Release\net47\*"
+    7z a ceras_netstandard2.0.zip "src\Ceras\bin\Release\netstandard2.0\*"
 
 artifacts:
 - path: '**\Ceras*.nupkg'
