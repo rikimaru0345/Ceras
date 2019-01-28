@@ -25,19 +25,23 @@ build_script:
 
 before_package:
 - cmd: >-
-    7z a ceras_net45.zip "src\Ceras\bin\Release\net45\*"
-    7z a ceras_net47.zip "src\Ceras\bin\Release\net47\*"
-    7z a ceras_netstandard2.0.zip "src\Ceras\bin\Release\netstandard2.0\*"
+    7z a C:\projects\ceras\ceras_netstandard2.0.zip "C:\projects\ceras\src\Ceras\bin\Any CPU\Release\netstandard2.0\*"
+    7z a C:\projects\ceras\ceras_net45.zip "C:\projects\ceras\src\Ceras\bin\Any CPU\Release\net45\*"
+    7z a C:\projects\ceras\ceras_net47.zip "C:\projects\ceras\src\Ceras\bin\Any CPU\Release\net47\*"
 
 artifacts:
 - path: '**\Ceras*.nupkg'
   name: NuGet Package
-- path: ceras_netstandard2.0.zip
+
+- path: C:\projects\ceras\ceras_netstandard2.0.zip
   name: Release Folder Zip (.NET Standard 2.0)
-- path: ceras_net45.zip
+
+- path: C:\projects\ceras\ceras_net45.zip
   name: Release Folder Zip (.NET Framework 4.5)
-- path: ceras_net47.zip
+
+- path: C:\projects\ceras\ceras_net47.zip
   name: Release Folder Zip (.NET Framework 4.7)
+
 
 
 
