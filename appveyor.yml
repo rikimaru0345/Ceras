@@ -23,23 +23,21 @@ build_script:
   - dotnet build "C:\projects\ceras\src\Ceras\Ceras.csproj" --verbosity m --configuration Release
   - dotnet build "C:\projects\ceras\tests\Ceras.Test\Ceras.Test.csproj" --verbosity m --configuration Release
 
-before_package:
-- cmd: >-
-    7z a C:\projects\ceras\ceras_netstandard2.0.zip "C:\projects\ceras\src\Ceras\bin\Any CPU\Release\netstandard2.0\*"
-    7z a C:\projects\ceras\ceras_net45.zip "C:\projects\ceras\src\Ceras\bin\Any CPU\Release\net45\*"
-    7z a C:\projects\ceras\ceras_net47.zip "C:\projects\ceras\src\Ceras\bin\Any CPU\Release\net47\*"
+  - 7z a C:\projects\ceras\ceras_netstandard2.0.zip "C:\projects\ceras\src\Ceras\bin\Any CPU\Release\netstandard2.0\*"
+  - 7z a C:\projects\ceras\ceras_net45.zip "C:\projects\ceras\src\Ceras\bin\Any CPU\Release\net45\*"
+  - 7z a C:\projects\ceras\ceras_net47.zip "C:\projects\ceras\src\Ceras\bin\Any CPU\Release\net47\*"
 
 artifacts:
 - path: '**\Ceras*.nupkg'
   name: NuGet Package
 
-- path: C:\projects\ceras\ceras_netstandard2.0.zip
+- path: ceras_netstandard2.0.zip
   name: Release Folder Zip (.NET Standard 2.0)
 
-- path: C:\projects\ceras\ceras_net45.zip
+- path: ceras_net45.zip
   name: Release Folder Zip (.NET Framework 4.5)
 
-- path: C:\projects\ceras\ceras_net47.zip
+- path: ceras_net47.zip
   name: Release Folder Zip (.NET Framework 4.7)
 
 
