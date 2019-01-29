@@ -211,7 +211,24 @@ namespace Ceras
 			// Now calculate the protocol checksum
 			_knownTypes = Config.KnownTypes.ToArray();
 			if (Config.KnownTypes.Distinct().Count() != _knownTypes.Length)
-				throw new Exception("KnownTypes can not contain any type multiple times!");
+			{
+				// We want a *good* error message. Simply saying "can't contain any type multiple times" is not enough.
+				// We have to figure out which types are there more than once.
+				HashSet<Type> hashSet = new HashSet<Type>();
+				List<Type> foundDuplicates = new List<Type>();
+
+				for (int i = 0; i < _knownTypes.Length; i++)
+				{
+					var t = _knownTypes[i];
+					if (!hashSet.Add(t))
+						if (!foundDuplicates.Contains(t))
+							foundDuplicates.Add(t);
+				}
+
+				var duplicateTypesStr = string.Join(", ", foundDuplicates.Select(t => t.Name));
+
+				throw new Exception("KnownTypes can not contain any type multiple times! Your KnownTypes collection contains the following types more than once: " + duplicateTypesStr);
+			}
 
 			//
 			// Generate checksum
