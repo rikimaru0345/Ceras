@@ -1,54 +1,74 @@
 ﻿<Project Sdk="Microsoft.Net.Sdk">
-  <!-- Global metadata -->
-  <PropertyGroup>
-    <Version>3.0.2</Version>
-    <Authors>rikimaru0345</Authors>
-    <Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
-    <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/rikimaru0345/Ceras</RepositoryUrl>
-    <Description>Extremely fast binary serializer with tons of features.
+
+	<!-- Package -->
+	<PropertyGroup>
+		<Version>3.0.2</Version>
+		<Authors>rikimaru0345</Authors>
+		<Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
+		<PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/rikimaru0345/Ceras</RepositoryUrl>
+		<Description>Extremely fast binary serializer with tons of features.
  Full reference persistence (including circular references), polymorphism, zero-allocations, can handle readonly fields, delegates, 'KnownTypes' list for whitelisting and optimization in network scenarios... checkout the github page for a full feature list!
 </Description>
-    <PackageTags>utility, ceras, serialization, binary, serializer, formatter, unity, unity3d, network, networking</PackageTags>
-  </PropertyGroup>
+		<PackageTags>utility, ceras, serialization, binary, serializer, formatter, unity, unity3d, network, networking</PackageTags>
+	</PropertyGroup>
 
-  <PropertyGroup>
-    <TargetFrameworks>net45;net47;netstandard2.0;</TargetFrameworks>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <LangVersion>7.3</LangVersion>
-    <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
-  </PropertyGroup>
+	<!-- Project -->
+	<PropertyGroup>
+		<TargetFrameworks>net45;net47;netstandard2.0;</TargetFrameworks>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<LangVersion>7.3</LangVersion>
+		<DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
+	</PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
-    <DefineConstants>TRACE;DEBUG</DefineConstants>
-  </PropertyGroup>
+	<!-- Use T4 Generators -->
+	<ItemGroup>
+		<None Update="Formatters\TupleFormatter.tt">
+			<Generator>TextTemplatingFileGenerator</Generator>
+			<LastGenOutput>TupleFormatter.cs</LastGenOutput>
+		</None>
+		<Compile Update="Formatters\TupleFormatter.cs">
+			<DesignTime>True</DesignTime>
+			<AutoGen>True</AutoGen>
+			<DependentUpon>TupleFormatter.tt</DependentUpon>
+		</Compile>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-    <PackageReference Include="System.Reflection.Emit.ILGeneration" Version="4.3.0" />
-    <PackageReference Include="System.Reflection.Emit.Lightweight" Version="4.3.0" />
+		<None Update="Formatters\ValueTupleFormatter.tt">
+			<Generator>TextTemplatingFileGenerator</Generator>
+			<LastGenOutput>ValueTupleFormatter.cs</LastGenOutput>
+		</None>
+		<Compile Update="Formatters\ValueTupleFormatter.cs">
+			<DesignTime>True</DesignTime>
+			<AutoGen>True</AutoGen>
+			<DependentUpon>ValueTupleFormatter.tt</DependentUpon>
+		</Compile>
+	</ItemGroup>
 
-    <None Update="Formatters\ValueTupleFormatter.tt">
-      <Generator>TextTemplatingFileGenerator</Generator>
-      <LastGenOutput>ValueTupleFormatter.cs</LastGenOutput>
-    </None>
 
-  </ItemGroup>
+	<!-- Define 'DEBUG' -->
+	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
+		<DefineConstants>TRACE;DEBUG</DefineConstants>
+	</PropertyGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-    <None Update="Formatters\ValueTupleFormatter.tt">
-      <Generator>TextTemplatingFileGenerator</Generator>
-      <LastGenOutput>ValueTupleFormatter.cs</LastGenOutput>
-    </None>
-  </ItemGroup>
 
-  <ItemGroup>
-    <None Update="Formatters\TupleFormatter.tt">
-      <LastGenOutput>TupleFormatter.cs</LastGenOutput>
-      <Generator>TextTemplatingFileGenerator</Generator>
-    </None>
-  </ItemGroup>
+	<!-- .NET 4.5 -->
+	<ItemGroup Condition="'$(TargetFramework)' == 'net45'">
+		<PackageReference Include="System.ValueTuple" Version="4.5.0" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
-  </ItemGroup>
+
+	<!-- .NET Standard 2.0 -->
+	<!--
+	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+		<PackageReference Include="System.Reflection.Emit.ILGeneration" Version="4.3.0" />
+		<PackageReference Include="System.Reflection.Emit.Lightweight" Version="4.3.0" />
+	</ItemGroup>
+	-->
+
+
+	<!-- T4 -->
+	<ItemGroup>
+		<Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
+	</ItemGroup>
+
 </Project>
