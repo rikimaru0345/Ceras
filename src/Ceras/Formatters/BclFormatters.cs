@@ -82,7 +82,6 @@
 						formatterType = formatterType.MakeGenericType(type.GenericTypeArguments);
 
 						var formatter = (IFormatter)Activator.CreateInstance(formatterType);
-						_serializer.InjectDependencies(formatter);
 					
 						CerasSerializer.AddFormatterConstructedType(type);
 
@@ -96,7 +95,6 @@
 						formatterType = formatterType.MakeGenericType(type.GenericTypeArguments);
 
 						var formatter = (IFormatter)Activator.CreateInstance(formatterType);
-						_serializer.InjectDependencies(formatter);
 					
 						CerasSerializer.AddFormatterConstructedType(type);
 

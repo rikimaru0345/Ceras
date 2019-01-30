@@ -20,7 +20,6 @@
 			_expressionFormatter = new ExpressionFormatter(ceras);
 
 			_labelTargetFormatter = new LabelTargetFormatter();
-			ceras.InjectDependencies(_labelTargetFormatter);
 		}
 
 		public IFormatter GetFormatter(Type type)
@@ -174,10 +173,11 @@
 	}
 
 
+	[CerasInject]
 	class LabelTargetFormatter : IFormatter<LabelTarget>
 	{
-		public IFormatter<string> _stringFormatter;
-		public IFormatter<Type>   _typeFormatter;
+		IFormatter<string> _stringFormatter;
+		IFormatter<Type>   _typeFormatter;
 
 		public LabelTargetFormatter()
 		{

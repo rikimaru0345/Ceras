@@ -130,7 +130,7 @@
 		}
 	}
 
-	
+
 	// todo: previous type / previous formatter would be nice to have. It's supposed to auto-convert old data to the new format (or let the user provide a formatter to read the old data)
 	// at the moment the problem is that we never know in what format the data was written; we'd have to embed the data type (ewww! that would make the binary huge!), or add a version number that the user provides
 	// so we always know in what format we can expect the data. version number would be simply added to the binary data. 
@@ -171,4 +171,33 @@
 			MemberType = memberType;
 		}
 	}
+}
+
+namespace Ceras.Formatters
+{
+	using System;
+
+	/// <summary>
+	/// Add this attribute to your <see cref="IFormatter{T}"/> class to configure Ceras' dependency injection system.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Class)]
+	public class CerasInject : Attribute
+	{
+		internal static readonly CerasInject Default = new CerasInject();
+
+		/// <summary>
+		/// If true, Ceras will include all private fields when trying to inject dependencies
+		/// <para>Default: true</para>
+		/// </summary>
+		public bool IncludePrivate { get; set; } = true;
+	}
+
+	/// <summary>
+	/// Add this to a field inside an <see cref="IFormatter{T}"/> to let Ceras ignore it. Only useful on fields that could potentially have anything injected into them in the first place (field types like <see cref="CerasSerializer"/> or inheriting from <see cref="IFormatter"/>)
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Field)]
+	public class NoInject : Attribute
+	{
+	}
+
 }

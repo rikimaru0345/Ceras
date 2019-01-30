@@ -571,6 +571,7 @@ namespace Ceras
 				if (formatter != null)
 				{
 					meta.SpecificFormatter = formatter;
+					InjectDependencies(formatter);
 					return formatter;
 				}
 			}
@@ -582,6 +583,7 @@ namespace Ceras
 				if (formatter != null)
 				{
 					meta.SpecificFormatter = formatter;
+					InjectDependencies(formatter);
 					return formatter;
 				}
 			}
@@ -623,20 +625,32 @@ namespace Ceras
 		}
 
 
-		internal void InjectDependencies(IFormatter formatter)
+		void InjectDependencies(IFormatter formatter)
 		{
-			// Extremely simple DI system
+			// Straightforward DI system
+			// Injects:
+			// - IFormatter<> and types derived from it
+			// - CerasSerializer
 
-			// We can inject formatters and the serializer itself
-			var fields = formatter.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance);
+			var formatterType = formatter.GetType();
+			var config = formatterType.GetCustomAttribute<CerasInject>() ?? CerasInject.Default;
+
+			var flags = BindingFlags.Public | BindingFlags.Instance;
+			if (config.IncludePrivate)
+				flags |= BindingFlags.NonPublic;
+
+			var fields = formatter.GetType().GetFields(flags);
 			foreach (var f in fields)
 			{
+				if (f.GetCustomAttribute<NoInject>() != null)
+					continue;
+
 				var t = f.FieldType;
 
 				// Reference to the serializer
 				if (t == typeof(CerasSerializer))
 				{
-					f.SetValue(formatter, this);
+					SafeInject(formatter, f, this);
 					continue;
 				}
 
@@ -656,8 +670,8 @@ namespace Ceras
 				if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(IFormatter<>))
 				{
 					var requestedFormatter = GetReferenceFormatter(formattedType);
-
-					f.SetValue(formatter, requestedFormatter);
+					
+					SafeInject(formatter, f, requestedFormatter);
 
 					continue;
 				}
@@ -670,7 +684,7 @@ namespace Ceras
 					if (refFormatter.GetType() == t)
 					{
 						// This was the formatter we were looking for
-						f.SetValue(formatter, refFormatter);
+						SafeInject(formatter, f, refFormatter);
 						continue;
 					}
 
@@ -681,7 +695,7 @@ namespace Ceras
 
 					if (directFormatter.GetType() == t)
 					{
-						f.SetValue(formatter, directFormatter);
+						SafeInject(formatter, f, directFormatter);
 						continue;
 					}
 
@@ -689,6 +703,26 @@ namespace Ceras
 					var anyExisting = directFormatter ?? refFormatter;
 
 					throw new InvalidOperationException($"The formatter '{formatter.GetType().FullName}' has a dependency on '{t.GetType().FullName}' (via the field '{f.Name}') to format '{formattedType.FullName}', but this Ceras instance is already using '{anyExisting.GetType().FullName}' to handle this type.");
+				}
+			}
+
+			void SafeInject(object f, FieldInfo field, object value)
+			{
+				var existingValue = field.GetValue(f);
+
+				if (existingValue == null)
+				{
+					// All good
+					field.SetValue(f, value);
+				}
+				else
+				{
+					// If the value matches already, that's ok
+					// If it doesn't something is wrong.
+					if (ReferenceEquals(existingValue, value))
+						return; // Value got set from somewhere else already
+					else
+						throw new InvalidOperationException($"Error while injecting dependencies into Formatter '{f}'. The field '{field.Name}' already has a value ('{existingValue}') that is not equal to the intended value '{value}'");
 				}
 			}
 		}
