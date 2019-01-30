@@ -1180,7 +1180,7 @@ namespace Ceras
 		bool IAdvancedConfigOptions.SealTypesWhenUsingKnownTypes { get; set; } = true;
 		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
 		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = null;
-		bool IAdvancedConfigOptions.AllowDelegateSerialization { get; set; } = false;
+		DelegateSerializationMode IAdvancedConfigOptions.DelegateSerialization { get; set; } =  DelegateSerializationMode.Off;
 	}
 
 	public interface IAdvancedConfigOptions
@@ -1282,10 +1282,12 @@ namespace Ceras
 		ISizeLimitsConfig SizeLimits { get; }
 
 		/// <summary>
-		/// If set to true Ceras will serialize and deserialize delegates.
-		/// <para>Default: false</para>
+		/// This setting allows Ceras to serialize delegates. In order to make it as safe as possible, set it to the lowest setting that works for you.
+		/// 'AllowStatic' will only allow serialization of delegates that point to static methods (so no instances / targets).
+		/// While 'AllowInstance' will also allow serialization of instance-methods, meaning that the target object will be "pulled into" the serialization as well.
+		/// <para>Default: Off</para>
 		/// </summary>
-		bool AllowDelegateSerialization { get; set; }
+		DelegateSerializationMode DelegateSerialization { get; set; }
 	}
 
 	public interface ISizeLimitsConfig
@@ -1308,6 +1310,12 @@ namespace Ceras
 		uint MaxCollectionSize { get; set; }
 	}
 
+	public enum DelegateSerializationMode
+	{
+		Off,
+		AllowStatic,
+		AllowInstance,
+	}
 
 	/*
 	todo: this feature will be delayed until there's more need. Delegates work fine for now, maybe we want auto-pooling per object type as well at some point?=

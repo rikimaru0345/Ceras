@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 namespace Ceras.Formatters
 {
 	using System.Reflection;
+	using System.Runtime.CompilerServices;
 
 	/*
 	 * 1.) At the moment we support static delegates because they are "reasonable".
@@ -29,17 +30,30 @@ namespace Ceras.Formatters
 	{
 		readonly CerasSerializer _ceras;
 		readonly IFormatter<MethodInfo> _methodInfoFormatter;
+		readonly IFormatter<object> _targetFormatter;
 
 		public DelegateFormatter(CerasSerializer ceras)
 		{
 			_ceras = ceras;
 			_methodInfoFormatter = ceras.GetFormatter<MethodInfo>();
+			_targetFormatter = ceras.GetFormatter<object>();
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
-			if (value.Target != null)
-				throw new InvalidOperationException($"The delegate '{value}' can not be serialized as it references an instance method (targetting the object '{value.Target}'). At the moment only static methods are supported for serialization, but support for instance-objects is work in progress (and there's an easy workaround if you need that functionality right now, check the GitHub page)");
+			var target = value.Target;
+
+			if (target != null)
+			{
+				if(_ceras.Config.Advanced.DelegateSerialization != DelegateSerializationMode.AllowInstance)
+					throw new InvalidOperationException($"The delegate '{value}' can not be serialized as it references an instance method (targeting the object '{target}'). You can turn on 'config.Advanced.DelegateSerialization' if you want Ceras to serialize this delegate.");
+
+				var targetType = target.GetType();
+				if(targetType.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
+					throw new InvalidOperationException($"The delegate '{value}' is targeting a 'lambda expression'. This makes it impossible to serialize because the compiler can (and will!) merge all lambda \"closures\" of the containing method or type, which is very dangerous even in the most simple scenarios. For more information of what exactly this means you should read this: 'https://github.com/rikimaru0345/Ceras/issues/11'. If you have a good use-case and/or a solution for the problems described in the link, open an issue on GitHub or join the Discord server...");
+			}
+
+			_targetFormatter.Serialize(ref buffer, ref offset, target);
 
 			var invocationList = value.GetInvocationList();
 			if (invocationList.Length != 1)
@@ -50,12 +64,12 @@ namespace Ceras.Formatters
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
+			object targetObject = null;
+			_targetFormatter.Deserialize(buffer, ref offset, ref targetObject);
+
 			MethodInfo methodInfo = null;
 			_methodInfoFormatter.Deserialize(buffer, ref offset, ref methodInfo);
-
-			if (value != null && value.Method == methodInfo)
-				return; // Existing delegate is correct already
-
+			
 			value = (T)Delegate.CreateDelegate(typeof(T), methodInfo, true);
 		}
 
