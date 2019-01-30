@@ -42,6 +42,8 @@ namespace LiveTesting
 
 				   .With(CsProjCoreToolchain.NetCoreApp22)
 				   .With(Runtime.Core)
+				   //.With(CsProjClassicNetToolchain.Net472)
+				   //.With(new MonoRuntime("Mono x64", @"C:\Program Files\Mono\bin\mono.exe"))
 				   
 				   .With(Platform.X64)
 				   .WithLaunchCount(1));

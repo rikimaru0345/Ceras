@@ -23,6 +23,10 @@ namespace LiveTesting
 		{
 			Benchmarks();
 
+			ExpressionTreesTest();
+
+			DelegatesTest();
+
 			TuplesTest();
 
 			EnsureSealedTypesThrowsException();
@@ -34,8 +38,6 @@ namespace LiveTesting
 			VersionToleranceTest();
 
 			ReadonlyTest();
-
-			DelegatesTest();
 
 			MemberInfoAndTypeInfoTest();
 
@@ -97,6 +99,11 @@ namespace LiveTesting
 			Console.ReadKey();
 		}
 
+		static void ExpressionTreesTest()
+		{
+			new ExpressionFormatters();
+		}
+
 		static void TestDirectPoolingMethods()
 		{
 			// Idea:
@@ -151,10 +158,11 @@ namespace LiveTesting
 		static void Benchmarks()
 		{
 			return;
+
 			var config = new CerasGlobalBenchmarkConfig();
 
-			BenchmarkRunner.Run<MergeBlittingBenchmarks>(config);
-			//BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
+			//BenchmarkRunner.Run<MergeBlittingBenchmarks>(config);
+			BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
 
 
 
@@ -519,7 +527,7 @@ namespace LiveTesting
 		static void DelegatesTest()
 		{
 			var config = new SerializerConfig();
-			config.Advanced.AllowDelegateSerialization = true;
+			config.Advanced.DelegateSerialization = DelegateSerializationMode.AllowStatic;
 			var ceras = new CerasSerializer(config);
 
 			// 1. Simple test: can ceras persist a static-delegate
@@ -567,6 +575,77 @@ namespace LiveTesting
 				}
 			}
 
+			// 3. If we switch to "allow instance", it should persist instance-delegates, but no lambdas
+			{
+				config.Advanced.DelegateSerialization = DelegateSerializationMode.AllowInstance;
+				ceras = new CerasSerializer(config);
+
+
+				//
+				// A) Direct Instance
+				//
+				var str = "abc";
+				var substringMethod = typeof(string).GetMethod("Substring", new[] {typeof(int)});
+				Func<string, int, string> substring = (Func<string, int, string>)Delegate.CreateDelegate(typeof(Func<string, int, string>), str, substringMethod);
+
+				// Does our delegate even work?
+				var testResult = substring(str, 1);
+				Debug.Assert(testResult == str.Substring(1));
+
+				// Can we serialize the normal instance delegate?
+				var data = ceras.Serialize(substring);
+				var substringClone = ceras.Deserialize<Func<string, int, string>>(data);
+
+
+				//
+				// B) Simple lambda
+				//
+
+				// Simple lambda with no capture
+				// This should probably work, depending on what exactly the compiler generates
+				Func<string, int, string> simpleLambda = (s, index) => s.Substring(index);
+				var simpleData = ceras.Serialize(simpleLambda);
+				var simpleClone = ceras.Deserialize<Func<string, int, string>>(simpleData);
+
+				//
+				// C) Lambda with closure
+				//
+
+				// Complex lambda with capture
+				// capture many random things...
+				Func<string, int, string> complexLambda = (s, index) => simpleData.Length + "abc" + index + testResult;
+				try
+				{
+					var complexData = ceras.Serialize(simpleLambda);
+					// oh no, this should not be possible
+					Debug.Assert(false, "serializing complex lambda should result in an exception!!");
+				}
+				catch (Exception e)
+				{
+					// all good!
+				}
+
+				//
+				// D) Class with event
+				//
+				// todo: add a warning that "event" fields are compiler generated and thus ignored; or alternatively implement the "why is the schema like it is"-log-feature thing to explain what members where skipped and why.
+				config.DefaultTargets = TargetMember.All;
+				ceras = new CerasSerializer(config);
+
+				var eventClassType = typeof(DelegateTestClass);
+
+				var eventClass = new DelegateTestClass();
+				eventClass.OnSomeNumberHappened += LocalEventHandlerMethod;
+
+				void LocalEventHandlerMethod(int num)
+				{
+					Console.WriteLine("Event Number: " + num);
+				}
+
+				var eventClassData = ceras.Serialize(eventClass);
+				var eventClassClone = ceras.Deserialize<DelegateTestClass>(eventClassData);
+
+			}
 
 
 			return;
@@ -641,6 +720,11 @@ namespace LiveTesting
 			Debug.Assert(get2() == 2);
 			Debug.Assert(get2Clone() == get2());
 			*/
+		}
+
+		class DelegateTestClass
+		{
+			public event Action<int> OnSomeNumberHappened;
 		}
 
 		class TypeTestClass
