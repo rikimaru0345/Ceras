@@ -1,64 +1,75 @@
 ﻿<Project Sdk="Microsoft.Net.Sdk">
 
-	<!-- Package -->
-	<PropertyGroup>
-		<Version>3.0.2</Version>
-		<Authors>rikimaru0345</Authors>
-		<Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
-		<PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
-		<RepositoryUrl>https://github.com/rikimaru0345/Ceras</RepositoryUrl>
-		<Description>Extremely fast binary serializer with tons of features.
+  <!-- Package -->
+  <PropertyGroup>
+    <Version>3.0.2</Version>
+    <Authors>rikimaru0345</Authors>
+    <Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
+    <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/rikimaru0345/Ceras</RepositoryUrl>
+    <Description>Extremely fast binary serializer with tons of features.
  Full reference persistence (including circular references), polymorphism, zero-allocations, can handle readonly fields, delegates, 'KnownTypes' list for whitelisting and optimization in network scenarios... checkout the github page for a full feature list!
 </Description>
-		<PackageTags>utility, ceras, serialization, binary, serializer, formatter, unity, unity3d, network, networking</PackageTags>
-	</PropertyGroup>
-
-	<!-- Project -->
-	<PropertyGroup>
-		<TargetFrameworks>net45;net47;netstandard2.0;</TargetFrameworks>
-		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-		<LangVersion>7.3</LangVersion>
-		<DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
-	</PropertyGroup>
-
-	<!-- Use T4 Generators -->
-	<ItemGroup>
-		<None Update="Formatters\TupleFormatter.tt">
-			<Generator>TextTemplatingFileGenerator</Generator>
-			<LastGenOutput>TupleFormatter.cs</LastGenOutput>
-		</None>
-		<Compile Update="Formatters\TupleFormatter.cs">
-			<DesignTime>True</DesignTime>
-			<AutoGen>True</AutoGen>
-			<DependentUpon>TupleFormatter.tt</DependentUpon>
-		</Compile>
-
-		<None Update="Formatters\ValueTupleFormatter.tt">
-			<Generator>TextTemplatingFileGenerator</Generator>
-			<LastGenOutput>ValueTupleFormatter.cs</LastGenOutput>
-		</None>
-		<Compile Update="Formatters\ValueTupleFormatter.cs">
-			<DesignTime>True</DesignTime>
-			<AutoGen>True</AutoGen>
-			<DependentUpon>ValueTupleFormatter.tt</DependentUpon>
-		</Compile>
-	</ItemGroup>
+    <PackageTags>utility, ceras, serialization, binary, serializer, formatter, unity, unity3d, network, networking</PackageTags>
+  </PropertyGroup>
 
 
-	<!-- Define 'DEBUG' -->
-	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
-		<DefineConstants>TRACE;DEBUG</DefineConstants>
-	</PropertyGroup>
+  <!-- Project -->
+  <PropertyGroup>
+
+    <PropertyGroup Condition=" '$(OS)' == 'Windows_NT' ">
+      <TargetFrameworks>net45;net47;netstandard2.0;</TargetFrameworks>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(OS)' != 'Windows_NT' ">
+      <TargetFramework>netstandard2.0</TargetFramework>
+    </PropertyGroup>
+
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>7.3</LangVersion>
+    <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
+
+  </PropertyGroup>
 
 
-	<!-- .NET 4.5 -->
-	<ItemGroup Condition="'$(TargetFramework)' == 'net45'">
-		<PackageReference Include="System.ValueTuple" Version="4.5.0" />
-	</ItemGroup>
+  <!-- Use T4 Generators -->
+  <ItemGroup>
+    <None Update="Formatters\TupleFormatter.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>TupleFormatter.cs</LastGenOutput>
+    </None>
+    <Compile Update="Formatters\TupleFormatter.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>TupleFormatter.tt</DependentUpon>
+    </Compile>
+
+    <None Update="Formatters\ValueTupleFormatter.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>ValueTupleFormatter.cs</LastGenOutput>
+    </None>
+    <Compile Update="Formatters\ValueTupleFormatter.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>ValueTupleFormatter.tt</DependentUpon>
+    </Compile>
+  </ItemGroup>
 
 
-	<!-- .NET Standard 2.0 -->
-	<!--
+  <!-- Define 'DEBUG' -->
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
+    <DefineConstants>TRACE;DEBUG</DefineConstants>
+  </PropertyGroup>
+
+
+  <!-- .NET 4.5 -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net45'">
+    <PackageReference Include="System.ValueTuple" Version="4.5.0" />
+  </ItemGroup>
+
+
+  <!-- .NET Standard 2.0 -->
+  <!--
 	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
 		<PackageReference Include="System.Reflection.Emit.ILGeneration" Version="4.3.0" />
 		<PackageReference Include="System.Reflection.Emit.Lightweight" Version="4.3.0" />
@@ -66,9 +77,9 @@
 	-->
 
 
-	<!-- T4 -->
-	<ItemGroup>
-		<Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
-	</ItemGroup>
+  <!-- T4 -->
+  <ItemGroup>
+    <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
+  </ItemGroup>
 
 </Project>

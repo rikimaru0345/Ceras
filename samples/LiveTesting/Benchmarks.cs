@@ -44,7 +44,7 @@ namespace LiveTesting
 				   .With(Runtime.Core)
 				   //.With(CsProjClassicNetToolchain.Net472)
 				   //.With(new MonoRuntime("Mono x64", @"C:\Program Files\Mono\bin\mono.exe"))
-				   
+
 				   .With(Platform.X64)
 				   .WithLaunchCount(1));
 
@@ -1335,7 +1335,128 @@ namespace LiveTesting
 		{
 		}
 	}
+	
+	/*
+	public class Feature_MreRefs_Benchmarks
+	{
+		public class Person : IEquatable<Person>
+		{
+			public virtual int Age { get; set; }
 
+			public virtual string FirstName { get; set; }
+
+			public virtual string LastName { get; set; }
+
+			public virtual Sex Sex { get; set; }
+
+			public virtual Person Parent1 { get; set; }
+
+			public virtual Person Parent2 { get; set; }
+
+			public virtual int[] LuckyNumbers { get; set; } = new int[0];
+
+			public override bool Equals(object obj)
+			{
+				if (obj is Person other)
+					return Equals(other);
+				return false;
+			}
+
+			public bool Equals(Person other)
+			{
+				return Age == other.Age
+					   && FirstName == other.FirstName
+					   && LastName == other.LastName
+					   && Sex == other.Sex
+					   && Equals(Parent1, other.Parent1)
+					   && Equals(Parent2, other.Parent2)
+					   && LuckyNumbers.SequenceEqual(other.LuckyNumbers);
+			}
+		}
+
+		public enum Sex : sbyte
+		{
+			Unknown, Male, Female,
+		}
+
+		Person _person;
+		IList<Person> _list;
+
+		static byte[] _buffer;
+		static CerasSerializer _ceras;
+
+		[Params(true, false)]
+		public bool UseMreTest;
+
+		[GlobalSetup]
+		public void Setup()
+		{
+			//
+			// Create example data
+			var parent1 = new Person
+			{
+				Age = -901,
+				FirstName = "Parent 1",
+				LastName = "abc",
+				Sex = Sex.Male,
+			};
+			var parent2 = new Person
+			{
+				Age = 7881964,
+				FirstName = "Parent 2",
+				LastName = "xyz",
+				Sex = Sex.Female,
+			};
+			_person = new Person
+			{
+				Age = 5,
+				FirstName = "Riki",
+				LastName = "Example Person Object",
+				Sex = Sex.Unknown,
+				Parent1 = parent1,
+				Parent2 = parent2,
+			};
+
+			_list = Enumerable.Range(25000, 100).Select(x => new Person { Age = x, FirstName = "a", LastName = "b", Sex = Sex.Female }).ToArray();
+
+			
+			//
+			// Config Serializers
+			CerasSerializer.UseRecentlyUsedFeature = UseMreTest;
+			
+			var config = new SerializerConfig();
+			config.DefaultTargets = TargetMember.AllPublic;
+			var knownTypes = new[] { typeof(Person), typeof(List<>), typeof(Person[]) };
+			config.KnownTypes.AddRange(knownTypes);
+			config.PreserveReferences = false;
+			_ceras = new CerasSerializer(config);
+
+
+			//
+			// Run each serializer once to verify they work correctly!
+			if (!Equals(RunCeras(_person), _person))
+				ThrowError();
+			
+			void ThrowError() => throw new InvalidOperationException("Cannot continue with the benchmark because a serializer does not round-trip an object correctly. (Benchmark results will be wrong)");
+		}
+
+		[BenchmarkCategory("Single"), Benchmark(Baseline = true)]
+		public void Ceras_Single() => RunCeras(_person);
+		
+		[BenchmarkCategory("List"), Benchmark(Baseline = true)]
+		public void Ceras_List() => RunCeras(_list);
+		
+		static T RunCeras<T>(T obj) // Size = 76
+		{
+			T clone = default;
+
+			int size = _ceras.Serialize(obj, ref _buffer);
+			_ceras.Deserialize(ref clone, _buffer);
+
+			return clone;
+		}
+	}
+	*/
 
 	// todo: compare if using constants in generated code eliminates the virtual dispatch
 
