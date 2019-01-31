@@ -73,7 +73,8 @@ namespace Ceras
 		static HashSet<Assembly> _frameworkAssemblies = new HashSet<Assembly>
 		{
 				typeof(object).Assembly, // mscorelib
-				typeof(Uri).Assembly, // system.dll
+				typeof(Uri).Assembly, // System.dll
+				typeof(Enumerable).Assembly, // System.Core.dll
 		};
 
 
@@ -762,7 +763,7 @@ namespace Ceras
 
 
 		// Creates the primary schema for a given type
-		internal Schema CreatePrimarySchema(Type type)
+		Schema CreatePrimarySchema(Type type)
 		{
 			//if (FrameworkAssemblies.Contains(type.Assembly))
 			//	throw new InvalidOperationException("Cannot create a Schema for a framework type. This must be a bug, please report it on GitHub!");
