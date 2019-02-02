@@ -89,8 +89,6 @@
 		uint ISizeLimitsConfig.                  MaxByteArraySize  { get; set; } = uint.MaxValue;
 		uint ISizeLimitsConfig.                  MaxCollectionSize { get; set; } = uint.MaxValue;
 
-		Func<Type, object> IAdvancedConfigOptions.                           ObjectFactoryMethod          { get; set; } = null;
-		Action<object> IAdvancedConfigOptions.                               DiscardObjectMethod          { get; set; } = null;
 		Func<SerializedMember, SerializationOverride> IAdvancedConfigOptions.ShouldSerializeMember        { get; set; } = null;
 		ReadonlyFieldHandling IAdvancedConfigOptions.                        ReadonlyFieldHandling        { get; set; } = ReadonlyFieldHandling.Off;
 		bool IAdvancedConfigOptions.                                         EmbedChecksum                { get; set; } = false;
@@ -105,21 +103,6 @@
 	
 	public interface IAdvancedConfigOptions
 	{
-		/// <summary>
-		/// Whenever Ceras needs to create a new object it will use the factory method (if you have provided one)
-		/// The primary intended use for this is object pooling; for example when receiving network messages you obviously don't want to 'new()' a new packet every time a message arrives, instead you want to take them from a pool. When doing so, you should of course also provide a 'DiscardObjectMethod' so Ceras can give you objects back when they are not used anymore (happens when you use the ref-version of deserialize to overwrite existing objects).
-		/// Another thing this can be used for is when you have a type that only has a static Create method instead of a parameterless constructor.
-		/// </summary>
-		Func<Type, object> ObjectFactoryMethod { get; set; }
-
-		/// <summary>
-		/// Set this to a function you provide. Ceras will call it when an object instance is no longer needed.
-		/// For example you want to populate an existing object with data, and one of the fields already has a value (a left-over from the last time it was used),
-		/// but the current data says that the field should be 'null'. That's when Ceras will call this this method so you can recycle the object (maybe return it to your object-pool)
-		/// </summary>
-		Action<object> DiscardObjectMethod { get; set; }
-
-
 		/// <summary>
 		/// This is the very first thing that ceras uses to determine whether or not to serialize something. While not the most comfortable, it is useful because it is called for types you don't control (types from other libraries where you don't have the source code...).
 		/// Important: Compiler generated fields are always skipped by default, for more information about that see the 'readonly properties' section in the tutorial where all of this is explained in detail.
