@@ -9,14 +9,14 @@
 	/// Check out the tutorial to see in what order attributes, the ShouldSerialize callback and other settings are evaluated.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-	public sealed class Ignore : Attribute { }
+	public sealed class IgnoreAttribute : Attribute { }
 
 	/// <summary>
 	/// Add this to a field or property to force Ceras to include it.
 	/// Check out the tutorial to see in what order attributes, the ShouldSerialize callback and other settings are evaluated.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-	public sealed class Include : Attribute { }
+	public sealed class IncludeAttribute : Attribute { }
 
 
 	/// <summary>
@@ -43,12 +43,12 @@
 	/// Configure what members to include by default in this type, you can also add [Ignore] and [Include] to individual members as well to override the member config.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Class)]
-	public sealed class MemberConfig : Attribute
+	public sealed class MemberConfigAttribute : Attribute
 	{
 		public TargetMember TargetMembers { get; set; }
 		public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
 
-		public MemberConfig(TargetMember targetMembers = TargetMember.PublicFields, ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Off)
+		public MemberConfigAttribute(TargetMember targetMembers = TargetMember.PublicFields, ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Off)
 		{
 			TargetMembers = targetMembers;
 			ReadonlyFieldHandling = readonlyFieldHandling;
@@ -59,11 +59,11 @@
 	/// Use this to override global or class-level settings for a single field or property.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-	public sealed class ReadonlyConfig : Attribute
+	public sealed class ReadonlyConfigAttribute : Attribute
 	{
 		public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
 
-		public ReadonlyConfig(ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Off)
+		public ReadonlyConfigAttribute(ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Off)
 		{
 			ReadonlyFieldHandling = readonlyFieldHandling;
 		}
@@ -181,9 +181,9 @@ namespace Ceras.Formatters
 	/// Add this attribute to your <see cref="IFormatter{T}"/> class to configure Ceras' dependency injection system.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Class)]
-	public class CerasInject : Attribute
+	public class CerasInjectAttribute : Attribute
 	{
-		internal static readonly CerasInject Default = new CerasInject();
+		internal static readonly CerasInjectAttribute Default = new CerasInjectAttribute();
 
 		/// <summary>
 		/// If true, Ceras will include all private fields when trying to inject dependencies
@@ -196,7 +196,7 @@ namespace Ceras.Formatters
 	/// Add this to a field inside an <see cref="IFormatter{T}"/> to let Ceras ignore it. Only useful on fields that could potentially have anything injected into them in the first place (field types like <see cref="CerasSerializer"/> or inheriting from <see cref="IFormatter"/>)
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Field)]
-	public class NoInject : Attribute
+	public class NoInjectAttribute : Attribute
 	{
 	}
 
