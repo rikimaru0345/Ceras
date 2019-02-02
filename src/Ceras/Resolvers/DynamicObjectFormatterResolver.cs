@@ -4,6 +4,7 @@
 	using Helpers;
 	using System;
 
+	// Special resolver that creates instances of "DynamicObjectFormatter<T>" so unknown objects can be handled
 	class DynamicObjectFormatterResolver : IFormatterResolver
 	{
 		CerasSerializer _serializer;

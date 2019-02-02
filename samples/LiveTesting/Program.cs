@@ -7,10 +7,13 @@ namespace LiveTesting
 	using Ceras.Formatters;
 	using Ceras.Resolvers;
 	using System.Collections.Generic;
+	using System.Collections.ObjectModel;
 	using System.Diagnostics;
 	using System.Linq;
+	using System.Linq.Expressions;
 	using System.Numerics;
 	using System.Reflection;
+	using Newtonsoft.Json;
 	using Tutorial;
 	using Xunit;
 
@@ -101,8 +104,38 @@ namespace LiveTesting
 
 		static void ExpressionTreesTest()
 		{
-			new ExpressionFormatters();
+
+			/*
+
+			string str = "abcdef";
+			
+			var tStr = typeof(string);
+			var indexerProp = tStr.GetProperties(BindingFlags.Public | BindingFlags.Instance).First(p => p.GetIndexParameters().Length > 0);
+			var index = Expression.Constant(2);
+
+			var indexExp = Expression.MakeIndex(Expression.Constant(str), indexerProp, new[] { index });
+
+			var ctor = typeof(IndexExpression).GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).First();
+			var ctorParams = ctor.GetParameters();
+
+			Expression instance = null;
+			PropertyInfo indexer = null;
+			IList<Expression> args = null;
+
+			ParameterExpression argInstance = Expression.Parameter(typeof(Expression));
+			ParameterExpression argIndexer = Expression.Parameter(typeof(PropertyInfo));
+			ParameterExpression argArgs = Expression.Parameter(typeof(IList<Expression>));
+
+			var ctorDelegate = Expression.Lambda<Func<Expression, PropertyInfo, IList<Expression>, IndexExpression>>(Expression.New(ctor, argInstance, argIndexer, argArgs), argInstance, argIndexer, argArgs).Compile();
+
+			var indexExp2 = ctorDelegate(Expression.Constant(9999), null, null);
+
+			*/
+
+			new ExpressionFormatter();
 		}
+
+
 
 		static void TestDirectPoolingMethods()
 		{
@@ -162,6 +195,7 @@ namespace LiveTesting
 			var config = new CerasGlobalBenchmarkConfig();
 
 			//BenchmarkRunner.Run<MergeBlittingBenchmarks>(config);
+			//BenchmarkRunner.Run<Feature_MreRefs_Benchmarks>(config);
 			BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
 
 
@@ -585,7 +619,7 @@ namespace LiveTesting
 				// A) Direct Instance
 				//
 				var str = "abc";
-				var substringMethod = typeof(string).GetMethod("Substring", new[] {typeof(int)});
+				var substringMethod = typeof(string).GetMethod("Substring", new[] { typeof(int) });
 				Func<string, int, string> substring = (Func<string, int, string>)Delegate.CreateDelegate(typeof(Func<string, int, string>), str, substringMethod);
 
 				// Does our delegate even work?
