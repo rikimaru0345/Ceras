@@ -85,7 +85,7 @@
 			{
 				{
 					ExpressionType.Block,
-					() => Expression.Block(tType, tParams, tExpressions),
+					() => Expression.Block(tType, tParams, tExpressions)
 				},
 			};
 

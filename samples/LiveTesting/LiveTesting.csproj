@@ -7,7 +7,6 @@
 
     <PlatformTarget>AnyCPU</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-
   </PropertyGroup>
 
   <ItemGroup>
