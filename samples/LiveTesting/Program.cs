@@ -25,6 +25,8 @@ namespace LiveTesting
 		static void Main(string[] args)
 		{
 			Benchmarks();
+			
+			TestDirectPoolingMethods();
 
 			ExpressionTreesTest();
 
@@ -79,10 +81,7 @@ namespace LiveTesting
 			ComplexTest();
 
 			ListTest();
-
-			// todo: sounded like a good idea initially, but some preliminary investigation suggests that it actually won't really improve performance all that much, so we'll maybe do that later...
-			// TestDirectPoolingMethods();
-
+			
 
 
 			var tutorial = new Tutorial();
@@ -139,54 +138,55 @@ namespace LiveTesting
 
 		static void TestDirectPoolingMethods()
 		{
-			// Idea:
-			// We have 'ObjectFactoryMethod' and 'DiscardObjectMethod'
-			// but the problem with them is that they need type-checks since the format is always "object ObjectFactoryMethod(Type type)"
-			// 
-			// But what if we could use methods of a static class instead?
-			// The user would give us either a typeof(MyObjectManager), or 'myObjectManagerInstance', and we could easily call the methods on it.
-			// ReferenceFormatter can cache created delegates for each specific type and invoke them when needed.
-			//
+			// - allow creation of objects from any source
+			// - todo: allow all those methods to have parameters as well. The user is then responsible for object-reference issues.
 
 
+			SerializerConfig config = new SerializerConfig();
 
-			//SerializerConfig config = new SerializerConfig();
-			//config.Advanced.ObjectFactoryMethod
+			config.ConfigType<Person>()
+				  .ConstructBy(() => StaticPoolTest.CreatePerson());
+
+			var ceras = new CerasSerializer(config);
+
+			var p = new Person();
+			p.Name = "riki";
+			var data = ceras.Serialize(p);
+
+			var cloneFromPool = ceras.Deserialize<Person>(data);
+
+			Debug.Assert(StaticPoolTest.IsFromPool(cloneFromPool));
+
 
 		}
 
-		static class StaticPoolingMethodsTest
+		static class StaticPoolTest
 		{
-			static Stack<PooledObjectTest> _objects = new Stack<PooledObjectTest>();
+			static HashSet<Person> _objectsCreatedByPool = new HashSet<Person>();
 
-			public static PooledObjectTest CreatePooledObjectTest()
+			public static Person CreatePerson()
 			{
-				if (_objects.Count > 0)
-				{
-					var obj = _objects.Pop();
-					obj.IncreaseRecycleCount();
-					return obj;
-				}
-
-				return new PooledObjectTest();
+				var p = new Person();
+				_objectsCreatedByPool.Add(p);
+				return p;
+			}
+			
+			public static Person CreatePersonWithName(string name)
+			{
+				var p = new Person();
+				p.Name = name;
+				_objectsCreatedByPool.Add(p);
+				return p;
 			}
 
-			public static void DiscardPooledObjectTest(PooledObjectTest obj)
-			{
-				_objects.Push(obj);
-			}
-		}
+			public static bool IsFromPool(Person p) => _objectsCreatedByPool.Contains(p);
 
-		class PooledObjectTest
-		{
-			public int RecycleCount { get; private set; }
-			public string Name;
-
-			public void IncreaseRecycleCount()
+			public static void DiscardPooledObjectTest(Person p)
 			{
-				RecycleCount++;
 			}
 		}
+
+
 
 		static void Benchmarks()
 		{

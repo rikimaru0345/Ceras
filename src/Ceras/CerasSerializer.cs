@@ -165,7 +165,7 @@ namespace Ceras
 				Config.ExternalObjectResolver = new ErrorResolver();
 
 			TypeBinder = Config.Advanced.TypeBinder ?? new NaiveTypeBinder();
-			DiscardObjectMethod = Config.Advanced.DiscardObjectMethod;
+			// todo: Discard: DiscardObjectMethod = Config.Advanced.DiscardObjectMethod;
 
 			_userResolvers = Config.OnResolveFormatter.ToArray();
 
@@ -633,7 +633,7 @@ namespace Ceras
 			// - CerasSerializer
 
 			var formatterType = formatter.GetType();
-			var config = formatterType.GetCustomAttribute<CerasInject>() ?? CerasInject.Default;
+			var config = formatterType.GetCustomAttribute<CerasInjectAttribute>() ?? CerasInjectAttribute.Default;
 
 			var flags = BindingFlags.Public | BindingFlags.Instance;
 			if (config.IncludePrivate)
@@ -642,7 +642,7 @@ namespace Ceras
 			var fields = formatter.GetType().GetFields(flags);
 			foreach (var f in fields)
 			{
-				if (f.GetCustomAttribute<NoInject>() != null)
+				if (f.GetCustomAttribute<NoInjectAttribute>() != null)
 					continue;
 
 				var t = f.FieldType;
@@ -771,7 +771,7 @@ namespace Ceras
 
 			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-			var classConfig = type.GetCustomAttribute<MemberConfig>();
+			var classConfig = type.GetCustomAttribute<MemberConfigAttribute>();
 
 			foreach (var m in type.GetFields(flags).Cast<MemberInfo>().Concat(type.GetProperties(flags)))
 			{
@@ -861,8 +861,8 @@ namespace Ceras
 
 				//
 				// 2.) Use member-attribute
-				var ignore = m.GetCustomAttribute<Ignore>(true) != null;
-				var include = m.GetCustomAttribute<Include>(true) != null;
+				var ignore = m.GetCustomAttribute<IgnoreAttribute>(true) != null;
+				var include = m.GetCustomAttribute<IncludeAttribute>(true) != null;
 
 				if (ignore && include)
 					throw new Exception($"Member '{m.Name}' on type '{type.Name}' has both [Ignore] and [Include]!");
@@ -989,11 +989,11 @@ namespace Ceras
 
 		ReadonlyFieldHandling DetermineReadonlyHandling(MemberInfo memberInfo)
 		{
-			ReadonlyConfig readonlyConfigAttribute = memberInfo.GetCustomAttribute<ReadonlyConfig>();
+			ReadonlyConfigAttribute readonlyConfigAttribute = memberInfo.GetCustomAttribute<ReadonlyConfigAttribute>();
 			if (readonlyConfigAttribute != null)
 				return readonlyConfigAttribute.ReadonlyFieldHandling;
 
-			MemberConfig classConfig = memberInfo.DeclaringType.GetCustomAttribute<MemberConfig>();
+			MemberConfigAttribute classConfig = memberInfo.DeclaringType.GetCustomAttribute<MemberConfigAttribute>();
 			if (classConfig != null)
 				return classConfig.ReadonlyFieldHandling;
 

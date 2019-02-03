@@ -7,14 +7,16 @@
     <Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
     <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
     <RepositoryUrl>https://github.com/rikimaru0345/Ceras</RepositoryUrl>
-    <Description>Extremely fast binary serializer with tons of features.
- Full reference persistence (including circular references), polymorphism, zero-allocations, can handle readonly fields, delegates, 'KnownTypes' list for whitelisting and optimization in network scenarios... checkout the github page for a full feature list!
-</Description>
+    <Description>
+      Extremely fast binary serializer with tons of features.
+      Full reference persistence (including circular references), polymorphism, zero-allocations, can handle readonly fields, delegates, 'KnownTypes' list for whitelisting and optimization in network scenarios... checkout the github page for a full feature list!
+    </Description>
     <PackageTags>utility, ceras, serialization, binary, serializer, formatter, unity, unity3d, network, networking</PackageTags>
   </PropertyGroup>
 
 
-  <!-- Project -->
+
+
   <PropertyGroup Condition=" '$(OS)' == 'Windows_NT' ">
     <TargetFrameworks>net45;net47;netstandard2.0;</TargetFrameworks>
   </PropertyGroup>
@@ -23,6 +25,7 @@
     <TargetFramework>netstandard2.0</TargetFramework>
   </PropertyGroup>
 
+  <!-- Project -->
   <PropertyGroup>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>7.3</LangVersion>

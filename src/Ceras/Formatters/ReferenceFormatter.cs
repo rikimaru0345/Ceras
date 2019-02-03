@@ -70,6 +70,8 @@
 		const int Bias = 5; // Using WriteUInt32Bias is more efficient than WriteInt32(), but it requires a known bias
 
 
+		static readonly Func<object> _nullResultDelegate = () => null;
+
 		readonly TypeFormatter _typeFormatter;
 		readonly CerasSerializer _serializer;
 
@@ -320,19 +322,15 @@
 
 		Func<object> CreateObjectConstructor(Type type)
 		{
-			// todo: the idea here is that we compile a function that has the check against the user provided factory built in
-			// and if it returns null, we fall back to normal creation,
-			// and if there's no user factory, we only do the normal ctor!
-
 			if (type.IsArray)
 			{
 				// ArrayFormatter will create a new array
-				return () => null;
+				return _nullResultDelegate;
 			}
 			else if (CerasSerializer.IsFormatterConstructed(type) || type.IsValueType)
 			{
 				// The formatter that handles this type also handles its creation, so we return null
-				return () => null;
+				return _nullResultDelegate;
 			}
 
 
@@ -342,33 +340,50 @@
 				throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
 
 			// Create a custom factory method, but also respect the userFactory if there is one
-			var userFactory = _serializer.Config.Advanced.ObjectFactoryMethod;
+			var typeConfig = _serializer.Config.TypeConfig.GetOrCreate(type);
 
-			if (userFactory == null)
+
+			switch (typeConfig.ConstructionMode)
 			{
-				var lambda = Expression.Lambda<Func<object>>(Expression.New(ctor));
-				return lambda.Compile();
-			}
-			else
-			{
-				// Need to call the user factory, and only use 'New()' when we get null from it
-				var userFactoryMethod = userFactory.GetMethodInfo();
-				var userObj = Expression.Variable(type);
+				case ObjectConstructionMode.Normal_ParameterlessConstructor:
+				{
+					var lambda = Expression.Lambda<Func<object>>(Expression.New(ctor));
+					return lambda.Compile();
+				}
+				case ObjectConstructionMode.None_DeferToFormatter:
+					return _nullResultDelegate;
 
-				var callAndAssignUserObj = Expression.Assign(userObj, Expression.Call(Expression.Constant(userFactory), userFactoryMethod));
+				case ObjectConstructionMode.User_InstanceMethod:
+					break;
+				case ObjectConstructionMode.User_StaticMethod:
+					break;
+					break;
+				case ObjectConstructionMode.User_Delegate:
+					break;
 
-				var coalesce = Expression.IfThenElse(
-									  // if userObj is null
-									  test: Expression.ReferenceEqual(userObj, Expression.Constant(null, typeof(object))),
-									  // then use new()
-									  ifTrue: Expression.New(ctor),
-									  // else use the given user obj
-									  ifFalse: userObj);
+				case ObjectConstructionMode.SpecificConstructor:
+				{
+					// Need to call the user factory, and only use 'New()' when we get null from it
+					var userFactoryMethod = userFactory.GetMethodInfo();
+					var userObj           = Expression.Variable(type);
 
-				var body = Expression.Block(callAndAssignUserObj, coalesce);
+					var callAndAssignUserObj = Expression.Assign(userObj, Expression.Call(Expression.Constant(userFactory), userFactoryMethod));
 
-				var lambda = Expression.Lambda<Func<object>>(body, userObj);
-				return lambda.Compile();
+					var coalesce = Expression.IfThenElse(
+														 // if userObj is null
+														 test: Expression.ReferenceEqual(userObj, Expression.Constant(null, typeof(object))),
+														 // then use new()
+														 ifTrue: Expression.New(ctor),
+														 // else use the given user obj
+														 ifFalse: userObj);
+
+					var body = Expression.Block(callAndAssignUserObj, coalesce);
+
+					var lambda = Expression.Lambda<Func<object>>(body, userObj);
+					return lambda.Compile();
+				}
+				default:
+					throw new IndexOutOfRangeException("ObjectConstructionMode in TypeConfig has an invalid value");
 			}
 		}
 
