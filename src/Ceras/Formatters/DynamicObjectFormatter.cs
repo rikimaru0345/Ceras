@@ -87,7 +87,11 @@ namespace Ceras.Formatters
 				var member = sMember.Member;
 				var type = member.MemberType;
 
-				// todo: have a lookup list to directly get the actual 'SerializerBinary' method. There is no reason to actually use objects like "Int32Formatter"
+				// todo: have a lookup list to directly get the actual 'SerializerBinary' method. There is no reason to actually use objects like "Int32Formatter" IF we can "unpack" them
+				// todo: .. we could have a dictionary that maps formatter-types to MethodInfo, that would also make it so we don't even have to keep a constant with the reference to the formatter around
+				// todo: depending on the configuration, we could have a "StructBlitFormatter" which just re-interprets the pointer and writes the data directly in a single assignment; like casting the byte[] to a byte* to a Vector3* and then doing a direct assignment. (only works with blittable types, and if the setting is active)
+				// todo: if we have a setting for that, it should be global (as a fallback) as well as a per-type config; the TypeConfig has to get its default value from the global value (maybe in the CerasSerializer ctor), so it doesn't have to keep looking into the global config; and so there is no bug when someone configures some types directly first and then sets the default after!
+				// todo: fully unpack known formatters as well. Maybe let matching formatters implement an interface that can return some sort of "Expression GetDirectCall(bufferArg, offsetArg, localStore)"
 				var formatter = _ceras.GetReferenceFormatter(type);
 
 				// Get the formatter and its Serialize method
@@ -148,6 +152,7 @@ namespace Ceras.Formatters
 				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
 
 				// Deserialize the data into the local
+				// todo: fully unpack known formatters as well. Maybe let matching formatters implement an interface that can return some sort of "Expression GetDirectCall(bufferArg, offsetArg, localStore)"
 				var tempReadCall = Call(Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, tempStore);
 				block.Add(tempReadCall);
 			}

@@ -8,6 +8,7 @@
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using System.Runtime.Serialization;
 
 #if FAST_EXP
 	using FastExpressionCompiler;
@@ -78,6 +79,7 @@
 		readonly TypeDictionary<DispatcherEntry> _dispatchers = new TypeDictionary<DispatcherEntry>();
 
 		readonly bool _allowReferences = false;
+		readonly TypeConfiguration _typeConfig;
 
 		public ReferenceFormatter(CerasSerializer serializer)
 		{
@@ -86,6 +88,7 @@
 			_typeFormatter = (TypeFormatter)serializer.GetSpecificFormatter(typeof(Type));
 
 			_allowReferences = _serializer.Config.PreserveReferences;
+			_typeConfig = _serializer.Config.TypeConfig;
 		}
 
 
@@ -187,7 +190,9 @@
 				// But maybe we're recycling an object and it still contains an instance.
 				// Lets return it to the user
 				if (value != null)
+				{
 					_serializer.DiscardObjectMethod?.Invoke(value);
+				}
 
 				value = default;
 				return;
@@ -240,8 +245,6 @@
 					// Yes, then maybe we can overwrite its values (works for objects and collections)
 					// But only if it's the right type!
 
-					// todo: types using a SerializationCtor (in the future) are handled in a different ReferenceFormatter
-					//		 where we first read all members into local variables, then create the object (passing some of them into the constructor), and then writing the remaining as usual
 					if (value.GetType() != specificType)
 					{
 						// Discard the old value
@@ -345,45 +348,63 @@
 
 			switch (typeConfig.ConstructionMode)
 			{
-				case ObjectConstructionMode.Normal_ParameterlessConstructor:
-				{
-					var lambda = Expression.Lambda<Func<object>>(Expression.New(ctor));
-					return lambda.Compile();
-				}
-				case ObjectConstructionMode.None_DeferToFormatter:
-					return _nullResultDelegate;
+			case ObjectConstructionMode.Null_DeferToFormatter:
+			{
+				return _nullResultDelegate;
+			}
 
-				case ObjectConstructionMode.User_InstanceMethod:
-					break;
-				case ObjectConstructionMode.User_StaticMethod:
-					break;
-					break;
-				case ObjectConstructionMode.User_Delegate:
-					break;
+			case ObjectConstructionMode.None_GetUninitializedObject:
+			{
+				var t = type;
+				return () => FormatterServices.GetUninitializedObject(t);
+			}
 
-				case ObjectConstructionMode.SpecificConstructor:
-				{
-					// Need to call the user factory, and only use 'New()' when we get null from it
-					var userFactoryMethod = userFactory.GetMethodInfo();
-					var userObj           = Expression.Variable(type);
+			case ObjectConstructionMode.Normal_ParameterlessConstructor:
+			{
+				var lambda = Expression.Lambda<Func<object>>(Expression.New(ctor));
+				return lambda.Compile();
+			}
 
-					var callAndAssignUserObj = Expression.Assign(userObj, Expression.Call(Expression.Constant(userFactory), userFactoryMethod));
+			case ObjectConstructionMode.User_InstanceMethod:
+			{
+				throw new NotSupportedException("not implemented yet, wip");
+			}
 
-					var coalesce = Expression.IfThenElse(
-														 // if userObj is null
-														 test: Expression.ReferenceEqual(userObj, Expression.Constant(null, typeof(object))),
-														 // then use new()
-														 ifTrue: Expression.New(ctor),
-														 // else use the given user obj
-														 ifFalse: userObj);
+			case ObjectConstructionMode.User_StaticMethod:
+			{
+				throw new NotSupportedException("not implemented yet, wip");
+			}
 
-					var body = Expression.Block(callAndAssignUserObj, coalesce);
+			case ObjectConstructionMode.User_Delegate:
+			{
+				// Need to call the user factory, and only use 'New()' when we get null from it
+				var userFactory = typeConfig.UserDelegate;
+				var userFactoryMethod = userFactory.GetMethodInfo();
+				var userObj = Expression.Variable(type);
 
-					var lambda = Expression.Lambda<Func<object>>(body, userObj);
-					return lambda.Compile();
-				}
-				default:
-					throw new IndexOutOfRangeException("ObjectConstructionMode in TypeConfig has an invalid value");
+				var callAndAssignUserObj = Expression.Assign(userObj, Expression.Call(Expression.Constant(userFactory), userFactoryMethod));
+
+				var coalesce = Expression.IfThenElse(
+													 // if userObj is null
+													 test: Expression.ReferenceEqual(userObj, Expression.Constant(null, typeof(object))),
+													 // then use new()
+													 ifTrue: Expression.New(ctor),
+													 // else use the given user obj
+													 ifFalse: userObj);
+
+				var body = Expression.Block(callAndAssignUserObj, coalesce);
+
+				var lambda = Expression.Lambda<Func<object>>(body, userObj);
+				return lambda.Compile();
+			}
+
+			case ObjectConstructionMode.SpecificConstructor:
+			{
+				throw new NotSupportedException("not implemented yet, wip");
+			}
+
+			default:
+				throw new IndexOutOfRangeException("ObjectConstructionMode in TypeConfig has an invalid value");
 			}
 		}
 

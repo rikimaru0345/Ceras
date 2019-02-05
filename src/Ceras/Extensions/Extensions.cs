@@ -10,7 +10,7 @@ namespace Ceras.Helpers
 		[ThreadStatic] static byte[] _lengthPrefixBuffer;
 		[ThreadStatic] static byte[] _streamBuffer;
 
-
+		
 		/// <summary>
 		/// Writes an object into a stream. This method prefixes the data with the actual size (in VarInt encoding).
 		/// <para>This method(-pair) is intended to be an easy to understand example for networking scenarios.</para>

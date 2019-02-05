@@ -1,10 +1,10 @@
 ﻿namespace Ceras
 {
-	using System;
-	using System.Collections.Generic;
 	using Ceras.Formatters;
 	using Helpers;
 	using Resolvers;
+	using System;
+	using System.Collections.Generic;
 
 	/// <summary>
 	/// Allows detailed configuration of the <see cref="CerasSerializer"/>. Advanced options can be found inside <see cref="Advanced"/>
@@ -88,27 +88,35 @@
 		/// Advanced options. In here is everything that is very rarely used, dangerous, or otherwise special. 
 		/// </summary>
 		public IAdvancedConfigOptions Advanced => this;
-		
-		ISizeLimitsConfig IAdvancedConfigOptions.SizeLimits        => this;
-		uint ISizeLimitsConfig.                  MaxStringLength   { get; set; } = uint.MaxValue;
-		uint ISizeLimitsConfig.                  MaxArraySize      { get; set; } = uint.MaxValue;
-		uint ISizeLimitsConfig.                  MaxByteArraySize  { get; set; } = uint.MaxValue;
-		uint ISizeLimitsConfig.                  MaxCollectionSize { get; set; } = uint.MaxValue;
 
-		Func<SerializedMember, SerializationOverride> IAdvancedConfigOptions.ShouldSerializeMember        { get; set; } = null;
-		ReadonlyFieldHandling IAdvancedConfigOptions.                        ReadonlyFieldHandling        { get; set; } = ReadonlyFieldHandling.Off;
-		bool IAdvancedConfigOptions.                                         EmbedChecksum                { get; set; } = false;
-		bool IAdvancedConfigOptions.                                         PersistTypeCache             { get; set; } = false;
-		bool IAdvancedConfigOptions.                                         SealTypesWhenUsingKnownTypes { get; set; } = true;
-		bool IAdvancedConfigOptions.                                         SkipCompilerGeneratedFields  { get; set; } = true;
-		ITypeBinder IAdvancedConfigOptions.                                  TypeBinder                   { get; set; } = null;
-		DelegateSerializationMode IAdvancedConfigOptions.                    DelegateSerialization        { get; set; } =  DelegateSerializationMode.Off;
+		ISizeLimitsConfig IAdvancedConfigOptions.SizeLimits => this;
+		uint ISizeLimitsConfig.MaxStringLength { get; set; } = uint.MaxValue;
+		uint ISizeLimitsConfig.MaxArraySize { get; set; } = uint.MaxValue;
+		uint ISizeLimitsConfig.MaxByteArraySize { get; set; } = uint.MaxValue;
+		uint ISizeLimitsConfig.MaxCollectionSize { get; set; } = uint.MaxValue;
+		
+		Action<object> IAdvancedConfigOptions.DiscardObjectMethod { get; set; } = null;
+		Func<SerializedMember, SerializationOverride> IAdvancedConfigOptions.ShouldSerializeMember { get; set; } = null;
+		ReadonlyFieldHandling IAdvancedConfigOptions.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.Off;
+		bool IAdvancedConfigOptions.EmbedChecksum { get; set; } = false;
+		bool IAdvancedConfigOptions.PersistTypeCache { get; set; } = false;
+		bool IAdvancedConfigOptions.SealTypesWhenUsingKnownTypes { get; set; } = true;
+		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
+		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = null;
+		DelegateSerializationMode IAdvancedConfigOptions.DelegateSerialization { get; set; } = DelegateSerializationMode.Off;
 	}
 
 
-	
+
 	public interface IAdvancedConfigOptions
 	{
+		/// <summary>
+		/// Set this to a function you provide. Ceras will call it when an object instance is no longer needed.
+		/// For example you want to populate an existing object with data, and one of the fields already has a value (a left-over from the last time it was used),
+		/// but the current data says that the field should be 'null'. That's when Ceras will call this this method so you can recycle the object (maybe return it to your object-pool)
+		/// </summary>
+		Action<object> DiscardObjectMethod { get; set; }
+
 		/// <summary>
 		/// This is the very first thing that ceras uses to determine whether or not to serialize something. While not the most comfortable, it is useful because it is called for types you don't control (types from other libraries where you don't have the source code...).
 		/// Important: Compiler generated fields are always skipped by default, for more information about that see the 'readonly properties' section in the tutorial where all of this is explained in detail.
@@ -226,7 +234,7 @@
 		AllowInstance,
 	}
 
-	
+
 	/// <summary>
 	/// Options how Ceras handles readonly fields. Check the description of each entry.
 	/// </summary>

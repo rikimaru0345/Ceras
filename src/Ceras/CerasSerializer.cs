@@ -138,7 +138,7 @@ namespace Ceras
 
 		readonly TypeDictionary<TypeMetaData> _metaData = new TypeDictionary<TypeMetaData>();
 		readonly FactoryPool<InstanceData> _instanceDataPool;
-
+		
 		internal readonly Action<object> DiscardObjectMethod;
 
 		readonly Stack<InstanceData> _recursionStack = new Stack<InstanceData>();
@@ -165,7 +165,7 @@ namespace Ceras
 				Config.ExternalObjectResolver = new ErrorResolver();
 
 			TypeBinder = Config.Advanced.TypeBinder ?? new NaiveTypeBinder();
-			// todo: Discard: DiscardObjectMethod = Config.Advanced.DiscardObjectMethod;
+			DiscardObjectMethod = Config.Advanced.DiscardObjectMethod;
 
 			_userResolvers = Config.OnResolveFormatter.ToArray();
 
