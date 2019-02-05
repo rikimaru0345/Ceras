@@ -6,6 +6,11 @@
 	using System.Collections.Generic;
 	using System.Reflection;
 
+	// todo: Use .IsSubclassOf wherever possible (it's possible when we're only checking for base-type and not interfaces)
+	// todo: Ensure we never forget to check .IsGenericType (otherwise we'll get things like issue #24)
+	// todo: Maybe implement capacity constructors based on checking for the a ctor that has a 'int capacity' parameter instead of special handling for each concrete type.
+	// todo: .. but then we *definitely* need a setting! Because even if the chance is extremely small, capacity might not actually mean what we're assuming!
+
 	class ReflectionTypesFormatterResolver : IFormatterResolver
 	{
 		readonly CerasSerializer _serializer;
