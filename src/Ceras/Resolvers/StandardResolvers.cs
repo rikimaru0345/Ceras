@@ -125,7 +125,11 @@
 			{
 				var itemType = closedCollection.GetGenericArguments()[0];
 
-				if (type.GetGenericTypeDefinition() == typeof(List<>))
+
+				// Check for specific types first for which we have special implementations
+				bool isGenericType = type.IsGenericType;
+				
+				if (isGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
 				{
 					var listFormatterType = typeof(ListFormatter<>).MakeGenericType(itemType);
 					formatter = (IFormatter)Activator.CreateInstance(listFormatterType, _serializer);
@@ -134,7 +138,7 @@
 					return formatter;
 				}
 
-				if (type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+				if (isGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
 				{
 					// itemType is KeyValuePair<,> so we need to deconstruct it
 					var kvpTypes = itemType.GetGenericArguments();
@@ -146,7 +150,7 @@
 					return formatter;
 				}
 
-
+				// Use the general case collection formatter
 				var formatterType = typeof(CollectionFormatter<,>).MakeGenericType(type, itemType);
 				formatter = (IFormatter)Activator.CreateInstance(formatterType, _serializer);
 
