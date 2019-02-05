@@ -16,7 +16,19 @@
 
 
 
+  <!-- Project Settings -->
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>7.3</LangVersion>
+    <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
+    
+    <!-- Don't warn about missing XML documentation on some uninteresting types and members -->
+    <NoWarn>1591;</NoWarn> 
+  </PropertyGroup>
 
+
+
+  <!-- Adjust target frameworks when not compiling on windows -->
   <PropertyGroup Condition=" '$(OS)' == 'Windows_NT' ">
     <TargetFrameworks>net45;net47;netstandard2.0;</TargetFrameworks>
   </PropertyGroup>
@@ -25,15 +37,23 @@
     <TargetFramework>netstandard2.0</TargetFramework>
   </PropertyGroup>
 
-  <!-- Project -->
-  <PropertyGroup>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <LangVersion>7.3</LangVersion>
-    <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
+  <!-- Define 'DEBUG' -->
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
+    <DefineConstants>TRACE;DEBUG</DefineConstants>
   </PropertyGroup>
+
+  <!-- .NET 4.5 -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net45'">
+    <PackageReference Include="System.ValueTuple" Version="4.5.0" />
+  </ItemGroup>
+
 
 
   <!-- Use T4 Generators -->
+  <ItemGroup> <!-- T4 compilation service -->
+    <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Update="Formatters\TupleFormatter.tt">
       <Generator>TextTemplatingFileGenerator</Generator>
@@ -56,31 +76,5 @@
     </Compile>
   </ItemGroup>
 
-
-  <!-- Define 'DEBUG' -->
-  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
-    <DefineConstants>TRACE;DEBUG</DefineConstants>
-  </PropertyGroup>
-
-
-  <!-- .NET 4.5 -->
-  <ItemGroup Condition="'$(TargetFramework)' == 'net45'">
-    <PackageReference Include="System.ValueTuple" Version="4.5.0" />
-  </ItemGroup>
-
-
-  <!-- .NET Standard 2.0 -->
-  <!--
-	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-		<PackageReference Include="System.Reflection.Emit.ILGeneration" Version="4.3.0" />
-		<PackageReference Include="System.Reflection.Emit.Lightweight" Version="4.3.0" />
-	</ItemGroup>
-	-->
-
-
-  <!-- T4 -->
-  <ItemGroup>
-    <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
-  </ItemGroup>
 
 </Project>
