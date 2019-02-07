@@ -7,6 +7,7 @@ namespace Ceras.Formatters
 	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
+	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
 	using static System.Linq.Expressions.Expression;
@@ -124,6 +125,11 @@ namespace Ceras.Formatters
 		DeserializeDelegate<T> GenerateDeserializer(Schema schema)
 		{
 			var members = schema.Members;
+			var typeConfig = _ceras.Config.TypeConfig.GetOrCreate(schema.Type);
+			var tc = typeConfig.TypeConstruction;
+
+			bool constructObject = tc.HasDataArguments; // Are we responsible for instantiating an object?
+			HashSet<ParameterExpression> usedVariables = null;
 
 			var bufferArg = Parameter(typeof(byte[]), "buffer");
 			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
@@ -141,6 +147,9 @@ namespace Ceras.Formatters
 				// Read the data into a new local variable 
 				var tempStore = Variable(member.MemberType, member.Name + "_local");
 				locals.Add(tempStore);
+
+				if (constructObject)
+					continue; // Can't read existing data when 
 
 				// Init the local with the current value
 				body.Add(Assign(tempStore, MakeMemberAccess(refValueArg, member.MemberInfo)));
@@ -165,7 +174,14 @@ namespace Ceras.Formatters
 
 			//
 			// 3. Create object instance (only when actually needed)
-			EmitObjectConstructionIfNeeded(schema, out var membersConsumedByFactory, body, refValueArg);
+			if (constructObject)
+			{
+				// Create a helper array for the implementing type construction
+				var memberParameters = schema.Members.Zip(locals, (m, l) => new MemberParameterPair {Member = m.Member.MemberInfo, LocalVar = l}).ToArray();
+
+				usedVariables = new HashSet<ParameterExpression>();
+				tc.EmitConstruction(schema, body, refValueArg, usedVariables, memberParameters);
+			}
 
 			//
 			// 4. Write back values in one batch
@@ -176,7 +192,7 @@ namespace Ceras.Formatters
 				var tempStore = locals[i];
 				var type = member.MemberType;
 
-				if (membersConsumedByFactory != null && membersConsumedByFactory.Contains(member))
+				if (usedVariables != null && usedVariables.Contains(tempStore))
 					// Member was already used in the constructor / factory method, no need to write it again
 					continue;
 
@@ -211,25 +227,7 @@ namespace Ceras.Formatters
 #else
 			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, refOffsetArg, refValueArg).Compile();
 #endif
-
 		}
-
-		void EmitObjectConstructionIfNeeded(Schema schema, out HashSet<SerializedMember> membersConsumedByFactory, List<Expression> body, ParameterExpression refValueArg)
-		{
-			var typeConfig = _ceras.Config.TypeConfig.GetOrCreate(schema.Type);
-			var tc = typeConfig.TypeConstruction;
-
-			if (!tc.HasDataArguments)
-			{
-				membersConsumedByFactory = null;
-				return;
-			}
-
-			membersConsumedByFactory = new HashSet<SerializedMember>();
-			
-			tc.EmitConstruction(body, refValueArg, membersConsumedByFactory);
-		}
-
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value) => _dynamicSerializer(ref buffer, ref offset, value);
 
@@ -307,6 +305,11 @@ namespace Ceras.Formatters
 
 	}
 
+	struct MemberParameterPair
+	{
+		public MemberInfo Member;
+		public ParameterExpression LocalVar;
+	}
 }
 
 /*

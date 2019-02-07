@@ -21,9 +21,6 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			BugReport25();
-
-
 			Benchmarks();
 
 			TestDirectPoolingMethods();
@@ -101,64 +98,6 @@ namespace LiveTesting
 			Console.ReadKey();
 		}
 
-		public abstract class Person_Issue25
-		{
-			public string Name = "default name";
-			//public List<Person_Issue25> Friends { get; private set; } = new List<Person_Issue25>();
-			public List<Person_Issue25> Friends { get; private set; }
-
-			public Person_Issue25()
-			{
-				Friends = new List<Person_Issue25>();
-			}
-
-			void ChangeFriends()
-			{
-				var f = Friends;
-				Friends=null;
-				Friends=f;
-			}
-
-			protected void SetFriendsToNullInternal()
-			{
-				Friends = null;
-			}
-		}
-
-		public class Adult : Person_Issue25
-		{
-			public byte[] Serialize() => new CerasSerializer().Serialize<object>(this);
-
-			internal void SetFriendsToNull()
-			{
-				SetFriendsToNullInternal();
-			}
-		}
-
-		static void BugReport25()
-		{
-			var p = new Adult();
-			p.Name = "1";
-			p.Friends.Add(new Adult { Name = "2" });
-
-			var config = new SerializerConfig();
-			config.DefaultTargets = TargetMember.AllPublic;
-			var ceras = new CerasSerializer(config);
-
-			var data = ceras.Serialize<object>(p);
-
-			var clone = new Adult();
-			clone.SetFriendsToNull();
-			object refObj = clone;
-			ceras.Deserialize<object>(ref refObj, data);
-
-			Debug.Assert(refObj != null);
-			clone = refObj as Adult;
-			Debug.Assert(clone.Friends != null);
-			Debug.Assert(clone.Friends.Count == 1);
-			Debug.Assert(clone.Friends[0].Name == "2");
-
-		}
 
 		static void ExpressionTreesTest()
 		{
@@ -226,6 +165,7 @@ namespace LiveTesting
 
 				var clone = DoRoundTripTest(config);
 				Debug.Assert(clone != null);
+				Debug.Assert(clone.Name.StartsWith("riki"));
 				Debug.Assert(clone.Name.EndsWith(Person.CtorSuffix));
 			}
 
@@ -257,8 +197,8 @@ namespace LiveTesting
 				SerializerConfig config = new SerializerConfig();
 
 				config.ConfigType<Person>()
-					  // Use delegate
-					  .ConstructByDelegate(() => pool.CreatePerson());
+					  // Instance + method select
+					  .ConstructBy(pool, () => pool.CreatePerson());
 
 				var clone = DoRoundTripTest(config);
 				Debug.Assert(clone != null);
@@ -270,7 +210,7 @@ namespace LiveTesting
 				SerializerConfig config = new SerializerConfig();
 
 				config.ConfigType<Person>()
-					  // Use delegate
+					  // method select
 					  .ConstructBy(() => StaticPoolTest.CreatePerson());
 
 				var clone = DoRoundTripTest(config);
@@ -298,16 +238,41 @@ namespace LiveTesting
 				Debug.Assert(ReferenceEquals(clone, referenceCapturedByLambda));
 			}
 
+			// Test: Construct from instance-pool, with parameter
+			{
+				SerializerConfig config = new SerializerConfig();
 
+				config.ConfigType<Person>()
+					  // Use instance + method selection
+					  .ConstructBy(pool, () => pool.CreatePersonWithName("abc"));
 
+				var clone = DoRoundTripTest(config);
+				Debug.Assert(clone != null);
+				Debug.Assert(clone.Name.StartsWith("riki"));
+				Debug.Assert(pool.IsFromPool(clone));
+			}
+
+			// Test: Construct from static-pool, with parameter
+			{
+				SerializerConfig config = new SerializerConfig();
+
+				config.ConfigType<Person>()
+					  // Use instance + method selection
+					  .ConstructBy(() => StaticPoolTest.CreatePersonWithName("abc"));
+
+				var clone = DoRoundTripTest(config);
+				Debug.Assert(clone != null);
+				Debug.Assert(clone.Name.StartsWith("riki"));
+				Debug.Assert(StaticPoolTest.IsFromPool(clone));
+			}
 		}
 
-		static Person DoRoundTripTest(SerializerConfig config)
+		static Person DoRoundTripTest(SerializerConfig config, string name = "riki")
 		{
 			var ceras = new CerasSerializer(config);
 
 			var p = new Person();
-			p.Name = "riki";
+			p.Name = name;
 
 			var data = ceras.Serialize(p);
 

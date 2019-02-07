@@ -3,7 +3,9 @@ using System.Collections.Generic;
 
 namespace Ceras
 {
+	using Ceras.Formatters;
 	using Ceras.Helpers;
+	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
 
@@ -257,7 +259,11 @@ namespace Ceras
 
 		internal abstract bool HasDataArguments { get; }
 		internal abstract Func<object> GetRefFormatterConstructor();
-		internal abstract void EmitConstruction(List<Expression> body, ParameterExpression refValueArg, HashSet<SerializedMember> membersConsumedByFactory);
+
+		internal virtual void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
+		{
+			throw new NotImplementedException("This construction type can not be used in deferred mode.");
+		}
 
 		// todo: Sanity checks:
 		// - does the given delegate/ctor/method even return an instance of the thing we need?
@@ -298,13 +304,8 @@ namespace Ceras
 	{
 		internal override bool HasDataArguments => false;
 		internal override Func<object> GetRefFormatterConstructor() => () => null;
-
-		internal override void EmitConstruction(List<Expression> body, ParameterExpression refValueArg, HashSet<SerializedMember> membersConsumedByFactory)
-		{
-		}
-
 	}
-
+	
 	class SpecificConstructor : TypeConstruction
 	{
 		internal ConstructorInfo Constructor;
@@ -320,21 +321,42 @@ namespace Ceras
 			return Expression.Lambda<Func<object>>(Expression.New(Constructor)).Compile();
 		}
 
-		internal override void EmitConstruction(List<Expression> body, ParameterExpression refValueArg, HashSet<SerializedMember> membersConsumedByFactory)
+		internal static Expression[] ConfigureArguments(ParameterInfo[] targetMethodParamters, Schema schema, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
 		{
-			var parameters = Constructor.GetParameters();
+			Expression[] args = new Expression[targetMethodParamters.Length];
 
-			
-			Expression[] args = new Expression[parameters.Length];
+			// Figure out what local goes into what parameter slot of the given method
 			for (int i = 0; i < args.Length; i++)
 			{
 				// Parameter -> SerializedMember (either by automatically mapping by name, or using a user provided lookup)
+				var parameterName = targetMethodParamters[i].Name;
+				var schemaMember = schema.Members.FirstOrDefault(m => parameterName.Equals(m.Member.Name, StringComparison.OrdinalIgnoreCase) || parameterName.Equals(m.PersistentName, StringComparison.OrdinalIgnoreCase));
+
+				// todo: try mapping by type as well (only works when there's exactly one type)
+				// todo: remove prefixes like "_" or "m_" from member names
+
+				if (schemaMember.Member.MemberInfo == null || schemaMember.IsSkip) // Not found, or current schema does not contain this data member
+				{
+					throw new InvalidOperationException($"Can not construct type '{schema.Type.FullName}' using the selected constructor (or method) because the parameter '{parameterName}' can not be automatically mapped to any of the members in the current schema. Please provide a custom mapping for this constructor or method in the serializer config.");
+				}
 
 				// SerializedMember -> ParameterExpression
+				var paramExp = memberParameters.First(m => m.Member == schemaMember.Member.MemberInfo);
+				
+				// Use as source in call
+				args[i] = paramExp.LocalVar;
 
 				// Mark as consumed
-
+				usedVariables.Add(paramExp.LocalVar);
 			}
+
+			return args;
+		}
+
+		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
+		{
+			var parameters = Constructor.GetParameters();
+			var args = ConfigureArguments(parameters, schema, usedVariables, memberParameters);
 
 			var invocation = Expression.Assign(refValueArg, Expression.New(Constructor, args));
 			body.Add(invocation);
@@ -375,9 +397,20 @@ namespace Ceras
 				return (Func<object>)Delegate.CreateDelegate(typeof(Func<object>), TargetObject, Method);
 		}
 
-		internal override void EmitConstruction(List<Expression> body, ParameterExpression refValueArg, HashSet<SerializedMember> membersConsumedByFactory)
+		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
 		{
+			var parameters = Method.GetParameters();
+			var args = SpecificConstructor.ConfigureArguments(parameters, schema, usedVariables, memberParameters);
+
+			Expression invocation;
+			if(Method.IsStatic)
+				invocation = Expression.Assign(refValueArg, Expression.Call(Method, args));
+			else
+				invocation = Expression.Assign(refValueArg, Expression.Call(instance: Expression.Constant(TargetObject), method: Method, args));
+			
+			body.Add(invocation);
 		}
+
 	}
 
 
@@ -408,10 +441,6 @@ namespace Ceras
 
 			// todo: can be optimized a lot by bypassing some clr checks... but it's very rarely used / needed
 			return Expression.Lambda<Func<object>>(Expression.Call(_getUninitialized, arg0: Expression.Constant(t))).Compile();
-		}
-
-		internal override void EmitConstruction(List<Expression> body, ParameterExpression refValueArg, HashSet<SerializedMember> membersConsumedByFactory)
-		{
 		}
 	}
 }
