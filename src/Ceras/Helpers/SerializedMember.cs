@@ -7,6 +7,8 @@ namespace Ceras.Helpers
 	// Just a helper struct to make it a little easier to deal with MemberInfo
 	public struct SerializedMember
 	{
+		const BindingFlags _bindingFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
 		public string Name => MemberInfo.Name;
 
 		public readonly MemberInfo MemberInfo;
@@ -37,6 +39,7 @@ namespace Ceras.Helpers
 			}
 			else if (memberInfo is PropertyInfo p)
 			{
+				p = p.DeclaringType.GetProperty(p.Name, _bindingFlags);
 				if (!p.CanRead || !p.CanWrite)
 					throw new Exception("property must be readable and writable");
 			}

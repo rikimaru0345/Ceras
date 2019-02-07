@@ -44,6 +44,8 @@ namespace Ceras.Formatters
 
 	sealed class DynamicObjectFormatter<T> : IFormatter<T>
 	{
+		const BindingFlags _bindingFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+
 		readonly CerasSerializer _ceras;
 		readonly SerializeDelegate<T> _dynamicSerializer;
 		readonly DeserializeDelegate<T> _dynamicDeserializer;
@@ -62,8 +64,8 @@ namespace Ceras.Formatters
 
 			if (schema.Members.Count > 0)
 			{
-				_dynamicSerializer = GenerateSerializer(schema.Members);
-				_dynamicDeserializer = GenerateDeserializer(schema.Members);
+				_dynamicSerializer = GenerateSerializer(schema);
+				_dynamicDeserializer = GenerateDeserializer(schema);
 			}
 			else
 			{
@@ -73,8 +75,10 @@ namespace Ceras.Formatters
 		}
 
 
-		SerializeDelegate<T> GenerateSerializer(List<SchemaMember> members)
+		SerializeDelegate<T> GenerateSerializer(Schema schema)
 		{
+			var members = schema.Members;
+
 			var refBufferArg = Parameter(typeof(byte[]).MakeByRefType(), "buffer");
 			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
 			var valueArg = Parameter(typeof(T), "value");
@@ -117,14 +121,16 @@ namespace Ceras.Formatters
 
 		}
 
-		DeserializeDelegate<T> GenerateDeserializer(List<SchemaMember> members)
+		DeserializeDelegate<T> GenerateDeserializer(Schema schema)
 		{
+			var members = schema.Members;
+
 			var bufferArg = Parameter(typeof(byte[]), "buffer");
 			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
 			var refValueArg = Parameter(typeof(T).MakeByRefType(), "value");
 
-			var block = new List<Expression>();
-			var locals = new List<ParameterExpression>();
+			var body = new List<Expression>();
+			var locals = new List<ParameterExpression>(schema.Members.Count);
 
 			//
 			// 1. Read existing values into locals (Why? See explanation at the end of the file)
@@ -137,7 +143,7 @@ namespace Ceras.Formatters
 				locals.Add(tempStore);
 
 				// Init the local with the current value
-				block.Add(Assign(tempStore, MakeMemberAccess(refValueArg, member.MemberInfo)));
+				body.Add(Assign(tempStore, MakeMemberAccess(refValueArg, member.MemberInfo)));
 			}
 
 			//
@@ -154,45 +160,75 @@ namespace Ceras.Formatters
 				// Deserialize the data into the local
 				// todo: fully unpack known formatters as well. Maybe let matching formatters implement an interface that can return some sort of "Expression GetDirectCall(bufferArg, offsetArg, localStore)"
 				var tempReadCall = Call(Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, tempStore);
-				block.Add(tempReadCall);
+				body.Add(tempReadCall);
 			}
 
 			//
-			// 3. Write back values in one batch
+			// 3. Create object instance (only when actually needed)
+			EmitObjectConstructionIfNeeded(schema, out var membersConsumedByFactory, body, refValueArg);
+
+			//
+			// 4. Write back values in one batch
 			for (int i = 0; i < members.Count; i++)
 			{
 				var sMember = members[i];
 				var member = members[i].Member;
 				var tempStore = locals[i];
 				var type = member.MemberType;
-				
 
-				if (member.MemberInfo is FieldInfo fieldInfo && fieldInfo.IsInitOnly)
+				if (membersConsumedByFactory != null && membersConsumedByFactory.Contains(member))
+					// Member was already used in the constructor / factory method, no need to write it again
+					continue;
+
+				if (member.MemberInfo is FieldInfo fieldInfo)
 				{
-					// Readonly field
-					DynamicFormatterHelpers.EmitReadonlyWriteBack(type, sMember.ReadonlyFieldHandling, fieldInfo, refValueArg, tempStore, block);
+					if (fieldInfo.IsInitOnly)
+					{
+						// Readonly field
+						DynamicFormatterHelpers.EmitReadonlyWriteBack(type, sMember.ReadonlyFieldHandling, fieldInfo, refValueArg, tempStore, body);
+					}
+					else
+					{
+						// Normal assignment
+						body.Add(Assign(left: Field(refValueArg, fieldInfo),
+										right: tempStore));
+					}
 				}
 				else
 				{
-					// Normal field or property
-					var writeBack = Assign(
-										   left: MakeMemberAccess(refValueArg, member.MemberInfo),
-										   right: tempStore);
+					// Context
+					var p = member.MemberInfo.DeclaringType.GetProperty(member.Name, _bindingFlags);
 
-					block.Add(writeBack);
+					var setMethod = p.GetSetMethod(true);
+					body.Add(Call(instance: refValueArg, setMethod, tempStore));
 				}
 			}
 
 
-			var serializeBlock = Block(variables: locals, expressions: block);
+			var bodyBlock = Block(variables: locals, expressions: body);
 #if FAST_EXP
 			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
 #else
-			return Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).Compile();
+			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, refOffsetArg, refValueArg).Compile();
 #endif
 
 		}
 
+		void EmitObjectConstructionIfNeeded(Schema schema, out HashSet<SerializedMember> membersConsumedByFactory, List<Expression> body, ParameterExpression refValueArg)
+		{
+			var typeConfig = _ceras.Config.TypeConfig.GetOrCreate(schema.Type);
+			var tc = typeConfig.TypeConstruction;
+
+			if (!tc.HasDataArguments)
+			{
+				membersConsumedByFactory = null;
+				return;
+			}
+
+			membersConsumedByFactory = new HashSet<SerializedMember>();
+			
+			tc.EmitConstruction(body, refValueArg, membersConsumedByFactory);
+		}
 
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value) => _dynamicSerializer(ref buffer, ref offset, value);

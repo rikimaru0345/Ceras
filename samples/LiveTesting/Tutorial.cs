@@ -192,13 +192,12 @@ namespace Tutorial
 			MyVerySimplePool<Person> pool = new MyVerySimplePool<Person>();
 
 			SerializerConfig config = new SerializerConfig();
-			config.Advanced.ObjectFactoryMethod = type =>
-			{
-				if (type != typeof(Person))
-					return null;
 
-				return pool.GetFromPool();
-			};
+			config.ConfigType<Person>()
+				  .ConstructBy(() => new Person()) // select ctor
+				  .ConstructBy(() => pool.GetFromPool()) // deconstruct expr -> instance+method
+					;
+
 			config.Advanced.DiscardObjectMethod = obj =>
 			{
 				pool.ReturnToPool((Person)obj);

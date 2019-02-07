@@ -15,6 +15,10 @@ namespace Ceras.Helpers
 	// - maybe even fixed 2 byte encoding? (with exception for elements that are too large)
 	// What about a setting? But people would have to be very careful that they use the same settings for reading as they did while serializing.
 
+	// todo: when we're adding support for serialization constructors here as well, then it would be a good feature if the user can provide default-values, and maybe even delegate callbacks to create values when they are missing from the data (so the user-factory can still be used!). Or maybe we could have a callback in this scenario: UninitializedObj->Callback->DirectCtor to handle all cases?
+
+	// todo: readjust context for properties
+
 	class SchemaDynamicFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
 	{
 		const int FieldSizePrefixBytes = 4;

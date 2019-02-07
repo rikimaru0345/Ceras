@@ -3,6 +3,7 @@ using System.Collections.Generic;
 
 namespace Ceras
 {
+	using Ceras.Helpers;
 	using System.Linq.Expressions;
 	using System.Reflection;
 
@@ -28,28 +29,131 @@ namespace Ceras
 	// todo: allow the worst case scenario (self ref with ctor) by using GetUninitializedObject, then reading and assigning, and then running the ctor after that!
 	// todo: "You have a configuration error on type 'bla': You selected 'mode' to create new objects, but the formatter used by ceras to handle this type is not 'DynamicObjectFormatter' which is required for this mode to work. If this formatter is a custom (user-provided) formatter then you probably want to set the construction mode to either 'Null' so Ceras does not create an object and the formatter can handle it; or you can set it to 'Normal' so Ceras creates a new object instance using 'new()'. Generally: passing any arguments to functions can only work with the DynamicObjectFormatter."
 	// todo: Compile some sort of 'EnsureInstance()' method that we can call for each specific type and can use directly in the ref-formatter-dispatcher.
+	// todo: when deferring to the dynamic object formatter, everything has to be done there: checking if an instance already exists, if it's the right type, and possibly discard it using the discard method
 
 	// Extra Features:
 	// todo: Methods for: BeforeReadingMember, BeforeWritingMember, AfterReadingMember, ... BeforeReadingObject, AfterReadingObject, ...
 	// todo: DiscardObject method
 	// todo: SetReadonlyHandling
 	// todo: CustomSchema (with a method to obtain a default schema given some settings)
+	// todo: If we create something from uninitialized; do we give an option to run some specific ctor? Do we write some props/fields again after calling the ctor??
+	// todo: what about just calling Dispose() as an alternative to Discard!?
 
 	public class TypeConfigEntry
 	{
 		internal Type Type;
 
-		internal ObjectConstructionMode ConstructionMode = ObjectConstructionMode.Normal_ParameterlessConstructor;
-		internal Delegate UserDelegate;
-		internal MethodInfo ObjectConstructionMethod;
-
-		internal bool CtorHasParameters; // If it wants arguments we must defer construction to the DynamicObjectFormatter.
+		internal TypeConstruction TypeConstruction;
 
 
 		internal TypeConfigEntry(Type type)
 		{
 			Type = type;
+
+			var ctor = type.GetConstructor(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+
+			if (ctor != null)
+				TypeConstruction = TypeConstruction.ByConstructor(ctor);
+			else
+				TypeConstruction = null;
 		}
+
+
+		public TypeConfigEntry ConstructBy(MethodInfo methodInfo)
+		{
+			TypeConstruction = new ConstructByMethod(methodInfo);
+
+			TypeConstruction.TypeConfigEntry = this;
+			TypeConstruction.VerifyReturnType();
+
+			return this;
+		}
+
+		public TypeConfigEntry ConstructBy(object instance, MethodInfo methodInfo)
+		{
+			TypeConstruction = new ConstructByMethod(instance, methodInfo);
+
+			TypeConstruction.TypeConfigEntry = this;
+			TypeConstruction.VerifyReturnType();
+
+			return this;
+		}
+
+		public TypeConfigEntry ConstructBy(ConstructorInfo constructorInfo)
+		{
+			TypeConstruction = new SpecificConstructor(constructorInfo);
+
+			TypeConstruction.TypeConfigEntry = this;
+			TypeConstruction.VerifyReturnType();
+
+			return this;
+		}
+
+		public TypeConfigEntry ConstructByDelegate(Func<object> factory)
+		{
+			// Delegates get deconstructed into target+method automatically
+			var instance = factory.Target;
+			var method = factory.Method;
+
+			TypeConstruction = new ConstructByMethod(instance, method);
+
+			TypeConstruction.TypeConfigEntry = this;
+			TypeConstruction.VerifyReturnType();
+
+			return this;
+		}
+
+
+		public TypeConfigEntry ConstructBy(Expression<Func<object>> methodSelectExpression)
+		{
+			return ConstructBy(instance: null, methodSelectExpression);
+		}
+
+		/// <summary>
+		/// Use this overload to select a static method or constructor to use to create instance
+		/// </summary>
+		public TypeConfigEntry ConstructBy(object instance, Expression<Func<object>> methodSelectExpression)
+		{
+			var body = methodSelectExpression.Body;
+
+			if (body is NewExpression newExpression)
+			{
+				if (instance != null)
+					throw new InvalidOperationException("You can't specify a constructor and an instance at the same time");
+
+				var ctor = newExpression.Constructor;
+				TypeConstruction = new SpecificConstructor(ctor);
+			}
+			else if (body is MethodCallExpression methodCall)
+			{
+				if (instance == null)
+					TypeConstruction = new ConstructByMethod(methodCall.Method);
+				else
+					TypeConstruction = new ConstructByMethod(instance, methodCall.Method);
+			}
+			else
+			{
+				throw new InvalidOperationException("The given expression must be a 'method-call' or 'new-expression'");
+			}
+
+			TypeConstruction.TypeConfigEntry = this;
+			TypeConstruction.VerifyReturnType();
+
+			return this;
+		}
+
+
+		/// <summary>
+		/// Use this to tell Ceras how it is supposed to construct new objects when deserializing. By default it will use the parameterless constructor (doesn't matter if public or private)
+		/// </summary>
+		public TypeConfigEntry ConstructBy(TypeConstruction manualConstructConfig)
+		{
+			TypeConstruction.TypeConfigEntry = this;
+			TypeConstruction = manualConstructConfig;
+			return this;
+		}
+
+		/*
 
 		/// <summary>
 		/// Create no instances when deserializing this type, the user-formatter will take care of somehow creating an object instance (or maybe re-using a potentially already existing instance)
@@ -140,48 +244,174 @@ namespace Ceras
 
 			return this;
 		}
+
+		*/
+	}
+
+	/// <summary>
+	/// Use the static factory methods like <see cref="ByConstructor(ConstructorInfo)"/> to create instances
+	/// </summary>
+	public abstract class TypeConstruction
+	{
+		internal TypeConfigEntry TypeConfigEntry; // Not as clean as I'd like, this can't be set from a protected base ctor, because users might eventually want to create their own
+
+		internal abstract bool HasDataArguments { get; }
+		internal abstract Func<object> GetRefFormatterConstructor();
+		internal abstract void EmitConstruction(List<Expression> body, ParameterExpression refValueArg, HashSet<SerializedMember> membersConsumedByFactory);
+
+		// todo: Sanity checks:
+		// - does the given delegate/ctor/method even return an instance of the thing we need?
+		// - can all the members be mapped correctly from FieldName/PropertyName to ParameterName?
+		internal virtual void VerifyReturnType()
+		{ }
+
+		protected void VerifyMethodReturn(MethodBase methodBase, Type intendedReturnType)
+		{
+			if (methodBase is MethodInfo m)
+			{
+				var r = m.ReturnType;
+				var actual = intendedReturnType;
+				// todo: ...
+			}
+		}
+
+		// What is needed for the dynamic object formatter?
+		// - it needs to know which of its locals it needs to pass, and in what order
+		// - it needs to know whether to emit a NewExpression or MethodCallExpression
+
+
+		#region Factory Methods
+
+		public static TypeConstruction Null() => new ConstructNull();
+
+		public static TypeConstruction ByStaticMethod(MethodInfo methodInfo) => new ConstructByMethod(methodInfo);
+		public static TypeConstruction ByStaticMethod(Expression<Func<object>> expression) => new ConstructByMethod(((MethodCallExpression)expression.Body).Method);
+
+		public static TypeConstruction ByConstructor(ConstructorInfo constructorInfo) => new SpecificConstructor(constructorInfo);
+
+		#endregion
 	}
 
 
-	// New, alternative approach
-	class TypeConfigEntry2
+	// Aka "FormatterConstructed"
+	class ConstructNull : TypeConstruction
 	{
+		internal override bool HasDataArguments => false;
+		internal override Func<object> GetRefFormatterConstructor() => () => null;
+
+		internal override void EmitConstruction(List<Expression> body, ParameterExpression refValueArg, HashSet<SerializedMember> membersConsumedByFactory)
+		{
+		}
+
 	}
 
-	public abstract class Construct
+	class SpecificConstructor : TypeConstruction
 	{
-		// bool that tells whether or not to use in ref or dyn.
-		// generate expression trees for ref and dyn formatters.
+		internal ConstructorInfo Constructor;
 
-		
-		public static Construct Null()                                         => new NullConstructionMode();
-		public static Construct ByStaticMethod(MethodInfo     methodInfo)      => new StaticMethodConstructionMode { StaticMethod = methodInfo };
-		public static Construct ByConstructor(ConstructorInfo constructorInfo) => new ConstructorConstructionMode { Constructor   = constructorInfo };
+		public SpecificConstructor(ConstructorInfo constructor)
+		{
+			Constructor = constructor;
+		}
+
+		internal override bool HasDataArguments => Constructor.GetParameters().Length > 0;
+		internal override Func<object> GetRefFormatterConstructor()
+		{
+			return Expression.Lambda<Func<object>>(Expression.New(Constructor)).Compile();
+		}
+
+		internal override void EmitConstruction(List<Expression> body, ParameterExpression refValueArg, HashSet<SerializedMember> membersConsumedByFactory)
+		{
+			var parameters = Constructor.GetParameters();
+
+			
+			Expression[] args = new Expression[parameters.Length];
+			for (int i = 0; i < args.Length; i++)
+			{
+				// Parameter -> SerializedMember (either by automatically mapping by name, or using a user provided lookup)
+
+				// SerializedMember -> ParameterExpression
+
+				// Mark as consumed
+
+			}
+
+			var invocation = Expression.Assign(refValueArg, Expression.New(Constructor, args));
+			body.Add(invocation);
+		}
 	}
 
-	class StaticMethodConstructionMode : Construct
+	class ConstructByMethod : TypeConstruction
 	{
-		public MethodInfo StaticMethod;
-	}
-	
-	class ConstructorConstructionMode : Construct
-	{
-		public ConstructorInfo Constructor;
+		internal readonly MethodInfo Method;
+		internal readonly object TargetObject;
+
+		internal ConstructByMethod(MethodInfo staticMethod)
+		{
+			if (!staticMethod.IsStatic)
+				throw new InvalidOperationException($"You have provided an instance method without a target object");
+
+			Method = staticMethod;
+		}
+
+		internal ConstructByMethod(object targetObject, MethodInfo instanceMethod)
+		{
+			if (instanceMethod.IsStatic)
+				throw new InvalidOperationException("You have provided target-instance but the given method is a static method");
+			if (targetObject == null)
+				throw new ArgumentNullException(nameof(targetObject), "The given method requires an instance (a targetObject), but you have given 'null'");
+
+			Method = instanceMethod;
+			TargetObject = targetObject;
+		}
+
+
+		internal override bool HasDataArguments => Method.GetParameters().Length > 0;
+		internal override Func<object> GetRefFormatterConstructor()
+		{
+			if (Method.IsStatic)
+				return (Func<object>)Delegate.CreateDelegate(typeof(Func<object>), Method);
+			else
+				return (Func<object>)Delegate.CreateDelegate(typeof(Func<object>), TargetObject, Method);
+		}
+
+		internal override void EmitConstruction(List<Expression> body, ParameterExpression refValueArg, HashSet<SerializedMember> membersConsumedByFactory)
+		{
+		}
 	}
 
-	class NullConstructionMode : Construct
-	{
-	}
 
-	enum ObjectConstructionMode
+	class UninitializedObject : TypeConstruction
 	{
-		Null_DeferToFormatter, // Don't construct an instance, let the formatter handle it
-		None_GetUninitializedObject, // Use 'GetUninitializedObject', should only be used as a last resort because it's slow and will not call a constructor
-		Normal_ParameterlessConstructor, // Use parameterless constructor 'new()'
-		SpecificConstructor, // Some constructor that is not the default constructor
+		static MethodInfo _getUninitialized;
 
-		User_InstanceMethod, // The user has given us a specific method and a matching object on which we will call the method
-		User_StaticMethod, // The user has given us some static method which will take care of everything
-		User_Delegate, // A user provided delegate will instantiate any objects
+		// todo: cool ideas:
+		// - after constructing an uninitialized object we can do some trickery to run any ctor on it afterwards
+		// - and maybe after the ctor we'd overwrite some members again (if the ctor messed something up)
+		ConstructorInfo _directConstructor;
+		bool _writeMembersAgain;
+
+		public UninitializedObject()
+		{
+			// We don't want exceptions in static ctors, that's why this is in the normal ctor
+			if (_getUninitialized == null)
+			{
+				Expression<Func<object>> exp = () => System.Runtime.Serialization.FormatterServices.GetUninitializedObject(null);
+				_getUninitialized = ((MethodCallExpression)exp.Body).Method;
+			}
+		}
+
+		internal override bool HasDataArguments => false;// Constructor.GetParameters().Length > 0;
+		internal override Func<object> GetRefFormatterConstructor()
+		{
+			var t = TypeConfigEntry.Type;
+
+			// todo: can be optimized a lot by bypassing some clr checks... but it's very rarely used / needed
+			return Expression.Lambda<Func<object>>(Expression.Call(_getUninitialized, arg0: Expression.Constant(t))).Compile();
+		}
+
+		internal override void EmitConstruction(List<Expression> body, ParameterExpression refValueArg, HashSet<SerializedMember> membersConsumedByFactory)
+		{
+		}
 	}
 }

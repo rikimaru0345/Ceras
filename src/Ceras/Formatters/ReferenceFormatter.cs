@@ -73,22 +73,21 @@
 
 		static readonly Func<object> _nullResultDelegate = () => null;
 
+		readonly CerasSerializer _ceras;
 		readonly TypeFormatter _typeFormatter;
-		readonly CerasSerializer _serializer;
 
 		readonly TypeDictionary<DispatcherEntry> _dispatchers = new TypeDictionary<DispatcherEntry>();
 
 		readonly bool _allowReferences = false;
-		readonly TypeConfiguration _typeConfig;
 
-		public ReferenceFormatter(CerasSerializer serializer)
+
+		public ReferenceFormatter(CerasSerializer ceras)
 		{
-			_serializer = serializer;
+			_ceras = ceras;
 
-			_typeFormatter = (TypeFormatter)serializer.GetSpecificFormatter(typeof(Type));
+			_typeFormatter = (TypeFormatter)ceras.GetSpecificFormatter(typeof(Type));
 
-			_allowReferences = _serializer.Config.PreserveReferences;
-			_typeConfig = _serializer.Config.TypeConfig;
+			_allowReferences = _ceras.Config.PreserveReferences;
 		}
 
 
@@ -115,14 +114,14 @@
 			{
 				var externalObj = (IExternalRootObject)value;
 
-				if (!ReferenceEquals(_serializer.InstanceData.CurrentRoot, value))
+				if (!ReferenceEquals(_ceras.InstanceData.CurrentRoot, value))
 				{
 					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, ExternalObject, Bias);
 
 					var refId = externalObj.GetReferenceId();
 					SerializerBinary.WriteInt32(ref buffer, ref offset, refId);
 
-					_serializer.Config.OnExternalObject?.Invoke(externalObj);
+					_ceras.Config.OnExternalObject?.Invoke(externalObj);
 
 					return;
 				}
@@ -130,7 +129,7 @@
 
 			if (_allowReferences)
 			{
-				if (_serializer.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id))
+				if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id))
 				{
 					// Existing value
 					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, id, Bias);
@@ -138,7 +137,7 @@
 				else
 				{
 					// Register new object
-					_serializer.InstanceData.ObjectCache.RegisterObject(value);
+					_ceras.InstanceData.ObjectCache.RegisterObject(value);
 
 					// Embedd type (if needed)
 					if (ReferenceEquals(typeof(T), specificType))
@@ -191,7 +190,7 @@
 				// Lets return it to the user
 				if (value != null)
 				{
-					_serializer.DiscardObjectMethod?.Invoke(value);
+					_ceras.DiscardObjectMethod?.Invoke(value);
 				}
 
 				value = default;
@@ -209,7 +208,7 @@
 			if (objId >= 0)
 			{
 				// Something we already know
-				value = _serializer.InstanceData.ObjectCache.GetExistingObject<T>(objId);
+				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId);
 				return;
 			}
 
@@ -219,7 +218,7 @@
 				int externalId = SerializerBinary.ReadInt32(buffer, ref offset);
 
 				// Let the user resolve
-				_serializer.Config.ExternalObjectResolver.Resolve(externalId, out value);
+				_ceras.Config.ExternalObjectResolver.Resolve(externalId, out value);
 				return;
 			}
 
@@ -248,7 +247,7 @@
 					if (value.GetType() != specificType)
 					{
 						// Discard the old value
-						_serializer.DiscardObjectMethod?.Invoke(value);
+						_ceras.DiscardObjectMethod?.Invoke(value);
 
 						// Create instance of the right type
 						value = (T)entry.Constructor();
@@ -279,7 +278,7 @@
 			//
 			// Deserialize the object
 			// 1. First generate a proxy so we can do lookups
-			var objectProxy = _serializer.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
+			var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
 
 			// 2. Make sure that the deserializer can make use of an already existing object (if there is one)
 			objectProxy.Value = value;
@@ -299,14 +298,14 @@
 				return entry;
 
 			// Get type meta-data and create a dispatcher entry
-			var meta = _serializer.GetTypeMetaData(type);
+			var meta = _ceras.GetTypeMetaData(type);
 			entry = new DispatcherEntry(type, meta.IsFrameworkType, meta.CurrentSchema);
 
 			if (entry.IsType)
 				return entry; // Don't need to do anything else...
 
 			// Obtain the formatter for this specific type
-			var formatter = _serializer.GetSpecificFormatter(type);
+			var formatter = _ceras.GetSpecificFormatter(type);
 
 			// Create dispatchers and ctor
 			entry.CurrentSerializeDispatcher = CreateSpecificSerializerDispatcher(type, formatter);
@@ -336,75 +335,24 @@
 				return _nullResultDelegate;
 			}
 
-
-			var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-						   .FirstOrDefault(c => c.GetParameters().Length == 0);
-			if (ctor == null)
-				throw new Exception($"Cannot deserialize type '{type.FullName}' because it has no parameterless constructor (support for serialization-constructors will be added in the future)");
-
 			// Create a custom factory method, but also respect the userFactory if there is one
-			var typeConfig = _serializer.Config.TypeConfig.GetOrCreate(type);
+			var typeConfig = _ceras.Config.TypeConfig.GetOrCreate(type);
 
+			var tc = typeConfig.TypeConstruction;
 
-			switch (typeConfig.ConstructionMode)
+			if (tc == null)
 			{
-			case ObjectConstructionMode.Null_DeferToFormatter:
+				throw new InvalidOperationException($"Ceras can not serialize/deserialize the type '{type.FullName}' because it has no 'default constructor'. " +
+													$"You can either set a default setting for all types (config.DefaultTypeConstructionMode) or configure it for individual types in config.ConfigType<YourType>()... For more examples take a look at the tutorial.");
+			}
+
+			if (tc.HasDataArguments || tc is ConstructNull)
 			{
 				return _nullResultDelegate;
 			}
-
-			case ObjectConstructionMode.None_GetUninitializedObject:
+			else
 			{
-				var t = type;
-				return () => FormatterServices.GetUninitializedObject(t);
-			}
-
-			case ObjectConstructionMode.Normal_ParameterlessConstructor:
-			{
-				var lambda = Expression.Lambda<Func<object>>(Expression.New(ctor));
-				return lambda.Compile();
-			}
-
-			case ObjectConstructionMode.User_InstanceMethod:
-			{
-				throw new NotSupportedException("not implemented yet, wip");
-			}
-
-			case ObjectConstructionMode.User_StaticMethod:
-			{
-				throw new NotSupportedException("not implemented yet, wip");
-			}
-
-			case ObjectConstructionMode.User_Delegate:
-			{
-				// Need to call the user factory, and only use 'New()' when we get null from it
-				var userFactory = typeConfig.UserDelegate;
-				var userFactoryMethod = userFactory.GetMethodInfo();
-				var userObj = Expression.Variable(type);
-
-				var callAndAssignUserObj = Expression.Assign(userObj, Expression.Call(Expression.Constant(userFactory), userFactoryMethod));
-
-				var coalesce = Expression.IfThenElse(
-													 // if userObj is null
-													 test: Expression.ReferenceEqual(userObj, Expression.Constant(null, typeof(object))),
-													 // then use new()
-													 ifTrue: Expression.New(ctor),
-													 // else use the given user obj
-													 ifFalse: userObj);
-
-				var body = Expression.Block(callAndAssignUserObj, coalesce);
-
-				var lambda = Expression.Lambda<Func<object>>(body, userObj);
-				return lambda.Compile();
-			}
-
-			case ObjectConstructionMode.SpecificConstructor:
-			{
-				throw new NotSupportedException("not implemented yet, wip");
-			}
-
-			default:
-				throw new IndexOutOfRangeException("ObjectConstructionMode in TypeConfig has an invalid value");
+				return tc.GetRefFormatterConstructor();
 			}
 		}
 

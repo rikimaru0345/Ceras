@@ -88,6 +88,8 @@ namespace Ceras.Test
 			Assert.Equal(dict["a"], clone["a"]);
 		}
 
+		// todo: test public default ctor, private default ctor, and no parameterless ctor (and all construction modes)
+
 		// todo: ignoreField, Caching, KeyValuePairs, Dictionaries, Typing, interfaces,
 		// todo: RootObjects, reusing (overwriting) objects, arrays
 		// todo: known types, hash checks for known types, assured mismatch when another type is added

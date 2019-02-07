@@ -60,12 +60,6 @@ namespace Ceras
 		{
 			// Array is also always constructed by the caller, but it is handled separately
 
-			// All delegates are formatter constructed!
-			// Checking like that is slow, but that's ok because calls will be cached
-			// todo: this should be removed later, when we can notify ceras that a type is formatter-constructed (either automatically by attribute on a formatter, or through some public method)
-			if (typeof(MulticastDelegate).IsAssignableFrom(type))
-				return true;
-
 			return _formatterConstructedTypes.Contains(type);
 		}
 
@@ -611,7 +605,10 @@ namespace Ceras
 
 			meta = new TypeMetaData(type, isFrameworkType);
 
-			meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type);
+			if (isFrameworkType)
+				meta.CurrentSchema = meta.PrimarySchema = new Schema(true, type);
+			else
+				meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type);
 
 			return meta;
 		}
@@ -810,17 +807,23 @@ namespace Ceras
 				}
 				else if (m is PropertyInfo p)
 				{
-					// There's no way we can serialize a prop that we can't read and write, even {private set;} props would be writeable,
-					// That is becasue there is actually physically no set() method we could possibly call. Just like a "computed property".
-					// As for readonly props (like string Name { get; } = "abc";), the only way to serialize them is serializing the backing fields, which is handled above (skipCompilerGenerated)
-					if (!p.CanRead || !p.CanWrite)
-						continue;
+					// Adjust context
+					p = p.DeclaringType.GetProperty(p.Name, flags);
 
-					// This checks for indexers, an indexer is classified as a property
+					// This checks for indexers, an indexer is technically a property
 					if (p.GetIndexParameters().Length != 0)
 						continue;
 
-					isPublic = p.GetMethod.IsPublic;
+					// There's no way we can serialize a prop that we can't read and write, even {private set;} props would be writeable,
+					// That is becasue there is actually physically no set() method we could possibly call. Just like a "computed property".
+					// As for readonly props (like string Name { get; } = "abc";), the only way to serialize them is serializing the backing fields, which is handled above (skipCompilerGenerated)
+					var accessors = p.GetAccessors(true);
+
+					if (accessors.Length <= 1)
+						// It's a "computed" property, which has no concept of writing.
+						continue;
+					
+					isPublic = accessors[0].IsPublic;
 					isProp = true;
 				}
 				else

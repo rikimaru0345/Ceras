@@ -7,13 +7,10 @@ namespace LiveTesting
 	using Ceras.Formatters;
 	using Ceras.Resolvers;
 	using System.Collections.Generic;
-	using System.Collections.ObjectModel;
 	using System.Diagnostics;
 	using System.Linq;
-	using System.Linq.Expressions;
 	using System.Numerics;
 	using System.Reflection;
-	using Newtonsoft.Json;
 	using Tutorial;
 	using Xunit;
 
@@ -24,8 +21,11 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			BugReport25();
+
+
 			Benchmarks();
-			
+
 			TestDirectPoolingMethods();
 
 			ExpressionTreesTest();
@@ -81,7 +81,7 @@ namespace LiveTesting
 			ComplexTest();
 
 			ListTest();
-			
+
 
 
 			var tutorial = new Tutorial();
@@ -99,6 +99,65 @@ namespace LiveTesting
 
 			Console.WriteLine("All tests completed.");
 			Console.ReadKey();
+		}
+
+		public abstract class Person_Issue25
+		{
+			public string Name = "default name";
+			//public List<Person_Issue25> Friends { get; private set; } = new List<Person_Issue25>();
+			public List<Person_Issue25> Friends { get; private set; }
+
+			public Person_Issue25()
+			{
+				Friends = new List<Person_Issue25>();
+			}
+
+			void ChangeFriends()
+			{
+				var f = Friends;
+				Friends=null;
+				Friends=f;
+			}
+
+			protected void SetFriendsToNullInternal()
+			{
+				Friends = null;
+			}
+		}
+
+		public class Adult : Person_Issue25
+		{
+			public byte[] Serialize() => new CerasSerializer().Serialize<object>(this);
+
+			internal void SetFriendsToNull()
+			{
+				SetFriendsToNullInternal();
+			}
+		}
+
+		static void BugReport25()
+		{
+			var p = new Adult();
+			p.Name = "1";
+			p.Friends.Add(new Adult { Name = "2" });
+
+			var config = new SerializerConfig();
+			config.DefaultTargets = TargetMember.AllPublic;
+			var ceras = new CerasSerializer(config);
+
+			var data = ceras.Serialize<object>(p);
+
+			var clone = new Adult();
+			clone.SetFriendsToNull();
+			object refObj = clone;
+			ceras.Deserialize<object>(ref refObj, data);
+
+			Debug.Assert(refObj != null);
+			clone = refObj as Adult;
+			Debug.Assert(clone.Friends != null);
+			Debug.Assert(clone.Friends.Count == 1);
+			Debug.Assert(clone.Friends[0].Name == "2");
+
 		}
 
 		static void ExpressionTreesTest()
@@ -135,29 +194,125 @@ namespace LiveTesting
 		}
 
 
+		class Person
+		{
+			public const string CtorSuffix = " (modified by constructor)";
+
+			public string Name;
+			public int Health;
+			public Person BestFriend;
+
+			public Person()
+			{
+			}
+
+			public Person(string name)
+			{
+				Name = name + CtorSuffix;
+			}
+		}
 
 		static void TestDirectPoolingMethods()
 		{
-			// - allow creation of objects from any source
-			// - todo: allow all those methods to have parameters as well. The user is then responsible for object-reference issues.
+			var pool = new InstancePoolTest();
+
+			// Test: Ctor with argument
+			{
+				SerializerConfig config = new SerializerConfig();
+
+				config.ConfigType<Person>()
+					  // Select ctor, not delegate
+					  .ConstructBy(() => new Person("name"));
+
+				var clone = DoRoundTripTest(config);
+				Debug.Assert(clone != null);
+				Debug.Assert(clone.Name.EndsWith(Person.CtorSuffix));
+			}
+
+			// Test: Manual config
+			{
+				SerializerConfig config = new SerializerConfig();
+
+				config.ConfigType<Person>()
+					  .ConstructBy(TypeConstruction.ByStaticMethod(() => StaticPoolTest.CreatePerson()));
+
+				var clone = DoRoundTripTest(config);
+				Debug.Assert(clone != null);
+			}
+
+			// Test: Normal ctor, but explicitly
+			{
+				SerializerConfig config = new SerializerConfig();
+
+				config.ConfigType<Person>()
+					  // Select ctor, not delegate
+					  .ConstructBy(() => new Person());
+
+				var clone = DoRoundTripTest(config);
+				Debug.Assert(clone != null);
+			}
+
+			// Test: Construct from instance-pool
+			{
+				SerializerConfig config = new SerializerConfig();
+
+				config.ConfigType<Person>()
+					  // Use delegate
+					  .ConstructByDelegate(() => pool.CreatePerson());
+
+				var clone = DoRoundTripTest(config);
+				Debug.Assert(clone != null);
+				Debug.Assert(pool.IsFromPool(clone));
+			}
+
+			// Test: Construct from static-pool
+			{
+				SerializerConfig config = new SerializerConfig();
+
+				config.ConfigType<Person>()
+					  // Use delegate
+					  .ConstructBy(() => StaticPoolTest.CreatePerson());
+
+				var clone = DoRoundTripTest(config);
+				Debug.Assert(clone != null);
+				Debug.Assert(StaticPoolTest.IsFromPool(clone));
+			}
+
+			// Test: Construct from any delegate (in this example: a lambda expression)
+			{
+				SerializerConfig config = new SerializerConfig();
+
+				Person referenceCapturedByLambda = null;
+
+				config.ConfigType<Person>()
+					  // Use delegate
+					  .ConstructByDelegate(() =>
+					  {
+						  var obj = new Person();
+						  referenceCapturedByLambda = obj;
+						  return obj;
+					  });
+
+				var clone = DoRoundTripTest(config);
+				Debug.Assert(clone != null);
+				Debug.Assert(ReferenceEquals(clone, referenceCapturedByLambda));
+			}
 
 
-			SerializerConfig config = new SerializerConfig();
 
-			config.ConfigType<Person>()
-				  .ConstructBy(() => StaticPoolTest.CreatePerson());
+		}
 
+		static Person DoRoundTripTest(SerializerConfig config)
+		{
 			var ceras = new CerasSerializer(config);
 
 			var p = new Person();
 			p.Name = "riki";
+
 			var data = ceras.Serialize(p);
 
-			var cloneFromPool = ceras.Deserialize<Person>(data);
-
-			Debug.Assert(StaticPoolTest.IsFromPool(cloneFromPool));
-
-
+			var clone = ceras.Deserialize<Person>(data);
+			return clone;
 		}
 
 		static class StaticPoolTest
@@ -170,7 +325,7 @@ namespace LiveTesting
 				_objectsCreatedByPool.Add(p);
 				return p;
 			}
-			
+
 			public static Person CreatePersonWithName(string name)
 			{
 				var p = new Person();
@@ -182,6 +337,32 @@ namespace LiveTesting
 			public static bool IsFromPool(Person p) => _objectsCreatedByPool.Contains(p);
 
 			public static void DiscardPooledObjectTest(Person p)
+			{
+			}
+		}
+
+		class InstancePoolTest
+		{
+			HashSet<Person> _objectsCreatedByPool = new HashSet<Person>();
+
+			public Person CreatePerson()
+			{
+				var p = new Person();
+				_objectsCreatedByPool.Add(p);
+				return p;
+			}
+
+			public Person CreatePersonWithName(string name)
+			{
+				var p = new Person();
+				p.Name = name;
+				_objectsCreatedByPool.Add(p);
+				return p;
+			}
+
+			public bool IsFromPool(Person p) => _objectsCreatedByPool.Contains(p);
+
+			public void DiscardPooledObjectTest(Person p)
 			{
 			}
 		}
