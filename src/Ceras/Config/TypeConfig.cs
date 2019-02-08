@@ -43,6 +43,8 @@ namespace Ceras
 
 	public class TypeConfigEntry
 	{
+		const BindingFlags BindingFlags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static;
+
 		internal Type Type;
 
 		internal TypeConstruction TypeConstruction;
@@ -52,12 +54,24 @@ namespace Ceras
 		{
 			Type = type;
 
-			var ctor = type.GetConstructor(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+			var methods = type.GetMethods(BindingFlags).Cast<MemberInfo>().Concat(type.GetConstructors(BindingFlags));
+			MemberInfo ctor = methods.FirstOrDefault(m => m.GetCustomAttribute<CerasConstructorAttribute>() != null);
+		
+			if(ctor == null)
+				// No hint found, try default ctor
+				ctor = type.GetConstructor(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
 
+			// Default is null to throw an exception unless configured otherwise by the user later on
+			TypeConstruction = null;
+
+			// Apply this ctor or factory
 			if (ctor != null)
-				TypeConstruction = TypeConstruction.ByConstructor(ctor);
-			else
-				TypeConstruction = null;
+			{
+				if (ctor is ConstructorInfo constructorInfo)
+					TypeConstruction = TypeConstruction.ByConstructor(constructorInfo);
+				else if (ctor is MethodInfo methodInfo)
+					TypeConstruction = TypeConstruction.ByStaticMethod(methodInfo);
+			}
 		}
 
 

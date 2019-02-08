@@ -171,6 +171,15 @@
 			MemberType = memberType;
 		}
 	}
+
+
+	/// <summary>
+	/// Put this on any constructor or static method as a hint of what constructor/factory to use by default. (Can be overriden through <see cref="SerializerConfig.ConfigType{T}"/>)
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Constructor | AttributeTargets.Method)]
+	public class CerasConstructorAttribute : Attribute
+	{
+	}
 }
 
 namespace Ceras.Formatters
