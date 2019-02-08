@@ -3,7 +3,6 @@ using System.Collections.Generic;
 
 namespace Ceras
 {
-	using Ceras.Formatters;
 	using Ceras.Helpers;
 	using System.Linq;
 	using System.Linq.Expressions;
@@ -56,8 +55,8 @@ namespace Ceras
 
 			var methods = type.GetMethods(BindingFlags).Cast<MemberInfo>().Concat(type.GetConstructors(BindingFlags));
 			MemberInfo ctor = methods.FirstOrDefault(m => m.GetCustomAttribute<CerasConstructorAttribute>() != null);
-		
-			if(ctor == null)
+
+			if (ctor == null)
 				// No hint found, try default ctor
 				ctor = type.GetConstructor(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
 
@@ -281,23 +280,38 @@ namespace Ceras
 
 		// todo: Sanity checks:
 		// - does the given delegate/ctor/method even return an instance of the thing we need?
-		// - can all the members be mapped correctly from FieldName/PropertyName to ParameterName?
+		// - can all the members be mapped correctly from FieldName/PropertyName to ParameterName? -> unfortunately this can't actually be done early. The schema we use can be different (reading with version tolerance)
 		internal virtual void VerifyReturnType()
 		{ }
 
-		protected void VerifyMethodReturn(MethodBase methodBase, Type intendedReturnType)
+		protected void VerifyMethodReturn(MethodBase methodBase)
 		{
+			if (methodBase.IsAbstract)
+				throw new InvalidOperationException($"The given method '{methodBase.Name}' is abstract so it can not be used to construct anything.");
+
+			// Example:
+			// object -> Animal -> Cat
+			// Ctor gives us a cat, we need an animal -> everything ok
+
+			Type resultType;
+
 			if (methodBase is MethodInfo m)
 			{
-				var r = m.ReturnType;
-				var actual = intendedReturnType;
-				// todo: ...
+				resultType = m.ReturnType;
 			}
-		}
+			else if (methodBase is ConstructorInfo c)
+			{
+				resultType = c.DeclaringType; // the "result" of a ctor is its declaring type
+			}
+			else
+				throw new NotImplementedException("this helper method cannot handle a member info of type " + methodBase.GetType().FullName);
 
-		// What is needed for the dynamic object formatter?
-		// - it needs to know which of its locals it needs to pass, and in what order
-		// - it needs to know whether to emit a NewExpression or MethodCallExpression
+			// Can we use the result to assign it to the needed type?
+			var neededType = TypeConfigEntry.Type;
+
+			if (!neededType.IsAssignableFrom(resultType))
+				throw new InvalidOperationException($"The given method or constructor returns a '{resultType.FullName}' which is not compatible to the needed type '{neededType.FullName}'");
+		}
 
 
 		#region Factory Methods
@@ -319,7 +333,7 @@ namespace Ceras
 		internal override bool HasDataArguments => false;
 		internal override Func<object> GetRefFormatterConstructor() => () => null;
 	}
-	
+
 	class SpecificConstructor : TypeConstruction
 	{
 		internal ConstructorInfo Constructor;
@@ -356,7 +370,7 @@ namespace Ceras
 
 				// SerializedMember -> ParameterExpression
 				var paramExp = memberParameters.First(m => m.Member == schemaMember.Member.MemberInfo);
-				
+
 				// Use as source in call
 				args[i] = paramExp.LocalVar;
 
@@ -374,6 +388,11 @@ namespace Ceras
 
 			var invocation = Expression.Assign(refValueArg, Expression.New(Constructor, args));
 			body.Add(invocation);
+		}
+
+		internal override void VerifyReturnType()
+		{
+			VerifyMethodReturn(Constructor);
 		}
 	}
 
@@ -417,17 +436,21 @@ namespace Ceras
 			var args = SpecificConstructor.ConfigureArguments(parameters, schema, usedVariables, memberParameters);
 
 			Expression invocation;
-			if(Method.IsStatic)
+			if (Method.IsStatic)
 				invocation = Expression.Assign(refValueArg, Expression.Call(Method, args));
 			else
 				invocation = Expression.Assign(refValueArg, Expression.Call(instance: Expression.Constant(TargetObject), method: Method, args));
-			
+
 			body.Add(invocation);
 		}
-
+		
+		internal override void VerifyReturnType()
+		{
+			VerifyMethodReturn(Method);
+		}
 	}
 
-
+	// todo: There are a lot of hardcore tricks to improve performance here. But for now it would be wasted time since the feature will (probably) be used very rarely.
 	class UninitializedObject : TypeConstruction
 	{
 		static MethodInfo _getUninitialized;
@@ -448,13 +471,30 @@ namespace Ceras
 			}
 		}
 
-		internal override bool HasDataArguments => false;// Constructor.GetParameters().Length > 0;
+		internal override bool HasDataArguments => _directConstructor == null || _directConstructor.GetParameters().Length == 0;
+
 		internal override Func<object> GetRefFormatterConstructor()
 		{
 			var t = TypeConfigEntry.Type;
 
-			// todo: can be optimized a lot by bypassing some clr checks... but it's very rarely used / needed
 			return Expression.Lambda<Func<object>>(Expression.Call(_getUninitialized, arg0: Expression.Constant(t))).Compile();
 		}
 	}
+
+	// todo: a construction method that expects an object to be already present but then runs a given ctor anyway. Maybe also resetting all members and private vars to 'default(T)' ?
+	abstract class ResetAndReuse : TypeConstruction
+	{
+		// option: load data from existing object into locals
+		// option: reset all fields to default (including compiler generated), in definition order
+		// option: call a specific ctor
+		// option: write selected members again after calling the ctor
+	}
+
+	// todo: combines two construct methods. For example something that can somehow reuse an existing object, or fallback to somehow creating a new object when needed
+	abstract class CoalesceConstruction : TypeConstruction
+	{
+		// Try reuse (overwrite, reset, direct-ctor, ...)
+		// Or create custom (new(), factory, ...)
+	}
+
 }
