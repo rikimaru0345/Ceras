@@ -9,6 +9,7 @@ namespace Ceras
 	using Resolvers;
 	using System;
 	using System.Collections.Generic;
+	using System.ComponentModel;
 	using System.Linq;
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
@@ -51,6 +52,7 @@ namespace Ceras
 		internal static readonly Type _rtTypeType, _rtFieldType, _rtPropType, _rtCtorType, _rtMethodType;
 		static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
 
+		[Obsolete("Use 'config.ConfigType(type)' instead to configure how new objects are created."), EditorBrowsable(EditorBrowsableState.Never)] 
 		public static void AddFormatterConstructedType(Type type)
 		{
 			_formatterConstructedTypes.Add(type);
@@ -163,7 +165,7 @@ namespace Ceras
 
 			_userResolvers = Config.OnResolveFormatter.ToArray();
 
-			// Int, Float, Enum, String
+			// Int, Float, Enum, ...
 			_resolvers.Add(new PrimitiveResolver(this));
 
 			_resolvers.Add(new KeyValuePairFormatterResolver(this));
@@ -176,8 +178,8 @@ namespace Ceras
 			// That is because we only want to have specific resolvers in the resolvers-list
 			_dynamicResolver = new DynamicObjectFormatterResolver(this);
 
-			// String Formatter should never be wrapped in a RefFormatter, that's too slow
 
+			// String Formatter should never be wrapped in a RefFormatter, that's too slow and not necessary
 			IFormatter stringFormatter;
 			if (Config.Advanced.SizeLimits.MaxStringLength < uint.MaxValue)
 				stringFormatter = new MaxSizeStringFormatter(Config.Advanced.SizeLimits.MaxStringLength);

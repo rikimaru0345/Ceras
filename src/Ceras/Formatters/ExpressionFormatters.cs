@@ -9,9 +9,6 @@
 
 	class ExpressionFormatterResolver : IFormatterResolver
 	{
-		readonly CerasSerializer _ceras;
-		readonly ExpressionFormatter _expressionFormatter;
-
 		readonly LabelTargetFormatter _labelTargetFormatter;
 		readonly LabelFormatter _labelFormatter;
 
@@ -19,15 +16,8 @@
 		readonly MemberListBindingFormatter _memberListBindingFormatter;
 		readonly MemberMemberBindingFormatter _memberMemberBindingFormatter;
 
-		readonly Dictionary<Type, IFormatter> _genericLambdaFormatters = new Dictionary<Type, IFormatter>();
-
-
-		public ExpressionFormatterResolver(CerasSerializer ceras)
+		public ExpressionFormatterResolver()
 		{
-			_ceras = ceras;
-
-			_expressionFormatter = new ExpressionFormatter();
-
 			_labelTargetFormatter = new LabelTargetFormatter();
 			_labelFormatter = new LabelFormatter();
 
@@ -52,23 +42,32 @@
 
 			if (type == typeof(MemberMemberBinding))
 				return _memberMemberBindingFormatter;
-
-			if (type.IsGenericType)
-			{
-				// todo: handle generic lambda expression in specialized formatter
-			}
-
-
-			if (type.IsSubclassOf(typeof(Expression)))
-			{
-				// No type derived from Expression can be instantiated normally
-				CerasSerializer.AddFormatterConstructedType(type);
-
-				return _expressionFormatter;
-			}
-
+			
 			return null;
 		}
+
+
+		internal static void Configure(SerializerConfig config)
+		{
+			// Find all concrete types in System.Core that implement Expression
+			var coreTypes = typeof(Expression).Assembly.GetTypes();
+			var coreExpressionTypes = coreTypes.Where(t => !t.IsAbstract && t.IsSubclassOf(typeof(Expression)));
+
+			// - Set their construction mode to UninitializedObject()
+			// - Set their readonly handling to forced overwrite
+			foreach (var t in coreExpressionTypes)
+			{
+				config.ConfigType(t)
+					  .ConstructByUninitialized()
+					  .ReadonlyFieldHandling(ReadonlyFieldHandling.ForcedOverwrite);
+			}
+
+			// todo: add support for the types above that are not expressions
+
+			// todo: - delegate to hook into TypeBinder; shorten expression type names to unique IDs or something. Maybe a 3 byte thing: special "ceras internal Id" symbol, then "expression tree type", then "actual type index"
+
+		}
+
 	}
 
 

@@ -78,9 +78,23 @@
 
 		internal TypeConfiguration TypeConfig = new TypeConfiguration();
 
+		/// <summary>
+		/// Generic version of <see cref="ConfigType(Type)"/>
+		/// </summary>
 		public TypeConfigEntry ConfigType<T>() => ConfigType(typeof(T));
+		/// <summary>
+		/// Use this when you want to configure types directly (instead of through attributes). Any changes you make using this method will override any settings applied through attributes on the type.
+		/// </summary>
 		public TypeConfigEntry ConfigType(Type type) => TypeConfig.GetOrCreate(type);
 
+		/// <summary>
+		/// Usually you would just put attributes (like <see cref="MemberConfigAttribute"/>) on your types to define how they're serialized. But sometimes you want to configure some types that you don't control (like types from some external library you're using). In that case you'd use <see cref="ConfigType{T}"/>. But sometimes even that doesn't work, for example when some types are private, or too numerous, or generic (so they don't even exist as "closed" / specific types yet); so when you're in a situation like that, you'd use this <see cref="OnConfigNewType"/> to configure a type right when it's used.
+		/// <para>
+		/// Keep in mind that this callback will only be called when Ceras encounters it for the first time. 
+		/// That means it will not get called for any type that you have already configured using <see cref="ConfigType{T}"/>!
+		/// </para>
+		/// </summary>
+		public Action<TypeConfigEntry> OnConfigNewType { get; set; }
 
 
 
@@ -104,6 +118,7 @@
 		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
 		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = null;
 		DelegateSerializationMode IAdvancedConfigOptions.DelegateSerialization { get; set; } = DelegateSerializationMode.Off;
+
 	}
 
 

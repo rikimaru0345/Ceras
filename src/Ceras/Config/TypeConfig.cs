@@ -3,6 +3,7 @@ using System.Collections.Generic;
 
 namespace Ceras
 {
+	using Ceras.Formatters;
 	using Ceras.Helpers;
 	using System.Linq;
 	using System.Linq.Expressions;
@@ -46,7 +47,8 @@ namespace Ceras
 
 		internal Type Type;
 
-		internal TypeConstruction TypeConstruction;
+		internal TypeConstruction TypeConstruction; // null = invalid
+		internal ReadonlyFieldHandling? CustomReadonlyHandling; // null = use global default from config
 
 
 		internal TypeConfigEntry(Type type)
@@ -74,6 +76,11 @@ namespace Ceras
 		}
 
 
+		#region Construction
+
+		/// <summary>
+		/// Call a given static method to get an object
+		/// </summary>
 		public TypeConfigEntry ConstructBy(MethodInfo methodInfo)
 		{
 			TypeConstruction = new ConstructByMethod(methodInfo);
@@ -84,6 +91,9 @@ namespace Ceras
 			return this;
 		}
 
+		/// <summary>
+		/// Call a given instance-method on the given object instance to create a object
+		/// </summary>
 		public TypeConfigEntry ConstructBy(object instance, MethodInfo methodInfo)
 		{
 			TypeConstruction = new ConstructByMethod(instance, methodInfo);
@@ -94,6 +104,9 @@ namespace Ceras
 			return this;
 		}
 
+		/// <summary>
+		/// Use the given constructor to create a new object
+		/// </summary>
 		public TypeConfigEntry ConstructBy(ConstructorInfo constructorInfo)
 		{
 			TypeConstruction = new SpecificConstructor(constructorInfo);
@@ -104,6 +117,9 @@ namespace Ceras
 			return this;
 		}
 
+		/// <summary>
+		/// Call the given delegate to produce an object (this is the only method that currently does not support arguments, support for that will be added later)
+		/// </summary>
 		public TypeConfigEntry ConstructByDelegate(Func<object> factory)
 		{
 			// Delegates get deconstructed into target+method automatically
@@ -117,15 +133,17 @@ namespace Ceras
 
 			return this;
 		}
-
-
+		
+		/// <summary>
+		/// Use the given static method (inferred from the given expression). This works exactly the same as <see cref="ConstructBy(MethodInfo)"/> but since it takes an Expression selecting a method is much easier (no need to fiddle around with reflection manually). The given expression is not compiled or called in any way.
+		/// </summary>
 		public TypeConfigEntry ConstructBy(Expression<Func<object>> methodSelectExpression)
 		{
 			return ConstructBy(instance: null, methodSelectExpression);
 		}
-
+		
 		/// <summary>
-		/// Use this overload to select a static method or constructor to use to create instance
+		/// Use the given static method (inferred from the given expression). This works exactly the same as <see cref="ConstructBy(object, MethodInfo)"/> but since it takes an Expression selecting a method is much easier (no need to fiddle around with reflection manually). The given expression is not compiled or called in any way.
 		/// </summary>
 		public TypeConfigEntry ConstructBy(object instance, Expression<Func<object>> methodSelectExpression)
 		{
@@ -168,99 +186,26 @@ namespace Ceras
 			return this;
 		}
 
-		/*
-
 		/// <summary>
-		/// Create no instances when deserializing this type, the user-formatter will take care of somehow creating an object instance (or maybe re-using a potentially already existing instance)
-		/// </summary>
-		public TypeConfigEntry ConstructByFormatter()
-		{
-			// todo: can not be used with DynamicObjectFormatter; only with custom / user provided types.
-			ConstructionMode = ObjectConstructionMode.Null_DeferToFormatter;
-			return this;
-		}
-
-		/// <summary>
-		/// Use '<see cref="System.Runtime.Serialization.FormatterServices.GetUninitializedObject(Type)"/>' to create instances of this type.
-		/// This will make it possible to deal with stubborn objects which have no parameterless constructor!
-		/// <para>!! Warning !!</para>
-		/// Don't use this as an easy way to side-step any problems, there are two things to keep in mind with this:
-		/// <list type="bullet">
-		/// <item>
-		/// <description>
-		/// GetUninitializedObject is by its nature not very fast. Expect a ~6x slowdown when creating objects (note that creating objects is a very small part of the whole deserialization, but in some rare cases it might still impact you. So test it for yourself!)
-		/// </description>
-		/// </item>
-		/// <item>
-		/// <description>
-		/// No constructor is executed, not even the default one. If the normal constructor of the object has some important side effects, then you'll run into trouble. Obviously this completely depends on the situation. And if you're looking into this option you probably already know what you're getting yourself into...
-		/// </description>
-		/// </item>
-		/// </list>
+		/// Create an object without running any of its constructors
 		/// </summary>
 		public TypeConfigEntry ConstructByUninitialized()
 		{
-			ConstructionMode = ObjectConstructionMode.None_GetUninitializedObject;
+			TypeConstruction = new UninitializedObject();
 			return this;
 		}
 
-		public TypeConfigEntry ConstructBy(MethodInfo staticMethod)
-		{
-			ConstructionMode = ObjectConstructionMode.User_StaticMethod;
-			return this;
-		}
+		#endregion
 
-		public TypeConfigEntry ConstructBy(object instance, MethodInfo instanceMethod)
-		{
-			ConstructionMode = ObjectConstructionMode.User_InstanceMethod;
-			return this;
-		}
-
-		public TypeConfigEntry ConstructBy(ConstructorInfo constructor)
-		{
-			ConstructionMode = ObjectConstructionMode.SpecificConstructor;
-			return this;
-		}
-
-		public TypeConfigEntry ConstructBy(Delegate @delegate)
-		{
-			ConstructionMode = ObjectConstructionMode.User_Delegate;
-			return this;
-		}
 
 		/// <summary>
-		/// Helper method that redirects to <see cref="ConstructBy(MethodInfo)"/> by extracting the <see cref="MethodInfo"/> from the given expression
+		/// Configure how readonly fields are handled for this type
 		/// </summary>
-		public TypeConfigEntry ConstructBy<T>(Expression<Func<T>> methodSelectExpression)
+		public TypeConfigEntry ReadonlyFieldHandling(ReadonlyFieldHandling mode)
 		{
-			var method = ((MethodCallExpression)methodSelectExpression.Body).Method;
-
-			if (!method.IsStatic)
-				throw new InvalidOperationException("The given method is an instance-method, but you did not provide an instance.");
-
-			ConstructionMode = ObjectConstructionMode.User_StaticMethod;
-			ObjectConstructionMethod = method;
-
+			CustomReadonlyHandling = mode;
 			return this;
 		}
-
-		/// <summary>
-		/// Helper method that redirects to <see cref="ConstructBy(object, MethodInfo)"/> by extracting the <see cref="MethodInfo"/> from the given expression
-		/// </summary>
-		public TypeConfigEntry ConstructBy<T>(object instance, Expression<Func<T>> methodSelectExpression)
-		{
-			var method = ((MethodCallExpression)methodSelectExpression.Body).Method;
-
-			if (method.IsStatic)
-				throw new InvalidOperationException("The given method is a static method, but you have provided an instance that is not needed.");
-
-			ConstructionMode = ObjectConstructionMode.User_StaticMethod;
-			ObjectConstructionMethod = method;
-
-			return this;
-		}
-
-		*/
 	}
 
 	/// <summary>
@@ -323,6 +268,12 @@ namespace Ceras
 
 		public static TypeConstruction ByConstructor(ConstructorInfo constructorInfo) => new SpecificConstructor(constructorInfo);
 
+		public static TypeConstruction ByUninitialized() => new UninitializedObject();
+
+		// public static TypeConstruction ByUninitialized(ConstructorInfo directCtor) => ...;
+		// public static TypeConstruction ByCombination() ... // allow to specify what should happen if there's an object (reset it? or just overwrite?) and how to create a new one
+
+
 		#endregion
 	}
 
@@ -358,18 +309,18 @@ namespace Ceras
 			{
 				// Parameter -> SerializedMember (either by automatically mapping by name, or using a user provided lookup)
 				var parameterName = targetMethodParamters[i].Name;
-				var schemaMember = schema.Members.FirstOrDefault(m => parameterName.Equals(m.Member.Name, StringComparison.OrdinalIgnoreCase) || parameterName.Equals(m.PersistentName, StringComparison.OrdinalIgnoreCase));
+				var schemaMember = schema.Members.FirstOrDefault(m => parameterName.Equals(m.MemberName, StringComparison.OrdinalIgnoreCase) || parameterName.Equals(m.PersistentName, StringComparison.OrdinalIgnoreCase));
 
 				// todo: try mapping by type as well (only works when there's exactly one type)
 				// todo: remove prefixes like "_" or "m_" from member names
 
-				if (schemaMember.Member.MemberInfo == null || schemaMember.IsSkip) // Not found, or current schema does not contain this data member
+				if (schemaMember.MemberInfo == null || schemaMember.IsSkip) // Not found, or current schema does not contain this data member
 				{
 					throw new InvalidOperationException($"Can not construct type '{schema.Type.FullName}' using the selected constructor (or method) because the parameter '{parameterName}' can not be automatically mapped to any of the members in the current schema. Please provide a custom mapping for this constructor or method in the serializer config.");
 				}
 
 				// SerializedMember -> ParameterExpression
-				var paramExp = memberParameters.First(m => m.Member == schemaMember.Member.MemberInfo);
+				var paramExp = memberParameters.First(m => m.Member == schemaMember.MemberInfo);
 
 				// Use as source in call
 				args[i] = paramExp.LocalVar;
@@ -443,14 +394,13 @@ namespace Ceras
 
 			body.Add(invocation);
 		}
-		
+
 		internal override void VerifyReturnType()
 		{
 			VerifyMethodReturn(Method);
 		}
 	}
 
-	// todo: There are a lot of hardcore tricks to improve performance here. But for now it would be wasted time since the feature will (probably) be used very rarely.
 	class UninitializedObject : TypeConstruction
 	{
 		static MethodInfo _getUninitialized;
@@ -475,10 +425,24 @@ namespace Ceras
 
 		internal override Func<object> GetRefFormatterConstructor()
 		{
+			// todo: There are a lot of hardcore tricks to improve performance here. But for now it would be wasted time since the feature will (probably) be used very rarely.
 			var t = TypeConfigEntry.Type;
 
 			return Expression.Lambda<Func<object>>(Expression.Call(_getUninitialized, arg0: Expression.Constant(t))).Compile();
 		}
+
+		internal override void VerifyReturnType()
+		{
+			if (_directConstructor != null)
+				if (_directConstructor.DeclaringType != base.TypeConfigEntry.Type)
+					throw new InvalidOperationException($"The given constructor is not part of the type '{base.TypeConfigEntry.Type.FullName}'");
+		}
+
+		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, MemberParameterPair[] memberParameters)
+		{
+			throw new NotImplementedException("running a ctor or factory is not yet supported in this mode");
+		}
+
 	}
 
 	// todo: a construction method that expects an object to be already present but then runs a given ctor anyway. Maybe also resetting all members and private vars to 'default(T)' ?

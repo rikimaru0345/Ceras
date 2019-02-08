@@ -89,15 +89,14 @@ namespace Ceras.Formatters
 
 			foreach (var sMember in members)
 			{
-				var member = sMember.Member;
-				var type = member.MemberType;
+				var member = sMember;
 
 				// todo: have a lookup list to directly get the actual 'SerializerBinary' method. There is no reason to actually use objects like "Int32Formatter" IF we can "unpack" them
 				// todo: .. we could have a dictionary that maps formatter-types to MethodInfo, that would also make it so we don't even have to keep a constant with the reference to the formatter around
 				// todo: depending on the configuration, we could have a "StructBlitFormatter" which just re-interprets the pointer and writes the data directly in a single assignment; like casting the byte[] to a byte* to a Vector3* and then doing a direct assignment. (only works with blittable types, and if the setting is active)
 				// todo: if we have a setting for that, it should be global (as a fallback) as well as a per-type config; the TypeConfig has to get its default value from the global value (maybe in the CerasSerializer ctor), so it doesn't have to keep looking into the global config; and so there is no bug when someone configures some types directly first and then sets the default after!
 				// todo: fully unpack known formatters as well. Maybe let matching formatters implement an interface that can return some sort of "Expression GetDirectCall(bufferArg, offsetArg, localStore)"
-				var formatter = _ceras.GetReferenceFormatter(type);
+				var formatter = _ceras.GetReferenceFormatter(member.MemberType);
 
 				// Get the formatter and its Serialize method
 				// var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
@@ -142,10 +141,10 @@ namespace Ceras.Formatters
 			// 1. Read existing values into locals (Why? See explanation at the end of the file)
 			for (var i = 0; i < members.Count; i++)
 			{
-				var member = members[i].Member;
+				var member = members[i];
 
 				// Read the data into a new local variable 
-				var tempStore = Variable(member.MemberType, member.Name + "_local");
+				var tempStore = Variable(member.MemberType, member.MemberName + "_local");
 				locals.Add(tempStore);
 
 				if (constructObject)
@@ -159,7 +158,7 @@ namespace Ceras.Formatters
 			// 2. Deserialize using local variable (faster and more robust than working with field/prop directly)
 			for (var i = 0; i < members.Count; i++)
 			{
-				var member = members[i].Member;
+				var member = members[i];
 				var tempStore = locals[i];
 
 				var formatter = _ceras.GetReferenceFormatter(member.MemberType);
@@ -177,7 +176,7 @@ namespace Ceras.Formatters
 			if (constructObject)
 			{
 				// Create a helper array for the implementing type construction
-				var memberParameters = schema.Members.Zip(locals, (m, l) => new MemberParameterPair {Member = m.Member.MemberInfo, LocalVar = l}).ToArray();
+				var memberParameters = schema.Members.Zip(locals, (m, l) => new MemberParameterPair {Member = m.MemberInfo, LocalVar = l}).ToArray();
 
 				usedVariables = new HashSet<ParameterExpression>();
 				tc.EmitConstruction(schema, body, refValueArg, usedVariables, memberParameters);
@@ -188,7 +187,7 @@ namespace Ceras.Formatters
 			for (int i = 0; i < members.Count; i++)
 			{
 				var sMember = members[i];
-				var member = members[i].Member;
+				var member = members[i];
 				var tempStore = locals[i];
 				var type = member.MemberType;
 
@@ -213,7 +212,7 @@ namespace Ceras.Formatters
 				else
 				{
 					// Context
-					var p = member.MemberInfo.DeclaringType.GetProperty(member.Name, _bindingFlags);
+					var p = member.MemberInfo.DeclaringType.GetProperty(member.MemberName, _bindingFlags);
 
 					var setMethod = p.GetSetMethod(true);
 					body.Add(Call(instance: refValueArg, setMethod, tempStore));

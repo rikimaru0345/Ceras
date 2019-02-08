@@ -9,6 +9,7 @@ namespace LiveTesting
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Linq;
+	using System.Linq.Expressions;
 	using System.Numerics;
 	using System.Reflection;
 	using Tutorial;
@@ -23,9 +24,9 @@ namespace LiveTesting
 		{
 			Benchmarks();
 
-			TestDirectPoolingMethods();
-
 			ExpressionTreesTest();
+
+			TestDirectPoolingMethods();
 
 			DelegatesTest();
 
@@ -99,37 +100,82 @@ namespace LiveTesting
 		}
 
 
+		class ReadonlyTestClass
+		{
+			readonly string _name = "default";
+
+			public ReadonlyTestClass(string name)
+			{
+				_name = name;
+			}
+
+			public string GetName()
+			{
+				return _name;
+			}
+		}
+
 		static void ExpressionTreesTest()
 		{
-			return;
+			Expression<Func<string, int, char>> getCharAtIndex = (text, index) => (text.ElementAt(index).ToString() + text[index])[0];
+
+			var del = getCharAtIndex.Compile();
+
+			string inputString = "abcde";
+			char c1 = del(inputString, 2);
+
+
+			// Serialize and deserialize delegate
+			SerializerConfig config = new SerializerConfig();
+
+			var expressionFormatterResolver = new ExpressionFormatterResolver();
+			config.OnResolveFormatter.Add((c, t) => expressionFormatterResolver.GetFormatter(t));
+
+			config.OnConfigNewType = t =>
+			{
+				//if(t.)
+			};
+
+			var ceras = new CerasSerializer(config);
+
+			var data = ceras.Serialize<object>(getCharAtIndex);
+			var clonedExp = (Expression<Func<string, int, char>>)ceras.Deserialize<object>(data);
+
+			var del2 = clonedExp.Compile();
+			var c2 = del2(inputString, 2);
+
+			Console.WriteLine();
+
+			// Can we make an expression to accelerate writing to readonly fields?
 			/*
+			{
+				var p = new ReadonlyTestClass("abc");
 
-			string str = "abcdef";
-			
-			var tStr = typeof(string);
-			var indexerProp = tStr.GetProperties(BindingFlags.Public | BindingFlags.Instance).First(p => p.GetIndexParameters().Length > 0);
-			var index = Expression.Constant(2);
+				var f = p.GetType().GetField("_name", BindingFlags.Instance | BindingFlags.NonPublic);
+				var objParam = Expression.Parameter(p.GetType(), "obj");
+				var newValParam = Expression.Parameter(typeof(string), "newVal");
 
-			var indexExp = Expression.MakeIndex(Expression.Constant(str), indexerProp, new[] { index });
+				var fieldExp = Expression.Field(objParam, f);
+				// var assignment = Expression.Assign(fieldExp, newValParam);
 
-			var ctor = typeof(IndexExpression).GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).First();
-			var ctorParams = ctor.GetParameters();
+				var assignmentOp = typeof(Expression).Assembly.GetType("System.Linq.Expressions.AssignBinaryExpression");
+				var assignment = (Expression)Activator.CreateInstance(assignmentOp,
+																	  BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.CreateInstance,
+																	  null,
+																	  new object[] { fieldExp, newValParam },
+																	  null);
 
-			Expression instance = null;
-			PropertyInfo indexer = null;
-			IList<Expression> args = null;
+				// Create the method
 
-			ParameterExpression argInstance = Expression.Parameter(typeof(Expression));
-			ParameterExpression argIndexer = Expression.Parameter(typeof(PropertyInfo));
-			ParameterExpression argArgs = Expression.Parameter(typeof(IList<Expression>));
+				DynamicMethod dynamicMethod = new DynamicMethod("test", null, new Type[] { typeof(ReadonlyTestClass), typeof(string) }, owner: typeof(ReadonlyTestClass), skipVisibility: true);
+				var ilGen = dynamicMethod.GetILGenerator();
 
-			var ctorDelegate = Expression.Lambda<Func<Expression, PropertyInfo, IList<Expression>, IndexExpression>>(Expression.New(ctor, argInstance, argIndexer, argArgs), argInstance, argIndexer, argArgs).Compile();
+				MethodBuilder methodBuilder = ;
+				Expression.Lambda<Action<ReadonlyTestClass, string>>(assignment, objParam, newValParam).CompileToMethod(methodBuilder);
 
-			var indexExp2 = ctorDelegate(Expression.Constant(9999), null, null);
-
+				del(p, "changed!");
+			}
 			*/
-
-			new ExpressionFormatter();
 		}
 
 

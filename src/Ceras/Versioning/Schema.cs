@@ -40,10 +40,7 @@
 		public Type Type { get; }
 		public bool IsPrimary { get; }
 		public List<SchemaMember> Members { get; } = new List<SchemaMember>();
-
-		public IFormatter SpecificFormatter;
-		public IFormatter ReferenceFormatter;
-
+		
 		public Schema(bool isPrimary, Type type)
 		{
 			IsPrimary = isPrimary;
@@ -73,7 +70,7 @@
 				if (a.IsSkip != b.IsSkip)
 					return false;
 
-				if (a.Member.MemberInfo != b.Member.MemberInfo)
+				if (a.MemberInfo != b.MemberInfo)
 					return false;
 			}
 
@@ -100,7 +97,7 @@
 					{
 						if (m.IsSkip)
 							return "skip";
-						return m.Member.MemberType.FullName + m.Member.MemberInfo.Name;
+						return m.MemberType.FullName + m.MemberInfo.Name;
 					}));
 					_hash = hashSource.GetHashCode();
 
@@ -242,20 +239,24 @@
 
 	struct SchemaMember
 	{
-		public readonly string PersistentName; // If set, this gets written as type name
-		public readonly SerializedMember Member;
+		readonly SerializedMember _member;
 
-		public bool IsSkip => Member.MemberInfo == null; // If this is true, then member and override formatter are not used; while reading the element is skipped (by reading its size)
+		public readonly string PersistentName; // If set, this gets written as type name
+
+		public MemberInfo MemberInfo => _member.MemberInfo;
+		public Type MemberType => _member.MemberType;
+		public string MemberName => _member.Name;
+		
+		public bool IsSkip => MemberInfo == null; // If this is true, then member and override formatter are not used; while reading the element is skipped (by reading its size)
 
 		public readonly ReadonlyFieldHandling ReadonlyFieldHandling;
 
 		// public IFormatter OverrideFormatter;
 
-
 		public SchemaMember(string persistentName, SerializedMember serializedMember, ReadonlyFieldHandling readonlyFieldHandling)
 		{
 			PersistentName = persistentName;
-			Member = serializedMember;
+			_member = serializedMember;
 			ReadonlyFieldHandling = readonlyFieldHandling;
 		}
 
@@ -263,7 +264,7 @@
 		public SchemaMember(string persistentName)
 		{
 			PersistentName = persistentName;
-			Member = default;
+			_member = default;
 			ReadonlyFieldHandling = ReadonlyFieldHandling.Off;
 		}
 
