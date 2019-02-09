@@ -12,6 +12,7 @@ namespace LiveTesting
 	using System.Linq.Expressions;
 	using System.Numerics;
 	using System.Reflection;
+	using System.Text;
 	using Tutorial;
 	using Xunit;
 
@@ -128,17 +129,14 @@ namespace LiveTesting
 			// Serialize and deserialize delegate
 			SerializerConfig config = new SerializerConfig();
 
-			var expressionFormatterResolver = new ExpressionFormatterResolver();
-			config.OnResolveFormatter.Add((c, t) => expressionFormatterResolver.GetFormatter(t));
+			ExpressionFormatterResolver.Configure(config);
 
-			config.OnConfigNewType = t =>
-			{
-				//if(t.)
-			};
 
 			var ceras = new CerasSerializer(config);
 
 			var data = ceras.Serialize<object>(getCharAtIndex);
+			var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
+
 			var clonedExp = (Expression<Func<string, int, char>>)ceras.Deserialize<object>(data);
 
 			var del2 = clonedExp.Compile();

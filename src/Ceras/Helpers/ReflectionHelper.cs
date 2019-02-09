@@ -1,6 +1,8 @@
 ﻿namespace Ceras.Helpers
 {
 	using System;
+	using System.Collections.Generic;
+	using System.Reflection;
 
 	static class ReflectionHelper
 	{
@@ -69,6 +71,28 @@
 				return false;
 
 			return IsAssignableToGenericType(baseType, genericType);
+		}
+
+		public static List<MemberInfo> GetAllDataMembers(this Type type)
+		{
+			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+			List<MemberInfo> members = new List<MemberInfo>();
+
+			while (type != null)
+			{
+				foreach(var f in type.GetFields(flags))
+					if (f.DeclaringType == type)
+						members.Add(f);
+
+				foreach(var p in type.GetProperties(flags))
+					if (p.DeclaringType == type)
+						members.Add(p);
+				
+				type = type.BaseType;
+			}
+
+			return members;
 		}
 	}
 }

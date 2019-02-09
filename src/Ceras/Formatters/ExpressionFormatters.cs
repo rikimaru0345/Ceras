@@ -3,6 +3,7 @@
 	using Resolvers;
 	using System;
 	using System.Collections.Generic;
+	using System.Collections.ObjectModel;
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
@@ -42,27 +43,46 @@
 
 			if (type == typeof(MemberMemberBinding))
 				return _memberMemberBindingFormatter;
-			
+
 			return null;
 		}
 
 
 		internal static void Configure(SerializerConfig config)
 		{
-			// Find all concrete types in System.Core that implement Expression
-			var coreTypes = typeof(Expression).Assembly.GetTypes();
-			var coreExpressionTypes = coreTypes.Where(t => !t.IsAbstract && t.IsSubclassOf(typeof(Expression)));
+			var expressionFormatterResolver = new ExpressionFormatterResolver();
+			config.OnResolveFormatter.Add((c, t) => expressionFormatterResolver.GetFormatter(t));
 
-			// - Set their construction mode to UninitializedObject()
-			// - Set their readonly handling to forced overwrite
-			foreach (var t in coreExpressionTypes)
+			config.OnConfigNewType = t =>
 			{
-				config.ConfigType(t)
-					  .ConstructByUninitialized()
-					  .ReadonlyFieldHandling(ReadonlyFieldHandling.ForcedOverwrite);
-			}
+				var type = t.Type;
+				if (type.Assembly == typeof(Expression).Assembly)
+				{
+					if (!type.IsAbstract && type.IsSubclassOf(typeof(Expression)))
+					{
+						t.ConstructByUninitialized();
+						t.SetReadonlyHandling(ReadonlyFieldHandling.ForcedOverwrite);
+						t.SetTargetMembers(TargetMember.PrivateFields);
+					}
 
-			// todo: add support for the types above that are not expressions
+					if (type.FullName.StartsWith("System.Runtime.CompilerServices.TrueReadOnlyCollection"))
+					{
+						t.SetFormatter(); // DynamicObjectFormatter or resolver, how to make it public? Maybe set by formatter-type?
+						t.ConstructByUninitialized();
+						t.SetReadonlyHandling(ReadonlyFieldHandling.ForcedOverwrite);
+						t.SetTargetMembers(TargetMember.PrivateFields);
+					}
+				}
+				
+				if (type.Assembly == typeof(ReadOnlyCollection<>).Assembly)
+					if (type.FullName.StartsWith("System.Collections.ObjectModel.ReadOnlyCollection"))
+					{
+						t.ConstructByUninitialized();
+						t.SetReadonlyHandling(ReadonlyFieldHandling.ForcedOverwrite);
+						t.SetTargetMembers(TargetMember.PrivateFields);
+					}
+
+			};
 
 			// todo: - delegate to hook into TypeBinder; shorten expression type names to unique IDs or something. Maybe a 3 byte thing: special "ceras internal Id" symbol, then "expression tree type", then "actual type index"
 
@@ -208,7 +228,7 @@
 								 .ToArray();
 
 			var friendlyDisplay = matchingMethods.Select(m =>
-			                                      {
+												  {
 													  var args = m.GetParameters();
 													  var argsFormatted = args.Select(a => $"{a.ParameterType.Name} {a.Name}");
 													  var argsStr = string.Join(", ", argsFormatted);
@@ -222,10 +242,10 @@
 		// Instance
 		//
 		IFormatter<byte> _byteFormatter;
-		
+
 		public void Serialize(ref byte[] buffer, ref int offset, Expression exp)
 		{
-			byte nt = (byte) exp.NodeType;
+			byte nt = (byte)exp.NodeType;
 			_byteFormatter.Serialize(ref buffer, ref offset, nt);
 
 

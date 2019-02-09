@@ -2,6 +2,7 @@
 {
 	using System;
 	using System.Collections.Generic;
+	using System.Reflection;
 	using Helpers;
 
 	/*
@@ -14,9 +15,7 @@
 	class SchemaMemberComparer : IComparer<SchemaMember>
 	{
 		public static readonly SchemaMemberComparer Instance = new SchemaMemberComparer();
-
-		static string Suffix(SchemaMember m) => m.Member.IsField ? "f" : "p";
-
+		
 		public int Compare(SchemaMember x, SchemaMember y)
 		{
 			var name1 = GetComparisonName(x);
@@ -29,11 +28,11 @@
 		{
 			// It's not just the contents, it's also this exact ordering of the elements that is important as well. Read above for more information
 			return
-				(IsFixedSize(m.Member.MemberType) ? "" : "") + // Enforce fixed-size types to group together
-				m.Member.MemberType.FullName + // Optimize for formatter reuse
+				(IsFixedSize(m.MemberType) ? "" : "") + // Enforce fixed-size types to group together
+				m.MemberType.FullName + // Optimize for formatter reuse
 				m.PersistentName + // Actual name
-				m.Member.MemberInfo.DeclaringType.FullName + // Ensure things are ordered correctly even when there are (inherited) fields of the exact same name and type
-				(m.Member.IsField ? "f" : "p"); // Unsure if it can happen in some scenarios, but we need to differentiate between fields and props
+				m.MemberInfo.DeclaringType.FullName + // Ensure things are ordered correctly even when there are (inherited) fields of the exact same name and type
+				(m.MemberInfo is FieldInfo ? "f" : "p"); // Unsure if it can happen in some scenarios, but we need to differentiate between fields and props
 		}
 
 		static bool IsFixedSize(Type t)

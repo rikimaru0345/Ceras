@@ -170,73 +170,6 @@
 		*/
 	}
 
-	/*
-		 * todo:
-		 * 
-		 * Idea:
-		 * Eventually we want to be able to skip over Schemata.
-		 * To do this we'd prefix the data with: 
-		 *	- Number of Schemata
-		 *	- All the type names + hash of their schema
-		 *	- offset to skip over the schema data
-		 * 
-		 * Problem:
-		 *  - schema definitions contain type names, which have been written by the TypeFormatter.
-		 *    We MUST read those because it's possible that a Type is later referenced again (that time by its ID!)
-		 *    So we must read all the type-names anyway so the type-name-cache is populated correctly.
-		 *    
-		 *  - Right now we already write the Schema before the type, and we tell the serializer that we've made use of that schema.
-		 *    That way the serializer knows which schemata to prefix the data with.
-		 *    The problem is of course that we're using a HashSet for that, which means the order is back to random.
-		 *    So the type-names are actually not written in the right order.
-		 *
-		 *  - if we write schema types after the data; then the data contains the actual strings,
-		 *    and while reading we need to read the schemata FIRST, potentially referring us to a string that was supposedly already there but is not
-		 *
-		 *  -> can we know the schema beforehand? no, there might be objects that are hidden in <object> or interface fields!
-		 *
-		 *  -> we must write type names at the very beginning
-		 *
-		 *
-		 * Other approach:
-		 * Schema data interweaved. Keep track of what types are written.
-		 * When a type name is written in full, also write the schema for it right into the data (with has prefix)
-		 * When reading we read the type (and cache it), then the schema hash; potentially ignoring the schema data because we already have a schema+formatter for that
-		 *
-		 * 1.) Write schema together with type-name as needed
-		 * 2.) While reading, make use of the schema hash to reuse an existing schema + use "skip-reader" to quickly read over the schema data (only happens once, so its ok)
-		 *
-		 * Trying to rescue approach #1?
-		 * We would need to ensure type names are written in full only in the schema, because that is read first;
-		 * - When a type has to be written: add it to a list, pseudo caching it, and instantly emit the cacheId.
-		 * - After writing the data: emit schemata in the correct order; emit the type names in full.
-		 *
-		 *
-		 * Approach 1 vs 2:
-		 * - First approach collects all schema data into the beginning of the file
-		 *   + could potentially extract it into a separate thing maybe?
-		 * - Second approach writes schema data inline with the type-name
-		 *   + easier to do
-		 *
-		 * Is one always faster than the other?
-		 *  + inline is likely faster to implement
-		 *
-		 *
-		 * Scenario: Multiple files all with same schema
-		 * - would like to have schema data shared somewhere
-		 * - but then we'd like to put all the objects into one big file anyway
-		 * - doing that would require some sort of database because we need fast access to entries and being able to rewrite an entry (with dynamic size change)
-		 *
-		 * Abort?
-		 * - for simple versioning maybe use json
-		 * - but we'd lose IExternalRootObject, which is super-bad, but we could do some special formatting, to write an ID instead just like Ceras
-		 * - why do we even want versioning info??
-		 *    -> settings files? maybe DB-like functionality?
-		 * - assuming db: where do we put lists and strings?
-		 *
-		 */
-
-
 	struct SchemaMember
 	{
 		readonly SerializedMember _member;
@@ -249,15 +182,10 @@
 		
 		public bool IsSkip => MemberInfo == null; // If this is true, then member and override formatter are not used; while reading the element is skipped (by reading its size)
 
-		public readonly ReadonlyFieldHandling ReadonlyFieldHandling;
-
-		// public IFormatter OverrideFormatter;
-
-		public SchemaMember(string persistentName, SerializedMember serializedMember, ReadonlyFieldHandling readonlyFieldHandling)
+		public SchemaMember(string persistentName, SerializedMember serializedMember)
 		{
 			PersistentName = persistentName;
 			_member = serializedMember;
-			ReadonlyFieldHandling = readonlyFieldHandling;
 		}
 
 		// Used when reading a schema and the member was not found
@@ -265,7 +193,6 @@
 		{
 			PersistentName = persistentName;
 			_member = default;
-			ReadonlyFieldHandling = ReadonlyFieldHandling.Off;
 		}
 
 		public override string ToString()

@@ -9,25 +9,9 @@ namespace Ceras
 	using System.Linq.Expressions;
 	using System.Reflection;
 
-	class TypeConfiguration
-	{
-		Dictionary<Type, TypeConfigEntry> _configEntries = new Dictionary<Type, TypeConfigEntry>();
-
-		internal TypeConfigEntry GetOrCreate(Type type)
-		{
-			if (_configEntries.TryGetValue(type, out var typeConfig))
-				return typeConfig;
-
-			typeConfig = new TypeConfigEntry(type);
-			_configEntries.Add(type, typeConfig);
-
-			return typeConfig;
-		}
-	}
 
 	// Serialization Constructors:
 	// todo: exception: "your Type ... has no default ctor; you can activate an automatic fallback to 'GetUninitializedObject' if you want"
-	// todo: ensure that any given methods actually return the right object type, and ctors actually match the object type
 	// todo: allow the worst case scenario (self ref with ctor) by using GetUninitializedObject, then reading and assigning, and then running the ctor after that!
 	// todo: "You have a configuration error on type 'bla': You selected 'mode' to create new objects, but the formatter used by ceras to handle this type is not 'DynamicObjectFormatter' which is required for this mode to work. If this formatter is a custom (user-provided) formatter then you probably want to set the construction mode to either 'Null' so Ceras does not create an object and the formatter can handle it; or you can set it to 'Normal' so Ceras creates a new object instance using 'new()'. Generally: passing any arguments to functions can only work with the DynamicObjectFormatter."
 	// todo: Compile some sort of 'EnsureInstance()' method that we can call for each specific type and can use directly in the ref-formatter-dispatcher.
@@ -36,25 +20,50 @@ namespace Ceras
 	// Extra Features:
 	// todo: Methods for: BeforeReadingMember, BeforeWritingMember, AfterReadingMember, ... BeforeReadingObject, AfterReadingObject, ...
 	// todo: DiscardObject method
-	// todo: SetReadonlyHandling
 	// todo: CustomSchema (with a method to obtain a default schema given some settings)
 	// todo: If we create something from uninitialized; do we give an option to run some specific ctor? Do we write some props/fields again after calling the ctor??
 	// todo: what about just calling Dispose() as an alternative to Discard!?
 
-	public class TypeConfigEntry
+	public class TypeConfig
 	{
 		const BindingFlags BindingFlags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static;
 
-		internal Type Type;
+		readonly SerializerConfig _config;
+		internal readonly Type Type;
 
-		internal TypeConstruction TypeConstruction; // null = invalid
-		internal ReadonlyFieldHandling? CustomReadonlyHandling; // null = use global default from config
-
-
-		internal TypeConfigEntry(Type type)
+		//
+		// Settings
+		TypeConstruction _typeConstruction; // null = invalid
+		internal TypeConstruction TypeConstruction
 		{
+			get => _typeConstruction;
+			set
+			{
+				_typeConstruction = value;
+				if (value != null)
+				{
+					TypeConstruction.TypeConfig = this;
+					TypeConstruction.VerifyReturnType();
+				}
+			}
+		}
+
+		ReadonlyFieldHandling? _customReadonlyHandling; // null = use global default from config
+		internal ReadonlyFieldHandling ReadonlyFieldHandling => _customReadonlyHandling ?? _config.Advanced.ReadonlyFieldHandling;
+
+		TargetMember? _targetMembers;
+		internal TargetMember TargetMembers => _targetMembers ?? _config.DefaultTargets;
+
+		Type _formatterType;
+
+
+		internal TypeConfig(SerializerConfig config, Type type)
+		{
+			_config = config;
 			Type = type;
 
+			//
+			// Set default constructor
 			var methods = type.GetMethods(BindingFlags).Cast<MemberInfo>().Concat(type.GetConstructors(BindingFlags));
 			MemberInfo ctor = methods.FirstOrDefault(m => m.GetCustomAttribute<CerasConstructorAttribute>() != null);
 
@@ -73,6 +82,17 @@ namespace Ceras
 				else if (ctor is MethodInfo methodInfo)
 					TypeConstruction = TypeConstruction.ByStaticMethod(methodInfo);
 			}
+
+			//
+			// Set default values from attributes
+			var memberConfig = type.GetCustomAttribute<MemberConfigAttribute>();
+			if (memberConfig != null)
+			{
+				_customReadonlyHandling = memberConfig.ReadonlyFieldHandling;
+				_targetMembers = memberConfig.TargetMembers;
+			}
+
+			// todo: per-member attributes like: include, ignore, readonly
 		}
 
 
@@ -81,71 +101,55 @@ namespace Ceras
 		/// <summary>
 		/// Call a given static method to get an object
 		/// </summary>
-		public TypeConfigEntry ConstructBy(MethodInfo methodInfo)
+		public TypeConfig ConstructBy(MethodInfo methodInfo)
 		{
 			TypeConstruction = new ConstructByMethod(methodInfo);
-
-			TypeConstruction.TypeConfigEntry = this;
-			TypeConstruction.VerifyReturnType();
-
 			return this;
 		}
 
 		/// <summary>
 		/// Call a given instance-method on the given object instance to create a object
 		/// </summary>
-		public TypeConfigEntry ConstructBy(object instance, MethodInfo methodInfo)
+		public TypeConfig ConstructBy(object instance, MethodInfo methodInfo)
 		{
 			TypeConstruction = new ConstructByMethod(instance, methodInfo);
-
-			TypeConstruction.TypeConfigEntry = this;
-			TypeConstruction.VerifyReturnType();
-
 			return this;
 		}
 
 		/// <summary>
 		/// Use the given constructor to create a new object
 		/// </summary>
-		public TypeConfigEntry ConstructBy(ConstructorInfo constructorInfo)
+		public TypeConfig ConstructBy(ConstructorInfo constructorInfo)
 		{
 			TypeConstruction = new SpecificConstructor(constructorInfo);
-
-			TypeConstruction.TypeConfigEntry = this;
-			TypeConstruction.VerifyReturnType();
-
 			return this;
 		}
 
 		/// <summary>
 		/// Call the given delegate to produce an object (this is the only method that currently does not support arguments, support for that will be added later)
 		/// </summary>
-		public TypeConfigEntry ConstructByDelegate(Func<object> factory)
+		public TypeConfig ConstructByDelegate(Func<object> factory)
 		{
 			// Delegates get deconstructed into target+method automatically
 			var instance = factory.Target;
 			var method = factory.Method;
 
 			TypeConstruction = new ConstructByMethod(instance, method);
-
-			TypeConstruction.TypeConfigEntry = this;
-			TypeConstruction.VerifyReturnType();
-
 			return this;
 		}
-		
+
 		/// <summary>
 		/// Use the given static method (inferred from the given expression). This works exactly the same as <see cref="ConstructBy(MethodInfo)"/> but since it takes an Expression selecting a method is much easier (no need to fiddle around with reflection manually). The given expression is not compiled or called in any way.
 		/// </summary>
-		public TypeConfigEntry ConstructBy(Expression<Func<object>> methodSelectExpression)
+		public TypeConfig ConstructBy(Expression<Func<object>> methodSelectExpression)
 		{
 			return ConstructBy(instance: null, methodSelectExpression);
 		}
-		
+
 		/// <summary>
 		/// Use the given static method (inferred from the given expression). This works exactly the same as <see cref="ConstructBy(object, MethodInfo)"/> but since it takes an Expression selecting a method is much easier (no need to fiddle around with reflection manually). The given expression is not compiled or called in any way.
 		/// </summary>
-		public TypeConfigEntry ConstructBy(object instance, Expression<Func<object>> methodSelectExpression)
+		public TypeConfig ConstructBy(object instance, Expression<Func<object>> methodSelectExpression)
 		{
 			var body = methodSelectExpression.Body;
 
@@ -169,9 +173,6 @@ namespace Ceras
 				throw new InvalidOperationException("The given expression must be a 'method-call' or 'new-expression'");
 			}
 
-			TypeConstruction.TypeConfigEntry = this;
-			TypeConstruction.VerifyReturnType();
-
 			return this;
 		}
 
@@ -179,9 +180,8 @@ namespace Ceras
 		/// <summary>
 		/// Use this to tell Ceras how it is supposed to construct new objects when deserializing. By default it will use the parameterless constructor (doesn't matter if public or private)
 		/// </summary>
-		public TypeConfigEntry ConstructBy(TypeConstruction manualConstructConfig)
+		public TypeConfig ConstructBy(TypeConstruction manualConstructConfig)
 		{
-			TypeConstruction.TypeConfigEntry = this;
 			TypeConstruction = manualConstructConfig;
 			return this;
 		}
@@ -189,7 +189,7 @@ namespace Ceras
 		/// <summary>
 		/// Create an object without running any of its constructors
 		/// </summary>
-		public TypeConfigEntry ConstructByUninitialized()
+		public TypeConfig ConstructByUninitialized()
 		{
 			TypeConstruction = new UninitializedObject();
 			return this;
@@ -198,12 +198,29 @@ namespace Ceras
 		#endregion
 
 
+		#region Formatter
+
+		public TypeConfig SetFormatter()
+		{
+			// We want to be able to use a specific formatter.
+			// For ReadonlyCollection we want to use DynamicObjectFormatter<> with a custom config instead of anything produced by the ICollectionFormatter
+		}
+
+		#endregion
+
+
 		/// <summary>
 		/// Configure how readonly fields are handled for this type
 		/// </summary>
-		public TypeConfigEntry ReadonlyFieldHandling(ReadonlyFieldHandling mode)
+		public TypeConfig SetReadonlyHandling(ReadonlyFieldHandling mode)
 		{
-			CustomReadonlyHandling = mode;
+			_customReadonlyHandling = mode;
+			return this;
+		}
+
+		public TypeConfig SetTargetMembers(TargetMember targets)
+		{
+			_targetMembers = targets;
 			return this;
 		}
 	}
@@ -213,7 +230,7 @@ namespace Ceras
 	/// </summary>
 	public abstract class TypeConstruction
 	{
-		internal TypeConfigEntry TypeConfigEntry; // Not as clean as I'd like, this can't be set from a protected base ctor, because users might eventually want to create their own
+		internal TypeConfig TypeConfig; // Not as clean as I'd like, this can't be set from a protected base ctor, because users might eventually want to create their own
 
 		internal abstract bool HasDataArguments { get; }
 		internal abstract Func<object> GetRefFormatterConstructor();
@@ -252,7 +269,7 @@ namespace Ceras
 				throw new NotImplementedException("this helper method cannot handle a member info of type " + methodBase.GetType().FullName);
 
 			// Can we use the result to assign it to the needed type?
-			var neededType = TypeConfigEntry.Type;
+			var neededType = TypeConfig.Type;
 
 			if (!neededType.IsAssignableFrom(resultType))
 				throw new InvalidOperationException($"The given method or constructor returns a '{resultType.FullName}' which is not compatible to the needed type '{neededType.FullName}'");
@@ -421,12 +438,12 @@ namespace Ceras
 			}
 		}
 
-		internal override bool HasDataArguments => _directConstructor == null || _directConstructor.GetParameters().Length == 0;
+		internal override bool HasDataArguments => _directConstructor != null && _directConstructor.GetParameters().Length > 0;
 
 		internal override Func<object> GetRefFormatterConstructor()
 		{
 			// todo: There are a lot of hardcore tricks to improve performance here. But for now it would be wasted time since the feature will (probably) be used very rarely.
-			var t = TypeConfigEntry.Type;
+			var t = TypeConfig.Type;
 
 			return Expression.Lambda<Func<object>>(Expression.Call(_getUninitialized, arg0: Expression.Constant(t))).Compile();
 		}
@@ -434,8 +451,8 @@ namespace Ceras
 		internal override void VerifyReturnType()
 		{
 			if (_directConstructor != null)
-				if (_directConstructor.DeclaringType != base.TypeConfigEntry.Type)
-					throw new InvalidOperationException($"The given constructor is not part of the type '{base.TypeConfigEntry.Type.FullName}'");
+				if (_directConstructor.DeclaringType != base.TypeConfig.Type)
+					throw new InvalidOperationException($"The given constructor is not part of the type '{base.TypeConfig.Type.FullName}'");
 		}
 
 		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, MemberParameterPair[] memberParameters)

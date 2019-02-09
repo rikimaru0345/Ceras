@@ -48,7 +48,7 @@
 		public TargetMember TargetMembers { get; set; }
 		public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
 
-		public MemberConfigAttribute(TargetMember targetMembers = TargetMember.PublicFields, ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Off)
+		public MemberConfigAttribute(TargetMember targetMembers = TargetMember.PublicFields, ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.ExcludeFromSerialization)
 		{
 			TargetMembers = targetMembers;
 			ReadonlyFieldHandling = readonlyFieldHandling;
@@ -63,7 +63,7 @@
 	{
 		public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
 
-		public ReadonlyConfigAttribute(ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Off)
+		public ReadonlyConfigAttribute(ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.ExcludeFromSerialization)
 		{
 			ReadonlyFieldHandling = readonlyFieldHandling;
 		}

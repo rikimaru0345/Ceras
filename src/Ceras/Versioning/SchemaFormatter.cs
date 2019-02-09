@@ -105,13 +105,12 @@ namespace Ceras.Helpers
 			var startPos = Parameter(typeof(int), "startPos");
 			var size = Parameter(typeof(int), "size");
 
-			foreach (var schemaEntry in schema.Members)
+			foreach (var schemaMember in schema.Members)
 			{
-				if (schemaEntry.IsSkip)
+				if (schemaMember.IsSkip)
 					continue;
 
-				var member = schemaEntry.Member;
-				var type = member.MemberType;
+				var type = schemaMember.MemberType;
 
 				// Get Serialize method
 				var formatter = _ceras.GetReferenceFormatter(type);
@@ -130,7 +129,7 @@ namespace Ceras.Helpers
 							   method: serializeMethod,
 							   arg0: refBufferArg,
 							   arg1: refOffsetArg,
-							   arg2: MakeMemberAccess(valueArg, member.MemberInfo)
+							   arg2: MakeMemberAccess(valueArg, schemaMember.MemberInfo)
 						  ));
 
 				// size = (offset - startPos) - 4; // calculate the size of what we just wrote
@@ -169,6 +168,7 @@ namespace Ceras.Helpers
 			 * and skip blocks that we want to skip
 			 */
 			var members = schema.Members;
+			var typeConfig = _ceras.Config.GetTypeConfig(schema.Type);
 
 			var bufferArg = Parameter(typeof(byte[]), "buffer");
 			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
@@ -186,13 +186,13 @@ namespace Ceras.Helpers
 			// 1. Read existing values into locals
 			for (int i = 0; i < schema.Members.Count; i++)
 			{
-				var member = members[i].Member;
+				var member = members[i];
 
 				if (members[i].IsSkip)
 					continue; // Don't define local for skipped member
 
 				// Read the data into a new local variable 
-				var tempStore = Variable(member.MemberType, member.Name + "_local");
+				var tempStore = Variable(member.MemberType, member.MemberName + "_local");
 				locals.Add(tempStore);
 				memberInfoToLocal.Add(member.MemberInfo, tempStore);
 
@@ -203,7 +203,7 @@ namespace Ceras.Helpers
 			// 2. Deserialize using local
 			for (var i = 0; i < members.Count; i++)
 			{
-				var member = members[i].Member;
+				var member = members[i];
 
 				// Read block size: blockSize = ReadSize();
 				block.Add(Assign(left: blockSize,
@@ -240,7 +240,7 @@ namespace Ceras.Helpers
 				if (sMember.IsSkip)
 					continue; // Skipped members don't need write-back
 
-				var member = members[i].Member;
+				var member = members[i];
 				var tempStore = memberInfoToLocal[member.MemberInfo];
 				var type = member.MemberType;
 
@@ -248,7 +248,7 @@ namespace Ceras.Helpers
 				if (member.MemberInfo is FieldInfo fieldInfo && fieldInfo.IsInitOnly)
 				{
 					// Readonly field
-					DynamicFormatterHelpers.EmitReadonlyWriteBack(type, sMember.ReadonlyFieldHandling, fieldInfo, refValueArg, tempStore, block);
+					DynamicFormatterHelpers.EmitReadonlyWriteBack(type, typeConfig.ReadonlyFieldHandling, fieldInfo, refValueArg, tempStore, block);
 				}
 				else
 				{
@@ -287,13 +287,13 @@ namespace Ceras.Helpers
 
 			foreach (var member in primarySchema.Members)
 			{
-				var memberType = member.Member.MemberType;
+				var memberType = member.MemberType;
 
 				// Only value-types are important, ref-types are handled somewhere else (ref-formatter)
 				if (!memberType.IsValueType)
 					continue;
 
-				var memberMetaData = _ceras.GetTypeMetaData(member.Member.MemberType);
+				var memberMetaData = _ceras.GetTypeMetaData(member.MemberType);
 				memberMetaData.OnSchemaChangeTargets.Add(this);
 			}
 

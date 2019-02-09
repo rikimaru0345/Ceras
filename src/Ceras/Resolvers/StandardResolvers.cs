@@ -127,16 +127,25 @@
 			//
 			// If it implements ICollection, we can serialize it!
 			var closedCollection = ReflectionHelper.FindClosedType(type, typeof(ICollection<>));
-
+			
 			// If the type really implements some kind of ICollection, we can create a CollectionFormatter for it
 			if (closedCollection != null)
 			{
+				// Pre-check for readonly.
+				var isReadonly = ReflectionHelper.FindClosedType(type, typeof(IReadOnlyCollection<>)) != null ||
+									 ReflectionHelper.FindClosedType(type, typeof(IReadOnlyDictionary<,>)) != null ||
+									 ReflectionHelper.FindClosedType(type, typeof(IReadOnlyList<>)) != null;
+				if(isReadonly)
+					// If the type is some sort of readonly collection the following formatters will never be able to handle it correctly
+					return null;
+
+
 				var itemType = closedCollection.GetGenericArguments()[0];
 
 
 				// Check for specific types first for which we have special implementations
 				bool isGenericType = type.IsGenericType;
-				
+
 				if (isGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
 				{
 					var listFormatterType = typeof(ListFormatter<>).MakeGenericType(itemType);

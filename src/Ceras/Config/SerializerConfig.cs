@@ -76,16 +76,45 @@
 
 
 
-		internal TypeConfiguration TypeConfig = new TypeConfiguration();
+		Dictionary<Type, TypeConfig> _configEntries = new Dictionary<Type, TypeConfig>();
+
+		// Get a TypeConfig without calling 'OnConfigNewType'
+		TypeConfig GetTypeConfigConfiguration(Type type)
+		{
+			if (_configEntries.TryGetValue(type, out var typeConfig))
+				return typeConfig;
+
+			typeConfig = new TypeConfig(this, type);
+			_configEntries.Add(type, typeConfig);
+
+			return typeConfig;
+		}
+
+		// Get a TypeConfig for usage, meaning if by now the type has not been configured then
+		// use 'OnConfigNewType' as a last chance (or if no callback is set just use the defaults)
+		internal TypeConfig GetTypeConfig(Type type)
+		{
+			if (_configEntries.TryGetValue(type, out var typeConfig))
+				return typeConfig;
+
+			typeConfig = new TypeConfig(this, type);
+
+			// Let the user handle it
+			OnConfigNewType?.Invoke(typeConfig);
+
+			_configEntries.Add(type, typeConfig);
+			return typeConfig;
+		}
 
 		/// <summary>
 		/// Generic version of <see cref="ConfigType(Type)"/>
 		/// </summary>
-		public TypeConfigEntry ConfigType<T>() => ConfigType(typeof(T));
+		public TypeConfig ConfigType<T>() => ConfigType(typeof(T));
 		/// <summary>
 		/// Use this when you want to configure types directly (instead of through attributes). Any changes you make using this method will override any settings applied through attributes on the type.
 		/// </summary>
-		public TypeConfigEntry ConfigType(Type type) => TypeConfig.GetOrCreate(type);
+		public TypeConfig ConfigType(Type type) => GetTypeConfigConfiguration(type);
+
 
 		/// <summary>
 		/// Usually you would just put attributes (like <see cref="MemberConfigAttribute"/>) on your types to define how they're serialized. But sometimes you want to configure some types that you don't control (like types from some external library you're using). In that case you'd use <see cref="ConfigType{T}"/>. But sometimes even that doesn't work, for example when some types are private, or too numerous, or generic (so they don't even exist as "closed" / specific types yet); so when you're in a situation like that, you'd use this <see cref="OnConfigNewType"/> to configure a type right when it's used.
@@ -94,8 +123,18 @@
 		/// That means it will not get called for any type that you have already configured using <see cref="ConfigType{T}"/>!
 		/// </para>
 		/// </summary>
-		public Action<TypeConfigEntry> OnConfigNewType { get; set; }
-
+		public Action<TypeConfig> OnConfigNewType
+		{
+			get => _onConfigNewType;
+			set
+			{
+				if(_onConfigNewType == null)
+					_onConfigNewType = value;
+				else
+					throw new InvalidOperationException(nameof(OnConfigNewType) + " is already set. Multiple type configuration callbacks would overwrite each others changes, you must collect all the callbacks into one function to maintain detailed control over how each Type gets configured.");
+			}
+		}
+		Action<TypeConfig> _onConfigNewType;
 
 
 		/// <summary>
@@ -111,7 +150,7 @@
 		
 		Action<object> IAdvancedConfigOptions.DiscardObjectMethod { get; set; } = null;
 		Func<SerializedMember, SerializationOverride> IAdvancedConfigOptions.ShouldSerializeMember { get; set; } = null;
-		ReadonlyFieldHandling IAdvancedConfigOptions.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.Off;
+		ReadonlyFieldHandling IAdvancedConfigOptions.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.ExcludeFromSerialization;
 		bool IAdvancedConfigOptions.EmbedChecksum { get; set; } = false;
 		bool IAdvancedConfigOptions.PersistTypeCache { get; set; } = false;
 		bool IAdvancedConfigOptions.SealTypesWhenUsingKnownTypes { get; set; } = true;
@@ -256,15 +295,23 @@
 	public enum ReadonlyFieldHandling
 	{
 		/// <summary>
-		/// By default ceras will ignore readonly fields.
+		/// This is the default, Ceras will not serialize/deserialize readonly fields.
 		/// </summary>
-		Off = 0,
+		ExcludeFromSerialization = 0,
+
 		/// <summary>
-		/// Handle readonly fields the safe way: By serializing and deserializing the inner members of a readonly field. If the field element itself is not as expected, this will throw an exception.
+		/// Serialize readonly fields normally, but at deserialization time it is expected that an object is already present (so Ceras does not have to change the readonly-field), however Ceras will deserialize the content of the object inside the readonly field.
+		/// <para>
+		/// Example: An object that has a 'readonly Settings MySettings;' field. Ceras will not change the field itself, but it will serialize and deserialize all the settings values inside.
+		/// That's what you often want. But it obviously requires that you either provide an object that already exists (meaning you're using the <see cref="CerasSerializer.Deserialize{T}(ref T, byte[])"/> overload that takes an existing object to overwrite); or that the containing object will put an instance into the readonly field in its constructor.
+		///</para>
+		/// If the object in the readonly field itself does not match the expected value an exception is thrown.
+		/// Keep in mind that this mode will obviously never work with value-types (int, structs, ...), in that case simply use <see cref="ForcedOverwrite"/>.
 		/// </summary>
 		Members = 1,
+		
 		/// <summary>
-		/// Same as 'Members', but instead of throwing an exception, Ceras will fix the mismatch by force (using reflection). To know what that means and when to use it, check out the tutorial section about readonly handling.
+		/// This mode means pretty much "treat readonly fields exactly the same as normal fields". But since readonly fields can't normally be changed outside the constructor of the object Ceras will use reflection to forcefully overwrite the object field.
 		/// </summary>
 		ForcedOverwrite = 2,
 	}

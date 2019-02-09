@@ -52,7 +52,7 @@ namespace Ceras
 		internal static readonly Type _rtTypeType, _rtFieldType, _rtPropType, _rtCtorType, _rtMethodType;
 		static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
 
-		[Obsolete("Use 'config.ConfigType(type)' instead to configure how new objects are created."), EditorBrowsable(EditorBrowsableState.Never)] 
+		[Obsolete("Use 'config.ConfigType(type)' instead to configure how new objects are created."), EditorBrowsable(EditorBrowsableState.Never)]
 		public static void AddFormatterConstructedType(Type type)
 		{
 			_formatterConstructedTypes.Add(type);
@@ -134,7 +134,7 @@ namespace Ceras
 
 		readonly TypeDictionary<TypeMetaData> _metaData = new TypeDictionary<TypeMetaData>();
 		readonly FactoryPool<InstanceData> _instanceDataPool;
-		
+
 		internal readonly Action<object> DiscardObjectMethod;
 
 		readonly Stack<InstanceData> _recursionStack = new Stack<InstanceData>();
@@ -248,10 +248,10 @@ namespace Ceras
 					if (meta.PrimarySchema != null)
 						foreach (var m in meta.PrimarySchema.Members)
 						{
-							ProtocolChecksum.Add(m.Member.MemberType.FullName);
-							ProtocolChecksum.Add(m.Member.Name);
+							ProtocolChecksum.Add(m.MemberType.FullName);
+							ProtocolChecksum.Add(m.MemberName);
 
-							foreach (var a in m.Member.MemberInfo.GetCustomAttributes(true))
+							foreach (var a in m.MemberInfo.GetCustomAttributes(true))
 								ProtocolChecksum.Add(a.ToString());
 						}
 				}
@@ -607,10 +607,7 @@ namespace Ceras
 
 			meta = new TypeMetaData(type, isFrameworkType);
 
-			if (isFrameworkType)
-				meta.CurrentSchema = meta.PrimarySchema = new Schema(true, type);
-			else
-				meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type);
+			meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type);
 
 			return meta;
 		}
@@ -669,7 +666,7 @@ namespace Ceras
 				if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(IFormatter<>))
 				{
 					var requestedFormatter = GetReferenceFormatter(formattedType);
-					
+
 					SafeInject(formatter, f, requestedFormatter);
 
 					continue;
@@ -768,25 +765,21 @@ namespace Ceras
 
 			Schema schema = new Schema(true, type);
 
-			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-			var classConfig = type.GetCustomAttribute<MemberConfigAttribute>();
+			var typeConfig = Config.GetTypeConfig(type);
 
-			foreach (var m in type.GetFields(flags).Cast<MemberInfo>().Concat(type.GetProperties(flags)))
+			foreach (var m in type.GetAllDataMembers())
 			{
 				bool isPublic;
 				bool isField = false, isProp = false;
 				bool isCompilerGenerated = false;
-
-				// Determine readonly field handling setting: member->class->global
-				var readonlyHandling = DetermineReadonlyHandling(m);
 
 				if (m is FieldInfo f)
 				{
 					// Skip readonly
 					if (f.IsInitOnly)
 					{
-						if (readonlyHandling == ReadonlyFieldHandling.Off)
+						if (typeConfig.ReadonlyFieldHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
 							continue;
 					}
 
@@ -809,9 +802,6 @@ namespace Ceras
 				}
 				else if (m is PropertyInfo p)
 				{
-					// Adjust context
-					p = p.DeclaringType.GetProperty(p.Name, flags);
-
 					// This checks for indexers, an indexer is technically a property
 					if (p.GetIndexParameters().Length != 0)
 						continue;
@@ -824,14 +814,14 @@ namespace Ceras
 					if (accessors.Length <= 1)
 						// It's a "computed" property, which has no concept of writing.
 						continue;
-					
+
 					isPublic = accessors[0].IsPublic;
 					isProp = true;
 				}
 				else
 					continue;
 
-				var serializedMember = SerializedMember.Create(m, allowReadonly: readonlyHandling != ReadonlyFieldHandling.Off);
+				var serializedMember = SerializedMember.Create(m, allowReadonly: typeConfig.ReadonlyFieldHandling != ReadonlyFieldHandling.ExcludeFromSerialization);
 
 				// should we allow users to provide a formatter for each old-name (in case newer versions have changed the type of the element?)
 				var attrib = m.GetCustomAttribute<PreviousNameAttribute>();
@@ -844,7 +834,7 @@ namespace Ceras
 				}
 
 
-				var schemaMember = new SchemaMember(attrib?.Name ?? m.Name, serializedMember, readonlyHandling);
+				var schemaMember = new SchemaMember(attrib?.Name ?? m.Name, serializedMember);
 
 
 				//
@@ -900,19 +890,8 @@ namespace Ceras
 					continue;
 
 				//
-				// 3.) Use class-attribute
-				if (classConfig != null)
-				{
-					if (IsMatch(isField, isProp, isPublic, classConfig.TargetMembers))
-					{
-						schema.Members.Add(schemaMember);
-						continue;
-					}
-				}
-
-				//
-				// 4.) Use global defaults
-				if (IsMatch(isField, isProp, isPublic, Config.DefaultTargets))
+				// 3.) Use "targets" to determine whether or not to include something (type-level attribute -> global config default)
+				if (IsMatch(isField, isProp, isPublic, typeConfig.TargetMembers))
 				{
 					schema.Members.Add(schemaMember);
 					continue;
@@ -955,11 +934,7 @@ namespace Ceras
 				if (member == null)
 					schema.Members.Add(new SchemaMember(name));
 				else
-				{
-					var readonlyFieldHandling = DetermineReadonlyHandling(member);
-
-					schema.Members.Add(new SchemaMember(name, SerializedMember.Create(member, true), readonlyFieldHandling));
-				}
+					schema.Members.Add(new SchemaMember(name, SerializedMember.Create(member, true)));
 			}
 
 			//
@@ -990,20 +965,6 @@ namespace Ceras
 				SerializerBinary.WriteString(ref buffer, ref offset, members[i].PersistentName);
 		}
 
-
-
-		ReadonlyFieldHandling DetermineReadonlyHandling(MemberInfo memberInfo)
-		{
-			ReadonlyConfigAttribute readonlyConfigAttribute = memberInfo.GetCustomAttribute<ReadonlyConfigAttribute>();
-			if (readonlyConfigAttribute != null)
-				return readonlyConfigAttribute.ReadonlyFieldHandling;
-
-			MemberConfigAttribute classConfig = memberInfo.DeclaringType.GetCustomAttribute<MemberConfigAttribute>();
-			if (classConfig != null)
-				return classConfig.ReadonlyFieldHandling;
-
-			return Config.Advanced.ReadonlyFieldHandling;
-		}
 
 		static void VerifyName(string name)
 		{

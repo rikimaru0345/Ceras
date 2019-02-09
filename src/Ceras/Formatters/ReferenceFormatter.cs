@@ -101,8 +101,7 @@
 
 			var specificType = value.GetType();
 			var entry = GetOrCreateEntry(specificType);
-
-
+			
 			if (entry.IsType) // This is very rare, so we cache the check itself, and do the cast below
 			{
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, InlineType, Bias);
@@ -336,7 +335,7 @@
 			}
 
 			// Create a custom factory method, but also respect the userFactory if there is one
-			var typeConfig = _ceras.Config.TypeConfig.GetOrCreate(type);
+			var typeConfig = _ceras.Config.GetTypeConfig(type);
 
 			var tc = typeConfig.TypeConstruction;
 

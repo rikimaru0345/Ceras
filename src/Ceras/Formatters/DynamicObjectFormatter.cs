@@ -45,8 +45,6 @@ namespace Ceras.Formatters
 
 	sealed class DynamicObjectFormatter<T> : IFormatter<T>
 	{
-		const BindingFlags _bindingFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-
 		readonly CerasSerializer _ceras;
 		readonly SerializeDelegate<T> _dynamicSerializer;
 		readonly DeserializeDelegate<T> _dynamicDeserializer;
@@ -124,7 +122,7 @@ namespace Ceras.Formatters
 		DeserializeDelegate<T> GenerateDeserializer(Schema schema)
 		{
 			var members = schema.Members;
-			var typeConfig = _ceras.Config.TypeConfig.GetOrCreate(schema.Type);
+			var typeConfig = _ceras.Config.GetTypeConfig(schema.Type);
 			var tc = typeConfig.TypeConstruction;
 
 			bool constructObject = tc.HasDataArguments; // Are we responsible for instantiating an object?
@@ -190,7 +188,7 @@ namespace Ceras.Formatters
 				var member = members[i];
 				var tempStore = locals[i];
 				var type = member.MemberType;
-
+				
 				if (usedVariables != null && usedVariables.Contains(tempStore))
 					// Member was already used in the constructor / factory method, no need to write it again
 					continue;
@@ -200,7 +198,7 @@ namespace Ceras.Formatters
 					if (fieldInfo.IsInitOnly)
 					{
 						// Readonly field
-						DynamicFormatterHelpers.EmitReadonlyWriteBack(type, sMember.ReadonlyFieldHandling, fieldInfo, refValueArg, tempStore, body);
+						DynamicFormatterHelpers.EmitReadonlyWriteBack(type, typeConfig.ReadonlyFieldHandling, fieldInfo, refValueArg, tempStore, body);
 					}
 					else
 					{
@@ -212,7 +210,7 @@ namespace Ceras.Formatters
 				else
 				{
 					// Context
-					var p = member.MemberInfo.DeclaringType.GetProperty(member.MemberName, _bindingFlags);
+					var p = (PropertyInfo)member.MemberInfo;
 
 					var setMethod = p.GetSetMethod(true);
 					body.Add(Call(instance: refValueArg, setMethod, tempStore));
@@ -244,10 +242,9 @@ namespace Ceras.Formatters
 
 		internal static void EmitReadonlyWriteBack(Type type, ReadonlyFieldHandling readonlyFieldHandling, FieldInfo fieldInfo, ParameterExpression refValueArg, ParameterExpression tempStore, List<Expression> block)
 		{
-			if (readonlyFieldHandling == ReadonlyFieldHandling.Off)
-				throw new InvalidOperationException($"Error while trying to generate a deserializer for the field '{fieldInfo.DeclaringType.FullName}.{fieldInfo.Name}' and the field is readonly, but ReadonlyFieldHandling is turned off in the serializer configuration.");
-
-
+			if (readonlyFieldHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
+				throw new InvalidOperationException($"Error while trying to generate a deserializer for the field '{fieldInfo.DeclaringType.FullName}.{fieldInfo.Name}': the field is readonly, but ReadonlyFieldHandling is turned off in the configuration.");
+			
 			// 4. ReferenceTypes and ValueTypes are handled a bit differently (Boxing, Equal-vs-ReferenceEqual, text in exception, ...)
 			if (type.IsValueType)
 			{
@@ -260,7 +257,7 @@ namespace Ceras.Formatters
 					// field.SetValue(valueArg, tempStore)
 					onMismatch = Call(Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: Convert(tempStore, typeof(object))); // Explicit boxing needed
 				else
-					onMismatch = Throw(Constant(new Exception($"The value-type in field '{fieldInfo.Name}' does not match the expected value, but the field is readonly and overwriting is not allowed in the serializer configuration. Fix the value, or make the field writeable, or enable 'ForcedOverwrite' in the serializer settings to allow Ceras to overwrite the readonly-field.")));
+					onMismatch = Throw(Constant(new Exception($"The value-type in field '{fieldInfo.Name}' does not match the expected value, but the field is readonly and overwriting is not allowed in the configuration. Make the field writeable or enable 'ForcedOverwrite' in the serializer settings to allow Ceras to overwrite the readonly-field.")));
 
 				block.Add(IfThenElse(
 							test: Equal(tempStore, MakeMemberAccess(refValueArg, fieldInfo)),
