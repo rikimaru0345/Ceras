@@ -101,7 +101,22 @@ namespace LiveTesting
 		}
 
 
-		class ReadonlyTestClass
+		class ReadonlyTestBaseClass
+		{
+			readonly string _baseName = "base default";
+
+			public ReadonlyTestBaseClass()
+			{
+				_baseName = "base ctor";
+			}
+
+			protected string ProtectedGetBaseName()
+			{
+				return _baseName;
+			}
+		}
+
+		class ReadonlyTestClass : ReadonlyTestBaseClass
 		{
 			readonly string _name = "default";
 
@@ -114,66 +129,108 @@ namespace LiveTesting
 			{
 				return _name;
 			}
+
+			public string GetBaseName()
+			{
+				return base.ProtectedGetBaseName();
+			}
 		}
+
 
 		static void ExpressionTreesTest()
 		{
-			Expression<Func<string, int, char>> getCharAtIndex = (text, index) => (text.ElementAt(index).ToString() + text[index])[0];
-
-			var del = getCharAtIndex.Compile();
-
-			string inputString = "abcde";
-			char c1 = del(inputString, 2);
-
-
-			// Serialize and deserialize delegate
-			SerializerConfig config = new SerializerConfig();
-
-			ExpressionFormatterResolver.Configure(config);
-
-
-			var ceras = new CerasSerializer(config);
-
-			var data = ceras.Serialize<object>(getCharAtIndex);
-			var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
-
-			var clonedExp = (Expression<Func<string, int, char>>)ceras.Deserialize<object>(data);
-
-			var del2 = clonedExp.Compile();
-			var c2 = del2(inputString, 2);
-
-			Console.WriteLine();
-
-			// Can we make an expression to accelerate writing to readonly fields?
-			/*
+			// Primitive test
 			{
-				var p = new ReadonlyTestClass("abc");
+				SerializerConfig config = new SerializerConfig();
+				config.OnConfigNewType = t =>
+				{
+					if (t.Type == typeof(ReadonlyTestClass))
+					{
+						t.ConstructByUninitialized();
+						t.SetReadonlyHandling(ReadonlyFieldHandling.ForcedOverwrite);
+						t.SetTargetMembers(TargetMember.PrivateFields);
+					}
+				};
 
-				var f = p.GetType().GetField("_name", BindingFlags.Instance | BindingFlags.NonPublic);
-				var objParam = Expression.Parameter(p.GetType(), "obj");
-				var newValParam = Expression.Parameter(typeof(string), "newVal");
+				var ceras = new CerasSerializer(config);
 
-				var fieldExp = Expression.Field(objParam, f);
-				// var assignment = Expression.Assign(fieldExp, newValParam);
+				var obj = new ReadonlyTestClass("a");
+				var data = ceras.Serialize(obj);
 
-				var assignmentOp = typeof(Expression).Assembly.GetType("System.Linq.Expressions.AssignBinaryExpression");
-				var assignment = (Expression)Activator.CreateInstance(assignmentOp,
-																	  BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.CreateInstance,
-																	  null,
-																	  new object[] { fieldExp, newValParam },
-																	  null);
+				var clone = ceras.Deserialize<ReadonlyTestClass>(data);
 
-				// Create the method
-
-				DynamicMethod dynamicMethod = new DynamicMethod("test", null, new Type[] { typeof(ReadonlyTestClass), typeof(string) }, owner: typeof(ReadonlyTestClass), skipVisibility: true);
-				var ilGen = dynamicMethod.GetILGenerator();
-
-				MethodBuilder methodBuilder = ;
-				Expression.Lambda<Action<ReadonlyTestClass, string>>(assignment, objParam, newValParam).CompileToMethod(methodBuilder);
-
-				del(p, "changed!");
+				Console.WriteLine();
 			}
-			*/
+			
+			// Simple test
+			{
+				Expression<Action> methodHelperExp = () => StaticPoolTest.CreatePerson();
+				var methodInfo = ((MethodCallExpression)methodHelperExp.Body).Method;
+				
+				MethodCallExpression methodCallExp = Expression.Call(methodInfo);
+
+
+				// Serialize and deserialize delegate
+				SerializerConfig config = new SerializerConfig();
+				ExpressionFormatterResolver.Configure(config);
+				var ceras = new CerasSerializer(config);
+
+
+				var data = ceras.Serialize<object>(methodCallExp);
+				var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
+
+				var clonedExp = (MethodCallExpression)ceras.Deserialize<object>(data);
+
+				Console.WriteLine();
+			}
+			
+			// Small test 1
+			{
+				Expression<Func<string, int, char>> getCharAtIndex = (text, index) => text.ElementAt(index);
+				MethodCallExpression body = (MethodCallExpression)getCharAtIndex.Body;
+
+				// Serialize and deserialize delegate
+				SerializerConfig config = new SerializerConfig();
+				ExpressionFormatterResolver.Configure(config);
+				var ceras = new CerasSerializer(config);
+
+
+				var data = ceras.Serialize<object>(body);
+				var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
+
+				var clonedExp = (MethodCallExpression)ceras.Deserialize<object>(data);
+			}
+
+			// Small test 2
+			{
+				Expression<Func<string, int, char>> getCharAtIndex = (text, index) => (text.ElementAt(index).ToString() + text[index])[0];
+
+				var del = getCharAtIndex.Compile();
+
+				string inputString = "abcde";
+				char c1 = del(inputString, 2);
+
+
+				// Serialize and deserialize delegate
+				SerializerConfig config = new SerializerConfig();
+
+				ExpressionFormatterResolver.Configure(config);
+
+
+				var ceras = new CerasSerializer(config);
+
+				var data = ceras.Serialize<object>(getCharAtIndex);
+				var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
+
+				var clonedExp = (Expression<Func<string, int, char>>)ceras.Deserialize<object>(data);
+
+				var del2 = clonedExp.Compile();
+				var c2 = del2(inputString, 2);
+
+				Debug.Assert(c1 == c2);
+
+				Console.WriteLine();
+			}
 		}
 
 

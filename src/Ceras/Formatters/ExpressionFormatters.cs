@@ -67,7 +67,6 @@
 
 					if (type.FullName.StartsWith("System.Runtime.CompilerServices.TrueReadOnlyCollection"))
 					{
-						t.SetFormatter(); // DynamicObjectFormatter or resolver, how to make it public? Maybe set by formatter-type?
 						t.ConstructByUninitialized();
 						t.SetReadonlyHandling(ReadonlyFieldHandling.ForcedOverwrite);
 						t.SetTargetMembers(TargetMember.PrivateFields);

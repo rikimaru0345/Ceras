@@ -1,13 +1,17 @@
 ﻿namespace Ceras.Formatters
 {
+	using Helpers;
 	using System;
 	using System.Reflection;
+
+	// parameter count can be merged into the unused bits of bindingData, but so much bit-packing makes things more complicated than they need to be;
+	// it's extremely unlikely that anyone would notice the savings, even if they'd serialize tons of MemberInfos
 
 	class MemberInfoFormatter<T> : IFormatter<T> where T : MemberInfo
 	{
 		IFormatter<string> _stringFormatter;
 		IFormatter<Type> _typeFormatter;
-		
+
 		const BindingFlags BindingAllStatic = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
 		const BindingFlags BindingAllInstance = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
@@ -23,7 +27,7 @@
 			_typeFormatter.Serialize(ref buffer, ref offset, member.DeclaringType);
 
 			byte bindingData = 0;
-			
+
 			switch (member.MemberType)
 			{
 			// Write all the data we need to resolve overloads
@@ -39,9 +43,6 @@
 				// 2. Method Name
 				_stringFormatter.Serialize(ref buffer, ref offset, method.Name);
 
-				// todo: parameter count can be merged into the unused bits of bindingData, but so much bit-packing makes things more complicated than they need to be;
-				// it's extremely unlikely that anyone would notice the savings, even if they'd serialize tons of MemberInfos
-
 				// 3. Parameters
 				var args = method.GetParameters();
 				SerializerBinary.WriteInt32(ref buffer, ref offset, args.Length);
@@ -52,9 +53,9 @@
 
 			case MemberTypes.Property:
 				PropertyInfo prop = (PropertyInfo)(MemberInfo)member;
-				
+
 				bindingData = PackBindingData(prop.GetAccessors(true)[0].IsStatic, ReflectionTypeToCeras(member.MemberType));
-				
+
 				// 1. Binding data
 				SerializerBinary.WriteByte(ref buffer, ref offset, bindingData);
 
@@ -122,8 +123,18 @@
 				if (memberType == MemberType.Constructor)
 					member = (T)(MemberInfo)type.GetConstructor(bindingFlags, null, args, null);
 				else
-					member = (T)(MemberInfo)type.GetMethod(name, bindingFlags, binder: null, types: args, modifiers: null);
+				{
+					// todo: add a full "isGenericMethod" flag to the binding information, support open and half open definitions...
+					var resolvedMethod = ReflectionHelper.ResolveMethod(type, name, args);
+					
+					if (resolvedMethod != null)
+					{
+						member = (T)(MemberInfo)resolvedMethod;
+						return;
+					}
+				}
 
+				throw new AmbiguousMatchException($"Can't resolve method named '{name}' with '{numArgs}' arguments.");
 				break;
 
 			case MemberType.Field:
@@ -175,7 +186,7 @@
 
 			isStatic = (b & msbMask) != 0;
 
-			memberType = (MemberType) (b & ~msbMask);
+			memberType = (MemberType)(b & ~msbMask);
 		}
 	}
 

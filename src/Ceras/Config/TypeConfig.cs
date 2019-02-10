@@ -200,11 +200,11 @@ namespace Ceras
 
 		#region Formatter
 
-		public TypeConfig SetFormatter()
-		{
-			// We want to be able to use a specific formatter.
-			// For ReadonlyCollection we want to use DynamicObjectFormatter<> with a custom config instead of anything produced by the ICollectionFormatter
-		}
+		//public TypeConfig SetFormatter()
+		//{
+		//	// We want to be able to use a specific formatter.
+		//	// For ReadonlyCollection we want to use DynamicObjectFormatter<> with a custom config instead of anything produced by the ICollectionFormatter
+		//}
 
 		#endregion
 
