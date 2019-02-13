@@ -35,6 +35,9 @@
 			case MemberTypes.Method:
 				var method = (MethodBase)(MemberInfo)member;
 
+				if (method.ContainsGenericParameters)
+					throw new ArgumentException($"The method or constructor '{method.DeclaringType?.FullName}.{method.Name}' can not be serialized because it is not closed. If you need this functionality (or don't know what this means) please report an issue on GitHub.");
+
 				bindingData = PackBindingData(method.IsStatic, ReflectionTypeToCeras(member.MemberType));
 
 				// 1. Binding data

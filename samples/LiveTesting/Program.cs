@@ -23,6 +23,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			DictInObjArrayTest();
+
 			Benchmarks();
 
 			ExpressionTreesTest();
@@ -46,9 +48,7 @@ namespace LiveTesting
 			MemberInfoAndTypeInfoTest();
 
 			SimpleDictionaryTest();
-
-			DictInObjArrayTest();
-
+			
 			MaintainTypeTest();
 
 			InterfaceFormatterTest();

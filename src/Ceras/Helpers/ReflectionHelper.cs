@@ -97,42 +97,56 @@
 		}
 
 
-
+		/// <summary>
+		/// Find the MethodInfo that matches the given name and specific parameters on the given type. 
+		/// All parameter types must be "closed" (not contain any unspecified generic parameters). 
+		/// </summary>
+		/// <param name="declaringType">The type in which to look for the method</param>
+		/// <param name="name">The name of the method (method group) to find</param>
+		/// <param name="parameters">The specific parameters</param>
 		public static MethodInfo ResolveMethod(Type declaringType, string name, Type[] parameters)
 		{
 			var methods = declaringType
 						  .GetMethods()
-						  .Where(m => m.Name == name
-									  && m.GetParameters().Length == parameters.Length)
+						  .Where(m => m.Name == name &&
+									  m.GetParameters().Length == parameters.Length)
 						  .ToArray();
 
 			var match = SelectMethod(methods, parameters);
 			return match;
 		}
 
+		// Select exactly one method out of the given methods that matches the specific (closed) arguments
 		static MethodInfo SelectMethod(MethodInfo[] methods, Type[] specificArguments)
 		{
-			List<MethodInfo> matches = new List<MethodInfo>();
+			var matches = new List<MethodInfo>();
 
 			foreach (var m in methods)
 			{
 				if (m.IsGenericMethod)
 				{
+					// Inspect generic arguments and parameters in depth
 					var closedMethod = TryCloseOpenGeneric(m, specificArguments);
 					if (closedMethod != null)
 						matches.Add(closedMethod);
 				}
 				else
 				{
+					// Just check if the parameters match
 					var parameters = m.GetParameters();
 
 					bool allMatch = true;
 					for (int argIndex = 0; argIndex < specificArguments.Length; argIndex++)
-						if (specificArguments[argIndex] != parameters[argIndex].ParameterType)
+					{
+						var pType = parameters[argIndex].ParameterType;
+						var argType = specificArguments[argIndex];
+
+						if (!pType.IsAssignableFrom(argType))
 						{
 							allMatch = false;
 							break;
 						}
+					}
 
 					if (allMatch)
 						matches.Add(m);
@@ -151,6 +165,13 @@
 		// Try to close an open generic method, making it take the given argument types
 		public static MethodInfo TryCloseOpenGeneric(MethodInfo openGenericMethod, Type[] specificArguments)
 		{
+			if (!openGenericMethod.IsGenericMethodDefinition)
+				throw new ArgumentException($"'{nameof(openGenericMethod)}' must be a generic method definition");
+
+			foreach (var t in specificArguments)
+				if (t.ContainsGenericParameters)
+					throw new InvalidOperationException($"Can't close open generic method '{openGenericMethod}' At least one of the given argument types is not fully closed: '{t.FullName}'");
+
 			var parameters = openGenericMethod.GetParameters();
 
 			// Go through the parameters recursively, once we find a generic parameter (or some nested one) then we can infer the type from the given specific arguments.
@@ -161,7 +182,7 @@
 			// - While establishing the generic arguments we can check the generic constraints
 			// - We can also check if parameters could still fit even if they're not an exact match (an more derived argument going into a base-type parameter)
 
-			Dictionary<Type, Type> genArgToConcreteType = new Dictionary<Type, Type>();
+			var genArgToConcreteType = new Dictionary<Type, Type>();
 
 			var genArgs = openGenericMethod.GetGenericArguments();
 
@@ -170,7 +191,8 @@
 				var p = parameters[paramIndex];
 				var arg = specificArguments[paramIndex];
 
-				if (IsParameterMatch(p.ParameterType, arg, genArgToConcreteType, genArgs))
+				// For now we only accept exact matches. We won't make any assumptions about being able to pass in more derived types.
+				if (IsParameterMatch(p.ParameterType, arg, genArgToConcreteType, genArgs, true))
 				{
 					// Ok, at least this parameter matches, try the others...
 				}
@@ -199,32 +221,44 @@
 			return instantiatedGenericMethod;
 		}
 
-		static bool IsParameterMatch(Type parameterType, Type arg, Dictionary<Type, Type> genArgToConcreteType, Type[] methodGenericArgs)
+		// Check if the given argument type 'arg' matches the parameter 'parameterType'.
+		// Use 'genArgToConcreteType' to either lookup any already specified generic arguments, or infer and define them!
+		// 'methodGenericArgs' just contains the "undefined" generic argument types to be used as the key in the dictionary.
+		static bool IsParameterMatch(Type parameterType, Type arg, Dictionary<Type, Type> genArgToConcreteType, Type[] methodGenericArgs, bool mustMatchExactly)
 		{
-			if (parameterType == arg)
-				return true; // Exact match already
+			// Direct match?
+			//  "typeof(int) == typeof(int)"
+			if (mustMatchExactly)
+			{
+				if (parameterType == arg)
+					return true;
+			}
+			else
+			{
+				if (parameterType.IsAssignableFrom(arg))
+					return true;
+			}
 
-			// Is the parameter itself one of the generic arguments??
+			// Is it a generic parameter '<T>'?
 			var genericArg = methodGenericArgs.FirstOrDefault(g => g == parameterType);
 			if (genericArg != null)
 			{
-				// We found a generic argument!
-				// Lets establish that
-
-				if (genArgToConcreteType.ContainsKey(genericArg))
+				// The parameter is a '<T>'
+				if (genArgToConcreteType.TryGetValue(genericArg, out var existingGenericTypeArgument))
 				{
-					// We already have a specific type for this generic arg
-					var existingSpecificType = genArgToConcreteType[genericArg];
-
-					if (existingSpecificType != arg)
+					if (existingGenericTypeArgument != arg)
+					{
 						// Signature does not match
 						return false;
-
-					// The arg matches the already established one
+					}
+					else
+					{
+						// The arg matches the already established one
+					}
 				}
 				else
 				{
-					// todo: check if this is allowed by the constraints
+					// Establish that this generic type argument will be 'arg'
 					genArgToConcreteType.Add(genericArg, arg);
 				}
 
@@ -238,23 +272,26 @@
 				var argGenericTypeDef = arg.GetGenericTypeDefinition();
 
 				if (paramGenericTypeDef != argGenericTypeDef)
+					// "Containers" are not compatible
 					return false;
 
-				// At least the to "container types" are compatible
-				// Now lets try to match each of the inner generic arguments
+				// Open up the containers and inspect each generic argument
 				var specificGenArgs = arg.GetGenericArguments();
 				var genArgs = parameterType.GetGenericArguments();
 
 				for (int i = 0; i < genArgs.Length; i++)
 				{
-					if (!IsParameterMatch(genArgs[i], specificGenArgs[i], genArgToConcreteType, methodGenericArgs))
+					if (!IsParameterMatch(genArgs[i], specificGenArgs[i], genArgToConcreteType, methodGenericArgs, mustMatchExactly))
 						return false;
 				}
 
 				return true;
 			}
 
+
+			// Types don't match, and are not compatible generics
 			return false;
 		}
+
 	}
 }
