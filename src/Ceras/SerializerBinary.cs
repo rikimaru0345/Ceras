@@ -104,12 +104,18 @@
 
 		// Same as WriteUInt32Bias, but without the capacity size check (make sure you reserve 5 bytes for this method)
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteUInt32BiasNoCheck(ref byte[] buffer, ref int offset, int value, int bias)
+		public static void WriteUInt32BiasNoCheck(byte[] buffer, ref int offset, int value, int bias)
 		{
 			value += bias;
 			WriteVarInt(ref buffer, ref offset, (ulong)value);
 		}
 
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteUInt32NoCheck(byte[] buffer, ref int offset, uint value)
+		{
+			WriteVarInt(ref buffer, ref offset, (ulong)value);
+		}
 
 		#endregion
 
@@ -274,7 +280,7 @@
 		}
 		
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteFloat32FixedNoCheck(ref byte[] buffer, ref int offset, float value)
+		public static void WriteFloat32FixedNoCheck(byte[] buffer, ref int offset, float value)
 		{
 			fixed (byte* pBuffer = buffer)
 			{
@@ -395,7 +401,7 @@
 			EnsureCapacity(ref buffer, offset, valueBytesCount + 5); // 5 bytes space for the VarInt
 
 			// Length
-			WriteUInt32BiasNoCheck(ref buffer, ref offset, valueBytesCount, 1);
+			WriteUInt32BiasNoCheck(buffer, ref offset, valueBytesCount, 1);
 
 			var realBytesCount = encoding.GetBytes(value, 0, value.Length, buffer, offset);
 			offset += realBytesCount;

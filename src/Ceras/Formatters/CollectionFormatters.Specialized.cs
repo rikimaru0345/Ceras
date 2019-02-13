@@ -2,6 +2,12 @@
 {
 	using System;
 	using System.Collections.Generic;
+	
+	// todo: special formatter: "BlitFormatter<T>" and "BlitFormatter<T[]>" to replace byte[] and int[] formatters
+	// todo: special formatter: CollectionFormatter that reads elements into a list, then calls a ctor with list or array with parameters named "IList<T> list" "array" or "IEnumerable<T> collection". Probably best to manually select what types are affected and what ctor to use...
+	// todo: special formatter: "CapacityCollectionFormatter" that uses "capacity" ctor for enabled types
+	// todo: special handling for things that only implement ICollection (non generic) like Stack and Queue
+	// todo: check IsReadonly for IDictionary and IList
 
 	sealed class ByteArrayFormatter : IFormatter<byte[]>
 	{
@@ -111,6 +117,7 @@
 			offset += byteLen;
 		}
 	}
+
 
 	sealed class ListFormatter<TItem> : IFormatter<List<TItem>>
 	{
