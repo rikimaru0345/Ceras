@@ -124,12 +124,15 @@
 					_typeFormatter.Deserialize(buffer, ref offset, ref args[i]);
 
 				if (memberType == MemberType.Constructor)
+				{
 					member = (T)(MemberInfo)type.GetConstructor(bindingFlags, null, args, null);
+					return;
+				}
 				else
 				{
 					// todo: add a full "isGenericMethod" flag to the binding information, support open and half open definitions...
 					var resolvedMethod = ReflectionHelper.ResolveMethod(type, name, args);
-					
+
 					if (resolvedMethod != null)
 					{
 						member = (T)(MemberInfo)resolvedMethod;
@@ -138,7 +141,7 @@
 				}
 
 				throw new AmbiguousMatchException($"Can't resolve method named '{name}' with '{numArgs}' arguments.");
-				break;
+
 
 			case MemberType.Field:
 			case MemberType.Property:
@@ -152,6 +155,7 @@
 					member = (T)(MemberInfo)type.GetProperty(name, bindingFlags, null, fieldOrPropType, types: new Type[0], null);
 
 				break;
+
 
 			default:
 				throw new ArgumentOutOfRangeException("Cannot deserialize member type '" + memberType + "'");

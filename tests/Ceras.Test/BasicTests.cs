@@ -1,7 +1,9 @@
 ﻿using Xunit;
+// ReSharper disable InconsistentNaming
 
 namespace Ceras.Test
 {
+	using System;
 	using System.Collections.Generic;
 
 	public class Encoding
@@ -81,52 +83,70 @@ namespace Ceras.Test
 		}
 	}
 
-	public class Internals
+	public class Internals : TestBase
 	{
-		CerasSerializer _ceras;
-
-		public Internals()
-		{
-			_ceras = new CerasSerializer();
-		}
-
-
 		[Fact]
 		public void MethodResolving()
 		{
 			// Check if the method resolver works correctly
+			IAnimal animal = null;
+			ICat cat = null;
+			IDog dog = null;
 
-			// - Can serialize simple MethodInfo, ConstructorInfo
 
-			// - Serialize simple closed generic
+			// - Non-generic MethodInfo, ConstructorInfo
+			{
+				var ctor = GetCtor(() => new Internals());
+				CheckCloneEquality(ctor);
 
-			// - Serialize generic MethodInfo with constraints
+				var mAA = GetMethod(() => HandleAnimal(animal, animal));
+				CheckCloneEquality(mAA);
 
-			// - Serialize MethodInfo where generic arguments are hidden behind a non-generic type or interface. Forcing us to resolve the closed definition in the hierarchy.
+				var mCA = GetMethod(() => HandleAnimal(cat, animal));
+				CheckCloneEquality(mCA);
 
-			// - Also check if ref/out stuff is resolved correctly 
+				var mAC = GetMethod(() => HandleAnimal(animal, cat));
+				CheckCloneEquality(mAC);
 
+				var mCC = GetMethod(() => HandleAnimal(cat, cat));
+				CheckCloneEquality(mCC);
+			}
+
+
+			// - Simple closed generic
+			{
+				var mt = GetMethod(() => HandleAnimal(dog, dog));
+				CheckCloneEquality(mt);
+			}
+
+			// - Exception on open method
+			{
+				var open = GetMethod(() => HandleAnimal(dog, dog)).GetGenericMethodDefinition();
+				Assert.ThrowsAny<Exception>(() => Clone(open));
+			}
 		}
 
+
+
 		void HandleAnimal(IAnimal anyA, IAnimal anyB) { }
-		void HandleAnimal(IAnimal any, ICat cat) { }
 		void HandleAnimal(ICat cat, IAnimal any) { }
+		void HandleAnimal(IAnimal any, ICat cat) { }
 		void HandleAnimal(ICat cat1, ICat cat2) { }
+		void HandleAnimal<T>(T obj1, T obj2) where T : IDog { }
 
-
-
-		// todo: test public default ctor, private default ctor, and no parameterless ctor (and all construction modes)
-
-		// todo: ignoreField, Caching, KeyValuePairs, Dictionaries, Typing, interfaces,
-		// todo: RootObjects, reusing (overwriting) objects, arrays
-		// todo: known types, hash checks for known types, assured mismatch when another type is added
+		interface IAnimal { }
+		interface ICat : IAnimal { }
+		interface IDog : IAnimal { }
+		class Cat : ICat { }
+		class Dog : IDog { }
 	}
 
 
-	interface IAnimal { }
-	interface ICat : IAnimal { }
-	interface IDog : IAnimal { }
-	class Cat : ICat { }
-	class Dog : IDog { }
+
+	// todo: test public default ctor, private default ctor, and no parameterless ctor (and all construction modes)
+
+	// todo: ignoreField, Caching, KeyValuePairs, Dictionaries, Typing, interfaces,
+	// todo: RootObjects, reusing (overwriting) objects, arrays
+	// todo: known types, hash checks for known types, assured mismatch when another type is added
 
 }

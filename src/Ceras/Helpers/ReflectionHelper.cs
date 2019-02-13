@@ -107,7 +107,7 @@
 		public static MethodInfo ResolveMethod(Type declaringType, string name, Type[] parameters)
 		{
 			var methods = declaringType
-						  .GetMethods()
+						  .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
 						  .Where(m => m.Name == name &&
 									  m.GetParameters().Length == parameters.Length)
 						  .ToArray();
@@ -141,7 +141,8 @@
 						var pType = parameters[argIndex].ParameterType;
 						var argType = specificArguments[argIndex];
 
-						if (!pType.IsAssignableFrom(argType))
+						if (pType != argType)
+						// if (!pType.IsAssignableFrom(argType))
 						{
 							allMatch = false;
 							break;
@@ -207,18 +208,26 @@
 			var closedGenericArgs = genArgs.OrderBy(g => g.GenericParameterPosition).Select(g => genArgToConcreteType[g]).ToArray();
 
 			// Try to instantiate the method using those args
-			var instantiatedGenericMethod = openGenericMethod.MakeGenericMethod(closedGenericArgs);
+			try
+			{
+				var instantiatedGenericMethod = openGenericMethod.MakeGenericMethod(closedGenericArgs);
 
-			// Ok, do the parameter types match perfectly?
-			var createdParams = instantiatedGenericMethod.GetParameters();
+				// Ok, do the parameter types match perfectly?
+				var createdParams = instantiatedGenericMethod.GetParameters();
 
-			for (int i = 0; i < createdParams.Length; i++)
-				if (createdParams[i].ParameterType != specificArguments[i])
-					// Somehow, after instantiating the method with these parameters, something doesn't match up...
-					return null;
+				for (int i = 0; i < createdParams.Length; i++)
+					if (createdParams[i].ParameterType != specificArguments[i])
+						// Somehow, after instantiating the method with these parameters, something doesn't match up...
+						return null;
 
 
-			return instantiatedGenericMethod;
+				return instantiatedGenericMethod;
+			}
+			catch
+			{
+				// Can't instantiate generic with those type-arguments
+				return null;
+			}
 		}
 
 		// Check if the given argument type 'arg' matches the parameter 'parameterType'.
