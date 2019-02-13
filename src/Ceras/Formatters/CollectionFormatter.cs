@@ -2,6 +2,8 @@
 {
 	using System;
 	using System.Collections.Generic;
+	using System.Linq.Expressions;
+	using System.Reflection;
 
 	// todo: at the moment we refer to the item formatter through an interface field. Would we get a performance improvement if we'd compile a dedicated formatter that has the itemFormatter built-in as a constant instead? (just like the DynamicObjectFormatter already does)? Would we save performance if we'd cache the itemFormatter into a local variable before entering the loops?
 
@@ -58,22 +60,46 @@
 				f.Deserialize(buffer, ref offset, ref ar[i]);
 		}
 	}
-	
+
+
 	sealed class CollectionFormatter<TCollection, TItem> : IFormatter<TCollection>
 		where TCollection : ICollection<TItem>
 	{
-		IFormatter<TItem> _itemFormatter;
+		readonly IFormatter<TItem> _itemFormatter;
 		readonly uint _maxSize;
+		readonly Func<int, TCollection> _capacityConstructor;
 
 		public CollectionFormatter(CerasSerializer serializer)
 		{
 			var itemType = typeof(TItem);
 			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
 			_maxSize = serializer.Config.Advanced.SizeLimits.MaxCollectionSize;
+
+			var collectionType = typeof(TCollection);
+			if (collectionType.IsGenericType)
+			{
+				ConstructorInfo ctor = null;
+
+				if (collectionType.GetGenericTypeDefinition() == typeof(List<>))
+					ctor = collectionType.GetConstructor(new Type[] { typeof(int) });
+				else if (collectionType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+					ctor = collectionType.GetConstructor(new Type[] { typeof(int) });
+
+				if (ctor != null)
+				{
+					var sizeArg = Expression.Parameter(typeof(int));
+					_capacityConstructor = Expression.Lambda<Func<int, TCollection>>(Expression.New(ctor, sizeArg), sizeArg).Compile();
+
+					CerasSerializer.AddFormatterConstructedType(collectionType);
+				}
+			}
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TCollection value)
 		{
+			if (value.IsReadOnly)
+				ThrowReadonly(value);
+
 			// Write how many items do we have
 			SerializerBinary.WriteUInt32(ref buffer, ref offset, (uint)value.Count);
 
@@ -92,7 +118,17 @@
 				throw new InvalidOperationException($"The data contains a '{typeof(TCollection)}' with '{itemCount}' entries, which exceeds the allowed limit of '{_maxSize}'");
 
 
-			value.Clear();
+			if (value == null)
+				value = _capacityConstructor((int)itemCount);
+			else
+			{
+				if (value.Count > 0)
+					value.Clear();
+			}
+
+			if (value.IsReadOnly)
+				ThrowReadonly(value);
+
 
 			var f = _itemFormatter;
 
@@ -102,6 +138,11 @@
 				f.Deserialize(buffer, ref offset, ref item);
 				value.Add(item);
 			}
+		}
+
+		static void ThrowReadonly(object value)
+		{
+			throw new InvalidOperationException($"To serialize readonly collections you must configure a construction mode for the type '{value.GetType().FullName}'. (It's pretty easy, take a look at the tutorial or open an issue on GitHub)");
 		}
 	}
 }

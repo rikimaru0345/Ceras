@@ -196,9 +196,15 @@ namespace Ceras
 			// MemberInfos (FieldInfo, RuntimeFieldInfo, ...)
 			_resolvers.Add(new ReflectionFormatterResolver(this));
 
+			// Fast native copy for unmanaged types
+			_resolvers.Add(new ReinterpretFormatterResolver(this));
+
 			// DynamicObjectResolver is a special case, so it is not in the resolver-list
 			// That is because we only want to have specific resolvers in the resolvers-list
 			_dynamicResolver = new DynamicObjectFormatterResolver(this);
+
+			// System.Linq.Expressions - mostly handled by special configurations and DynamicObjectFormatter, but there are some special cases.
+			_resolvers.Add(new ExpressionFormatterResolver());
 
 
 			//

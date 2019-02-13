@@ -23,9 +23,10 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			DictInObjArrayTest();
 
 			Benchmarks();
+
+			DictInObjArrayTest();
 
 			ExpressionTreesTest();
 
@@ -172,7 +173,6 @@ namespace LiveTesting
 
 				// Serialize and deserialize delegate
 				SerializerConfig config = new SerializerConfig();
-				ExpressionFormatterResolver.Configure(config);
 				var ceras = new CerasSerializer(config);
 
 
@@ -191,7 +191,6 @@ namespace LiveTesting
 
 				// Serialize and deserialize delegate
 				SerializerConfig config = new SerializerConfig();
-				ExpressionFormatterResolver.Configure(config);
 				var ceras = new CerasSerializer(config);
 
 
@@ -213,12 +212,8 @@ namespace LiveTesting
 
 				// Serialize and deserialize delegate
 				SerializerConfig config = new SerializerConfig();
-
-				ExpressionFormatterResolver.Configure(config);
-
-
 				var ceras = new CerasSerializer(config);
-
+				
 				var data = ceras.Serialize<object>(getCharAtIndex);
 				var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
 

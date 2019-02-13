@@ -8,6 +8,7 @@ namespace Ceras
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using Config;
 
 
 	// Serialization Constructors:
@@ -26,8 +27,6 @@ namespace Ceras
 
 	public class TypeConfig
 	{
-		const BindingFlags BindingFlags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static;
-
 		readonly SerializerConfig _config;
 		internal readonly Type Type;
 
@@ -54,7 +53,7 @@ namespace Ceras
 		TargetMember? _targetMembers;
 		internal TargetMember TargetMembers => _targetMembers ?? _config.DefaultTargets;
 
-		Type _formatterType;
+		//Type _formatterType;
 
 
 		internal TypeConfig(SerializerConfig config, Type type)
@@ -62,37 +61,7 @@ namespace Ceras
 			_config = config;
 			Type = type;
 
-			//
-			// Set default constructor
-			var methods = type.GetMethods(BindingFlags).Cast<MemberInfo>().Concat(type.GetConstructors(BindingFlags));
-			MemberInfo ctor = methods.FirstOrDefault(m => m.GetCustomAttribute<CerasConstructorAttribute>() != null);
-
-			if (ctor == null)
-				// No hint found, try default ctor
-				ctor = type.GetConstructor(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-
-			// Default is null to throw an exception unless configured otherwise by the user later on
-			TypeConstruction = null;
-
-			// Apply this ctor or factory
-			if (ctor != null)
-			{
-				if (ctor is ConstructorInfo constructorInfo)
-					TypeConstruction = TypeConstruction.ByConstructor(constructorInfo);
-				else if (ctor is MethodInfo methodInfo)
-					TypeConstruction = TypeConstruction.ByStaticMethod(methodInfo);
-			}
-
-			//
-			// Set default values from attributes
-			var memberConfig = type.GetCustomAttribute<MemberConfigAttribute>();
-			if (memberConfig != null)
-			{
-				_customReadonlyHandling = memberConfig.ReadonlyFieldHandling;
-				_targetMembers = memberConfig.TargetMembers;
-			}
-
-			// todo: per-member attributes like: include, ignore, readonly
+			TypeConfigDefaults.SetDefaultConfiguration(type, this);
 		}
 
 

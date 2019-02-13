@@ -105,9 +105,9 @@ namespace LiveTesting
 				const int v3Size = 3 * 4;
 				SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
 
-				SerializerBinary.WriteFloat32FixedNoCheck(ref buffer, ref offset, value.X);
-				SerializerBinary.WriteFloat32FixedNoCheck(ref buffer, ref offset, value.Y);
-				SerializerBinary.WriteFloat32FixedNoCheck(ref buffer, ref offset, value.Z);
+				SerializerBinary.WriteFloat32FixedNoCheck(buffer, ref offset, value.X);
+				SerializerBinary.WriteFloat32FixedNoCheck(buffer, ref offset, value.Y);
+				SerializerBinary.WriteFloat32FixedNoCheck(buffer, ref offset, value.Z);
 			}
 
 			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
@@ -123,9 +123,9 @@ namespace LiveTesting
 
 				var bufferLocal = buffer;
 
-				SerializerBinary.WriteFloat32FixedNoCheck(ref bufferLocal, ref offset, value.X);
-				SerializerBinary.WriteFloat32FixedNoCheck(ref bufferLocal, ref offset, value.Y);
-				SerializerBinary.WriteFloat32FixedNoCheck(ref bufferLocal, ref offset, value.Z);
+				SerializerBinary.WriteFloat32FixedNoCheck(bufferLocal, ref offset, value.X);
+				SerializerBinary.WriteFloat32FixedNoCheck(bufferLocal, ref offset, value.Y);
+				SerializerBinary.WriteFloat32FixedNoCheck(bufferLocal, ref offset, value.Z);
 			}
 
 			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
@@ -320,8 +320,9 @@ namespace LiveTesting
 				new Vector3Formatter_MergeBlit4(),
 				new Vector3Formatter_MergeBlit5(),
 				new Vector3Formatter_Interface(),
+				new ReinterpretFormatter<Vector3>(),
 		};
-		[Params(0, 1, 2, 3, 4, 5, 6)] // ParamsSource doesn't seem to work at all, must be a bug in benchmarkdotnet
+		[Params(0, 1, 2, 3, 4, 5, 6, 7)] // ParamsSource doesn't seem to work at all, must be a bug in benchmarkdotnet
 		public int TypeIndex { get; set; }
 
 

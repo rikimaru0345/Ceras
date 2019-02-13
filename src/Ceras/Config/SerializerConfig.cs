@@ -11,6 +11,8 @@
 	/// </summary>
 	public class SerializerConfig : IAdvancedConfigOptions, ISizeLimitsConfig
 	{
+		#region Basic Settings
+
 		/// <summary>
 		/// Add all the types you want to serialize to this collection.
 		/// By default, in order to protect you against exploits, when you add at least one "KnownType" Ceras will run in "sealed mode" which means that only the types you have added will be allowed, and when a new type is encountered while reading/writing an exception is thrown.
@@ -22,7 +24,6 @@
 		/// See the tutorial for more information.
 		/// </summary>
 		public List<Type> KnownTypes { get; internal set; } = new List<Type>();
-
 
 		/// <summary>
 		/// If your object implement IExternalRootObject they are written as their external ID, so at deserialization-time you need to provide a resolver for Ceras so it can get back the Objects from their IDs.
@@ -74,12 +75,15 @@
 		/// </summary>
 		public TargetMember DefaultTargets { get; set; } = TargetMember.PublicFields;
 
+		#endregion
 
+
+		#region Type Configuration
 
 		Dictionary<Type, TypeConfig> _configEntries = new Dictionary<Type, TypeConfig>();
 
 		// Get a TypeConfig without calling 'OnConfigNewType'
-		TypeConfig GetTypeConfigConfiguration(Type type)
+		TypeConfig GetTypeConfigForConfiguration(Type type)
 		{
 			if (_configEntries.TryGetValue(type, out var typeConfig))
 				return typeConfig;
@@ -106,14 +110,16 @@
 			return typeConfig;
 		}
 
+
+
+		/// <summary>
+		/// Use this when you want to configure types directly (instead of through attributes, or <see cref="OnConfigNewType"/>). Any changes you make using this method will override any settings applied through attributes on the type.
+		/// </summary>
+		public TypeConfig ConfigType(Type type) => GetTypeConfigForConfiguration(type);
 		/// <summary>
 		/// Generic version of <see cref="ConfigType(Type)"/>
 		/// </summary>
 		public TypeConfig ConfigType<T>() => ConfigType(typeof(T));
-		/// <summary>
-		/// Use this when you want to configure types directly (instead of through attributes). Any changes you make using this method will override any settings applied through attributes on the type.
-		/// </summary>
-		public TypeConfig ConfigType(Type type) => GetTypeConfigConfiguration(type);
 
 
 		/// <summary>
@@ -128,13 +134,16 @@
 			get => _onConfigNewType;
 			set
 			{
-				if(_onConfigNewType == null)
+				if (_onConfigNewType == null)
 					_onConfigNewType = value;
 				else
 					throw new InvalidOperationException(nameof(OnConfigNewType) + " is already set. Multiple type configuration callbacks would overwrite each others changes, you must collect all the callbacks into one function to maintain detailed control over how each Type gets configured.");
 			}
 		}
 		Action<TypeConfig> _onConfigNewType;
+
+		#endregion
+
 
 
 		/// <summary>
@@ -147,7 +156,7 @@
 		uint ISizeLimitsConfig.MaxArraySize { get; set; } = uint.MaxValue;
 		uint ISizeLimitsConfig.MaxByteArraySize { get; set; } = uint.MaxValue;
 		uint ISizeLimitsConfig.MaxCollectionSize { get; set; } = uint.MaxValue;
-		
+
 		Action<object> IAdvancedConfigOptions.DiscardObjectMethod { get; set; } = null;
 		Func<SerializedMember, SerializationOverride> IAdvancedConfigOptions.ShouldSerializeMember { get; set; } = null;
 		ReadonlyFieldHandling IAdvancedConfigOptions.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.ExcludeFromSerialization;
@@ -157,9 +166,8 @@
 		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
 		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = null;
 		DelegateSerializationMode IAdvancedConfigOptions.DelegateSerialization { get; set; } = DelegateSerializationMode.Off;
-
+		public bool UseReinterpretFormatter { get; set; } = true;
 	}
-
 
 
 	public interface IAdvancedConfigOptions
@@ -259,7 +267,18 @@
 		/// <para>Default: Off</para>
 		/// </summary>
 		DelegateSerializationMode DelegateSerialization { get; set; }
+
+		/// <summary>
+		/// Use a special, extremely fast formatter when possible.
+		/// This formatter re-interprets the buffer pointer so the value(s) can be written/read directly.
+		/// Works with all value-types (structs), including generics, as long as the type contains no managed object references.
+		/// Supports individual objects as well as arrays.
+		/// All data is written in the processor-native endianness.
+		/// <para>Default: true</para>
+		/// </summary>
+		bool UseReinterpretFormatter { get; set; }
 	}
+
 
 	public interface ISizeLimitsConfig
 	{
@@ -283,8 +302,17 @@
 
 	public enum DelegateSerializationMode
 	{
+		/// <summary>
+		/// Throw an exception when trying to serialize a delegate type
+		/// </summary>
 		Off,
+		/// <summary>
+		/// Allow delegates as long as they point to static methods
+		/// </summary>
 		AllowStatic,
+		/// <summary>
+		/// Allow delegates even when they include an object reference (that will get serialized as well)
+		/// </summary>
 		AllowInstance,
 	}
 
@@ -309,7 +337,7 @@
 		/// Keep in mind that this mode will obviously never work with value-types (int, structs, ...), in that case simply use <see cref="ForcedOverwrite"/>.
 		/// </summary>
 		Members = 1,
-		
+
 		/// <summary>
 		/// This mode means pretty much "treat readonly fields exactly the same as normal fields". But since readonly fields can't normally be changed outside the constructor of the object Ceras will use reflection to forcefully overwrite the object field.
 		/// </summary>

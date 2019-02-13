@@ -96,6 +96,21 @@
 			return members;
 		}
 
+		public static bool IsUnmanaged(Type type)
+		{
+			if(!type.IsValueType)
+				return false;
+
+			var members = GetAllDataMembers(type);
+			foreach (var f in members.OfType<FieldInfo>())
+			{
+				if(!IsUnmanaged(f.FieldType))
+					return false;
+			}
+
+			return true;
+		}
+
 
 		/// <summary>
 		/// Find the MethodInfo that matches the given name and specific parameters on the given type. 
