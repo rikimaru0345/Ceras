@@ -168,16 +168,11 @@ namespace Ceras
 			// Int, Float, Enum, ...
 			_resolvers.Add(new PrimitiveResolver(this));
 
-			_resolvers.Add(new KeyValuePairFormatterResolver(this));
+			// DateTime, Guid, KeyValuePair, Tuple, ...
+			_resolvers.Add(new StandardFormatterResolver(this));
+
+			// Array, List, Dictionary, ICollection<T>, ...
 			_resolvers.Add(new CollectionFormatterResolver(this));
-
-			// DateTime, Guid
-			_resolvers.Add(new BclFormatterResolver(this));
-
-			// DynamicObjectResolver is a special case, so it is not in the resolver-list
-			// That is because we only want to have specific resolvers in the resolvers-list
-			_dynamicResolver = new DynamicObjectFormatterResolver(this);
-
 
 			// String Formatter should never be wrapped in a RefFormatter, that's too slow and not necessary
 			IFormatter stringFormatter;
@@ -185,6 +180,7 @@ namespace Ceras
 				stringFormatter = new MaxSizeStringFormatter(Config.Advanced.SizeLimits.MaxStringLength);
 			else
 				stringFormatter = new StringFormatter();
+			InjectDependencies(stringFormatter);
 			SetFormatters(typeof(string), stringFormatter, stringFormatter);
 
 			//
@@ -198,8 +194,11 @@ namespace Ceras
 			SetFormatters(runtimeType, typeFormatter, typeFormatter);
 
 			// MemberInfos (FieldInfo, RuntimeFieldInfo, ...)
-			_resolvers.Add(new ReflectionTypesFormatterResolver(this));
+			_resolvers.Add(new ReflectionFormatterResolver(this));
 
+			// DynamicObjectResolver is a special case, so it is not in the resolver-list
+			// That is because we only want to have specific resolvers in the resolvers-list
+			_dynamicResolver = new DynamicObjectFormatterResolver(this);
 
 
 			//

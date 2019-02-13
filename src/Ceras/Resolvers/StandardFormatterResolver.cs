@@ -1,14 +1,16 @@
-﻿namespace Ceras.Formatters
+﻿namespace Ceras.Resolvers
 {
+	using Formatters;
 	using Helpers;
 	using System;
+	using System.Collections.Generic;
 	using System.Collections.Specialized;
 	using System.Diagnostics.CodeAnalysis;
 	using System.Linq;
 	using System.Numerics;
 	using static SerializerBinary;
 
-	class BclFormatterResolver : Resolvers.IFormatterResolver
+	class StandardFormatterResolver : IFormatterResolver
 	{
 		static readonly TypeDictionary<IFormatter> _primitiveFormatters = new TypeDictionary<IFormatter>();
 
@@ -37,16 +39,16 @@
 				typeof(ValueTupleFormatter<,,,,,,,>), // 7
 		};
 #endif
-		
+
 		// implemented by both tuple and value tuple
 		static readonly Type _iTupleInterface = typeof(Tuple<>).GetInterfaces().First(t => t.Name == "ITuple");
 
 
-		CerasSerializer _serializer;
+		readonly CerasSerializer _ceras;
 
-		public BclFormatterResolver(CerasSerializer serializer)
+		public StandardFormatterResolver(CerasSerializer ceras)
 		{
-			_serializer = serializer;
+			_ceras = ceras;
 
 			_primitiveFormatters.GetOrAddValueRef(typeof(DateTime)) = new DateTimeFormatter();
 			_primitiveFormatters.GetOrAddValueRef(typeof(DateTimeOffset)) = new DateTimeOffsetFormatter();
@@ -55,7 +57,6 @@
 			_primitiveFormatters.GetOrAddValueRef(typeof(decimal)) = new DecimalFormatter();
 			_primitiveFormatters.GetOrAddValueRef(typeof(BitVector32)) = new BitVector32Formatter();
 			_primitiveFormatters.GetOrAddValueRef(typeof(BigInteger)) = new BigIntegerFormatter();
-
 		}
 
 		public IFormatter GetFormatter(Type type)
@@ -65,11 +66,22 @@
 
 			if (type.IsGenericType)
 			{
-				if (type.GetGenericTypeDefinition() == typeof(Nullable<>))
+				var genericDef = type.GetGenericTypeDefinition();
+
+				if (genericDef == typeof(Nullable<>))
 				{
-					var innerType = type.GetGenericArguments()[0];
-					var formatterType = typeof(NullableFormatter<>).MakeGenericType(innerType);
-					return (IFormatter)Activator.CreateInstance(formatterType, _serializer);
+					// Find the closed type, it's possible the current type is not generic itself, but derives from a closed generic
+					var closedType = ReflectionHelper.FindClosedType(type, typeof(Nullable<>));
+					var formatterType = typeof(NullableFormatter<>).MakeGenericType(closedType.GetGenericArguments());
+					return (IFormatter)Activator.CreateInstance(formatterType, _ceras);
+				}
+
+				if (genericDef == typeof(KeyValuePair<,>))
+				{
+					// Find the closed type, it's possible the current type is not generic itself, but derives from a closed generic
+					var closedType = ReflectionHelper.FindClosedType(type, typeof(KeyValuePair<,>));
+					var formatterType = typeof(KeyValuePairFormatter<,>).MakeGenericType(closedType.GetGenericArguments());
+					return (IFormatter)Activator.CreateInstance(formatterType);
 				}
 
 				if (_iTupleInterface.IsAssignableFrom(type))
@@ -93,9 +105,8 @@
 						var nArgs = type.GenericTypeArguments.Length;
 						var formatterType = _tupleFormatterTypes[nArgs];
 						formatterType = formatterType.MakeGenericType(type.GenericTypeArguments);
-
 						var formatter = (IFormatter)Activator.CreateInstance(formatterType);
-					
+
 						CerasSerializer.AddFormatterConstructedType(type);
 
 						return formatter;
@@ -118,7 +129,7 @@
 			public NullableFormatter(CerasSerializer serializer)
 			{
 				if (!typeof(T).IsValueType)
-					throw new InvalidOperationException($"Trying to create a 'NullableFormatter<>' for generic T = '{typeof(T).FullName}', which is not a value-type!");
+					throw new InvalidOperationException($"Trying to create a 'NullableFormatter<>' for reference type '{typeof(T).FullName}'!");
 
 				_specificFormatter = (IFormatter<T>)serializer.GetSpecificFormatter(typeof(T));
 			}
@@ -149,6 +160,30 @@
 				{
 					value = new Nullable<T>();
 				}
+			}
+		}
+
+
+		class KeyValuePairFormatter<TKey, TValue> : IFormatter<KeyValuePair<TKey, TValue>>
+		{
+			IFormatter<TKey> _keyFormatter;
+			IFormatter<TValue> _valueFormatter;
+			
+			public void Serialize(ref byte[] buffer, ref int offset, KeyValuePair<TKey, TValue> value)
+			{
+				_keyFormatter.Serialize(ref buffer, ref offset, value.Key);
+				_valueFormatter.Serialize(ref buffer, ref offset, value.Value);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref KeyValuePair<TKey, TValue> kvp)
+			{
+				TKey key = default;
+				_keyFormatter.Deserialize(buffer, ref offset, ref key);
+
+				TValue value = default;
+				_valueFormatter.Deserialize(buffer, ref offset, ref value);
+
+				kvp = new KeyValuePair<TKey, TValue>(key, value);
 			}
 		}
 
@@ -278,31 +313,5 @@
 				value = new BigInteger(bytes);
 			}
 		}
-
-
-		/*
-		class TupleFormatter<T1, T2> : IFormatter<Tuple<T1, T2>>
-		{
-			IFormatter<T1> _f1;
-			IFormatter<T2> _f2;
-
-			public TupleFormatter(CerasSerializer serializer)
-			{
-				_f1 = (IFormatter<T1>)serializer.GetSpecificFormatter(typeof(T1));
-				_f2 = (IFormatter<T2>)serializer.GetSpecificFormatter(typeof(T2));
-			}
-
-
-			public void Serialize(ref byte[] buffer, ref int offset, Tuple<T1, T2> value)
-			{
-
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref Tuple<T1, T2> value)
-			{
-			}
-		}
-		*/
-
 	}
 }

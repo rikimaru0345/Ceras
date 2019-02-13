@@ -21,7 +21,7 @@
 	 * Todo 1:
 	 * 
 	 * right now we have checks like this:
-	 *		if (_serializer.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+	 *		if (_ceras.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
 	 * 
 	 * Would it be possible to remove them, and create a 'SchemaTypeFormatter' which overrides Serialize and Deserialize and adds that to the end?
 	 * Would it be faster? Would serialization performance be impacted negatively when not using VersionTolerance because of the virtual methods?
@@ -29,7 +29,7 @@
 
 	sealed class TypeFormatter : IFormatter<Type>
 	{
-		readonly CerasSerializer _serializer;
+		readonly CerasSerializer _ceras;
 		readonly ITypeBinder _typeBinder;
 
 		const int Null = -1;
@@ -40,10 +40,10 @@
 
 		bool _isSealed;
 
-		public TypeFormatter(CerasSerializer serializer)
+		public TypeFormatter(CerasSerializer ceras)
 		{
-			_serializer = serializer;
-			_typeBinder = serializer.TypeBinder;
+			_ceras = ceras;
+			_typeBinder = ceras.TypeBinder;
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, Type type)
@@ -55,7 +55,7 @@
 				return;
 			}
 
-			var typeCache = _serializer.InstanceData.TypeCache;
+			var typeCache = _ceras.InstanceData.TypeCache;
 
 			// Existing
 			if (typeCache.TryGetExistingObjectId(type, out int id))
@@ -118,7 +118,7 @@
 				return;
 			}
 
-			var typeCache = _serializer.InstanceData.TypeCache;
+			var typeCache = _ceras.InstanceData.TypeCache;
 
 			// Existing
 			if (mode >= 0)

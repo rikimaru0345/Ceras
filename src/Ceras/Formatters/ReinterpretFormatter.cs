@@ -89,7 +89,7 @@ namespace Ceras.Formatters
 			int count = (int)SerializerBinary.ReadUInt32(buffer, ref offset);
 
 			if(count > _maxCount)
-				throw new InvalidOperationException($"The data contains a byte-array of size '{count}', which exceeds the allowed limit of '{_maxCount}'");
+				throw new InvalidOperationException($"The data describes an array with '{count}' elements, which exceeds the allowed limit of '{_maxCount}'");
 
 			// Create target array
 			if(value == null || value.Length != count)

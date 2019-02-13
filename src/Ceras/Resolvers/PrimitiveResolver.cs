@@ -7,7 +7,7 @@
 
 	sealed class PrimitiveResolver : IFormatterResolver
 	{
-		readonly CerasSerializer _serializer;
+		readonly CerasSerializer _ceras;
 
 		static Dictionary<Type, IFormatter> _primitiveFormatters = new Dictionary<Type, IFormatter>
 		{
@@ -35,9 +35,9 @@
 		};
 
 
-		public PrimitiveResolver(CerasSerializer serializer)
+		public PrimitiveResolver(CerasSerializer ceras)
 		{
-			_serializer = serializer;
+			_ceras = ceras;
 		}
 
 		public IFormatter GetFormatter(Type type)
@@ -46,7 +46,7 @@
 				return f;
 
 			if (type.IsEnum)
-				return (IFormatter)Activator.CreateInstance(typeof(EnumFormatter<>).MakeGenericType(type), _serializer);
+				return (IFormatter)Activator.CreateInstance(typeof(EnumFormatter<>).MakeGenericType(type), _ceras);
 
 			return null;
 		}

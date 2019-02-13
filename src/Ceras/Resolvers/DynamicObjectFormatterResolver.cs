@@ -7,12 +7,12 @@
 	// Special resolver that creates instances of "DynamicObjectFormatter<T>" so unknown objects can be handled
 	class DynamicObjectFormatterResolver : IFormatterResolver
 	{
-		CerasSerializer _serializer;
+		CerasSerializer _ceras;
 		TypeDictionary<IFormatter> _dynamicFormatters = new TypeDictionary<IFormatter>();
 
-		public DynamicObjectFormatterResolver(CerasSerializer serializer)
+		public DynamicObjectFormatterResolver(CerasSerializer ceras)
 		{
-			_serializer = serializer;
+			_ceras = ceras;
 		}
 
 		public IFormatter GetFormatter(Type type)
@@ -22,7 +22,7 @@
 				return formatter;
 
 			var dynamicFormatterType = typeof(DynamicObjectFormatter<>).MakeGenericType(type);
-			formatter = (IFormatter)Activator.CreateInstance(dynamicFormatterType, _serializer);
+			formatter = (IFormatter)Activator.CreateInstance(dynamicFormatterType, _ceras);
 			
 			return formatter;
 		}
