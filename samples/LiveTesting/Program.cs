@@ -23,13 +23,14 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			CustomComparerFormatter();
+
+			// ExpressionTreesTest();
 
 			Benchmarks();
 
 			DictInObjArrayTest();
-
-			ExpressionTreesTest();
-
+			
 			TestDirectPoolingMethods();
 
 			DelegatesTest();
@@ -101,6 +102,102 @@ namespace LiveTesting
 			Console.ReadKey();
 		}
 
+		static void CustomComparerFormatter()
+		{
+			// Our HashSet<byte> is losing its Comparer
+			// We use a custom formatter to fix it
+
+			SerializerConfig config = new SerializerConfig();
+			
+			config.OnResolveFormatter.Add((c, t) =>
+			{
+				if (t == typeof(HashSet<byte[]>))
+					return new HashSetFormatterThatKeepsItsComparer();
+				return null; // continue searching
+			});
+		}
+
+
+		class HashSetFormatterThatKeepsItsComparer : IFormatter<HashSet<byte[]>>
+		{
+			// Sub-formatters are automatically set by Ceras' dependency injection
+			IFormatter<byte[]> _byteArrayFormatter;
+			IFormatter<IEqualityComparer<byte[]>> _comparerFormatter; // auto-implemented by Ceras using DynamicObjectFormatter
+
+			public void Serialize(ref byte[] buffer, ref int offset, HashSet<byte[]> set)
+			{
+				// What do we need?
+				// - The comparer
+				// - Number of entries
+				// - Actual content
+
+				// Comparer
+				_comparerFormatter.Serialize(ref buffer, ref offset, set.Comparer);
+
+				// Count
+				// We could use a 'IFormatter<int>' field, but Ceras will resolve it to this method anyway...
+				SerializerBinary.WriteInt32(ref buffer, ref offset, set.Count);
+
+				// Actual content
+				foreach (var array in set)
+					_byteArrayFormatter.Serialize(ref buffer, ref offset, array);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref HashSet<byte[]> set)
+			{
+				IEqualityComparer<byte[]> equalityComparer = null;
+				_comparerFormatter.Deserialize(buffer, ref offset, ref equalityComparer);
+
+				// We can already create the hashset
+				set = new HashSet<byte[]>(equalityComparer);
+				
+				// Read content...
+				int count = SerializerBinary.ReadInt32(buffer, ref offset);
+				for (int i = 0; i < count; i++)
+				{
+					byte[] ar = null;
+					_byteArrayFormatter.Deserialize(buffer, ref offset, ref ar);
+
+					set.Add(ar);
+				}
+			}
+		}
+
+		class CustomComparer : IEqualityComparer<byte[]>
+		{
+			public bool Equals(byte[] x, byte[] y)
+			{
+				if(x == null && y != null)
+					return false;
+				if(x != null && y == null)
+					return false;
+				if(x == null && y == null)
+					return true;
+
+				return x.SequenceEqual(y);
+			}
+
+			public int GetHashCode(byte[] data)
+			{
+				unchecked
+				{
+					const int p = 0x1000193;
+					int hash = (int)0x811C9DC5;
+
+					for (int i = 0; i < data.Length; i++)
+						hash = (hash ^ data[i]) * p;
+
+					hash += hash << 13;
+					hash ^= hash >> 7;
+					hash += hash << 3;
+					hash ^= hash >> 17;
+					hash += hash << 5;
+					return hash;
+				}
+			}
+		}
+
+
 
 		class ReadonlyTestBaseClass
 		{
@@ -143,15 +240,10 @@ namespace LiveTesting
 			// Primitive test
 			{
 				SerializerConfig config = new SerializerConfig();
-				config.OnConfigNewType = t =>
-				{
-					if (t.Type == typeof(ReadonlyTestClass))
-					{
-						t.ConstructByUninitialized();
-						t.SetReadonlyHandling(ReadonlyFieldHandling.ForcedOverwrite);
-						t.SetTargetMembers(TargetMember.PrivateFields);
-					}
-				};
+				config.ConfigType<ReadonlyTestClass>()
+					  .ConstructByUninitialized()
+					  .SetReadonlyHandling(ReadonlyFieldHandling.ForcedOverwrite)
+					  .SetTargetMembers(TargetMember.PrivateFields);
 
 				var ceras = new CerasSerializer(config);
 
@@ -599,9 +691,12 @@ namespace LiveTesting
 			// In the 'Members' mode we expect an exception for readonly value-typed fields.
 			{
 				SerializerConfig config = new SerializerConfig();
-				// Only use the two "primitives" for this test (string is not a primitive in the original sense tho)
-				config.Advanced.ShouldSerializeMember = m => (m.Name == "Int" || m.Name == "String") ? SerializationOverride.ForceInclude : SerializationOverride.ForceSkip;
 				config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+				
+				config.ConfigType<ReadonlyFieldsTest>()
+					  .ConfigField(f => f.Int).Include()
+					  .ConfigField(f => f.String).Include();
+				
 
 				CerasSerializer ceras = new CerasSerializer(config);
 
@@ -629,9 +724,11 @@ namespace LiveTesting
 			// we want Ceras to re-use the already existing object
 			{
 				SerializerConfig config = new SerializerConfig();
-				// We only want the container field, and its contents, but not the two "primitives"
-				config.Advanced.ShouldSerializeMember = m => (m.Name == "Int" || m.Name == "String") ? SerializationOverride.ForceSkip : SerializationOverride.ForceInclude;
 				config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+				
+				config.ConfigType<ReadonlyFieldsTest>()
+					  .ConfigField(f => f.Int).Include()
+					  .ConfigField(f => f.String).Include();
 
 				CerasSerializer ceras = new CerasSerializer(config);
 

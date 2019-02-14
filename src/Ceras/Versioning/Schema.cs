@@ -107,8 +107,6 @@
 		}
 
 
-
-
 		internal static MemberInfo FindMemberInType(Type type, string name)
 		{
 			foreach (var member in type.GetMembers(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))

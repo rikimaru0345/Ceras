@@ -13,4 +13,19 @@ namespace Ceras.Exceptions
 			
 		}
 	}
+
+	public class InvalidConfigException : CerasException
+	{
+		public InvalidConfigException(string message) : base(message)
+		{
+
+		}
+	}
+
+	public class ConfigurationSealedException : CerasException
+	{
+		public ConfigurationSealedException(string message) : base(message)
+		{
+		}
+	}
 }

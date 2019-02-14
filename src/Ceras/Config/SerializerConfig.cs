@@ -11,13 +11,31 @@
 	/// </summary>
 	public class SerializerConfig : IAdvancedConfigOptions, ISizeLimitsConfig
 	{
+		bool _isSealed; // todo
+		internal bool IsSealed => _isSealed;
+		internal void Seal() => _isSealed = true;
+
+
 		#region Basic Settings
 
 		/// <summary>
-		/// Add all the types you want to serialize to this collection.
-		/// By default, in order to protect you against exploits, when you add at least one "KnownType" Ceras will run in "sealed mode" which means that only the types you have added will be allowed, and when a new type is encountered while reading/writing an exception is thrown.
-		/// You can switch this behaviour off, but it very important that you understand that this would be a huge security risk when used in combination with networking!
+		/// If you want to, you can add all the types you want to serialize to this collection.
+		/// When you add at least one Type to this list, Ceras will run in "sealed mode", which does 2 different things:
+		/// 
+		/// <para>
+		/// 1.) It improves performance.
+		/// Usually Ceras already only writes the type-name of an object when absolutely necessary. But sometimes you might have 'object' or 'interface' fields, in which case there's simply no way but to embed the type information. And this is where KnownTypes helps: Since the the types (and their order) are known, Ceras can write just a "TypeId" instead of the full name. This can save *a lot* of space and also increases performance (since less data has to be written).
+		/// </para>
 		///
+		/// <para>
+		/// 2.) It protects against bugs and exploits.
+		/// When a new type (one that is not in the KnownTypes list) is encountered while reading/writing an exception is thrown!
+		/// You can be sure that you will never accidentally drag some object that you didn't intend to serialize (protecting against bugs).
+		/// It also prevents exploits when using Ceras to send objects over the network, because an attacker can not inject new object-types into your data (which, depending on what you do, could be *really* bad).
+		/// </para>
+		/// 
+		/// By default this prevents new types being added dynamically, but you can change this setting in <see cref="Advanced.SealTypesWhenUsingKnownTypes"/>.
+		/// 
 		/// <para>Ceras refers to the types by their index in this list!</para>
 		/// So for deserialization the same types must be present in the same order! You can however have new types at the end of the list (so you can still load old data, as long as the types that an object was saved with are still present at the expected indices)
 		/// 
@@ -88,7 +106,7 @@
 			if (_configEntries.TryGetValue(type, out var typeConfig))
 				return typeConfig;
 
-			typeConfig = new TypeConfig(this, type);
+			typeConfig = (TypeConfig)Activator.CreateInstance(typeof(TypeConfig<>).MakeGenericType(type), this);
 			_configEntries.Add(type, typeConfig);
 
 			return typeConfig;
@@ -100,26 +118,28 @@
 		{
 			if (_configEntries.TryGetValue(type, out var typeConfig))
 				return typeConfig;
-
-			typeConfig = new TypeConfig(this, type);
+			
+			typeConfig = (TypeConfig)Activator.CreateInstance(typeof(TypeConfig<>).MakeGenericType(type), this);
 
 			// Let the user handle it
-			OnConfigNewType?.Invoke(typeConfig);
+			OnConfigNewType?.Invoke((TypeConfig)typeConfig);
 
 			_configEntries.Add(type, typeConfig);
 			return typeConfig;
 		}
 
-
-
+		
 		/// <summary>
-		/// Use this when you want to configure types directly (instead of through attributes, or <see cref="OnConfigNewType"/>). Any changes you make using this method will override any settings applied through attributes on the type.
+		/// Use the generic version of <see cref="ConfigType{T}"/> for a much easier API.
+		/// <para>
+		/// This overload should only be used if you actually don't know the type in advance (for example when dealing with a private type in another assembly)
+		/// </para>
 		/// </summary>
 		public TypeConfig ConfigType(Type type) => GetTypeConfigForConfiguration(type);
 		/// <summary>
-		/// Generic version of <see cref="ConfigType(Type)"/>
+		/// Use this when you want to configure types directly (instead of through attributes, or <see cref="OnConfigNewType"/>). Any changes you make using this method will override any settings applied through attributes on the type.
 		/// </summary>
-		public TypeConfig ConfigType<T>() => ConfigType(typeof(T));
+		public TypeConfig<T> ConfigType<T>() => (TypeConfig<T>)GetTypeConfigForConfiguration(typeof(T));
 
 
 		/// <summary>
@@ -158,7 +178,6 @@
 		uint ISizeLimitsConfig.MaxCollectionSize { get; set; } = uint.MaxValue;
 
 		Action<object> IAdvancedConfigOptions.DiscardObjectMethod { get; set; } = null;
-		Func<SerializedMember, SerializationOverride> IAdvancedConfigOptions.ShouldSerializeMember { get; set; } = null;
 		ReadonlyFieldHandling IAdvancedConfigOptions.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.ExcludeFromSerialization;
 		bool IAdvancedConfigOptions.EmbedChecksum { get; set; } = false;
 		bool IAdvancedConfigOptions.PersistTypeCache { get; set; } = false;
@@ -178,12 +197,6 @@
 		/// but the current data says that the field should be 'null'. That's when Ceras will call this this method so you can recycle the object (maybe return it to your object-pool)
 		/// </summary>
 		Action<object> DiscardObjectMethod { get; set; }
-
-		/// <summary>
-		/// This is the very first thing that ceras uses to determine whether or not to serialize something. While not the most comfortable, it is useful because it is called for types you don't control (types from other libraries where you don't have the source code...).
-		/// Important: Compiler generated fields are always skipped by default, for more information about that see the 'readonly properties' section in the tutorial where all of this is explained in detail.
-		/// </summary>
-		Func<SerializedMember, SerializationOverride> ShouldSerializeMember { get; set; }
 
 		/// <summary>
 		/// Explaining this setting here would take too much space, check out the tutorial section for details.

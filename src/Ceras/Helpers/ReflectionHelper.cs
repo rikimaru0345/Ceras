@@ -84,11 +84,21 @@
 			{
 				foreach (var f in type.GetFields(flags))
 					if (f.DeclaringType == type)
+					{
 						members.Add(f);
+					}
 
 				foreach (var p in type.GetProperties(flags))
 					if (p.DeclaringType == type)
+					{
+						var getter = p.GetGetMethod(true);
+						if (getter != null)
+							if (getter.GetParameters().Length > 0)
+								// Indexers are not data
+								continue;
+
 						members.Add(p);
+					}
 
 				type = type.BaseType;
 			}
@@ -98,18 +108,27 @@
 
 		public static bool IsUnmanaged(Type type)
 		{
-			if(!type.IsValueType)
+			if (!type.IsValueType)
 				return false;
 
 			var members = GetAllDataMembers(type);
 			foreach (var f in members.OfType<FieldInfo>())
 			{
-				if(!IsUnmanaged(f.FieldType))
+				if (!IsUnmanaged(f.FieldType))
 					return false;
 			}
 
 			return true;
 		}
+
+		//public static string[] CollectAttributesOverTypeHierarchy(Type type, params Type[] attributeTypes)
+		//{
+		//	for (int i = 0; i < attributeTypes.Length; i++)
+		//		if (!typeof(Attribute).IsAssignableFrom(attributeTypes[i]))
+		//			throw new InvalidOperationException("Type " + attributeTypes[i] + " does not derive from 'Attribute'");
+
+		//	type.GetCustomAttribute
+		//}
 
 
 		/// <summary>

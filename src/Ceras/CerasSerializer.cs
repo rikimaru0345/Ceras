@@ -12,7 +12,6 @@ namespace Ceras
 	using System.ComponentModel;
 	using System.Linq;
 	using System.Reflection;
-	using System.Runtime.CompilerServices;
 	using System.Text;
 
 	/*
@@ -760,158 +759,35 @@ namespace Ceras
 
 
 
-
-
 		// Creates the primary schema for a given type
 		Schema CreatePrimarySchema(Type type)
 		{
-			//if (FrameworkAssemblies.Contains(type.Assembly))
-			//	throw new InvalidOperationException("Cannot create a Schema for a framework type. This must be a bug, please report it on GitHub!");
-
 			Schema schema = new Schema(true, type);
-
-
+			
 			var typeConfig = Config.GetTypeConfig(type);
+			typeConfig.Seal();
 
-			foreach (var m in type.GetAllDataMembers())
+			foreach (var memberConfig in typeConfig._allMembers)
 			{
-				bool isPublic;
-				bool isField = false, isProp = false;
-				bool isCompilerGenerated = false;
-
-				if (m is FieldInfo f)
+				if (memberConfig.ComputeFinalInclusionFast())
 				{
-					// Skip readonly
-					if (f.IsInitOnly)
-					{
-						if (typeConfig.ReadonlyFieldHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
-							continue;
-					}
-
-					// Readonly auto-prop backing fields
-					if (f.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
-						isCompilerGenerated = true;
-
-					// By default we skip hidden/compiler generated fields, so we don't accidentally serialize properties twice (property, and then its automatic backing field as well)
-					if (isCompilerGenerated)
-						if (Config.Advanced.SkipCompilerGeneratedFields)
-							continue;
-
-					// Respect 'NonSerializedAttribute' if it's there
-					if (Config.RespectNonSerializedAttribute)
-						if (f.GetCustomAttribute<NonSerializedAttribute>() != null)
-							continue;
-
-					isPublic = f.IsPublic;
-					isField = true;
-				}
-				else if (m is PropertyInfo p)
-				{
-					// This checks for indexers, an indexer is technically a property
-					if (p.GetIndexParameters().Length != 0)
-						continue;
-
-					// There's no way we can serialize a prop that we can't read and write, even {private set;} props would be writeable,
-					// That is becasue there is actually physically no set() method we could possibly call. Just like a "computed property".
-					// As for readonly props (like string Name { get; } = "abc";), the only way to serialize them is serializing the backing fields, which is handled above (skipCompilerGenerated)
-					var accessors = p.GetAccessors(true);
-
-					if (accessors.Length <= 1)
-						// It's a "computed" property, which has no concept of writing.
-						continue;
-
-					isPublic = accessors[0].IsPublic;
-					isProp = true;
+					var schemaMember = new SchemaMember(memberConfig.PersistentName, SerializedMember.Create(memberConfig.Member, true));
+					schema.Members.Add(schemaMember);
 				}
 				else
-					continue;
-
-				var serializedMember = SerializedMember.Create(m, allowReadonly: typeConfig.ReadonlyFieldHandling != ReadonlyFieldHandling.ExcludeFromSerialization);
-
-				// should we allow users to provide a formatter for each old-name (in case newer versions have changed the type of the element?)
-				var attrib = m.GetCustomAttribute<PreviousNameAttribute>();
-
-				if (attrib != null)
 				{
-					VerifyName(attrib.Name);
-					foreach (var n in attrib.AlternativeNames)
-						VerifyName(n);
-				}
-
-
-				var schemaMember = new SchemaMember(attrib?.Name ?? m.Name, serializedMember);
-
-
-				//
-				// 1.) ShouldSerializeMember - use filter if there is one
-				if (Config.Advanced.ShouldSerializeMember != null)
-				{
-					var filterResult = Config.Advanced.ShouldSerializeMember(serializedMember);
-
-					if (filterResult == SerializationOverride.ForceInclude)
-					{
-						schema.Members.Add(schemaMember);
-						continue;
-					}
-					else if (filterResult == SerializationOverride.ForceSkip)
-					{
-						continue;
-					}
-				}
-
-				//
-				// 2.) Use member-attribute
-				var ignore = m.GetCustomAttribute<IgnoreAttribute>(true) != null;
-				var include = m.GetCustomAttribute<IncludeAttribute>(true) != null;
-
-				if (ignore && include)
-					throw new Exception($"Member '{m.Name}' on type '{type.Name}' has both [Ignore] and [Include]!");
-
-				if (ignore)
-				{
-					continue;
-				}
-
-				if (include)
-				{
-					schema.Members.Add(schemaMember);
-					continue;
-				}
-
-
-				//
-				// After checking the user callback (ShouldSerializeMember) and the direct attributes (because it's possible to directly target a backing field like this: [field: Include])
-				// we now need to check for compiler generated fields again.
-				// The intent is that if 'skipCompilerGenerated==false' then we allow checking the callback, as well as the attributes.
-				// But (at least for now) we don't want those problematic fields to be included by default,
-				// which would happen if any of the class or global defaults tell us to include 'private fields', because it is too dangerous to do it globally.
-				// There are all sorts of spooky things that we never want to include like:
-				// - enumerator-state-machines
-				// - async-method-state-machines
-				// - events (maybe?)
-				// - cached method invokers for 'dynamic' objects
-				// Right now I'm not 100% certain all or any of those would be a problem, but I'd rather test it first before just blindly serializing this unintended stuff.
-				if (isCompilerGenerated)
-					continue;
-
-				//
-				// 3.) Use "targets" to determine whether or not to include something (type-level attribute -> global config default)
-				if (IsMatch(isField, isProp, isPublic, typeConfig.TargetMembers))
-				{
-					schema.Members.Add(schemaMember);
+					// Member is not part of the schema
 					continue;
 				}
 			}
 
-
-			// Need to sort by name to ensure fields are always in the same order (yes, that is actually a real problem that really happens, even on the same .NET version, same computer, ...) 
+			// Order is super important.
+			// Versioning, robustness, performance (batching multiple primtives, ...)
 			schema.Members.Sort(SchemaMemberComparer.Instance);
 
 			return schema;
 		}
-
-
-
+		
 		internal Schema ReadSchema(byte[] buffer, ref int offset, Type type)
 		{
 			// todo 1: Skipping
@@ -984,40 +860,6 @@ namespace Ceras
 				if (!char.IsLetterOrDigit(name[i]) && !allowedChars.Contains(name[i]))
 					throw new Exception($"The name '{name}' has character '{name[i]}' at index '{i}', which is not allowed. Must be a letter or digit.");
 		}
-
-		static bool IsMatch(bool isField, bool isProp, bool isPublic, TargetMember targetMembers)
-		{
-			if (isField)
-			{
-				if (isPublic)
-				{
-					if ((targetMembers & TargetMember.PublicFields) != 0)
-						return true;
-				}
-				else
-				{
-					if ((targetMembers & TargetMember.PrivateFields) != 0)
-						return true;
-				}
-			}
-
-			if (isProp)
-			{
-				if (isPublic)
-				{
-					if ((targetMembers & TargetMember.PublicProperties) != 0)
-						return true;
-				}
-				else
-				{
-					if ((targetMembers & TargetMember.PrivateProperties) != 0)
-						return true;
-				}
-			}
-
-			return false;
-		}
-
 
 
 

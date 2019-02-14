@@ -1,14 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-
-namespace Ceras
+﻿namespace Ceras
 {
-	using Ceras.Formatters;
-	using Ceras.Helpers;
+	using Ceras.Exceptions;
+	using Config;
+	using Helpers;
+	using System;
+	using System.Collections.Generic;
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
-	using Config;
+	using System.Runtime.CompilerServices;
 
 
 	// Serialization Constructors:
@@ -25,19 +25,25 @@ namespace Ceras
 	// todo: If we create something from uninitialized; do we give an option to run some specific ctor? Do we write some props/fields again after calling the ctor??
 	// todo: what about just calling Dispose() as an alternative to Discard!?
 
-	public class TypeConfig
+	public abstract class TypeConfig
 	{
-		readonly SerializerConfig _config;
-		internal readonly Type Type;
+		public Type Type { get; }
+		public SerializerConfig Config { get; }
+		
+		bool _isSealed = false;
+		internal void Seal() => _isSealed = true;
+
 
 		//
 		// Settings
-		TypeConstruction _typeConstruction; // null = invalid
-		internal TypeConstruction TypeConstruction
+		protected TypeConstruction _typeConstruction; // null = invalid
+		protected Dictionary<MemberInfo, ParameterInfo> _memberMapping;
+		public TypeConstruction TypeConstruction
 		{
 			get => _typeConstruction;
 			set
 			{
+				ThrowIfSealed();
 				_typeConstruction = value;
 				if (value != null)
 				{
@@ -47,22 +53,124 @@ namespace Ceras
 			}
 		}
 
-		ReadonlyFieldHandling? _customReadonlyHandling; // null = use global default from config
-		internal ReadonlyFieldHandling ReadonlyFieldHandling => _customReadonlyHandling ?? _config.Advanced.ReadonlyFieldHandling;
 
-		TargetMember? _targetMembers;
-		internal TargetMember TargetMembers => _targetMembers ?? _config.DefaultTargets;
-
-		//Type _formatterType;
-
-
-		internal TypeConfig(SerializerConfig config, Type type)
+		protected ReadonlyFieldHandling? _customReadonlyHandling; // null = use global default from config
+		public ReadonlyFieldHandling ReadonlyFieldHandling
 		{
-			_config = config;
+			set
+			{
+				ThrowIfSealed();
+				_customReadonlyHandling = value;
+			}
+
+			get => _customReadonlyHandling ?? Config.Advanced.ReadonlyFieldHandling;
+		}
+
+		protected TargetMember? _targetMembers;
+		public TargetMember TargetMembers
+		{
+			set
+			{
+				ThrowIfSealed();
+				_targetMembers = value;
+			}
+
+			get => _targetMembers ?? Config.DefaultTargets;
+		}
+
+
+		internal readonly List<MemberConfig> _allMembers;
+		public IEnumerable<MemberConfig> Members => _allMembers.Where(m => !m.IsCompilerGenerated);
+
+
+		protected TypeConfig(SerializerConfig config, Type type)
+		{
+			Config = config;
 			Type = type;
 
-			TypeConfigDefaults.SetDefaultConfiguration(type, this);
+
+			var configType = typeof(MemberConfig).MakeGenericType(type);
+
+			var members = from m in ReflectionHelper.GetAllDataMembers(type)
+						  let a = new object[] { this, m }
+						  select (MemberConfig)Activator.CreateInstance(configType, a);
+
+			_allMembers = members.ToList();
+
+
+			TypeConfigDefaults.ApplyTypeAttributes(this);
+			TypeConfigDefaults.ApplySpecializedDefaults(this);
 		}
+
+		/// <summary>
+		/// Don't use this.
+		/// </summary>
+		public IEnumerable<MemberConfig> UnsafeGetAllMembersIncludingCompilerGenerated()
+		{
+			return _allMembers;
+		}
+
+
+		internal InclusionExclusionResult ComputeFinalInclusionResult(MemberInfo memberInfo, bool needReason)
+		{
+			var requiredMask = ComputeMemberTargetMask(memberInfo);
+
+			if (_targetMembers.HasValue)
+			{
+				if ((_targetMembers.Value & requiredMask) != 0)
+					return new InclusionExclusionResult(true, needReason
+						? $"Member is '{requiredMask.Singular()}', which is included through the configuration '{_targetMembers.Value}' of the declared Type '{Type.Name}'"
+						: null);
+				else
+					return new InclusionExclusionResult(false, needReason
+						? $"Member is '{requiredMask.Singular()}', which is excluded through the configuration '{_targetMembers.Value}' of the declared Type '{Type.Name}'"
+						: null);
+			}
+
+			var defaultTargets = Config.DefaultTargets;
+
+			if ((defaultTargets & requiredMask) != 0)
+				return new InclusionExclusionResult(true, needReason
+					? $"Member is '{requiredMask.Singular()}', which is included by the 'DefaultTargets' configuration in the SerializerConfig"
+					: null);
+			else
+				return new InclusionExclusionResult(false, needReason
+					? $"Member is '{requiredMask.Singular()}', which is excluded by the 'DefaultTargets' configuration in the SerializerConfig"
+					: null);
+		}
+
+		static TargetMember ComputeMemberTargetMask(MemberInfo member)
+		{
+			if (member is FieldInfo f)
+			{
+				if (f.IsPublic)
+					return TargetMember.PublicFields;
+				else
+					return TargetMember.PrivateFields;
+			}
+			else if (member is PropertyInfo p)
+			{
+				if (p.GetGetMethod(true).IsPublic)
+					return TargetMember.PublicProperties;
+				else
+					return TargetMember.PrivateProperties;
+			}
+			else
+				throw new ArgumentOutOfRangeException();
+		}
+
+		internal void ThrowIfSealed()
+		{
+			if (_isSealed)
+				throw new ConfigurationSealedException("The configuration for this Type or Member is already sealed because the SerializationSchema has been instantiated (which means dynamically emitted code relies on it not changing anymore). All changes to the type or member configuration must be made before the the configuration is used in a 'CerasSerializer' instance, except for config callbacks like OnConfigNewType)");
+		}
+	}
+
+
+	/// <inheritdoc/>
+	public class TypeConfig<T> : TypeConfig
+	{
+		internal TypeConfig(SerializerConfig config) : base(config, typeof(T)) { }
 
 
 		#region Construction
@@ -70,7 +178,7 @@ namespace Ceras
 		/// <summary>
 		/// Call a given static method to get an object
 		/// </summary>
-		public TypeConfig ConstructBy(MethodInfo methodInfo)
+		public TypeConfig<T> ConstructBy(MethodInfo methodInfo)
 		{
 			TypeConstruction = new ConstructByMethod(methodInfo);
 			return this;
@@ -79,7 +187,7 @@ namespace Ceras
 		/// <summary>
 		/// Call a given instance-method on the given object instance to create a object
 		/// </summary>
-		public TypeConfig ConstructBy(object instance, MethodInfo methodInfo)
+		public TypeConfig<T> ConstructBy(object instance, MethodInfo methodInfo)
 		{
 			TypeConstruction = new ConstructByMethod(instance, methodInfo);
 			return this;
@@ -88,8 +196,11 @@ namespace Ceras
 		/// <summary>
 		/// Use the given constructor to create a new object
 		/// </summary>
-		public TypeConfig ConstructBy(ConstructorInfo constructorInfo)
+		public TypeConfig<T> ConstructBy(ConstructorInfo constructorInfo)
 		{
+			if (constructorInfo.IsAbstract || constructorInfo.DeclaringType != Type)
+				throw new InvalidOperationException("This constructor does not belong to the type " + Type.FullName);
+
 			TypeConstruction = new SpecificConstructor(constructorInfo);
 			return this;
 		}
@@ -97,7 +208,7 @@ namespace Ceras
 		/// <summary>
 		/// Call the given delegate to produce an object (this is the only method that currently does not support arguments, support for that will be added later)
 		/// </summary>
-		public TypeConfig ConstructByDelegate(Func<object> factory)
+		public TypeConfig<T> ConstructByDelegate(Func<T> factory)
 		{
 			// Delegates get deconstructed into target+method automatically
 			var instance = factory.Target;
@@ -110,7 +221,7 @@ namespace Ceras
 		/// <summary>
 		/// Use the given static method (inferred from the given expression). This works exactly the same as <see cref="ConstructBy(MethodInfo)"/> but since it takes an Expression selecting a method is much easier (no need to fiddle around with reflection manually). The given expression is not compiled or called in any way.
 		/// </summary>
-		public TypeConfig ConstructBy(Expression<Func<object>> methodSelectExpression)
+		public TypeConfig<T> ConstructBy(Expression<Func<T>> methodSelectExpression)
 		{
 			return ConstructBy(instance: null, methodSelectExpression);
 		}
@@ -118,7 +229,7 @@ namespace Ceras
 		/// <summary>
 		/// Use the given static method (inferred from the given expression). This works exactly the same as <see cref="ConstructBy(object, MethodInfo)"/> but since it takes an Expression selecting a method is much easier (no need to fiddle around with reflection manually). The given expression is not compiled or called in any way.
 		/// </summary>
-		public TypeConfig ConstructBy(object instance, Expression<Func<object>> methodSelectExpression)
+		public TypeConfig<T> ConstructBy(object instance, Expression<Func<T>> methodSelectExpression)
 		{
 			var body = methodSelectExpression.Body;
 
@@ -145,11 +256,10 @@ namespace Ceras
 			return this;
 		}
 
-
 		/// <summary>
 		/// Use this to tell Ceras how it is supposed to construct new objects when deserializing. By default it will use the parameterless constructor (doesn't matter if public or private)
 		/// </summary>
-		public TypeConfig ConstructBy(TypeConstruction manualConstructConfig)
+		public TypeConfig<T> ConstructBy(TypeConstruction manualConstructConfig)
 		{
 			TypeConstruction = manualConstructConfig;
 			return this;
@@ -158,293 +268,259 @@ namespace Ceras
 		/// <summary>
 		/// Create an object without running any of its constructors
 		/// </summary>
-		public TypeConfig ConstructByUninitialized()
+		public TypeConfig<T> ConstructByUninitialized()
 		{
 			TypeConstruction = new UninitializedObject();
 			return this;
 		}
 
+		/// <summary>
+		/// <para>
+		/// Ceras can automatically map what members to put into the parameters of the constructor or factory method, but sometimes (when the names don't match up) you have to manually specify it
+		/// </para>
+		/// Only use this overload if you really have to (for example a parameter that will go into a private field)
+		/// </summary>
+		public TypeConfig<T> MapParameters(Dictionary<MemberInfo, ParameterInfo> mapping)
+		{
+			if (_memberMapping != null)
+				throw new InvalidOperationException("Members-Parameter mapping is already set");
+			if (_typeConstruction == null)
+				throw new InvalidOperationException("You must set a type construction method before mapping parameters");
+
+			// Copy
+			_memberMapping = mapping.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+			return this;
+		}
+
 		#endregion
 
-
-		#region Formatter
-
-		//public TypeConfig SetFormatter()
-		//{
-		//	// We want to be able to use a specific formatter.
-		//	// For ReadonlyCollection we want to use DynamicObjectFormatter<> with a custom config instead of anything produced by the ICollectionFormatter
-		//}
-
-		#endregion
-
+		#region Type Settings
 
 		/// <summary>
 		/// Configure how readonly fields are handled for this type
 		/// </summary>
-		public TypeConfig SetReadonlyHandling(ReadonlyFieldHandling mode)
+		public TypeConfig<T> SetReadonlyHandling(ReadonlyFieldHandling mode)
 		{
 			_customReadonlyHandling = mode;
 			return this;
 		}
 
-		public TypeConfig SetTargetMembers(TargetMember targets)
+		/// <summary>
+		/// Configure what fields and properties are included by default
+		/// </summary>
+		public TypeConfig<T> SetTargetMembers(TargetMember targets)
 		{
 			_targetMembers = targets;
 			return this;
 		}
-	}
 
-	/// <summary>
-	/// Use the static factory methods like <see cref="ByConstructor(ConstructorInfo)"/> to create instances
-	/// </summary>
-	public abstract class TypeConstruction
-	{
-		internal TypeConfig TypeConfig; // Not as clean as I'd like, this can't be set from a protected base ctor, because users might eventually want to create their own
+		#endregion
 
-		internal abstract bool HasDataArguments { get; }
-		internal abstract Func<object> GetRefFormatterConstructor();
+		#region Member Config
 
-		internal virtual void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
+		public MemberConfig<T> ConfigField<TField>(Expression<Func<T, TField>> fieldSelect)
 		{
-			throw new NotImplementedException("This construction type can not be used in deferred mode.");
+			var memberInfo = ((MemberExpression)fieldSelect.Body).Member;
+			var memberConfig = Members.FirstOrDefault(m => m.Member is FieldInfo && m.Member == memberInfo);
+			return (MemberConfig<T>)memberConfig;
 		}
 
-		// todo: Sanity checks:
-		// - does the given delegate/ctor/method even return an instance of the thing we need?
-		// - can all the members be mapped correctly from FieldName/PropertyName to ParameterName? -> unfortunately this can't actually be done early. The schema we use can be different (reading with version tolerance)
-		internal virtual void VerifyReturnType()
-		{ }
-
-		protected void VerifyMethodReturn(MethodBase methodBase)
+		public MemberConfig<T> ConfigField(string fieldName)
 		{
-			if (methodBase.IsAbstract)
-				throw new InvalidOperationException($"The given method '{methodBase.Name}' is abstract so it can not be used to construct anything.");
-
-			// Example:
-			// object -> Animal -> Cat
-			// Ctor gives us a cat, we need an animal -> everything ok
-
-			Type resultType;
-
-			if (methodBase is MethodInfo m)
-			{
-				resultType = m.ReturnType;
-			}
-			else if (methodBase is ConstructorInfo c)
-			{
-				resultType = c.DeclaringType; // the "result" of a ctor is its declaring type
-			}
-			else
-				throw new NotImplementedException("this helper method cannot handle a member info of type " + methodBase.GetType().FullName);
-
-			// Can we use the result to assign it to the needed type?
-			var neededType = TypeConfig.Type;
-
-			if (!neededType.IsAssignableFrom(resultType))
-				throw new InvalidOperationException($"The given method or constructor returns a '{resultType.FullName}' which is not compatible to the needed type '{neededType.FullName}'");
+			var memberConfig = Members.FirstOrDefault(m => m.Member is FieldInfo && m.Member.Name == fieldName);
+			return (MemberConfig<T>)memberConfig;
 		}
 
+		public MemberConfig<T> ConfigProperty<TProp>(Expression<Func<T, TProp>> propSelect)
+		{
+			var memberInfo = ((MemberExpression)propSelect.Body).Member;
+			var memberConfig = Members.FirstOrDefault(m => m.Member is PropertyInfo && m.Member == memberInfo);
+			return (MemberConfig<T>)memberConfig;
+		}
 
-		#region Factory Methods
-
-		public static TypeConstruction Null() => new ConstructNull();
-
-		public static TypeConstruction ByStaticMethod(MethodInfo methodInfo) => new ConstructByMethod(methodInfo);
-		public static TypeConstruction ByStaticMethod(Expression<Func<object>> expression) => new ConstructByMethod(((MethodCallExpression)expression.Body).Method);
-
-		public static TypeConstruction ByConstructor(ConstructorInfo constructorInfo) => new SpecificConstructor(constructorInfo);
-
-		public static TypeConstruction ByUninitialized() => new UninitializedObject();
-
-		// public static TypeConstruction ByUninitialized(ConstructorInfo directCtor) => ...;
-		// public static TypeConstruction ByCombination() ... // allow to specify what should happen if there's an object (reset it? or just overwrite?) and how to create a new one
-
+		public MemberConfig<T> ConfigProperty(string propName)
+		{
+			var memberConfig = Members.FirstOrDefault(m => m.Member is PropertyInfo && m.Member.Name == propName);
+			return (MemberConfig<T>)memberConfig;
+		}
 
 		#endregion
 	}
 
 
-	// Aka "FormatterConstructed"
-	class ConstructNull : TypeConstruction
+	public abstract class MemberConfig
 	{
-		internal override bool HasDataArguments => false;
-		internal override Func<object> GetRefFormatterConstructor() => () => null;
-	}
+		public TypeConfig TypeConfig { get; }
+		public Type DeclaringType => TypeConfig.Type;
+		public MemberInfo Member { get; }
+		public Type MemberType => Member is FieldInfo f ? f.FieldType : ((PropertyInfo)Member).PropertyType;
+		
 
-	class SpecificConstructor : TypeConstruction
-	{
-		internal ConstructorInfo Constructor;
-
-		public SpecificConstructor(ConstructorInfo constructor)
+		string _persistentNameOverride;
+		public string PersistentName
 		{
-			Constructor = constructor;
-		}
-
-		internal override bool HasDataArguments => Constructor.GetParameters().Length > 0;
-		internal override Func<object> GetRefFormatterConstructor()
-		{
-			return Expression.Lambda<Func<object>>(Expression.New(Constructor)).Compile();
-		}
-
-		internal static Expression[] ConfigureArguments(ParameterInfo[] targetMethodParamters, Schema schema, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
-		{
-			Expression[] args = new Expression[targetMethodParamters.Length];
-
-			// Figure out what local goes into what parameter slot of the given method
-			for (int i = 0; i < args.Length; i++)
+			get => _persistentNameOverride ?? Member.Name;
+			set
 			{
-				// Parameter -> SerializedMember (either by automatically mapping by name, or using a user provided lookup)
-				var parameterName = targetMethodParamters[i].Name;
-				var schemaMember = schema.Members.FirstOrDefault(m => parameterName.Equals(m.MemberName, StringComparison.OrdinalIgnoreCase) || parameterName.Equals(m.PersistentName, StringComparison.OrdinalIgnoreCase));
-
-				// todo: try mapping by type as well (only works when there's exactly one type)
-				// todo: remove prefixes like "_" or "m_" from member names
-
-				if (schemaMember.MemberInfo == null || schemaMember.IsSkip) // Not found, or current schema does not contain this data member
-				{
-					throw new InvalidOperationException($"Can not construct type '{schema.Type.FullName}' using the selected constructor (or method) because the parameter '{parameterName}' can not be automatically mapped to any of the members in the current schema. Please provide a custom mapping for this constructor or method in the serializer config.");
-				}
-
-				// SerializedMember -> ParameterExpression
-				var paramExp = memberParameters.First(m => m.Member == schemaMember.MemberInfo);
-
-				// Use as source in call
-				args[i] = paramExp.LocalVar;
-
-				// Mark as consumed
-				usedVariables.Add(paramExp.LocalVar);
-			}
-
-			return args;
-		}
-
-		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
-		{
-			var parameters = Constructor.GetParameters();
-			var args = ConfigureArguments(parameters, schema, usedVariables, memberParameters);
-
-			var invocation = Expression.Assign(refValueArg, Expression.New(Constructor, args));
-			body.Add(invocation);
-		}
-
-		internal override void VerifyReturnType()
-		{
-			VerifyMethodReturn(Constructor);
-		}
-	}
-
-	class ConstructByMethod : TypeConstruction
-	{
-		internal readonly MethodInfo Method;
-		internal readonly object TargetObject;
-
-		internal ConstructByMethod(MethodInfo staticMethod)
-		{
-			if (!staticMethod.IsStatic)
-				throw new InvalidOperationException($"You have provided an instance method without a target object");
-
-			Method = staticMethod;
-		}
-
-		internal ConstructByMethod(object targetObject, MethodInfo instanceMethod)
-		{
-			if (instanceMethod.IsStatic)
-				throw new InvalidOperationException("You have provided target-instance but the given method is a static method");
-			if (targetObject == null)
-				throw new ArgumentNullException(nameof(targetObject), "The given method requires an instance (a targetObject), but you have given 'null'");
-
-			Method = instanceMethod;
-			TargetObject = targetObject;
-		}
-
-
-		internal override bool HasDataArguments => Method.GetParameters().Length > 0;
-		internal override Func<object> GetRefFormatterConstructor()
-		{
-			if (Method.IsStatic)
-				return (Func<object>)Delegate.CreateDelegate(typeof(Func<object>), Method);
-			else
-				return (Func<object>)Delegate.CreateDelegate(typeof(Func<object>), TargetObject, Method);
-		}
-
-		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
-		{
-			var parameters = Method.GetParameters();
-			var args = SpecificConstructor.ConfigureArguments(parameters, schema, usedVariables, memberParameters);
-
-			Expression invocation;
-			if (Method.IsStatic)
-				invocation = Expression.Assign(refValueArg, Expression.Call(Method, args));
-			else
-				invocation = Expression.Assign(refValueArg, Expression.Call(instance: Expression.Constant(TargetObject), method: Method, args));
-
-			body.Add(invocation);
-		}
-
-		internal override void VerifyReturnType()
-		{
-			VerifyMethodReturn(Method);
-		}
-	}
-
-	class UninitializedObject : TypeConstruction
-	{
-		static MethodInfo _getUninitialized;
-
-		// todo: cool ideas:
-		// - after constructing an uninitialized object we can do some trickery to run any ctor on it afterwards
-		// - and maybe after the ctor we'd overwrite some members again (if the ctor messed something up)
-		ConstructorInfo _directConstructor;
-		bool _writeMembersAgain;
-
-		public UninitializedObject()
-		{
-			// We don't want exceptions in static ctors, that's why this is in the normal ctor
-			if (_getUninitialized == null)
-			{
-				Expression<Func<object>> exp = () => System.Runtime.Serialization.FormatterServices.GetUninitializedObject(null);
-				_getUninitialized = ((MethodCallExpression)exp.Body).Method;
+				TypeConfig.ThrowIfSealed();
+				_persistentNameOverride = value;
 			}
 		}
 
-		internal override bool HasDataArguments => _directConstructor != null && _directConstructor.GetParameters().Length > 0;
+		/// <summary>
+		/// True for everything the compiler automatically generates: hidden async-state-machines, automatic enumerator implementations, cached dynamic method dispatchers, ...
+		/// </summary>
+		public bool IsCompilerGenerated { get; }
+		/// <summary>
+		/// True if it's a field and it is declared as 'readonly'
+		/// </summary>
+		public bool IsReadonlyField { get; }
+		/// <summary>
+		/// True only for properties that literally have no setter:
+		/// <para>Example 1: int Time => Environment.TickCount;</para>
+		/// <para>Example 2: string Name { get; }</para>
+		/// <para>
+		/// Properties with a private setter are not "computed" (even if the setter is private, or hidden in a base-type)
+		/// </para>
+		/// </summary>
+		public bool IsComputedProperty { get; }
 
-		internal override Func<object> GetRefFormatterConstructor()
+
+		protected ReadonlyFieldHandling? _readonlyOverride;
+		public ReadonlyFieldHandling ReadonlyFieldHandling
 		{
-			// todo: There are a lot of hardcore tricks to improve performance here. But for now it would be wasted time since the feature will (probably) be used very rarely.
-			var t = TypeConfig.Type;
+			set
+			{
+				TypeConfig.ThrowIfSealed();
+				_readonlyOverride = value;
+			}
 
-			return Expression.Lambda<Func<object>>(Expression.Call(_getUninitialized, arg0: Expression.Constant(t))).Compile();
+			get => _readonlyOverride ?? TypeConfig.ReadonlyFieldHandling;
 		}
 
-		internal override void VerifyReturnType()
+
+		string _explicitInclusionReason = "Error: no inclusion/exclusion override is set for this member";
+		/// <summary>
+		/// Tells you why (or why not!) this member got included in the serialization.
+		/// </summary>
+		public string IncludeExcludeReason
 		{
-			if (_directConstructor != null)
-				if (_directConstructor.DeclaringType != base.TypeConfig.Type)
-					throw new InvalidOperationException($"The given constructor is not part of the type '{base.TypeConfig.Type.FullName}'");
+			get
+			{
+				if (_serializationOverride != SerializationOverride.NoOverride)
+					return _explicitInclusionReason;
+
+				var result = TypeConfig.ComputeFinalInclusionResult(Member, true);
+				return result.Reason;
+			}
 		}
 
-		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, MemberParameterPair[] memberParameters)
+
+		SerializationOverride _serializationOverride = SerializationOverride.NoOverride;
+		/// <summary>
+		/// Contains the serialization override for this member. It is initially set from any member attributes (like Include/Exclude) or the [MemberConfig] attribute.
+		/// If none of those attributes exist the override is unspecified (in which case the DefaultTargets setting in the serializer config is used)
+		/// </summary>
+		public SerializationOverride SerializationOverride
 		{
-			throw new NotImplementedException("running a ctor or factory is not yet supported in this mode");
+			set => SetIncludeWithReason(value, "User has explicitly set member.SerializationOverride");
+			get => _serializationOverride;
 		}
 
+		/// <summary>
+		/// Determine wether or not this member is included for serialization
+		/// </summary>
+		/// <returns>true when the member will be serialized/deserialized</returns>
+		public InclusionExclusionResult ComputeFinalInclusion()
+		{
+			if (_serializationOverride != SerializationOverride.NoOverride)
+				return new InclusionExclusionResult(_serializationOverride == SerializationOverride.ForceInclude, _explicitInclusionReason);
+
+			return TypeConfig.ComputeFinalInclusionResult(Member, true);
+		}
+		
+		internal bool ComputeFinalInclusionFast()
+		{
+			if (_serializationOverride != SerializationOverride.NoOverride)
+				return _serializationOverride == SerializationOverride.ForceInclude;
+
+			var result = TypeConfig.ComputeFinalInclusionResult(Member, false);
+			
+			return result.IsIncluded;
+		}
+
+		internal void ExcludeWithReason(string reason) => SetIncludeWithReason(SerializationOverride.ForceSkip, reason);
+
+		internal void SetIncludeWithReason(SerializationOverride serializationOverride, string reason)
+		{
+			TypeConfig.ThrowIfSealed();
+			if (serializationOverride == SerializationOverride.NoOverride)
+				throw new InvalidOperationException("Explicitly setting 'NoOverride', this must be a bug, please report it on GitHub!");
+			if (string.IsNullOrWhiteSpace(reason))
+				throw new InvalidOperationException("Missing reason in " + nameof(SetIncludeWithReason) + ", this must be a bug, please report it on GitHub!");
+
+			_serializationOverride = serializationOverride;
+			_explicitInclusionReason = reason;
+		}
+
+		protected MemberConfig(TypeConfig typeConfig, MemberInfo member)
+		{
+			TypeConfig = typeConfig;
+			Member = member;
+
+			IsCompilerGenerated = member.GetCustomAttribute<CompilerGeneratedAttribute>() != null;
+			IsReadonlyField = member is FieldInfo f && f.IsInitOnly;
+			IsComputedProperty = member is PropertyInfo p && p.GetSetMethod(true) == null;
+		}
 	}
 
-	// todo: a construction method that expects an object to be already present but then runs a given ctor anyway. Maybe also resetting all members and private vars to 'default(T)' ?
-	abstract class ResetAndReuse : TypeConstruction
+	public struct InclusionExclusionResult
 	{
-		// option: load data from existing object into locals
-		// option: reset all fields to default (including compiler generated), in definition order
-		// option: call a specific ctor
-		// option: write selected members again after calling the ctor
+		public readonly bool IsIncluded;
+		public readonly string Reason;
+
+		public InclusionExclusionResult(bool isIncluded, string reason)
+		{
+			IsIncluded = isIncluded;
+			Reason = reason;
+		}
 	}
 
-	// todo: combines two construct methods. For example something that can somehow reuse an existing object, or fallback to somehow creating a new object when needed
-	abstract class CoalesceConstruction : TypeConstruction
+	public class MemberConfig<TDeclaring> : MemberConfig
 	{
-		// Try reuse (overwrite, reset, direct-ctor, ...)
-		// Or create custom (new(), factory, ...)
+		public new TypeConfig<TDeclaring> TypeConfig => (TypeConfig<TDeclaring>)base.TypeConfig;
+
+		public MemberConfig(TypeConfig typeConfig, MemberInfo member) : base(typeConfig, member) { }
+
+
+		public TypeConfig<TDeclaring> SetReadonlyHandling(ReadonlyFieldHandling r)
+		{
+			_readonlyOverride = r;
+			return TypeConfig;
+		}
+	
+		public TypeConfig<TDeclaring> Include()
+		{
+			/*
+			if (IsReadonlyField)
+				if (ReadonlyFieldHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
+					if (readonlyHandling == null || readonlyHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
+						throw new InvalidOperationException($"If you want to include a readonly member, you must specify a readonly-handling mode for it (and it can't be {nameof(ReadonlyFieldHandling.ExcludeFromSerialization)})");
+
+			if (readonlyHandling != null)
+				_readonlyOverride = readonlyHandling;
+			*/
+			SetIncludeWithReason(SerializationOverride.ForceInclude, "User called Include()");
+			return TypeConfig;
+		}
+
+		public TypeConfig<TDeclaring> Exclude(string customReason = null)
+		{
+			SetIncludeWithReason(SerializationOverride.ForceInclude, "User called Include()");
+
+			return TypeConfig;
+		}
 	}
 
+	public struct TUnknown { }
 }

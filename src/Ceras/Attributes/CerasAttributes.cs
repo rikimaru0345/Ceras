@@ -42,7 +42,7 @@
 	/// <summary>
 	/// Configure what members to include by default in this type, you can also add [Ignore] and [Include] to individual members as well to override the member config.
 	/// </summary>
-	[AttributeUsage(AttributeTargets.Class)]
+	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
 	public sealed class MemberConfigAttribute : Attribute
 	{
 		public TargetMember TargetMembers { get; set; }
