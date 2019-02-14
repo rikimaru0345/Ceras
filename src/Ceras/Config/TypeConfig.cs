@@ -1,7 +1,7 @@
 ﻿namespace Ceras
 {
 	using Ceras.Exceptions;
-	using Config;
+	using Ceras.Formatters;
 	using Helpers;
 	using System;
 	using System.Collections.Generic;
@@ -29,7 +29,7 @@
 	{
 		public Type Type { get; }
 		public SerializerConfig Config { get; }
-		
+
 		bool _isSealed = false;
 		internal void Seal() => _isSealed = true;
 
@@ -50,6 +50,17 @@
 					TypeConstruction.TypeConfig = this;
 					TypeConstruction.VerifyReturnType();
 				}
+			}
+		}
+
+		protected IFormatter _overrideFormatter;
+		public IFormatter CustomFormatter
+		{
+			get => _overrideFormatter;
+			set
+			{
+				ThrowIfSealed();
+				_overrideFormatter = value;
 			}
 		}
 
@@ -89,11 +100,15 @@
 			Type = type;
 
 
-			var configType = typeof(MemberConfig).MakeGenericType(type);
+			var configType = typeof(MemberConfig<>).MakeGenericType(type);
 
 			var members = from m in ReflectionHelper.GetAllDataMembers(type)
 						  let a = new object[] { this, m }
-						  select (MemberConfig)Activator.CreateInstance(configType, a);
+						  select (MemberConfig)Activator.CreateInstance(configType,
+																	  BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+																	  null,
+																	  a,
+																	  null);
 
 			_allMembers = members.ToList();
 
@@ -174,6 +189,15 @@
 
 
 		#region Construction
+
+		/// <summary>
+		/// Don't construct an instance for this object, let the formatter handle it (must be used together with a custom formatter to work)
+		/// </summary>
+		public TypeConfig<T> ConstructByFormatter()
+		{
+			TypeConstruction = TypeConstruction.Null();
+			return this;
+		}
 
 		/// <summary>
 		/// Call a given static method to get an object
@@ -294,6 +318,15 @@
 
 		#endregion
 
+		/// <summary>
+		/// Set a custom formatter that will get used to serialize this type
+		/// </summary>
+		public TypeConfig<T> SetFormatter(IFormatter<T> formatterInstance)
+		{
+			CustomFormatter = formatterInstance;
+			return this;
+		}
+
 		#region Type Settings
 
 		/// <summary>
@@ -318,23 +351,16 @@
 
 		#region Member Config
 
-		public MemberConfig<T> ConfigField<TField>(Expression<Func<T, TField>> fieldSelect)
+		public MemberConfig<T> ConfigMember<TMember>(Expression<Func<T, TMember>> selectMemberExpression)
 		{
-			var memberInfo = ((MemberExpression)fieldSelect.Body).Member;
-			var memberConfig = Members.FirstOrDefault(m => m.Member is FieldInfo && m.Member == memberInfo);
+			var memberInfo = ((MemberExpression)selectMemberExpression.Body).Member;
+			var memberConfig = Members.FirstOrDefault(m => m.Member == memberInfo);
 			return (MemberConfig<T>)memberConfig;
 		}
 
 		public MemberConfig<T> ConfigField(string fieldName)
 		{
 			var memberConfig = Members.FirstOrDefault(m => m.Member is FieldInfo && m.Member.Name == fieldName);
-			return (MemberConfig<T>)memberConfig;
-		}
-
-		public MemberConfig<T> ConfigProperty<TProp>(Expression<Func<T, TProp>> propSelect)
-		{
-			var memberInfo = ((MemberExpression)propSelect.Body).Member;
-			var memberConfig = Members.FirstOrDefault(m => m.Member is PropertyInfo && m.Member == memberInfo);
 			return (MemberConfig<T>)memberConfig;
 		}
 
@@ -354,7 +380,7 @@
 		public Type DeclaringType => TypeConfig.Type;
 		public MemberInfo Member { get; }
 		public Type MemberType => Member is FieldInfo f ? f.FieldType : ((PropertyInfo)Member).PropertyType;
-		
+
 
 		string _persistentNameOverride;
 		public string PersistentName
@@ -438,14 +464,14 @@
 
 			return TypeConfig.ComputeFinalInclusionResult(Member, true);
 		}
-		
+
 		internal bool ComputeFinalInclusionFast()
 		{
 			if (_serializationOverride != SerializationOverride.NoOverride)
 				return _serializationOverride == SerializationOverride.ForceInclude;
 
 			var result = TypeConfig.ComputeFinalInclusionResult(Member, false);
-			
+
 			return result.IsIncluded;
 		}
 
@@ -498,7 +524,7 @@
 			_readonlyOverride = r;
 			return TypeConfig;
 		}
-	
+
 		public TypeConfig<TDeclaring> Include()
 		{
 			/*

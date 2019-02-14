@@ -67,14 +67,11 @@ namespace Tutorial
 			// There are multiple ways to configure what members to serialize
 			// Ceras determines member inclusion in this order:
 			//
-			//  - a. Using the result of "ShouldSerializeMember".
-			//       This method can always override everything else.
-			//       If it returns "NoOverride" or the method is not set
-			//       the search for a decision continues.
+			//  - a. Any custom configuration using ConfigType<T> or ConfigType(type)
 			//   
 			//  - b. [Ignore] and [Include] attributes on individual members
 			//     
-			//  - c. [MemberConfig] attribute	  
+			//  - c. [MemberConfig] attribute
 			//
 			//  - d. "DefaultTargets" setting in the SerializerConfig
 			//       which defaults to 'TargetMember.PublicFields'
@@ -84,8 +81,10 @@ namespace Tutorial
 
 			config.DefaultTargets = TargetMember.PublicProperties | TargetMember.PrivateFields;
 
-			config.Advanced.ShouldSerializeMember = m => SerializationOverride.NoOverride;
-
+			config.ConfigType<Person>()
+				  .ConfigMember(p => p.Name).Include()
+				  .ConfigMember(p => p.BestFriend).Include();
+			
 
 
 

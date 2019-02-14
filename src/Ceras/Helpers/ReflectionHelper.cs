@@ -80,6 +80,9 @@
 
 			List<MemberInfo> members = new List<MemberInfo>();
 
+			if(type.IsPrimitive)
+				return members;
+
 			while (type != null)
 			{
 				foreach (var f in type.GetFields(flags))

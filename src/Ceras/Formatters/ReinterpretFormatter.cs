@@ -80,7 +80,7 @@ namespace Ceras.Formatters
 			var bytes = count * size;
 			Buffer.BlockCopy(value, 0, buffer, offset, bytes);
 
-			offset += _size;
+			offset += bytes;
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T[] value)
@@ -99,7 +99,7 @@ namespace Ceras.Formatters
 			int bytes = count * _size;
 			Buffer.BlockCopy(buffer, offset, value, 0, bytes);
 			
-			offset += _size;
+			offset += bytes;
 		}
 	}
 

@@ -1,7 +1,6 @@
 ﻿namespace Ceras
 {
 	using Ceras.Formatters;
-	using Helpers;
 	using Resolvers;
 	using System;
 	using System.Collections.Generic;
@@ -106,7 +105,12 @@
 			if (_configEntries.TryGetValue(type, out var typeConfig))
 				return typeConfig;
 
-			typeConfig = (TypeConfig)Activator.CreateInstance(typeof(TypeConfig<>).MakeGenericType(type), this);
+			typeConfig = (TypeConfig)Activator.CreateInstance(
+															   typeof(TypeConfig<>).MakeGenericType(type),
+															   System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
+															   null,
+															   new object[] { this },
+															   null);
 			_configEntries.Add(type, typeConfig);
 
 			return typeConfig;
@@ -118,8 +122,13 @@
 		{
 			if (_configEntries.TryGetValue(type, out var typeConfig))
 				return typeConfig;
-			
-			typeConfig = (TypeConfig)Activator.CreateInstance(typeof(TypeConfig<>).MakeGenericType(type), this);
+
+			typeConfig = (TypeConfig)Activator.CreateInstance(
+															  typeof(TypeConfig<>).MakeGenericType(type),
+															  System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
+															  null,
+															  new object[] { this },
+															  null);
 
 			// Let the user handle it
 			OnConfigNewType?.Invoke((TypeConfig)typeConfig);
@@ -128,7 +137,7 @@
 			return typeConfig;
 		}
 
-		
+
 		/// <summary>
 		/// Use the generic version of <see cref="ConfigType{T}"/> for a much easier API.
 		/// <para>

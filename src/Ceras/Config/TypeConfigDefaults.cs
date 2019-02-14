@@ -67,7 +67,7 @@ namespace Ceras
 			if (memberConfig.IsCompilerGenerated)
 				if (memberConfig.TypeConfig.Config.Advanced.SkipCompilerGeneratedFields)
 				{
-					memberConfig.IncludeExcludeReason = "Compiler generated field";
+					memberConfig.ExcludeWithReason("Compiler generated field");
 					return;
 				}
 
@@ -97,47 +97,21 @@ namespace Ceras
 			if (hasInclude && (hasIgnore || hasNonSerialized))
 				throw new Exception($"Member '{memberInfo.Name}' on type '{type.Name}' has both [Include] and [Ignore] (or [NonSerialized]) !");
 
-			if (hasIgnore)
+			if (hasIgnore || hasNonSerialized)
 			{
-				memberConfig
+				memberConfig.ExcludeWithReason("[Ignore] or [NonSerialized] attribute");
 				return;
 			}
 
-
-
-
-			// Use [MemberConfig] on type
-
-			// Use serializer config global default. todo: ensure the user can't change the base-settings of the config after once it is locked; lock config on the first call to ConfigType<>?
-
 			// Success: persistent name (from attribute or normal member name)
-
-
-
-			//
-			// 1.) Use member-attribute
-
-
-
-
-			//var attrib = memberInfo.GetCustomAttribute<PreviousNameAttribute>();
-			//if (attrib != null)
-			//{
-			//	VerifyName(attrib.Name);
-			//	foreach (var n in attrib.AlternativeNames)
-			//		VerifyName(n);
-			//}
-
-			//var schemaMember = new SchemaMember(attrib?.Name ?? memberInfo.Name, serializedMember);
-
-
-			////
-			//// 2.) Use "targets" to determine whether or not to include something (type-level attribute -> global config default)
-			//if (IsMatch(isField, isProp, isPublic, typeConfig.TargetMembers))
-			//{
-			//	schema.Members.Add(schemaMember);
-			//	continue;
-			//}
+			var attrib = memberInfo.GetCustomAttribute<PreviousNameAttribute>();
+			if (attrib != null)
+			{
+				memberConfig.PersistentName = attrib.Name;
+				//VerifyName(attrib.Name);
+				//foreach (var n in attrib.AlternativeNames)
+				//	VerifyName(n);
+			}
 		}
 
 		static bool ShouldSkipField(MemberConfig m)

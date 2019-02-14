@@ -535,7 +535,16 @@ namespace Ceras
 				return meta.SpecificFormatter;
 
 
-			// 2.) User
+			// 2.) TypeConfig
+			if (meta.TypeConfig.CustomFormatter != null)
+			{
+				meta.SpecificFormatter = meta.TypeConfig.CustomFormatter;
+				InjectDependencies(meta.SpecificFormatter);
+				return meta.SpecificFormatter;
+			}
+
+
+			// 3.) User
 			for (int i = 0; i < _userResolvers.Length; i++)
 			{
 				var formatter = _userResolvers[i](this, type);
@@ -546,9 +555,9 @@ namespace Ceras
 					return formatter;
 				}
 			}
+			
 
-
-			// Depending on the VersionTolerance we use different formatters
+			// 4.) Depending on the VersionTolerance we use different formatters
 			if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
 			{
 				if (!meta.IsFrameworkType)
@@ -563,8 +572,7 @@ namespace Ceras
 			}
 
 
-
-			// 3.) Built-in
+			// 5.) Built-in
 			for (int i = 0; i < _resolvers.Count; i++)
 			{
 				var formatter = _resolvers[i].GetFormatter(type);
@@ -577,7 +585,7 @@ namespace Ceras
 			}
 
 
-			// 4.) Dynamic
+			// 6.) Dynamic
 			{
 				var formatter = _dynamicResolver.GetFormatter(type);
 				if (formatter != null)
@@ -587,8 +595,7 @@ namespace Ceras
 					return formatter;
 				}
 			}
-
-
+			
 			throw new NotSupportedException($"Ceras could not find any IFormatter<T> for the type '{type.FullName}'. Maybe exclude that field/prop from serializaion or write a custom formatter for it.");
 		}
 
@@ -609,7 +616,9 @@ namespace Ceras
 
 			BannedTypes.ThrowIfBanned(type);
 
-			meta = new TypeMetaData(type, isFrameworkType);
+			var typeConfig = Config.GetTypeConfig(type);
+
+			meta = new TypeMetaData(type, typeConfig, isFrameworkType);
 
 			meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type);
 
@@ -1005,6 +1014,8 @@ namespace Ceras
 		public readonly bool IsFrameworkType;
 		public readonly bool IsValueType;
 
+		public readonly TypeConfig TypeConfig;
+
 		public IFormatter SpecificFormatter;
 		public IFormatter ReferenceFormatter;
 
@@ -1018,11 +1029,12 @@ namespace Ceras
 		public readonly List<ISchemaTaintedFormatter> OnSchemaChangeTargets = new List<ISchemaTaintedFormatter>();
 
 
-		public TypeMetaData(Type type, bool isFrameworkType)
+		public TypeMetaData(Type type, TypeConfig typeConfig, bool isFrameworkType)
 		{
 			Type = type;
 			IsFrameworkType = isFrameworkType;
 			IsValueType = type.IsValueType;
+			TypeConfig = typeConfig;
 		}
 	}
 }

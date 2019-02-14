@@ -30,7 +30,7 @@ namespace LiveTesting
 			Benchmarks();
 
 			DictInObjArrayTest();
-			
+
 			TestDirectPoolingMethods();
 
 			DelegatesTest();
@@ -50,7 +50,7 @@ namespace LiveTesting
 			MemberInfoAndTypeInfoTest();
 
 			SimpleDictionaryTest();
-			
+
 			MaintainTypeTest();
 
 			InterfaceFormatterTest();
@@ -108,13 +108,27 @@ namespace LiveTesting
 			// We use a custom formatter to fix it
 
 			SerializerConfig config = new SerializerConfig();
-			
+
 			config.OnResolveFormatter.Add((c, t) =>
 			{
 				if (t == typeof(HashSet<byte[]>))
 					return new HashSetFormatterThatKeepsItsComparer();
 				return null; // continue searching
 			});
+
+			config.ConfigType<HashSet<byte[]>>()
+				  .SetFormatter(new HashSetFormatterThatKeepsItsComparer());
+
+			var ceras = new CerasSerializer(config);
+
+			var set = new HashSet<byte[]>(new CustomComparer());
+			set.Add(new byte[] { 1, 2, 3 });
+			set.Add(new byte[] { 4, 5, 6 });
+
+			var clone = ceras.Deserialize<HashSet<byte[]>>(ceras.Serialize(set));
+
+			Debug.Assert(clone.Comparer.GetType() == typeof(CustomComparer));
+
 		}
 
 
@@ -150,7 +164,7 @@ namespace LiveTesting
 
 				// We can already create the hashset
 				set = new HashSet<byte[]>(equalityComparer);
-				
+
 				// Read content...
 				int count = SerializerBinary.ReadInt32(buffer, ref offset);
 				for (int i = 0; i < count; i++)
@@ -167,11 +181,11 @@ namespace LiveTesting
 		{
 			public bool Equals(byte[] x, byte[] y)
 			{
-				if(x == null && y != null)
+				if (x == null && y != null)
 					return false;
-				if(x != null && y == null)
+				if (x != null && y == null)
 					return false;
-				if(x == null && y == null)
+				if (x == null && y == null)
 					return true;
 
 				return x.SequenceEqual(y);
@@ -254,12 +268,12 @@ namespace LiveTesting
 
 				Console.WriteLine();
 			}
-			
+
 			// Simple test
 			{
 				Expression<Action> methodHelperExp = () => StaticPoolTest.CreatePerson();
 				var methodInfo = ((MethodCallExpression)methodHelperExp.Body).Method;
-				
+
 				MethodCallExpression methodCallExp = Expression.Call(methodInfo);
 
 
@@ -275,7 +289,7 @@ namespace LiveTesting
 
 				Console.WriteLine();
 			}
-			
+
 			// Small test 1
 			{
 				Expression<Func<string, int, char>> getCharAtIndex = (text, index) => text.ElementAt(index);
@@ -305,7 +319,7 @@ namespace LiveTesting
 				// Serialize and deserialize delegate
 				SerializerConfig config = new SerializerConfig();
 				var ceras = new CerasSerializer(config);
-				
+
 				var data = ceras.Serialize<object>(getCharAtIndex);
 				var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
 
@@ -692,11 +706,11 @@ namespace LiveTesting
 			{
 				SerializerConfig config = new SerializerConfig();
 				config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
-				
+
 				config.ConfigType<ReadonlyFieldsTest>()
-					  .ConfigField(f => f.Int).Include()
-					  .ConfigField(f => f.String).Include();
-				
+					  .ConfigMember(f => f.Int).Include()
+					  .ConfigMember(f => f.String).Include();
+
 
 				CerasSerializer ceras = new CerasSerializer(config);
 
@@ -725,10 +739,10 @@ namespace LiveTesting
 			{
 				SerializerConfig config = new SerializerConfig();
 				config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
-				
+
 				config.ConfigType<ReadonlyFieldsTest>()
-					  .ConfigField(f => f.Int).Include()
-					  .ConfigField(f => f.String).Include();
+					  .ConfigMember(f => f.Int).Include()
+					  .ConfigMember(f => f.String).Include();
 
 				CerasSerializer ceras = new CerasSerializer(config);
 
