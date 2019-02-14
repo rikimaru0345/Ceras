@@ -104,6 +104,9 @@
 		{
 			if (_configEntries.TryGetValue(type, out var typeConfig))
 				return typeConfig;
+			
+			if(type.ContainsGenericParameters)
+				return null;
 
 			typeConfig = (TypeConfig)Activator.CreateInstance(
 															   typeof(TypeConfig<>).MakeGenericType(type),
@@ -122,6 +125,9 @@
 		{
 			if (_configEntries.TryGetValue(type, out var typeConfig))
 				return typeConfig;
+
+			if(type.ContainsGenericParameters)
+				return null;
 
 			typeConfig = (TypeConfig)Activator.CreateInstance(
 															  typeof(TypeConfig<>).MakeGenericType(type),

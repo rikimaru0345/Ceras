@@ -69,8 +69,11 @@ namespace Ceras.Formatters
 
 			MethodInfo methodInfo = null;
 			_methodInfoFormatter.Deserialize(buffer, ref offset, ref methodInfo);
-			
-			value = (T)Delegate.CreateDelegate(typeof(T), methodInfo, true);
+
+			if (targetObject == null)
+				value = (T) Delegate.CreateDelegate(typeof(T), methodInfo, true);
+			else
+				value = (T) Delegate.CreateDelegate(typeof(T), targetObject, methodInfo, true);
 		}
 
 	}

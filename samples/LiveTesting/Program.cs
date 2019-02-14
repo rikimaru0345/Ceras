@@ -351,6 +351,10 @@ namespace LiveTesting
 			{
 				Name = name + CtorSuffix;
 			}
+
+			public int GetHealth() => Health;
+
+			public string SayHello() => $"Hello I'm {Name}";
 		}
 
 		static void TestDirectPoolingMethods()
@@ -971,66 +975,23 @@ namespace LiveTesting
 				//
 				// A) Direct Instance
 				//
-				var str = "abc";
-				var substringMethod = typeof(string).GetMethod("Substring", new[] { typeof(int) });
-				Func<string, int, string> substring = (Func<string, int, string>)Delegate.CreateDelegate(typeof(Func<string, int, string>), str, substringMethod);
+				var method = GetMethod(() => new Person().GetHealth());
+				var p = new Person("direct instance") { Health = 3456 };
+				var del = (Func<int>)Delegate.CreateDelegate(typeof(Func<int>), p, method);
 
 				// Does our delegate even work?
-				var testResult = substring(str, 1);
-				Debug.Assert(testResult == str.Substring(1));
+				var testResult = del();
+				Debug.Assert(testResult == p.Health);
 
 				// Can we serialize the normal instance delegate?
-				var data = ceras.Serialize(substring);
-				var substringClone = ceras.Deserialize<Func<string, int, string>>(data);
+				var data = ceras.Serialize(del);
+				var clone = ceras.Deserialize<Func<int>>(data);
+
+				// Does it still work?
+				Debug.Assert(testResult == clone());
 
 
-				//
-				// B) Simple lambda
-				//
-
-				// Simple lambda with no capture
-				// This should probably work, depending on what exactly the compiler generates
-				Func<string, int, string> simpleLambda = (s, index) => s.Substring(index);
-				var simpleData = ceras.Serialize(simpleLambda);
-				var simpleClone = ceras.Deserialize<Func<string, int, string>>(simpleData);
-
-				//
-				// C) Lambda with closure
-				//
-
-				// Complex lambda with capture
-				// capture many random things...
-				Func<string, int, string> complexLambda = (s, index) => simpleData.Length + "abc" + index + testResult;
-				try
-				{
-					var complexData = ceras.Serialize(simpleLambda);
-					// oh no, this should not be possible
-					Debug.Assert(false, "serializing complex lambda should result in an exception!!");
-				}
-				catch (Exception e)
-				{
-					// all good!
-				}
-
-				//
-				// D) Class with event
-				//
-				// todo: add a warning that "event" fields are compiler generated and thus ignored; or alternatively implement the "why is the schema like it is"-log-feature thing to explain what members where skipped and why.
-				config.DefaultTargets = TargetMember.All;
-				ceras = new CerasSerializer(config);
-
-				var eventClassType = typeof(DelegateTestClass);
-
-				var eventClass = new DelegateTestClass();
-				eventClass.OnSomeNumberHappened += LocalEventHandlerMethod;
-
-				void LocalEventHandlerMethod(int num)
-				{
-					Console.WriteLine("Event Number: " + num);
-				}
-
-				var eventClassData = ceras.Serialize(eventClass);
-				var eventClassClone = ceras.Deserialize<DelegateTestClass>(eventClassData);
+				
 
 			}
 
@@ -1756,6 +1717,37 @@ namespace LiveTesting
 		{
 			var text = BitConverter.ToString(data);
 			Console.WriteLine(data.Length + " bytes: " + text);
+		}
+
+
+		static  MethodInfo GetMethod(Expression<Action>  e)
+		{
+			var b = e.Body;
+
+			if (b is MethodCallExpression m)
+				return m.Method;
+
+			throw new ArgumentException();
+		}
+
+		static  MethodInfo GetMethod<T>(Expression<Func<T>>  e)
+		{
+			var b = e.Body;
+
+			if (b is MethodCallExpression m)
+				return m.Method;
+
+			throw new ArgumentException();
+		}
+
+		static  ConstructorInfo GetCtor<T>(Expression<Func<T>>  e)
+		{
+			var b = e.Body;
+
+			if (b is NewExpression n)
+				return n.Constructor;
+
+			throw new ArgumentException();
 		}
 	}
 

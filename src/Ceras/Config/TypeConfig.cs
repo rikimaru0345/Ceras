@@ -115,6 +115,9 @@
 
 			TypeConfigDefaults.ApplyTypeAttributes(this);
 			TypeConfigDefaults.ApplySpecializedDefaults(this);
+
+			foreach (var m in _allMembers)
+				TypeConfigDefaults.ApplyMemberAttributes(m);
 		}
 
 		/// <summary>

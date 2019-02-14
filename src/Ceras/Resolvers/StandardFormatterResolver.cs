@@ -26,7 +26,6 @@
 				typeof(TupleFormatter<,,,,,,,>), // 7
 		};
 
-#if NETSTANDARD
 		static readonly Type[] _valueTupleFormatterTypes = new Type[]
 		{
 				null, // [0] doesn't exist
@@ -38,7 +37,6 @@
 				typeof(ValueTupleFormatter<,,,,,,>), // 6
 				typeof(ValueTupleFormatter<,,,,,,,>), // 7
 		};
-#endif
 
 		// implemented by both tuple and value tuple
 		static readonly Type _iTupleInterface = typeof(Tuple<>).GetInterfaces().First(t => t.Name == "ITuple");
@@ -86,7 +84,6 @@
 
 				if (_iTupleInterface.IsAssignableFrom(type))
 				{
-#if NETSTANDARD
 					if (type.IsValueType) // ValueTuple
 					{
 						var nArgs = type.GenericTypeArguments.Length;
@@ -99,7 +96,7 @@
 
 						return formatter;
 					}
-#endif
+
 					if (type.IsClass) // Tuple
 					{
 						var nArgs = type.GenericTypeArguments.Length;

@@ -248,16 +248,20 @@ namespace Ceras
 						continue;
 					}
 
-					var meta = GetTypeMetaData(t);
-					if (meta.PrimarySchema != null)
-						foreach (var m in meta.PrimarySchema.Members)
-						{
-							ProtocolChecksum.Add(m.MemberType.FullName);
-							ProtocolChecksum.Add(m.MemberName);
+					if (!t.ContainsGenericParameters)
+					{
+						var meta = GetTypeMetaData(t);
+						if (meta.PrimarySchema != null)
+							foreach (var m in meta.PrimarySchema.Members)
+							{
+								ProtocolChecksum.Add(m.MemberType.FullName);
+								ProtocolChecksum.Add(m.MemberName);
 
-							foreach (var a in m.MemberInfo.GetCustomAttributes(true))
-								ProtocolChecksum.Add(a.ToString());
-						}
+								foreach (var a in m.MemberInfo.GetCustomAttributes(true))
+									ProtocolChecksum.Add(a.ToString());
+							}
+					}
+
 				}
 
 				ProtocolChecksum.Finish();
@@ -555,7 +559,7 @@ namespace Ceras
 					return formatter;
 				}
 			}
-			
+
 
 			// 4.) Depending on the VersionTolerance we use different formatters
 			if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
@@ -595,7 +599,7 @@ namespace Ceras
 					return formatter;
 				}
 			}
-			
+
 			throw new NotSupportedException($"Ceras could not find any IFormatter<T> for the type '{type.FullName}'. Maybe exclude that field/prop from serializaion or write a custom formatter for it.");
 		}
 
@@ -772,7 +776,7 @@ namespace Ceras
 		Schema CreatePrimarySchema(Type type)
 		{
 			Schema schema = new Schema(true, type);
-			
+
 			var typeConfig = Config.GetTypeConfig(type);
 			typeConfig.Seal();
 
@@ -796,7 +800,7 @@ namespace Ceras
 
 			return schema;
 		}
-		
+
 		internal Schema ReadSchema(byte[] buffer, ref int offset, Type type)
 		{
 			// todo 1: Skipping
