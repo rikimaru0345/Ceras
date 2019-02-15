@@ -430,7 +430,14 @@
 		/// <summary>
 		/// Tells you why (or why not!) this member got included in the serialization.
 		/// </summary>
-		public string IncludeExcludeReason => ComputeFinalInclusionResult(Member, true).Reason;
+		public string IncludeExcludeReason
+		{
+			get
+			{
+				var r = ComputeFinalInclusionResult(Member, true);
+				return (r.IsIncluded ? "Included: " : "Excluded: ") + r.Reason;
+			}
+		}
 
 
 		SerializationOverride _serializationOverride = SerializationOverride.NoOverride;
@@ -576,6 +583,8 @@
 			// Global
 			return TypeConfig.Config.Advanced.ReadonlyFieldHandling;
 		}
+
+		public override string ToString() => $"{TypeConfig.Type.Name}.{Member.Name} ({(ComputeFinalInclusionFast() ? "Included" : "Excluded")})";
 	}
 
 	public struct InclusionExclusionResult
