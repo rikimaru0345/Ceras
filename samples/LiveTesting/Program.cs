@@ -251,7 +251,7 @@ namespace LiveTesting
 
 		static void ExpressionTreesTest()
 		{
-			// Primitive test
+			// Primitive test (private readonly in a base type)
 			{
 				SerializerConfig config = new SerializerConfig();
 				config.ConfigType<ReadonlyTestClass>()
@@ -265,27 +265,9 @@ namespace LiveTesting
 				var data = ceras.Serialize(obj);
 
 				var clone = ceras.Deserialize<ReadonlyTestClass>(data);
-
-				Console.WriteLine();
-			}
-
-			// Simple test
-			{
-				Expression<Action> methodHelperExp = () => StaticPoolTest.CreatePerson();
-				var methodInfo = ((MethodCallExpression)methodHelperExp.Body).Method;
-
-				MethodCallExpression methodCallExp = Expression.Call(methodInfo);
-
-
-				// Serialize and deserialize delegate
-				SerializerConfig config = new SerializerConfig();
-				var ceras = new CerasSerializer(config);
-
-
-				var data = ceras.Serialize<object>(methodCallExp);
-				var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
-
-				var clonedExp = (MethodCallExpression)ceras.Deserialize<object>(data);
+				
+				Debug.Assert(obj.GetName() == clone.GetName());
+				Debug.Assert(obj.GetBaseName() == clone.GetBaseName());
 
 				Console.WriteLine();
 			}
@@ -298,39 +280,47 @@ namespace LiveTesting
 				// Serialize and deserialize delegate
 				SerializerConfig config = new SerializerConfig();
 				var ceras = new CerasSerializer(config);
-
-
+				
 				var data = ceras.Serialize<object>(body);
 				var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
 
 				var clonedExp = (MethodCallExpression)ceras.Deserialize<object>(data);
+
+				Debug.Assert(clonedExp.Method == body.Method);
+				Debug.Assert(clonedExp.Arguments.Count == body.Arguments.Count);
 			}
 
 			// Small test 2
 			{
+				// Test data
+				string inputString = "abcdefgh";
+
+
 				Expression<Func<string, int, char>> getCharAtIndex = (text, index) => (text.ElementAt(index).ToString() + text[index])[0];
-
-				var del = getCharAtIndex.Compile();
-
-				string inputString = "abcde";
-				char c1 = del(inputString, 2);
+				var del1 = getCharAtIndex.Compile();
+				char c1 = del1(inputString, 2);
 
 
-				// Serialize and deserialize delegate
+				// Serialize and deserialize expression
 				SerializerConfig config = new SerializerConfig();
 				var ceras = new CerasSerializer(config);
 
-				var data = ceras.Serialize<object>(getCharAtIndex);
+				var data = ceras.Serialize(getCharAtIndex);
 				var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
 
-				var clonedExp = (Expression<Func<string, int, char>>)ceras.Deserialize<object>(data);
+				var clonedExp = ceras.Deserialize<Expression<Func<string, int, char>>>(data);
 
+				
+				// Compile the restored expression, check if it works and returns the same result
 				var del2 = clonedExp.Compile();
-				var c2 = del2(inputString, 2);
 
+				// Check single case
+				var c2 = del2(inputString, 2);
 				Debug.Assert(c1 == c2);
 
-				Console.WriteLine();
+				// Check all cases
+				for (int i = 0; i < inputString.Length; i++)
+					Debug.Assert(del1(inputString, i) == del2(inputString, i));
 			}
 		}
 

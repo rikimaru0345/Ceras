@@ -71,20 +71,24 @@
 		/// </summary>
 		public bool PreserveReferences { get; set; } = true;
 
-		/// <summary>
-		/// If true, Ceras will skip fields with the '[System.NonSerialized]' attribute
-		/// <para>Default: true</para>
-		/// </summary>
-		public bool RespectNonSerializedAttribute { get; set; } = true;
-
+		VersionTolerance _versionTolerance = VersionTolerance.Disabled;
 		/// <summary>
 		/// Sometimes you want to persist objects even while they evolve (fields being added, removed, renamed).
 		/// Type changes are not supported (yet, nobody has requested it so far).
 		/// Check out the tutorial for more information (and a way to deal with changing types)
 		/// <para>Default: Disabled</para>
 		/// </summary>
-		public VersionTolerance VersionTolerance { get; set; } = VersionTolerance.Disabled;
-
+		public VersionTolerance VersionTolerance
+		{
+			get => _versionTolerance;
+			set
+			{
+				if(_versionTolerance == VersionTolerance.Disabled && value != VersionTolerance.Disabled)
+					Advanced.UseReinterpretFormatter = false;
+				_versionTolerance = value;
+			}
+		}
+		
 		/// <summary>
 		/// If all the other things (ShouldSerializeMember / Attributes) don't produce a decision, then this setting is used to determine if a member should be included.
 		/// By default only public fields are serialized. ReadonlyHandling is a separate option found inside <see cref="Advanced"/>
@@ -201,6 +205,7 @@
 		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = null;
 		DelegateSerializationMode IAdvancedConfigOptions.DelegateSerialization { get; set; } = DelegateSerializationMode.Off;
 		bool IAdvancedConfigOptions.UseReinterpretFormatter { get; set; } = true;
+		bool IAdvancedConfigOptions.RespectNonSerializedAttribute { get; set; } = true;
 	}
 
 
@@ -301,6 +306,12 @@
 		/// <para>Default: true</para>
 		/// </summary>
 		bool UseReinterpretFormatter { get; set; }
+
+		/// <summary>
+		/// If true, Ceras will skip fields with the '[System.NonSerialized]' attribute
+		/// <para>Default: true</para>
+		/// </summary>
+		bool RespectNonSerializedAttribute { get; set; }
 	}
 
 

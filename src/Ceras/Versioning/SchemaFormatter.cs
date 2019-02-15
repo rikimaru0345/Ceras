@@ -5,6 +5,7 @@ namespace Ceras.Helpers
 	using Formatters;
 	using System;
 	using System.Diagnostics;
+	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
 	using static System.Linq.Expressions.Expression;
@@ -248,7 +249,9 @@ namespace Ceras.Helpers
 				if (member.MemberInfo is FieldInfo fieldInfo && fieldInfo.IsInitOnly)
 				{
 					// Readonly field
-					DynamicFormatterHelpers.EmitReadonlyWriteBack(type, typeConfig.ReadonlyFieldHandling, fieldInfo, refValueArg, tempStore, block);
+					var memberConfig = typeConfig.Members.First(m => m.Member == member.MemberInfo);
+					var rh = memberConfig.ComputeReadonlyHandling();
+					DynamicFormatterHelpers.EmitReadonlyWriteBack(type, rh, fieldInfo, refValueArg, tempStore, block);
 				}
 				else
 				{

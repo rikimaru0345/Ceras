@@ -52,7 +52,7 @@ namespace Ceras
 			var memberConfigAttrib = type.GetCustomAttribute<MemberConfigAttribute>();
 			if (memberConfigAttrib != null)
 			{
-				typeConfig.ReadonlyFieldHandling = memberConfigAttrib.ReadonlyFieldHandling;
+				typeConfig.ReadonlyFieldOverride = memberConfigAttrib.ReadonlyFieldHandling;
 				typeConfig.TargetMembers = memberConfigAttrib.TargetMembers;
 			}
 		}
@@ -75,9 +75,9 @@ namespace Ceras
 
 			if (memberInfo is FieldInfo f)
 			{
-				// field: skip readonly
-				if (ShouldSkipField(memberConfig))
-					return;
+				var readOnlyConfig = f.GetCustomAttribute<ReadonlyConfigAttribute>(true);
+				if(readOnlyConfig != null)
+				memberConfig.ReadonlyFieldHandling = readOnlyConfig.ReadonlyFieldHandling;
 			}
 			else if (memberInfo is PropertyInfo p)
 			{
@@ -91,73 +91,32 @@ namespace Ceras
 			}
 
 
-			// [Include] / [Ignore] / [NonSerialized]
-			var hasIgnore = memberInfo.GetCustomAttribute<IgnoreAttribute>(true) != null;
+			// [Include] / [Exclude] / [NonSerialized]
+			var hasExclude = memberInfo.GetCustomAttribute<ExcludeAttribute>(true) != null;
 			var hasInclude = memberInfo.GetCustomAttribute<IncludeAttribute>(true) != null;
 			var hasNonSerialized = memberInfo.GetCustomAttribute<NonSerializedAttribute>(true) != null;
+			
+			if (hasInclude && (hasExclude || hasNonSerialized))
+				throw new Exception($"Member '{memberInfo.Name}' on type '{type.Name}' has both [Include] and [Exclude] (or [NonSerialized]) !");
 
-			if (hasInclude && (hasIgnore || hasNonSerialized))
-				throw new Exception($"Member '{memberInfo.Name}' on type '{type.Name}' has both [Include] and [Ignore] (or [NonSerialized]) !");
+			if (hasExclude)
+				memberConfig.ExcludeWithReason("[Exclude] attribute");
+			
+			if(hasNonSerialized)
+				memberConfig.HasNonSerialized = true;
 
-			if (hasIgnore || hasNonSerialized)
-			{
-				memberConfig.ExcludeWithReason("[Ignore] or [NonSerialized] attribute");
-				return;
-			}
+			if (hasInclude)
+				memberConfig.SetIncludeWithReason(SerializationOverride.ForceInclude, "[Include] attribute on member");
 
 			// Success: persistent name (from attribute or normal member name)
-			var attrib = memberInfo.GetCustomAttribute<PreviousNameAttribute>();
-			if (attrib != null)
+			var prevName = memberInfo.GetCustomAttribute<PreviousNameAttribute>();
+			if (prevName != null)
 			{
-				memberConfig.PersistentName = attrib.Name;
+				memberConfig.PersistentName = prevName.Name;
 				//VerifyName(attrib.Name);
 				//foreach (var n in attrib.AlternativeNames)
 				//	VerifyName(n);
 			}
-		}
-
-		static bool ShouldSkipField(MemberConfig m)
-		{
-			// Skip readonly
-			if (m.IsReadonlyField)
-			{
-				// Check attribute on member
-				var handling = m.Member.GetCustomAttribute<ReadonlyConfigAttribute>(true);
-				if (handling != null)
-				{
-					if (handling.ReadonlyFieldHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
-					{
-						m.ExcludeWithReason("Field is readonly and has [ReadonlyConfig] set to exclude.");
-						return true;
-					}
-
-					return false;
-				}
-
-				// Check attribute on type
-				handling = m.Member.DeclaringType.GetCustomAttribute<ReadonlyConfigAttribute>(true);
-				if (handling != null)
-				{
-					if (handling.ReadonlyFieldHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
-					{
-						m.ExcludeWithReason("Field is readonly and the declaring type has [ReadonlyConfig] set to exclude.");
-						return true;
-					}
-
-					return false;
-				}
-
-				// Check global default
-				if (m.TypeConfig.Config.Advanced.ReadonlyFieldHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
-				{
-					m.ExcludeWithReason("Field is readonly and the global default in the SerializerConfig is set to exclude.");
-					return true;
-				}
-
-				return false;
-			}
-
-			return false;
 		}
 
 		static bool ShouldSkipProperty(MemberConfig m)
@@ -189,7 +148,7 @@ namespace Ceras
 				if (!type.IsAbstract && type.IsSubclassOf(typeof(Expression)))
 				{
 					typeConfig.TypeConstruction = new UninitializedObject();
-					typeConfig.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
+					typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
 					typeConfig.TargetMembers = TargetMember.PrivateFields;
 					typeConfig.CustomResolver = ForceDynamicResolver;
 					return;
@@ -198,10 +157,9 @@ namespace Ceras
 				if (type.FullName.StartsWith("System.Runtime.CompilerServices.TrueReadOnlyCollection"))
 				{
 					typeConfig.TypeConstruction = new UninitializedObject();
-					typeConfig.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
+					typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
 					typeConfig.TargetMembers = TargetMember.PrivateFields;
 					typeConfig.CustomResolver = ForceDynamicResolver;
-					
 					return;
 				}
 			}
@@ -210,7 +168,7 @@ namespace Ceras
 				if (type.FullName.StartsWith("System.Collections.ObjectModel.ReadOnlyCollection"))
 				{
 					typeConfig.TypeConstruction = new UninitializedObject();
-					typeConfig.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
+					typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
 					typeConfig.TargetMembers = TargetMember.PrivateFields;
 					typeConfig.CustomResolver = ForceDynamicResolver;
 					return;

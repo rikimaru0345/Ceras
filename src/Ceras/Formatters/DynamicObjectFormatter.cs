@@ -184,7 +184,6 @@ namespace Ceras.Formatters
 			// 4. Write back values in one batch
 			for (int i = 0; i < members.Count; i++)
 			{
-				var sMember = members[i];
 				var member = members[i];
 				var tempStore = locals[i];
 				var type = member.MemberType;
@@ -198,7 +197,9 @@ namespace Ceras.Formatters
 					if (fieldInfo.IsInitOnly)
 					{
 						// Readonly field
-						DynamicFormatterHelpers.EmitReadonlyWriteBack(type, typeConfig.ReadonlyFieldHandling, fieldInfo, refValueArg, tempStore, body);
+						var memberConfig = typeConfig.Members.First(m => m.Member == member.MemberInfo);
+						var rh = memberConfig.ComputeReadonlyHandling();
+						DynamicFormatterHelpers.EmitReadonlyWriteBack(type, rh, fieldInfo, refValueArg, tempStore, body);
 					}
 					else
 					{

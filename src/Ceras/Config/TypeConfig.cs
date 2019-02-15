@@ -90,20 +90,20 @@
 		void ThrowCantSetResolverAndFormatter() => throw new InvalidOperationException("You can only set a custom resolver or a custom formatter instance, not both.");
 
 
-		protected ReadonlyFieldHandling? _customReadonlyHandling; // null = use global default from config
-		public ReadonlyFieldHandling ReadonlyFieldHandling
+		protected ReadonlyFieldHandling? _readonlyOverride; // null = use global default from config
+		public ReadonlyFieldHandling? ReadonlyFieldOverride
 		{
 			set
 			{
 				ThrowIfSealed();
-				_customReadonlyHandling = value;
+				_readonlyOverride = value;
 			}
 
-			get => _customReadonlyHandling ?? Config.Advanced.ReadonlyFieldHandling;
+			get => _readonlyOverride;
 		}
 
 		protected TargetMember? _targetMembers;
-		public TargetMember TargetMembers
+		public TargetMember? TargetMembers
 		{
 			set
 			{
@@ -111,7 +111,7 @@
 				_targetMembers = value;
 			}
 
-			get => _targetMembers ?? Config.DefaultTargets;
+			get => _targetMembers;
 		}
 
 
@@ -150,55 +150,6 @@
 		public IEnumerable<MemberConfig> UnsafeGetAllMembersIncludingCompilerGenerated()
 		{
 			return _allMembers;
-		}
-
-
-		internal InclusionExclusionResult ComputeFinalInclusionResult(MemberInfo memberInfo, bool needReason)
-		{
-			var requiredMask = ComputeMemberTargetMask(memberInfo);
-
-			if (_targetMembers.HasValue)
-			{
-				if ((_targetMembers.Value & requiredMask) != 0)
-					return new InclusionExclusionResult(true, needReason
-						? $"Member is '{requiredMask.Singular()}', which is included through the configuration '{_targetMembers.Value}' of the declared Type '{Type.Name}'"
-						: null);
-				else
-					return new InclusionExclusionResult(false, needReason
-						? $"Member is '{requiredMask.Singular()}', which is excluded through the configuration '{_targetMembers.Value}' of the declared Type '{Type.Name}'"
-						: null);
-			}
-
-			var defaultTargets = Config.DefaultTargets;
-
-			if ((defaultTargets & requiredMask) != 0)
-				return new InclusionExclusionResult(true, needReason
-					? $"Member is '{requiredMask.Singular()}', which is included by the 'DefaultTargets' configuration in the SerializerConfig"
-					: null);
-			else
-				return new InclusionExclusionResult(false, needReason
-					? $"Member is '{requiredMask.Singular()}', which is excluded by the 'DefaultTargets' configuration in the SerializerConfig"
-					: null);
-		}
-
-		static TargetMember ComputeMemberTargetMask(MemberInfo member)
-		{
-			if (member is FieldInfo f)
-			{
-				if (f.IsPublic)
-					return TargetMember.PublicFields;
-				else
-					return TargetMember.PrivateFields;
-			}
-			else if (member is PropertyInfo p)
-			{
-				if (p.GetGetMethod(true).IsPublic)
-					return TargetMember.PublicProperties;
-				else
-					return TargetMember.PrivateProperties;
-			}
-			else
-				throw new ArgumentOutOfRangeException();
 		}
 
 		internal void ThrowIfSealed()
@@ -361,7 +312,7 @@
 		/// </summary>
 		public TypeConfig<T> SetReadonlyHandling(ReadonlyFieldHandling mode)
 		{
-			_customReadonlyHandling = mode;
+			_readonlyOverride = mode;
 			return this;
 		}
 
@@ -419,7 +370,7 @@
 				_persistentNameOverride = value;
 			}
 		}
-
+		
 		/// <summary>
 		/// True for everything the compiler automatically generates: hidden async-state-machines, automatic enumerator implementations, cached dynamic method dispatchers, ...
 		/// </summary>
@@ -437,10 +388,11 @@
 		/// </para>
 		/// </summary>
 		public bool IsComputedProperty { get; }
-
+		
+		internal bool HasNonSerialized;
 
 		protected ReadonlyFieldHandling? _readonlyOverride;
-		public ReadonlyFieldHandling ReadonlyFieldHandling
+		public ReadonlyFieldHandling? ReadonlyFieldHandling
 		{
 			set
 			{
@@ -448,25 +400,16 @@
 				_readonlyOverride = value;
 			}
 
-			get => _readonlyOverride ?? TypeConfig.ReadonlyFieldHandling;
+			get => _readonlyOverride;
 		}
 
 
 		string _explicitInclusionReason = "Error: no inclusion/exclusion override is set for this member";
+
 		/// <summary>
 		/// Tells you why (or why not!) this member got included in the serialization.
 		/// </summary>
-		public string IncludeExcludeReason
-		{
-			get
-			{
-				if (_serializationOverride != SerializationOverride.NoOverride)
-					return _explicitInclusionReason;
-
-				var result = TypeConfig.ComputeFinalInclusionResult(Member, true);
-				return result.Reason;
-			}
-		}
+		public string IncludeExcludeReason => ComputeFinalInclusionResult(Member, true).Reason;
 
 
 		SerializationOverride _serializationOverride = SerializationOverride.NoOverride;
@@ -480,27 +423,6 @@
 			get => _serializationOverride;
 		}
 
-		/// <summary>
-		/// Determine wether or not this member is included for serialization
-		/// </summary>
-		/// <returns>true when the member will be serialized/deserialized</returns>
-		public InclusionExclusionResult ComputeFinalInclusion()
-		{
-			if (_serializationOverride != SerializationOverride.NoOverride)
-				return new InclusionExclusionResult(_serializationOverride == SerializationOverride.ForceInclude, _explicitInclusionReason);
-
-			return TypeConfig.ComputeFinalInclusionResult(Member, true);
-		}
-
-		internal bool ComputeFinalInclusionFast()
-		{
-			if (_serializationOverride != SerializationOverride.NoOverride)
-				return _serializationOverride == SerializationOverride.ForceInclude;
-
-			var result = TypeConfig.ComputeFinalInclusionResult(Member, false);
-
-			return result.IsIncluded;
-		}
 
 		internal void ExcludeWithReason(string reason) => SetIncludeWithReason(SerializationOverride.ForceSkip, reason);
 
@@ -524,6 +446,114 @@
 			IsCompilerGenerated = member.GetCustomAttribute<CompilerGeneratedAttribute>() != null;
 			IsReadonlyField = member is FieldInfo f && f.IsInitOnly;
 			IsComputedProperty = member is PropertyInfo p && p.GetSetMethod(true) == null;
+		}
+
+
+
+		/// <summary>
+		/// Determine wether or not this member is included for serialization
+		/// </summary>
+		/// <returns>true when the member will be serialized/deserialized</returns>
+		public InclusionExclusionResult ComputeFinalInclusion() => ComputeFinalInclusionResult(Member, true);
+
+		internal bool ComputeFinalInclusionFast() => ComputeFinalInclusionResult(Member, false).IsIncluded;
+
+
+		InclusionExclusionResult ComputeFinalInclusionResult(MemberInfo memberInfo, bool needReason)
+		{
+			// [Include] / [Exclude]
+			if (_serializationOverride != SerializationOverride.NoOverride)
+				return new InclusionExclusionResult(_serializationOverride == SerializationOverride.ForceInclude, _explicitInclusionReason);
+
+			// [NonSerialized]
+			if (HasNonSerialized && TypeConfig.Config.Advanced.RespectNonSerializedAttribute)
+				return new InclusionExclusionResult(false, $"Member has [NonSerializedAttribute] and 'RespectNonSerializedAttribute' is set in the config.");
+
+
+			// Skip readonly fields
+			if (IsReadonlyField)
+			{
+				if (_readonlyOverride.HasValue)
+				{
+					// Check attribute on member
+					if (_readonlyOverride.Value == Ceras.ReadonlyFieldHandling.ExcludeFromSerialization)
+						return new InclusionExclusionResult(false, "Field is readonly and has [ReadonlyConfig] set to exclude.");
+				}
+				else if (TypeConfig.ReadonlyFieldOverride.HasValue)
+				{
+					// Attribute on Type (MemberConfig)
+					if (TypeConfig.ReadonlyFieldOverride.Value == Ceras.ReadonlyFieldHandling.ExcludeFromSerialization)
+						return new InclusionExclusionResult(false, "Field is readonly and the declaring type has a [MemberConfig] which excludes it");
+				}
+				else
+				{
+					// Get global default from config
+					if (TypeConfig.Config.Advanced.ReadonlyFieldHandling == Ceras.ReadonlyFieldHandling.ExcludeFromSerialization)
+						return new InclusionExclusionResult(false, "Field is readonly and the global default in the SerializerConfig is set to exclude");
+				}
+			}
+			
+			// Calculate inclusion by "TargetMember" mask
+			var requiredMask = ComputeMemberTargetMask(memberInfo);
+			
+			// Type [MemberConfig]
+			if (TypeConfig.TargetMembers.HasValue)
+			{
+				if ((TypeConfig.TargetMembers.Value & requiredMask) != 0)
+					return new InclusionExclusionResult(true, needReason
+							                                    ? $"Member is '{requiredMask.Singular()}', which is included through the configuration '{TypeConfig.TargetMembers.Value}' of the declared Type '{DeclaringType.Name}'"
+																: null);
+				else
+					return new InclusionExclusionResult(false, needReason
+																? $"Member is '{requiredMask.Singular()}', which is excluded through the configuration '{TypeConfig.TargetMembers.Value}' of the declared Type '{DeclaringType.Name}'"
+																: null);
+			}
+
+			// Global config
+			var defaultTargets = TypeConfig.Config.DefaultTargets;
+
+			if ((defaultTargets & requiredMask) != 0)
+				return new InclusionExclusionResult(true, needReason
+															? $"Member is '{requiredMask.Singular()}', which is included by the 'DefaultTargets' configuration in the SerializerConfig"
+															: null);
+			else
+				return new InclusionExclusionResult(false, needReason
+															? $"Member is '{requiredMask.Singular()}', which is excluded by the 'DefaultTargets' configuration in the SerializerConfig"
+															: null);
+		}
+
+		static TargetMember ComputeMemberTargetMask(MemberInfo member)
+		{
+			if (member is FieldInfo f)
+			{
+				if (f.IsPublic)
+					return TargetMember.PublicFields;
+				else
+					return TargetMember.PrivateFields;
+			}
+			else if (member is PropertyInfo p)
+			{
+				if (p.GetGetMethod(true).IsPublic)
+					return TargetMember.PublicProperties;
+				else
+					return TargetMember.PrivateProperties;
+			}
+			else
+				throw new ArgumentOutOfRangeException();
+		}
+
+		internal ReadonlyFieldHandling ComputeReadonlyHandling()
+		{
+			// Local?
+			if (_readonlyOverride.HasValue)
+				return _readonlyOverride.Value;
+
+			// Type?
+			if (TypeConfig.ReadonlyFieldOverride.HasValue)
+				return TypeConfig.ReadonlyFieldOverride.Value;
+
+			// Global
+			return TypeConfig.Config.Advanced.ReadonlyFieldHandling;
 		}
 	}
 

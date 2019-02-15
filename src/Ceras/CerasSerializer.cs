@@ -52,6 +52,25 @@ namespace Ceras
 			return _formatterConstructedTypes.Contains(type);
 		}
 
+		internal static bool IsPrimitiveType(Type type)
+		{
+			// Ceras has built-in support for some special types. Those are considered "primitives".
+			// This definition has little to do with 'Type.IsPrimitive', it's more about what Types have a "Schema".
+
+			if (type.IsPrimitive)
+				return true;
+			if (type == typeof(string))
+				return true;
+
+			if (type == typeof(Type))
+				return true;
+
+			if (type == _rtTypeType || type == _rtFieldType || type == _rtPropType || type == _rtCtorType || type == _rtMethodType)
+				return true;
+
+			return false;
+		}
+
 		static HashSet<Assembly> _frameworkAssemblies = new HashSet<Assembly>
 		{
 				typeof(object).Assembly, // mscorelib
@@ -564,7 +583,7 @@ namespace Ceras
 				InjectDependencies(meta.SpecificFormatter);
 				return meta.SpecificFormatter;
 			}
-			
+
 
 			// 3.) User
 			for (int i = 0; i < _userResolvers.Length; i++)
@@ -642,7 +661,6 @@ namespace Ceras
 			var typeConfig = Config.GetTypeConfig(type);
 
 			meta = new TypeMetaData(type, typeConfig, isFrameworkType);
-
 			meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type);
 
 			return meta;
@@ -794,6 +812,9 @@ namespace Ceras
 		// Creates the primary schema for a given type
 		Schema CreatePrimarySchema(Type type)
 		{
+			if(IsPrimitiveType(type))
+				return null;
+
 			Schema schema = new Schema(true, type);
 
 			var typeConfig = Config.GetTypeConfig(type);

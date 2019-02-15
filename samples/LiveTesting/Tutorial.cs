@@ -69,7 +69,7 @@ namespace Tutorial
 			//
 			//  - a. Any custom configuration using ConfigType<T> or ConfigType(type)
 			//   
-			//  - b. [Ignore] and [Include] attributes on individual members
+			//  - b. [Include] and [Exclude] attributes on individual members
 			//     
 			//  - c. [MemberConfig] attribute
 			//
@@ -732,10 +732,10 @@ namespace Tutorial
 
 		public int PublicNumber = 7;
 
-		[Ignore]
+		[Exclude]
 		string _privateString = "this will not get serialized";
 
-		[Ignore]
+		[Exclude]
 		public string PublicString = "and neither will this...";
 	}
 

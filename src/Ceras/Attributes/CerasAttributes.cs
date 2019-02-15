@@ -9,7 +9,7 @@
 	/// Check out the tutorial to see in what order attributes, the ShouldSerialize callback and other settings are evaluated.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-	public sealed class IgnoreAttribute : Attribute { }
+	public sealed class ExcludeAttribute : Attribute { }
 
 	/// <summary>
 	/// Add this to a field or property to force Ceras to include it.
@@ -40,7 +40,7 @@
 
 
 	/// <summary>
-	/// Configure what members to include by default in this type, you can also add [Ignore] and [Include] to individual members as well to override the member config.
+	/// Configure what members to include by default in this type, you can also add [Exclude] and [Include] to individual members as well to override the member config.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
 	public sealed class MemberConfigAttribute : Attribute
