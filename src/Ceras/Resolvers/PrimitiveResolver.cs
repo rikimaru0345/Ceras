@@ -5,7 +5,10 @@
 	using System.Collections.Generic;
 	using System.Linq.Expressions;
 
-	sealed class PrimitiveResolver : IFormatterResolver
+	/// <summary>
+	/// A really really boring resolver that produces formatters for all the "primitives" like bool, int, float, double, ... 
+	/// </summary>
+	public sealed class PrimitiveResolver : IFormatterResolver
 	{
 		readonly CerasSerializer _ceras;
 

@@ -10,7 +10,10 @@
 	using System.Numerics;
 	using static SerializerBinary;
 
-	class StandardFormatterResolver : IFormatterResolver
+	/// <summary>
+	/// Another boring resolver that handles "common" types like <see cref="DateTime"/>, <see cref="decimal"/>, <see cref="Tuple"/>, and many more...
+	/// </summary>
+	public sealed class StandardFormatterResolver : IFormatterResolver
 	{
 		static readonly TypeDictionary<IFormatter> _primitiveFormatters = new TypeDictionary<IFormatter>();
 

@@ -106,7 +106,7 @@
 				return typeConfig;
 			
 			if(type.ContainsGenericParameters)
-				return null;
+				throw new InvalidOperationException("You can not configure 'open' types (like List<>)! Only 'closed' types (like 'List<int>') can be configured statically. For dynamic configuration (which is what you are trying to do) use the 'OnConfigNewType' callback. It will be called for every fully instantiated type.");
 
 			typeConfig = (TypeConfig)Activator.CreateInstance(
 															   typeof(TypeConfig<>).MakeGenericType(type),
@@ -200,7 +200,7 @@
 		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
 		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = null;
 		DelegateSerializationMode IAdvancedConfigOptions.DelegateSerialization { get; set; } = DelegateSerializationMode.Off;
-		public bool UseReinterpretFormatter { get; set; } = true;
+		bool IAdvancedConfigOptions.UseReinterpretFormatter { get; set; } = true;
 	}
 
 
@@ -297,11 +297,7 @@
 		DelegateSerializationMode DelegateSerialization { get; set; }
 
 		/// <summary>
-		/// Use a special, extremely fast formatter when possible.
-		/// This formatter re-interprets the buffer pointer so the value(s) can be written/read directly.
-		/// Works with all value-types (structs), including generics, as long as the type contains no managed object references.
-		/// Supports individual objects as well as arrays.
-		/// All data is written in the processor-native endianness.
+		/// Allows Ceras to use an extremely fast formatter for so called "blittable" types. Works for single objects as well as arrays! This formatter always uses the native memory layout, does not respect endianness, and does not support version tolerance.
 		/// <para>Default: true</para>
 		/// </summary>
 		bool UseReinterpretFormatter { get; set; }

@@ -20,4 +20,23 @@ namespace Ceras.Formatters
 	{
 		void OnSchemaChanged(TypeMetaData meta);
 	}
+
+	static class FormatterHelper
+	{
+		public static bool IsFormatterMatch(IFormatter formatter, Type type)
+		{
+			var closedFormatter = ReflectionHelper.FindClosedType(formatter.GetType(), typeof(IFormatter<>));
+			
+			var formattedType = closedFormatter.GetGenericArguments()[0];
+
+			return type == formattedType;
+		}
+
+		public static void ThrowOnMismatch(IFormatter formatter, Type typeToFormat)
+		{
+			if(!IsFormatterMatch(formatter, typeToFormat))
+				throw new InvalidOperationException($"The given formatter '{formatter.GetType().FullName}' is not an exact match for the formatted type '{typeToFormat.FullName}'");
+		}
+		
+	}
 }

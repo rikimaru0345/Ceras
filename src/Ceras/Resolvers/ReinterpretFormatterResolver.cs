@@ -9,7 +9,10 @@ namespace Ceras.Resolvers
 	using Formatters;
 	using Helpers;
 
-	class ReinterpretFormatterResolver : IFormatterResolver
+	/// <summary>
+	/// Creates super-fast formatters for so called "blittable" types. Only returns results when <see cref="IAdvancedConfigOptions.UseReinterpretFormatter"/> is true.
+	/// </summary>
+	public sealed class ReinterpretFormatterResolver : IFormatterResolver
 	{
 		readonly CerasSerializer _ceras;
 
@@ -20,7 +23,7 @@ namespace Ceras.Resolvers
 
 		public IFormatter GetFormatter(Type type)
 		{
-			if(!_ceras.Config.UseReinterpretFormatter)
+			if(!_ceras.Config.Advanced.UseReinterpretFormatter)
 				return null;
 
 			if (!ReflectionHelper.IsUnmanaged(type))

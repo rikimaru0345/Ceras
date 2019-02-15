@@ -4,8 +4,10 @@
 	using Helpers;
 	using System;
 
-	// Special resolver that creates instances of "DynamicObjectFormatter<T>" so unknown objects can be handled
-	class DynamicObjectFormatterResolver : IFormatterResolver
+	/// <summary>
+	/// This resolver creates instances of <see cref="DynamicObjectFormatter{T}"/>, which can handle pretty much every complex object (assuming it has a correct TypeConfig to work with). It is always used last because it *always* returns a result.
+	/// </summary>
+	public class DynamicObjectFormatterResolver : IFormatterResolver
 	{
 		CerasSerializer _ceras;
 		TypeDictionary<IFormatter> _dynamicFormatters = new TypeDictionary<IFormatter>();

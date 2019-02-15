@@ -4,7 +4,10 @@
 	using System.Reflection;
 	using Formatters;
 
-	class ReflectionFormatterResolver : IFormatterResolver
+	/// <summary>
+	/// This resolver handles some really special types like <see cref="MemberInfo"/> and <see cref="MulticastDelegate"/>
+	/// </summary>
+	public sealed class ReflectionFormatterResolver : IFormatterResolver
 	{
 		readonly CerasSerializer _ceras;
 

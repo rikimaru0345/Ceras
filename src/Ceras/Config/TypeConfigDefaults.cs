@@ -8,6 +8,8 @@ namespace Ceras
 	using System.Collections.ObjectModel;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using Formatters;
+	using Resolvers;
 
 	static class TypeConfigDefaults
 	{
@@ -189,6 +191,7 @@ namespace Ceras
 					typeConfig.TypeConstruction = new UninitializedObject();
 					typeConfig.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
 					typeConfig.TargetMembers = TargetMember.PrivateFields;
+					typeConfig.CustomResolver = ForceDynamicResolver;
 					return;
 				}
 
@@ -197,6 +200,8 @@ namespace Ceras
 					typeConfig.TypeConstruction = new UninitializedObject();
 					typeConfig.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
 					typeConfig.TargetMembers = TargetMember.PrivateFields;
+					typeConfig.CustomResolver = ForceDynamicResolver;
+					
 					return;
 				}
 			}
@@ -207,11 +212,16 @@ namespace Ceras
 					typeConfig.TypeConstruction = new UninitializedObject();
 					typeConfig.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
 					typeConfig.TargetMembers = TargetMember.PrivateFields;
+					typeConfig.CustomResolver = ForceDynamicResolver;
 					return;
 				}
 		}
 
 
-
+		static IFormatter ForceDynamicResolver(CerasSerializer ceras, Type type)
+		{
+			var r = ceras.GetFormatterResolver<DynamicObjectFormatterResolver>();
+			return r.GetFormatter(type);
+		}
 	}
 }

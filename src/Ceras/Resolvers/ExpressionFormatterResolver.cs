@@ -6,7 +6,13 @@
 	using Resolvers;
 
 	// todo: maybe a delegate to hook into TypeBinder; shorten expression type names to unique IDs or something. Maybe a 3 byte thing: special "ceras internal Id" symbol, then "expression tree type", then "actual type index"
-	class ExpressionFormatterResolver : IFormatterResolver
+
+	/// <summary>
+	/// A special resolver that produces formatters for some special types in the 'System.Linq.Expressions.*' namespace (like <see cref="LabelTarget"/> or <see cref="MemberListBinding"/> ...)
+	/// Ceras contains some TypeConfig defaults specifically for the actual Expressions themselves (<see cref="MethodCallExpression"/>, <see cref="LambdaExpression"/>, <see cref="LoopExpression"/>, ...).
+	/// That enables <see cref="DynamicObjectFormatter{T}"/> to handle them!
+	/// </summary>
+	public class ExpressionFormatterResolver : IFormatterResolver
 	{
 		readonly LabelTargetFormatter _labelTargetFormatter;
 		readonly LabelFormatter _labelFormatter;

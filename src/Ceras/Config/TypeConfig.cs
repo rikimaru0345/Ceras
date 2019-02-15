@@ -53,6 +53,19 @@
 			}
 		}
 
+
+		protected FormatterResolverCallback _customResolver;
+		public FormatterResolverCallback CustomResolver
+		{
+			get => _customResolver;
+			set
+			{
+				ThrowIfSealed();
+				if (_overrideFormatter != null) ThrowCantSetResolverAndFormatter();
+				_customResolver = value;
+			}
+		}
+
 		protected IFormatter _overrideFormatter;
 		public IFormatter CustomFormatter
 		{
@@ -60,9 +73,21 @@
 			set
 			{
 				ThrowIfSealed();
-				_overrideFormatter = value;
+				if (_customResolver != null) ThrowCantSetResolverAndFormatter();
+
+				if (value != null)
+				{
+					FormatterHelper.ThrowOnMismatch(value, Type);
+					_overrideFormatter = value;
+				}
+				else
+				{
+					_overrideFormatter = null;
+				}
 			}
 		}
+
+		void ThrowCantSetResolverAndFormatter() => throw new InvalidOperationException("You can only set a custom resolver or a custom formatter instance, not both.");
 
 
 		protected ReadonlyFieldHandling? _customReadonlyHandling; // null = use global default from config
@@ -98,7 +123,6 @@
 		{
 			Config = config;
 			Type = type;
-
 
 			var configType = typeof(MemberConfig<>).MakeGenericType(type);
 

@@ -7,7 +7,10 @@
 	using System.Collections.Generic;
 	using System.Linq;
 
-	class CollectionFormatterResolver : IFormatterResolver
+	/// <summary>
+	/// Creates formatters for array-types and all types that implement ICollection&lt;&gt;
+	/// </summary>
+	public class CollectionFormatterResolver : IFormatterResolver
 	{
 		readonly CerasSerializer _ceras;
 		Dictionary<Type, IFormatter> _formatterInstances = new Dictionary<Type, IFormatter>();
@@ -33,7 +36,7 @@
 			{
 				var itemType = type.GetElementType();
 
-				if (_ceras.Config.UseReinterpretFormatter && ReflectionHelper.IsUnmanaged(itemType))
+				if (_ceras.Config.Advanced.UseReinterpretFormatter && ReflectionHelper.IsUnmanaged(itemType))
 				{
 					// ...reinterpret if allowed
 					var maxCount = itemType == typeof(byte)

@@ -20,25 +20,13 @@ namespace Ceras
 	 * VersionTolerance:
 	 * - It would be nice if we could embed a hash + size offset into the binary, so that we can easily detect that we already have a given schema, and then skip it (using the one we already have)
 	 * 
-	 * - Right now we write the schema of an object every time the object is written, which is of course horrible.
-	 *   We should at least check WrittenSchemata and skip it.
-	 *   And later we'd not immediately write the Schema, but add the used strings to the serializer/deserializer so they're present.
-	 *   Also when skipping a schema-read because the checksum matches, we should ensure that we still trigger all side-effects, like adding the type-names to the cache.
-	 *   But it should already be that way automatically since the plan is to always write the large "schemata block" first.
-	 * 
-	 * Performance:
-	 * - We should probably replace all interface fields with the concrete instances wheverever possible so the jit can omit the virtual dispatch.
-	 *   But are there even any locations where we can do that? Would that even get us any performance benefit?
-	 * 
 	 * Robustness:
 	 * - ProtocolChecksum should include every setting of the config as well.
 	 *   So all the bool and enum settings also contribute to the checksum so it is more reliable.
 	 *   Unfortunately we can't capture all the user provided stuff like callbacks, type binder, ...
 	 *  
 	 * - GenerateChecksum should be automatic when KnownTypes contains types and AutoSeal is active
-	 * 
-	 * - RefProxyPool<T> is static, but has no support for multi-threading. So either lock it, or use a separate pool for each serializer instance (the latter is probably best)
-	 * 
+	 *
 	 */
 	/// <summary>
 	/// <para>Ceras serializes any object to a byte-array and back.</para>
@@ -123,7 +111,6 @@ namespace Ceras
 		// The user provided resolver, will always be queried first
 		readonly FormatterResolverCallback[] _userResolvers;
 
-		// todo: allow the user to provide their own binder. So they can serialize a type-name however they want; but then again they could override the TypeFormatter anyway, so what's the point? maybe it would be best to completely remove the typeBinder (merging it into the default TypeFormatter)?
 		internal readonly ITypeBinder TypeBinder;
 
 		// The primary list of resolvers. A resolver is a class that somehow (by instantiating, or finding it somewhere, ...) comes up with a formatter for a requested type
@@ -145,7 +132,7 @@ namespace Ceras
 		/// <para>The state-checksum of the serializer.</para>
 		/// <para>Many configuration settings and all KnownTypes contribute to the checksum.</para>
 		/// <para>Useful for networking scenarios, so when connecting you can ensure client and server are using the same settings and KnownTypes.</para>
-		/// <para>Keep in mind that many things like <see cref="SerializerConfig.ShouldSerializeMember"/> obviously cannot contribute to the checksum, but are still able to influence the serialization (and thus break network interoperability even when the checksum matches)</para>
+		/// <para>Keep in mind that any dynamically configured types (<see cref="SerializerConfig.OnConfigNewType"/>) obviously cannot contribute to the checksum, but are still able to influence the serialization (and thus break network interoperability even when the checksum matches)</para>
 		/// </summary>
 		public ProtocolChecksum ProtocolChecksum { get; } = new ProtocolChecksum();
 
@@ -158,6 +145,9 @@ namespace Ceras
 
 			if (Config.ExternalObjectResolver == null)
 				Config.ExternalObjectResolver = new ErrorResolver();
+
+			if (Config.Advanced.UseReinterpretFormatter && Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+				throw new NotSupportedException("You can not use 'UseReinterpretFormatter' together with version tolerance. Either disable version tolerance, or use the old formatter for blittable types by setting 'Config.Advanced.UseReinterpretFormatter' to false.");
 
 			TypeBinder = Config.Advanced.TypeBinder ?? new NaiveTypeBinder();
 			DiscardObjectMethod = Config.Advanced.DiscardObjectMethod;
@@ -470,7 +460,7 @@ namespace Ceras
 
 		/// <summary>
 		/// Allows you to "peek" the object the data contains without having to fully deserialize the whole object.
-		/// <para>Only works for data that was saved without version tolerance (maybe that'll be supported eventually, if someone requests it)</para>
+		/// <para>Only works for data that was saved without version tolerance (maybe that will be supported eventually, if someone requests it)</para>
 		/// </summary>
 		public Type PeekType(byte[] buffer)
 		{
@@ -480,6 +470,26 @@ namespace Ceras
 
 			return t;
 		}
+
+
+		/// <summary>
+		/// Get all resolvers that this <see cref="CerasSerializer"/> has available. Does not include any user-registered callbacks in <see cref="SerializerConfig.OnResolveFormatter"/>.
+		/// </summary>
+		public IEnumerable<IFormatterResolver> GetFormatterResolvers()
+		{
+			foreach (var r in _resolvers)
+				yield return r;
+			yield return _dynamicResolver;
+		}
+
+		/// <summary>
+		/// Get an instance of any specific type of resolver (or null if no resolver matching that type can be found)
+		/// </summary>
+		public IFormatterResolver GetFormatterResolver<TResolver>() where TResolver : IFormatterResolver
+		{
+			return GetFormatterResolvers().OfType<TResolver>().FirstOrDefault();
+		}
+
 
 
 		/// <summary>
@@ -523,7 +533,6 @@ namespace Ceras
 		/// <summary>
 		/// Similar to <see cref="GetReferenceFormatter(Type)"/> it returns a formatter, but one that is not wrapped in a <see cref="ReferenceFormatter{T}"/>.
 		/// <para>You probably always want to use <see cref="GetReferenceFormatter(Type)"/>, and only use this method instead when you are 100% certain you have emulated everything that <see cref="ReferenceFormatter{T}"/> does for you.</para>
-		/// <para>Internally Ceras uses this to </para>
 		/// </summary>
 		public IFormatter GetSpecificFormatter(Type type)
 		{
@@ -539,14 +548,23 @@ namespace Ceras
 				return meta.SpecificFormatter;
 
 
-			// 2.) TypeConfig
+			// 2.) TypeConfig - Custom Formatter, Custom Resolver 
 			if (meta.TypeConfig.CustomFormatter != null)
 			{
 				meta.SpecificFormatter = meta.TypeConfig.CustomFormatter;
+				FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
 				InjectDependencies(meta.SpecificFormatter);
 				return meta.SpecificFormatter;
 			}
-
+			if (meta.TypeConfig.CustomResolver != null)
+			{
+				var formatter = meta.TypeConfig.CustomResolver(this, type);
+				meta.SpecificFormatter = formatter ?? throw new InvalidOperationException($"The custom formatter-resolver registered for Type '{type.FullName}' has returned 'null'.");
+				FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
+				InjectDependencies(meta.SpecificFormatter);
+				return meta.SpecificFormatter;
+			}
+			
 
 			// 3.) User
 			for (int i = 0; i < _userResolvers.Length; i++)
@@ -555,6 +573,7 @@ namespace Ceras
 				if (formatter != null)
 				{
 					meta.SpecificFormatter = formatter;
+					FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
 					InjectDependencies(formatter);
 					return formatter;
 				}

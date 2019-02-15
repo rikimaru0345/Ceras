@@ -25,7 +25,7 @@ namespace LiveTesting
 		{
 			CustomComparerFormatter();
 
-			// ExpressionTreesTest();
+			ExpressionTreesTest();
 
 			Benchmarks();
 
@@ -759,7 +759,6 @@ namespace LiveTesting
 
 				// populate existing data
 				ceras.Deserialize<ReadonlyFieldsTest>(ref existingTarget, data);
-
 
 				// The simple fields should have been ignored
 				Debug.Assert(existingTarget.Int == 6);
