@@ -177,7 +177,6 @@ namespace Ceras.Formatters
 			}
 		}
 
-		[Conditional("DEBUG")]
 		internal static void ThrowIfNonspecific(Type type)
 		{
 			if (type.IsAbstract || type.IsInterface)

@@ -23,29 +23,7 @@ namespace Ceras
 
 			//
 			// Constructor
-			MethodBase ctor = null;
-
-			// Try hint by attribute
-			IEnumerable<MethodBase> methods = type.GetMethods(BindingFlags).Cast<MethodBase>().Concat(type.GetConstructors(BindingFlags));
-			var cerasCtors = methods.Where(m => m.GetCustomAttribute<CerasConstructorAttribute>() != null).ToArray();
-			if (cerasCtors.Length > 1)
-				throw new InvalidConfigException($"There are multiple constructors on your type '{typeConfig.Type.Name}' that have the '[CerasConstructor]' attribute, so its unclear which one to use. Only one constructor in this type can have the attribute.");
-			else if (cerasCtors.Length == 1)
-				ctor = cerasCtors[0];
-
-			// Try default ctor
-			if (ctor == null)
-				ctor = type.GetConstructors(BindingFlags).FirstOrDefault(c => c.GetParameters().Length == 0);
-
-			// Apply this ctor or factory
-			if (ctor != null)
-			{
-				if (ctor is ConstructorInfo constructorInfo)
-					typeConfig.TypeConstruction = TypeConstruction.ByConstructor(constructorInfo);
-				else if (ctor is MethodInfo methodInfo)
-					typeConfig.TypeConstruction = TypeConstruction.ByStaticMethod(methodInfo);
-			}
-
+			ApplyConstructorDefaults(typeConfig);
 
 			//
 			// Set default values from attributes
@@ -55,6 +33,53 @@ namespace Ceras
 				typeConfig.ReadonlyFieldOverride = memberConfigAttrib.ReadonlyFieldHandling;
 				typeConfig.TargetMembers = memberConfigAttrib.TargetMembers;
 			}
+		}
+
+		static void ApplyConstructorDefaults(TypeConfig typeConfig)
+		{
+			if (typeConfig.TypeConstruction != null)
+				return;
+
+			if(typeConfig.TypeConstruction == null)
+				if (CerasSerializer.IsFormatterConstructed(typeConfig.Type))
+				{
+					typeConfig.TypeConstruction = TypeConstruction.Null();
+					return;
+				}
+
+
+			var type = typeConfig.Type;
+			MethodBase ctor;
+
+			// Try hint by attribute
+			IEnumerable<MethodBase> methods = type.GetMethods(BindingFlags).Cast<MethodBase>().Concat(type.GetConstructors(BindingFlags));
+			var cerasCtors = methods.Where(m => m.GetCustomAttribute<CerasConstructorAttribute>() != null).ToArray();
+
+			if (cerasCtors.Length > 1)
+			{
+				// Multiple matches
+				throw new InvalidConfigException($"There are multiple constructors on your type '{typeConfig.Type.Name}' that have the '[CerasConstructor]' attribute, so its unclear which one to use. Only one constructor in this type can have the attribute.");
+			}
+			else if (cerasCtors.Length == 1)
+			{
+				// Single match
+				ctor = cerasCtors[0];
+			}
+			else
+			{
+				// No match, try default ctor
+				ctor = type.GetConstructors(BindingFlags).FirstOrDefault(c => c.GetParameters().Length == 0);
+			}
+			
+			// Apply this ctor or factory
+			if (ctor != null)
+			{
+				if (ctor is ConstructorInfo constructorInfo)
+					typeConfig.TypeConstruction = TypeConstruction.ByConstructor(constructorInfo);
+				else if (ctor is MethodInfo methodInfo)
+					typeConfig.TypeConstruction = TypeConstruction.ByStaticMethod(methodInfo);
+			}
+
 		}
 
 		// Use attributes on the members to further specialize the settings.

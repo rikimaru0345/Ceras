@@ -31,13 +31,11 @@
 		public SerializerConfig Config { get; }
 
 		bool _isSealed = false;
-		internal void Seal() => _isSealed = true;
 
 
 		//
 		// Settings
 		protected TypeConstruction _typeConstruction; // null = invalid
-		protected Dictionary<MemberInfo, ParameterInfo> _memberMapping;
 		public TypeConstruction TypeConstruction
 		{
 			get => _typeConstruction;
@@ -52,6 +50,7 @@
 				}
 			}
 		}
+		internal Dictionary<ParameterInfo, MemberInfo> ParameterMap;
 
 
 		protected FormatterResolverCallback _customResolver;
@@ -61,7 +60,8 @@
 			set
 			{
 				ThrowIfSealed();
-				if (_overrideFormatter != null) ThrowCantSetResolverAndFormatter();
+				if (_overrideFormatter != null)
+					ThrowCantSetResolverAndFormatter();
 				_customResolver = value;
 			}
 		}
@@ -73,7 +73,8 @@
 			set
 			{
 				ThrowIfSealed();
-				if (_customResolver != null) ThrowCantSetResolverAndFormatter();
+				if (_customResolver != null)
+					ThrowCantSetResolverAndFormatter();
 
 				if (value != null)
 				{
@@ -126,7 +127,7 @@
 
 			var configType = typeof(MemberConfig<>).MakeGenericType(type);
 
-			var members = from m in ReflectionHelper.GetAllDataMembers(type)
+			var members = from m in type.GetAllDataMembers()
 						  let a = new object[] { this, m }
 						  select (MemberConfig)Activator.CreateInstance(configType,
 																	  BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
@@ -152,6 +153,23 @@
 			return _allMembers;
 		}
 
+
+
+		internal void Seal()
+		{
+			_isSealed = true;
+		}
+
+		internal void VerifyConstructionMethod()
+		{
+			if (TypeConstruction == null)
+				throw new CerasException($"You have not configured a construction mode for the type '{Type.FullName}' and it has no parameterless constructor. There are many ways Ceras can handle this, select one of the methods in the TypeConfig ('config.ConfigType<YourType>().ConstructBy(...)')");
+
+			TypeConstruction.VerifyReturnType();
+			TypeConstruction.VerifyParameterMapping();
+		}
+
+
 		internal void ThrowIfSealed()
 		{
 			if (_isSealed)
@@ -164,7 +182,6 @@
 	public class TypeConfig<T> : TypeConfig
 	{
 		internal TypeConfig(SerializerConfig config) : base(config, typeof(T)) { }
-
 
 		#region Construction
 
@@ -282,19 +299,21 @@
 		/// </para>
 		/// Only use this overload if you really have to (for example a parameter that will go into a private field)
 		/// </summary>
-		public TypeConfig<T> MapParameters(Dictionary<MemberInfo, ParameterInfo> mapping)
+		public TypeConfig<T> MapParameters(Dictionary<ParameterInfo, MemberInfo> mapping)
 		{
-			if (_memberMapping != null)
-				throw new InvalidOperationException("Members-Parameter mapping is already set");
+			if (ParameterMap != null)
+				throw new InvalidOperationException("ParameterMapping is already set");
 			if (_typeConstruction == null)
 				throw new InvalidOperationException("You must set a type construction method before mapping parameters");
 
 			// Copy
-			_memberMapping = mapping.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+			ParameterMap = mapping.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 			return this;
 		}
 
 		#endregion
+
+		#region Formatter
 
 		/// <summary>
 		/// Set a custom formatter that will get used to serialize this type
@@ -304,6 +323,8 @@
 			CustomFormatter = formatterInstance;
 			return this;
 		}
+
+		#endregion
 
 		#region Type Settings
 
@@ -370,7 +391,7 @@
 				_persistentNameOverride = value;
 			}
 		}
-		
+
 		/// <summary>
 		/// True for everything the compiler automatically generates: hidden async-state-machines, automatic enumerator implementations, cached dynamic method dispatchers, ...
 		/// </summary>
@@ -388,7 +409,7 @@
 		/// </para>
 		/// </summary>
 		public bool IsComputedProperty { get; }
-		
+
 		internal bool HasNonSerialized;
 
 		protected ReadonlyFieldHandling? _readonlyOverride;
@@ -492,16 +513,16 @@
 						return new InclusionExclusionResult(false, "Field is readonly and the global default in the SerializerConfig is set to exclude");
 				}
 			}
-			
+
 			// Calculate inclusion by "TargetMember" mask
 			var requiredMask = ComputeMemberTargetMask(memberInfo);
-			
+
 			// Type [MemberConfig]
 			if (TypeConfig.TargetMembers.HasValue)
 			{
 				if ((TypeConfig.TargetMembers.Value & requiredMask) != 0)
 					return new InclusionExclusionResult(true, needReason
-							                                    ? $"Member is '{requiredMask.Singular()}', which is included through the configuration '{TypeConfig.TargetMembers.Value}' of the declared Type '{DeclaringType.Name}'"
+																? $"Member is '{requiredMask.Singular()}', which is included through the configuration '{TypeConfig.TargetMembers.Value}' of the declared Type '{DeclaringType.Name}'"
 																: null);
 				else
 					return new InclusionExclusionResult(false, needReason
@@ -584,23 +605,22 @@
 
 		public TypeConfig<TDeclaring> Include()
 		{
-			/*
-			if (IsReadonlyField)
-				if (ReadonlyFieldHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
-					if (readonlyHandling == null || readonlyHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
-						throw new InvalidOperationException($"If you want to include a readonly member, you must specify a readonly-handling mode for it (and it can't be {nameof(ReadonlyFieldHandling.ExcludeFromSerialization)})");
-
-			if (readonlyHandling != null)
-				_readonlyOverride = readonlyHandling;
-			*/
 			SetIncludeWithReason(SerializationOverride.ForceInclude, "User called Include()");
 			return TypeConfig;
 		}
 
-		public TypeConfig<TDeclaring> Exclude(string customReason = null)
+		public TypeConfig<TDeclaring> Include(ReadonlyFieldHandling readonlyHandling)
 		{
+			ReadonlyFieldHandling = readonlyHandling;
 			SetIncludeWithReason(SerializationOverride.ForceInclude, "User called Include()");
+			return TypeConfig;
+		}
 
+		public TypeConfig<TDeclaring> Exclude() => Exclude("User called Exclude()");
+
+		public TypeConfig<TDeclaring> Exclude(string customReason)
+		{
+			SetIncludeWithReason(SerializationOverride.ForceSkip, customReason);
 			return TypeConfig;
 		}
 	}

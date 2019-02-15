@@ -194,8 +194,7 @@ namespace Tutorial
 
 			config.ConfigType<Person>()
 				  .ConstructBy(() => new Person()) // select ctor
-				  .ConstructBy(() => pool.GetFromPool()) // deconstruct expr -> instance+method
-					;
+				  .ConstructBy(pool, () => pool.GetFromPool()); // or create from a pool
 
 			config.Advanced.DiscardObjectMethod = obj =>
 			{

@@ -124,14 +124,14 @@
 			return true;
 		}
 
-		//public static string[] CollectAttributesOverTypeHierarchy(Type type, params Type[] attributeTypes)
-		//{
-		//	for (int i = 0; i < attributeTypes.Length; i++)
-		//		if (!typeof(Attribute).IsAssignableFrom(attributeTypes[i]))
-		//			throw new InvalidOperationException("Type " + attributeTypes[i] + " does not derive from 'Attribute'");
-
-		//	type.GetCustomAttribute
-		//}
+		public static Type FieldOrPropType(this MemberInfo memberInfo)
+		{
+			if (memberInfo is FieldInfo f)
+				return f.FieldType;
+			if (memberInfo is PropertyInfo p)
+				return p.PropertyType;
+			throw new InvalidOperationException();
+		}
 
 
 		/// <summary>

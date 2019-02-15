@@ -59,6 +59,16 @@ namespace Ceras
 
 			if (type.IsPrimitive)
 				return true;
+			
+			if(type.IsArray)
+				return true;
+
+			if(type.IsEnum)
+				return true;
+
+			if(type.IsValueType)
+				return true;
+
 			if (type == typeof(string))
 				return true;
 
@@ -814,11 +824,13 @@ namespace Ceras
 		{
 			if(IsPrimitiveType(type))
 				return null;
-
-			Schema schema = new Schema(true, type);
-
+			if(type.IsAbstract)
+				return null;
+			
 			var typeConfig = Config.GetTypeConfig(type);
 			typeConfig.Seal();
+
+			Schema schema = new Schema(true, type);
 
 			foreach (var memberConfig in typeConfig._allMembers)
 			{

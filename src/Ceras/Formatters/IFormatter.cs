@@ -37,6 +37,5 @@ namespace Ceras.Formatters
 			if(!IsFormatterMatch(formatter, typeToFormat))
 				throw new InvalidOperationException($"The given formatter '{formatter.GetType().FullName}' is not an exact match for the formatted type '{typeToFormat.FullName}'");
 		}
-		
 	}
 }

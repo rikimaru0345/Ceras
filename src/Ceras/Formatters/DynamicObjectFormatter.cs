@@ -10,6 +10,7 @@ namespace Ceras.Formatters
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using Exceptions;
 	using static System.Linq.Expressions.Expression;
 
 #if FAST_EXP
@@ -55,12 +56,15 @@ namespace Ceras.Formatters
 			_ceras = serializer;
 
 			var type = typeof(T);
-			var meta = _ceras.GetTypeMetaData(type);
-
 			BannedTypes.ThrowIfNonspecific(type);
 
-			var schema = meta.PrimarySchema;
+			var meta = _ceras.GetTypeMetaData(type);
+			
+			var typeConfig = _ceras.Config.GetTypeConfig(type);
+			typeConfig.VerifyConstructionMethod();
 
+
+			var schema = meta.PrimarySchema;
 			if (schema.Members.Count > 0)
 			{
 				_dynamicSerializer = GenerateSerializer(schema);
@@ -258,7 +262,7 @@ namespace Ceras.Formatters
 					// field.SetValue(valueArg, tempStore)
 					onMismatch = Call(Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: Convert(tempStore, typeof(object))); // Explicit boxing needed
 				else
-					onMismatch = Throw(Constant(new Exception($"The value-type in field '{fieldInfo.Name}' does not match the expected value, but the field is readonly and overwriting is not allowed in the configuration. Make the field writeable or enable 'ForcedOverwrite' in the serializer settings to allow Ceras to overwrite the readonly-field.")));
+					onMismatch = Throw(Constant(new CerasException($"The value-type in field '{fieldInfo.Name}' does not match the expected value, but the field is readonly and overwriting is not allowed in the configuration. Make the field writeable or enable 'ForcedOverwrite' in the serializer settings to allow Ceras to overwrite the readonly-field.")));
 
 				block.Add(IfThenElse(
 							test: Equal(tempStore, MakeMemberAccess(refValueArg, fieldInfo)),
@@ -283,7 +287,7 @@ namespace Ceras.Formatters
 					// field.SetValue(valueArg, tempStore)
 					onReassignment = Call(Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: tempStore);
 				else
-					onReassignment = Throw(Constant(new Exception("The reference in the readonly-field '" + fieldInfo.Name + "' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
+					onReassignment = Throw(Constant(new CerasException("The reference in the readonly-field '" + fieldInfo.Name + "' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
 
 				// Did the reference change?
 				block.Add(IfThenElse(

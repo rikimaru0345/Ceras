@@ -596,7 +596,6 @@ namespace LiveTesting
 			catch (Exception e)
 			{
 				// all good
-				Console.WriteLine("KnownTypes sealing check successful.");
 			}
 
 			//
@@ -625,7 +624,6 @@ namespace LiveTesting
 			catch (Exception e)
 			{
 				// all good
-				Console.WriteLine("KnownTypes sealing check successful.");
 			}
 
 		}
@@ -735,8 +733,9 @@ namespace LiveTesting
 				config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
 
 				config.ConfigType<ReadonlyFieldsTest>()
-					  .ConfigMember(f => f.Int).Include()
-					  .ConfigMember(f => f.String).Include();
+					  .ConfigMember(f => f.Int).Exclude()
+					  .ConfigMember(f => f.String).Exclude()
+					  .ConfigMember(f => f.Container).Include(ReadonlyFieldHandling.Members);
 
 				CerasSerializer ceras = new CerasSerializer(config);
 
@@ -1536,20 +1535,16 @@ namespace LiveTesting
 			var obj = new ConstructorTest(5);
 			var ceras = new CerasSerializer();
 
-			// This is expected to throw an exception
 			try
 			{
+				// Expected to throw: no default ctor
 				var data = ceras.Serialize(obj);
 				var clone = ceras.Deserialize<ConstructorTest>(data);
 
-				Debug.Assert(false, "deserialization was supposed to fail, but it didn't!");
+				Debug.Assert(false, "objects with no ctor and no TypeConfig should not serialize");
 			}
 			catch (Exception e)
 			{
-				// This is ok and expected!
-				// The object does not have a parameterless constructor on purpose.
-
-				// Support for that is already on the todo list.
 			}
 		}
 

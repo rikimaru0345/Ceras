@@ -78,7 +78,7 @@
 
 		readonly TypeDictionary<DispatcherEntry> _dispatchers = new TypeDictionary<DispatcherEntry>();
 
-		readonly bool _allowReferences = false;
+		readonly bool _allowReferences;
 
 
 		public ReferenceFormatter(CerasSerializer ceras)

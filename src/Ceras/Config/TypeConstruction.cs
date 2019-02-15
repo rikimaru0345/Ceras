@@ -8,6 +8,8 @@ using System.Reflection;
 
 namespace Ceras
 {
+	using Exceptions;
+
 	public abstract class TypeConstruction
 	{
 		internal TypeConfig TypeConfig; // Not as clean as I'd like, this can't be set from a protected base ctor, because users might eventually want to create their own
@@ -15,16 +17,15 @@ namespace Ceras
 		internal abstract bool HasDataArguments { get; }
 		internal abstract Func<object> GetRefFormatterConstructor();
 
-		internal virtual void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
+		internal virtual void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, MemberParameterPair[] memberParameters)
 		{
 			throw new NotImplementedException("This construction type can not be used in deferred mode.");
 		}
 
-		// todo: Sanity checks:
-		// - does the given delegate/ctor/method even return an instance of the thing we need?
-		// - can all the members be mapped correctly from FieldName/PropertyName to ParameterName? -> unfortunately this can't actually be done early. The schema we use can be different (reading with version tolerance)
-		internal virtual void VerifyReturnType()
-		{ }
+		internal virtual void VerifyReturnType() { }
+
+		internal virtual void VerifyParameterMapping() { }
+
 
 		protected void VerifyMethodReturn(MethodBase methodBase)
 		{
@@ -55,10 +56,61 @@ namespace Ceras
 				throw new InvalidOperationException($"The given method or constructor returns a '{resultType.FullName}' which is not compatible to the needed type '{neededType.FullName}'");
 		}
 
+		protected void VerifyParameterMapping(MethodBase methodBase)
+		{
+			var parameters = methodBase.GetParameters();
+			if (parameters.Length == 0)
+				return;
+
+			var map = TypeConfig.ParameterMap ?? (TypeConfig.ParameterMap = new Dictionary<ParameterInfo, MemberInfo>());
+
+			var memberConfigs = TypeConfig.Members.Where(mc => mc.ComputeFinalInclusionFast()).ToArray();
+
+			foreach (var parameterInfo in parameters)
+			{
+				// Originally here was a lot of clever code here that tried to match by type, eliminate results, ...
+				// but it turns out it's much better to simply let the user do stuff and throw errors as soon as there's just a hint of ambiguity!
+
+				// Are we still missing a mapping for this member?
+				if (!map.TryGetValue(parameterInfo, out MemberInfo sourceMember))
+				{
+					var caseInsensitiveMatches = memberConfigs.Where(mc => parameterInfo.Name.Equals(mc.Member.Name, StringComparison.OrdinalIgnoreCase)).ToArray();
+					if (SetMatchOrThrow(parameterInfo, caseInsensitiveMatches))
+						continue;
+					
+					var tolerantMatches = memberConfigs.Where(mc => parameterInfo.Name.Equals(MiscHelpers.CleanMemberName(mc.Member.Name), StringComparison.OrdinalIgnoreCase)).ToArray();
+					if (SetMatchOrThrow(parameterInfo, tolerantMatches))
+						continue;
+
+					throw new CerasException($"Cannot find any automatic mapping from any member to the parameter '{parameterInfo.ParameterType.Name} {parameterInfo.Name}'");
+				}
+				else
+				{
+					// We already have a user-provided match, but is it part of the serialization?
+					var sourceMemberConfig = TypeConfig.Members.First(mc => mc.Member == sourceMember);
+					if (!sourceMemberConfig.ComputeFinalInclusionFast())
+						throw new CerasException($"The type construction mode for the type '{TypeConfig.Type.FullName}' is invalid because the parameter '{parameterInfo.ParameterType.Name} {parameterInfo.Name}' is supposed to be initialized from the member '{sourceMember.FieldOrPropType().Name} {sourceMember.Name}', but that member is not part of the serialization, so it will not be available at deserialization-time.");
+				}
+			}
+
+			bool SetMatchOrThrow(ParameterInfo p, MemberConfig[] configs)
+			{
+				if (configs.Length > 1)
+					throw new AmbiguousMatchException($"There are multiple members that match the parameter '{p.ParameterType.Name} {p.Name}': {string.Join(", ", configs.Select(c => c.Member.Name))}");
+
+				if(configs.Length == 0)
+					return false;
+
+				map.Add(p, configs[0].Member);
+				return true;
+			}
+		}
+
+
 
 		#region Factory Methods
 
-		public static TypeConstruction Null() => new ConstructNull();
+		public static TypeConstruction Null() => ConstructNull.Instance;
 
 		public static TypeConstruction ByStaticMethod(MethodInfo methodInfo) => new ConstructByMethod(methodInfo);
 		public static TypeConstruction ByStaticMethod(Expression<Func<object>> expression) => new ConstructByMethod(((MethodCallExpression)expression.Body).Method);
@@ -78,11 +130,45 @@ namespace Ceras
 	// Aka "FormatterConstructed"
 	class ConstructNull : TypeConstruction
 	{
+		public static ConstructNull Instance { get; } = new ConstructNull();
+
+		ConstructNull() { }
+
 		internal override bool HasDataArguments => false;
 		internal override Func<object> GetRefFormatterConstructor() => () => null;
 	}
 
-	class SpecificConstructor : TypeConstruction
+	abstract class MethodBaseConstruction : TypeConstruction
+	{
+		protected Expression[] GenerateArgumentExpressions(ParameterInfo[] targetMethodParameters, Schema schema, HashSet<ParameterExpression> usedVariables, MemberParameterPair[] memberParameters)
+		{
+			Expression[] finalArgExpressions = new Expression[targetMethodParameters.Length];
+
+			// Parameter -> ParameterMap -> SchemaMembers -> MemberExpression
+			for (int i = 0; i < targetMethodParameters.Length; i++)
+			{
+				var parameter = targetMethodParameters[i];
+				var sourceMember = TypeConfig.ParameterMap[parameter];
+				var schemaMember = schema.Members.First(m => m.MemberInfo == sourceMember);
+				
+				if (schemaMember.IsSkip) // Not found, or current schema does not contain this data member
+					throw new InvalidOperationException($"Can not generate the constructor-call or call to the factory method for type '{schema.Type.FullName}'. The parameter '{parameter.Name}' is not part of the serialization / serialized data.");
+				
+				// SerializedMember -> ParameterExpression
+				var paramExp = memberParameters.First(m => m.Member == schemaMember.MemberInfo);
+
+				// Use as source in call
+				finalArgExpressions[i] = paramExp.LocalVar;
+
+				// And mark as consumed
+				usedVariables.Add(paramExp.LocalVar);
+			}
+
+			return finalArgExpressions;
+		}
+	}
+
+	class SpecificConstructor : MethodBaseConstruction
 	{
 		internal ConstructorInfo Constructor;
 
@@ -97,54 +183,20 @@ namespace Ceras
 			return Expression.Lambda<Func<object>>(Expression.New(Constructor)).Compile();
 		}
 
-		internal static Expression[] ConfigureArguments(ParameterInfo[] targetMethodParamters, Schema schema, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
-		{
-			Expression[] args = new Expression[targetMethodParamters.Length];
-
-			// Figure out what local goes into what parameter slot of the given method
-			for (int i = 0; i < args.Length; i++)
-			{
-				// Parameter -> SerializedMember (either by automatically mapping by name, or using a user provided lookup)
-				var parameterName = targetMethodParamters[i].Name;
-				var schemaMember = schema.Members.FirstOrDefault(m => parameterName.Equals(m.MemberName, StringComparison.OrdinalIgnoreCase) || parameterName.Equals(m.PersistentName, StringComparison.OrdinalIgnoreCase));
-
-				// todo: try mapping by type as well (only works when there's exactly one type)
-				// todo: remove prefixes like "_" or "m_" from member names
-
-				if (schemaMember.MemberInfo == null || schemaMember.IsSkip) // Not found, or current schema does not contain this data member
-				{
-					throw new InvalidOperationException($"Can not construct type '{schema.Type.FullName}' using the selected constructor (or method) because the parameter '{parameterName}' can not be automatically mapped to any of the members in the current schema. Please provide a custom mapping for this constructor or method in the serializer config.");
-				}
-
-				// SerializedMember -> ParameterExpression
-				var paramExp = memberParameters.First(m => m.Member == schemaMember.MemberInfo);
-
-				// Use as source in call
-				args[i] = paramExp.LocalVar;
-
-				// Mark as consumed
-				usedVariables.Add(paramExp.LocalVar);
-			}
-
-			return args;
-		}
-
 		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
 		{
 			var parameters = Constructor.GetParameters();
-			var args = ConfigureArguments(parameters, schema, usedVariables, memberParameters);
+			var args = GenerateArgumentExpressions(parameters, schema, usedVariables, memberParameters);
 
 			var invocation = Expression.Assign(refValueArg, Expression.New(Constructor, args));
 			body.Add(invocation);
 		}
 
-		internal override void VerifyReturnType()
-		{
-			VerifyMethodReturn(Constructor);
-		}
+		internal override void VerifyReturnType() => VerifyMethodReturn(Constructor);
+		internal override void VerifyParameterMapping() => VerifyParameterMapping(Constructor);
 	}
 
-	class ConstructByMethod : TypeConstruction
+	class ConstructByMethod : MethodBaseConstruction
 	{
 		internal readonly MethodInfo Method;
 		internal readonly object TargetObject;
@@ -181,7 +233,7 @@ namespace Ceras
 		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
 		{
 			var parameters = Method.GetParameters();
-			var args = SpecificConstructor.ConfigureArguments(parameters, schema, usedVariables, memberParameters);
+			var args = GenerateArgumentExpressions(parameters, schema, usedVariables, memberParameters);
 
 			Expression invocation;
 			if (Method.IsStatic)
@@ -192,10 +244,8 @@ namespace Ceras
 			body.Add(invocation);
 		}
 
-		internal override void VerifyReturnType()
-		{
-			VerifyMethodReturn(Method);
-		}
+		internal override void VerifyReturnType() => VerifyMethodReturn(Method);
+		internal override void VerifyParameterMapping() => VerifyParameterMapping(Method);
 	}
 
 	class UninitializedObject : TypeConstruction

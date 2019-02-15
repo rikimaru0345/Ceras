@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace Ceras.Helpers
 {
-	static class EnumDisplayExt
+	static class MiscHelpers
 	{
 		public static string Singular<T>(this T enumValue)
 		{
@@ -15,6 +15,17 @@ namespace Ceras.Helpers
 
 			var str = enumValue.ToString();
 			return str.TrimEnd('s');
+		}
+
+		
+		public static string CleanMemberName(string name)
+		{
+			if (name.StartsWith("m_"))
+				return name.Remove(0, 2);
+			if (name.StartsWith("_"))
+				return name.Remove(0, 1);
+
+			return name;
 		}
 	}
 }
