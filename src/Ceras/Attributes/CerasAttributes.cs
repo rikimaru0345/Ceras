@@ -78,11 +78,11 @@
 		None = 0,
 
 		/// <summary>
-		/// Include all public fields, pretty obvious
+		/// Include all fields with the "public" keyword, pretty obvious. As with all visibility checks, "public" just means "has the public keyword", and doesn't require complete outside visibility (like, the containing class or struct doesn't have to be public for the field to count as public)
 		/// </summary>
 		PublicFields = 1 << 0,
 		/// <summary>
-		/// Include private fields except for hidden compiler-generated fields (like backing fields for readonly-properties, enumerator state-machines, ...)
+		/// Include all private fields. Hidden compiler-generated fields (like backing fields for properties, enumerator state-machines, ...) are not included.
 		/// </summary>
 		PrivateFields = 1 << 1,
 		/// <summary>
@@ -90,7 +90,7 @@
 		/// </summary>
 		PublicProperties = 1 << 2,
 		/// <summary>
-		/// Private properties are all properties that have "internal", "private", or "protected" as their visibility
+		/// Properties that are not public (so "internal", "private", or "protected")
 		/// </summary>
 		PrivateProperties = 1 << 3,
 
@@ -209,4 +209,12 @@ namespace Ceras.Formatters
 	{
 	}
 
+	/// <summary>
+	/// Add this to a field inside an <see cref="IFormatter{T}"/> to inject only the direct version of a formatter, instead of a wrapper for reference types. Only use this if you are fully aware of what ReferenceFormatter does and provides
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Field)]
+	public class CerasNoReference : Attribute
+	{
+
+	}
 }

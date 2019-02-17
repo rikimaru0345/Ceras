@@ -84,36 +84,13 @@ namespace LiveTesting
 			public float Y;
 			public float Z;
 		}
+		
+		// todo: reinterpret formatter
+		// todo: test if passing the value in Serialize() by ref is faster in single tests, and faster in general
+		//			.. check with bool, int, float, Vector3! But also with strings and larger real-world objects
+		// todo: some formatter instances may be able to write inline-code, making them much faster!
 
-
-		class Vector3Formatter_Normal : IFormatter<Vector3>
-		{
-			public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
-			{
-				SerializerBinary.WriteFloat32Fixed(ref buffer, ref offset, value.X);
-				SerializerBinary.WriteFloat32Fixed(ref buffer, ref offset, value.Y);
-				SerializerBinary.WriteFloat32Fixed(ref buffer, ref offset, value.Z);
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
-		}
-
-		class Vector3Formatter_MergeBlit1 : IFormatter<Vector3>
-		{
-			public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
-			{
-				const int v3Size = 3 * 4;
-				SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
-
-				SerializerBinary.WriteFloat32FixedNoCheck(buffer, ref offset, value.X);
-				SerializerBinary.WriteFloat32FixedNoCheck(buffer, ref offset, value.Y);
-				SerializerBinary.WriteFloat32FixedNoCheck(buffer, ref offset, value.Z);
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
-		}
-
-		class Vector3Formatter_MergeBlit2 : IFormatter<Vector3>
+		class Vector3Formatter_MergeBlit_WriteFloat32FixedNoCheck : IFormatter<Vector3>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
 			{
@@ -132,7 +109,7 @@ namespace LiveTesting
 		}
 
 
-		class Vector3Formatter_MergeBlit3 : IFormatter<Vector3>
+		class Vector3Formatter_MergeBlit_Fixed : IFormatter<Vector3>
 		{
 			public unsafe void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
 			{
@@ -162,80 +139,6 @@ namespace LiveTesting
 			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
 		}
 
-		class Vector3Formatter_MergeBlit4 : IFormatter<Vector3>
-		{
-			public unsafe void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
-			{
-				const int v3Size = 3 * 4;
-
-				SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
-
-				var bufferLocal = buffer;
-
-				fixed (byte* pBuffer = buffer)
-				{
-					var ptr = (float*)(pBuffer + offset);
-
-					*ptr = value.X;
-				}
-				offset += 4;
-
-				fixed (byte* pBuffer = buffer)
-				{
-					var ptr = (float*)(pBuffer + offset);
-
-					*ptr = value.Y;
-				}
-				offset += 4;
-
-				fixed (byte* pBuffer = buffer)
-				{
-					var ptr = (float*)(pBuffer + offset);
-
-					*ptr = value.Z;
-				}
-				offset += 4;
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
-		}
-
-
-		class Vector3Formatter_MergeBlit5 : IFormatter<Vector3>
-		{
-			public unsafe void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
-			{
-				const int v3Size = 3 * 4;
-
-				SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
-
-				var bufferLocal = buffer;
-
-				fixed (byte* pBuffer = buffer)
-				{
-					var ptr = (float*)(pBuffer + offset);
-
-					*ptr = value.X;
-				}
-
-				fixed (byte* pBuffer = buffer)
-				{
-					var ptr = (float*)(pBuffer + offset + 4);
-
-					*ptr = value.Y;
-				}
-
-				fixed (byte* pBuffer = buffer)
-				{
-					var ptr = (float*)(pBuffer + offset + 8);
-
-					*ptr = value.Z;
-				}
-				offset += v3Size;
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
-		}
 
 		class Vector3Formatter_Interface : IFormatter<Vector3>
 		{
@@ -313,12 +216,12 @@ namespace LiveTesting
 
 		IFormatter<Vector3>[] _formatterInstances =
 		{
-				new Vector3Formatter_Normal(),
-				new Vector3Formatter_MergeBlit1(),
-				new Vector3Formatter_MergeBlit2(),
-				new Vector3Formatter_MergeBlit3(),
-				new Vector3Formatter_MergeBlit4(),
-				new Vector3Formatter_MergeBlit5(),
+				//new Vector3Formatter_Normal(),
+				//new Vector3Formatter_MergeBlit1(),
+				//new Vector3Formatter_MergeBlit2(),
+				//new Vector3Formatter_MergeBlit3(),
+				//new Vector3Formatter_MergeBlit4(),
+				//new Vector3Formatter_MergeBlit5(),
 				new Vector3Formatter_Interface(),
 				new ReinterpretFormatter<Vector3>(),
 		};

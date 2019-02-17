@@ -4,7 +4,8 @@ using Xunit;
 
 namespace Ceras.Test
 {
-	public class GitHubIssues
+	// Error when a type is not generic, but derives from a generic collection
+	public class Issue24
 	{
 		
 		class MultiLangText : IDictionary<string, string>
@@ -99,62 +100,6 @@ namespace Ceras.Test
 			Assert.Single(clone);
 			Assert.Equal(dict["a"], clone["a"]);
 		}
-
-
-
-
-		public abstract class Person_Issue25
-		{
-			public string Name = "default name";
-			public List<Person_Issue25> Friends { get; private set; } = new List<Person_Issue25>();
-			
-			public Person_Issue25()
-			{
-				Friends = new List<Person_Issue25>();
-			}
-			
-			protected void SetFriendsToNullInternal()
-			{
-				Friends = null;
-			}
-		}
-
-		public class Adult : Person_Issue25
-		{
-			public byte[] Serialize() => new CerasSerializer().Serialize<object>(this);
-
-			internal void SetFriendsToNull()
-			{
-				SetFriendsToNullInternal();
-			}
-		}
-		
-		[Fact]
-		public void Issue25_PrivateSetterOfPropertyInBaseType()
-		{
-			var p = new Adult();
-			p.Name = "1";
-			p.Friends.Add(new Adult { Name = "2" });
-
-			var config = new SerializerConfig();
-			config.DefaultTargets = TargetMember.AllPublic;
-			var ceras = new CerasSerializer(config);
-
-			var data = ceras.Serialize<object>(p);
-
-			var clone = new Adult();
-			clone.SetFriendsToNull();
-			object refObj = clone;
-			ceras.Deserialize<object>(ref refObj, data);
-
-			Assert.True(refObj != null);
-			clone = refObj as Adult;
-			Assert.True(clone.Friends != null);
-			Assert.True(clone.Friends.Count == 1);
-			Assert.True(clone.Friends[0].Name == "2");
-
-		}
-
 	}
 }
 

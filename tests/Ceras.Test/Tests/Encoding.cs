@@ -1,10 +1,7 @@
-﻿using Xunit;
-// ReSharper disable InconsistentNaming
-
-namespace Ceras.Test
+﻿namespace Ceras.Test
 {
-	using System;
 	using System.Collections.Generic;
+	using Xunit;
 
 	public class Encoding
 	{
@@ -82,71 +79,4 @@ namespace Ceras.Test
 				Assert.Equal(data[i], ((List<int>)cloneObject)[i]);
 		}
 	}
-
-	public class Internals : TestBase
-	{
-		[Fact]
-		public void MethodResolving()
-		{
-			// Check if the method resolver works correctly
-			IAnimal animal = null;
-			ICat cat = null;
-			IDog dog = null;
-
-
-			// - Non-generic MethodInfo, ConstructorInfo
-			{
-				var ctor = GetCtor(() => new Internals());
-				CheckCloneEquality(ctor);
-
-				var mAA = GetMethod(() => HandleAnimal(animal, animal));
-				CheckCloneEquality(mAA);
-
-				var mCA = GetMethod(() => HandleAnimal(cat, animal));
-				CheckCloneEquality(mCA);
-
-				var mAC = GetMethod(() => HandleAnimal(animal, cat));
-				CheckCloneEquality(mAC);
-
-				var mCC = GetMethod(() => HandleAnimal(cat, cat));
-				CheckCloneEquality(mCC);
-			}
-
-
-			// - Simple closed generic
-			{
-				var mt = GetMethod(() => HandleAnimal(dog, dog));
-				CheckCloneEquality(mt);
-			}
-
-			// - Exception on open method
-			{
-				var open = GetMethod(() => HandleAnimal(dog, dog)).GetGenericMethodDefinition();
-				Assert.ThrowsAny<Exception>(() => Clone(open));
-			}
-		}
-
-
-
-		void HandleAnimal(IAnimal anyA, IAnimal anyB) { }
-		void HandleAnimal(ICat cat, IAnimal any) { }
-		void HandleAnimal(IAnimal any, ICat cat) { }
-		void HandleAnimal(ICat cat1, ICat cat2) { }
-		void HandleAnimal<T>(T obj1, T obj2) where T : IDog { }
-
-		interface IAnimal { }
-		interface ICat : IAnimal { }
-		interface IDog : IAnimal { }
-		class Cat : ICat { }
-		class Dog : IDog { }
-	}
-
-
-
-	// todo: test public default ctor, private default ctor, and no parameterless ctor (and all construction modes)
-
-	// todo: ignoreField, Caching, KeyValuePairs, Dictionaries, Typing, interfaces,
-	// todo: RootObjects, reusing (overwriting) objects, arrays
-	// todo: known types, hash checks for known types, assured mismatch when another type is added
-
 }

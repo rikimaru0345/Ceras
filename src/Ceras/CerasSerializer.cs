@@ -65,10 +65,7 @@ namespace Ceras
 
 			if(type.IsEnum)
 				return true;
-
-			if(type.IsValueType)
-				return true;
-
+			
 			if (type == typeof(string))
 				return true;
 
@@ -186,6 +183,10 @@ namespace Ceras
 			// Int, Float, Enum, ...
 			_resolvers.Add(new PrimitiveResolver(this));
 
+			// Fast native copy for unmanaged types;
+			// can not handle generic structs like ValueTuple<> because they always have to be ".IsAutoLayout"
+			_resolvers.Add(new ReinterpretFormatterResolver(this));
+
 			// DateTime, Guid, KeyValuePair, Tuple, ...
 			_resolvers.Add(new StandardFormatterResolver(this));
 
@@ -213,10 +214,7 @@ namespace Ceras
 
 			// MemberInfos (FieldInfo, RuntimeFieldInfo, ...)
 			_resolvers.Add(new ReflectionFormatterResolver(this));
-
-			// Fast native copy for unmanaged types
-			_resolvers.Add(new ReinterpretFormatterResolver(this));
-
+			
 			// DynamicObjectResolver is a special case, so it is not in the resolver-list
 			// That is because we only want to have specific resolvers in the resolvers-list
 			_dynamicResolver = new DynamicObjectFormatterResolver(this);
@@ -576,6 +574,10 @@ namespace Ceras
 			if (meta.SpecificFormatter != null)
 				return meta.SpecificFormatter;
 
+			// Sanity checks
+			if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
+				throw new InvalidOperationException("You cannot get a formatter for abstract, interface, and open generic types because they are not ");
+
 
 			// 2.) TypeConfig - Custom Formatter, Custom Resolver 
 			if (meta.TypeConfig.CustomFormatter != null)
@@ -705,21 +707,23 @@ namespace Ceras
 				if (f.GetCustomAttribute<NoInjectAttribute>() != null)
 					continue;
 
-				var t = f.FieldType;
+				bool noRef = f.GetCustomAttribute<CerasNoReference>() != null;
+
+				var fieldType = f.FieldType;
 
 				// Reference to the serializer
-				if (t == typeof(CerasSerializer))
+				if (fieldType == typeof(CerasSerializer))
 				{
 					SafeInject(formatter, f, this);
 					continue;
 				}
 
 				// Any formatter?
-				if (!typeof(IFormatter).IsAssignableFrom(t))
+				if (!typeof(IFormatter).IsAssignableFrom(fieldType))
 					continue;
 
 
-				var formatterInterface = ReflectionHelper.FindClosedType(t, typeof(IFormatter<>));
+				var formatterInterface = ReflectionHelper.FindClosedType(fieldType, typeof(IFormatter<>));
 
 				if (formatterInterface == null)
 					continue; // Not a formatter? Then that's not something we can handle
@@ -727,9 +731,9 @@ namespace Ceras
 				var formattedType = formatterInterface.GetGenericArguments()[0];
 
 				// Any formatter that can handle the given type
-				if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(IFormatter<>))
+				if (fieldType.IsGenericType && fieldType.GetGenericTypeDefinition() == typeof(IFormatter<>))
 				{
-					var requestedFormatter = GetReferenceFormatter(formattedType);
+					var requestedFormatter = noRef ? GetSpecificFormatter(formattedType) : GetReferenceFormatter(formattedType);
 
 					SafeInject(formatter, f, requestedFormatter);
 
@@ -737,14 +741,14 @@ namespace Ceras
 				}
 
 				// Some very specific formatter
-				if (ReflectionHelper.IsAssignableToGenericType(t, typeof(IFormatter<>)))
+				if (ReflectionHelper.IsAssignableToGenericType(fieldType, typeof(IFormatter<>)))
 				{
-					var refFormatter = GetReferenceFormatter(formattedType);
+					var requestedFormatter = noRef ? GetSpecificFormatter(formattedType) : GetReferenceFormatter(formattedType);
 
-					if (refFormatter.GetType() == t)
+					if (requestedFormatter.GetType() == fieldType)
 					{
 						// This was the formatter we were looking for
-						SafeInject(formatter, f, refFormatter);
+						SafeInject(formatter, f, requestedFormatter);
 						continue;
 					}
 
@@ -753,16 +757,15 @@ namespace Ceras
 					// If the formattedType is a referenceType and the user uses the direct formatter things could get ugly (references are not handled at all, user has to do it on his own)
 					var directFormatter = GetSpecificFormatter(formattedType);
 
-					if (directFormatter.GetType() == t)
+					if (directFormatter.GetType() == fieldType)
 					{
 						SafeInject(formatter, f, directFormatter);
 						continue;
 					}
+					
+					var anyExisting = directFormatter ?? requestedFormatter;
 
-
-					var anyExisting = directFormatter ?? refFormatter;
-
-					throw new InvalidOperationException($"The formatter '{formatter.GetType().FullName}' has a dependency on '{t.GetType().FullName}' (via the field '{f.Name}') to format '{formattedType.FullName}', but this Ceras instance is already using '{anyExisting.GetType().FullName}' to handle this type.");
+					throw new InvalidOperationException($"The formatter '{formatter.GetType().FullName}' has a dependency on '{fieldType.GetType().FullName}' (via the field '{f.Name}') to format '{formattedType.FullName}', but this Ceras instance is already using '{anyExisting.GetType().FullName}' to handle this type.");
 				}
 			}
 
@@ -824,7 +827,8 @@ namespace Ceras
 		{
 			if(IsPrimitiveType(type))
 				return null;
-			if(type.IsAbstract)
+			
+			if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
 				return null;
 			
 			var typeConfig = Config.GetTypeConfig(type);

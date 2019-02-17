@@ -4,6 +4,8 @@
 	using System.Collections.Generic;
 	using System.Linq;
 	using System.Reflection;
+	using System.Runtime.CompilerServices;
+	using System.Runtime.InteropServices;
 
 	static class ReflectionHelper
 	{
@@ -74,52 +76,163 @@
 			return IsAssignableToGenericType(baseType, genericType);
 		}
 
-		public static List<MemberInfo> GetAllDataMembers(this Type type)
+		public static IEnumerable<MemberInfo> GetAllDataMembers(this Type type, bool fields = true, bool properties = true)
 		{
 			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-			List<MemberInfo> members = new List<MemberInfo>();
-
-			if(type.IsPrimitive)
-				return members;
+			if (type.IsPrimitive)
+				yield break;
 
 			while (type != null)
 			{
-				foreach (var f in type.GetFields(flags))
-					if (f.DeclaringType == type)
-					{
-						members.Add(f);
-					}
+				if (fields)
+					foreach (var f in type.GetFields(flags))
+						if (f.DeclaringType == type)
+							yield return f;
 
-				foreach (var p in type.GetProperties(flags))
-					if (p.DeclaringType == type)
-					{
-						var getter = p.GetGetMethod(true);
-						if (getter != null)
-							if (getter.GetParameters().Length > 0)
-								// Indexers are not data
-								continue;
+				if (properties)
+					foreach (var p in type.GetProperties(flags))
+						if (p.DeclaringType == type)
+						{
+							var getter = p.GetGetMethod(true);
+							if (getter != null)
+								if (getter.GetParameters().Length > 0)
+									// Indexers are not data
+									continue;
 
-						members.Add(p);
-					}
+							yield return p;
+						}
 
 				type = type.BaseType;
 			}
-
-			return members;
 		}
 
-		public static bool IsUnmanaged(Type type)
+
+		// Just for testing
+		internal static bool ComputeExpectedSize(Type type, out int size)
+		{
+			size = -1;
+
+			var debugName = type.FullName;
+
+			if (!type.IsValueType)
+				return false; // Only value types can be of fixed size
+
+			if (type.ContainsGenericParameters)
+				return false;
+
+			if (type.IsPointer || type == typeof(IntPtr) || type == typeof(UIntPtr))
+				return false; // Pointers can be different sizes on different platforms
+
+			if (type.IsPrimitive)
+			{
+				size = Marshal.SizeOf(type);
+				return true;
+			}
+
+			// fixed buffer struct members
+			if (type.DeclaringType != null && type.DeclaringType.IsValueType)
+			{
+				var fields = type.DeclaringType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+				var fieldInParent = fields.Single(f => f.FieldType == type);
+				var parentFieldFixedBuffer = fieldInParent.GetCustomAttribute<FixedBufferAttribute>();
+				if (parentFieldFixedBuffer != null)
+				{
+					if (!ComputeExpectedSize(parentFieldFixedBuffer.ElementType, out var fixedBufferElementSize))
+						throw new Exception();
+
+					size = parentFieldFixedBuffer.Length * fixedBufferElementSize;
+					return true;
+				}
+			}
+			
+
+			if (type.IsAutoLayout)
+				return false; // Automatic layout means the type might be larger
+
+			var layout = type.StructLayoutAttribute;
+			if (layout == null)
+				throw new Exception($"Type '{type.Name}' is a value-type but does not have a StructLayoutAttribute!");
+
+
+			size = 0;
+
+			foreach (var f in GetAllDataMembers(type, true, false).Cast<FieldInfo>())
+			{
+				var fixedBuffer = f.GetCustomAttribute<FixedBufferAttribute>();
+				if (fixedBuffer != null)
+				{
+					if (!ComputeExpectedSize(fixedBuffer.ElementType, out var fixedElementSize))
+						throw new InvalidOperationException();
+
+					var innerTypeSize = fixedBuffer.Length * fixedElementSize;
+					size += innerTypeSize;
+					continue;
+				}
+
+				if (!ComputeExpectedSize(f.FieldType, out var fieldSize))
+				{
+					size = -1;
+					return false;
+				}
+
+				size += fieldSize;
+			}
+
+			if (layout.Size != 0)
+				if (layout.Size != size)
+					throw new Exception($"Computed size of '{type.Name}' did not match the StructLayout value");
+
+			var marshalSize = Marshal.SizeOf(type);
+			if (size != marshalSize)
+				throw new Exception($"Computed size of '{type.Name}' does not match marshal size");
+
+			return true;
+		}
+
+
+		public static bool IsBlittableType(Type type)
 		{
 			if (!type.IsValueType)
 				return false;
 
-			var members = GetAllDataMembers(type);
-			foreach (var f in members.OfType<FieldInfo>())
+			if (type.IsPointer || type == typeof(IntPtr) || type == typeof(UIntPtr))
+				return false;
+
+			if(type.ContainsGenericParameters)
+				return false;
+
+			if(type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+				return false; // Blitting nullables is just not efficient
+
+			if (type.IsAutoLayout)
+				return false; // generic structs are always auto-layout (since you can't know what layout is best before inserting the generic args)
+
+
+			if (type.IsPrimitive)
+				return true;
+
+			foreach (var f in GetAllDataMembers(type, true, false).Cast<FieldInfo>())
 			{
-				if (!IsUnmanaged(f.FieldType))
+				var fixedBuffer = f.GetCustomAttribute<FixedBufferAttribute>();
+				if (fixedBuffer != null)
+				{
+					//var innerType = ;
+
+					continue;
+				}
+
+				if (f.GetCustomAttribute<MarshalAsAttribute>() != null)
+				{
+					throw new NotSupportedException("The [MarshalAs] attribute is not supported");
+				}
+
+				if (!IsBlittableType(f.FieldType))
 					return false;
 			}
+
+			//var computedSizeSuccess = ComputeExpectedSize(type, out int expectedSize);
+			var marshalSize = Marshal.SizeOf(type);
 
 			return true;
 		}

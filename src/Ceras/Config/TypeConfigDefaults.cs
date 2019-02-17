@@ -13,7 +13,8 @@ namespace Ceras
 
 	static class TypeConfigDefaults
 	{
-		const BindingFlags BindingFlags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static;
+		const BindingFlags BindingFlagsStatic = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+		const BindingFlags BindingFlagsCtor = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.CreateInstance;
 
 
 		// Apply default settings to the newly created TypeConfig based on the attributes on the Type
@@ -52,7 +53,7 @@ namespace Ceras
 			MethodBase ctor;
 
 			// Try hint by attribute
-			IEnumerable<MethodBase> methods = type.GetMethods(BindingFlags).Cast<MethodBase>().Concat(type.GetConstructors(BindingFlags));
+			IEnumerable<MethodBase> methods = type.GetMethods(BindingFlagsStatic).Cast<MethodBase>().Concat(type.GetConstructors(BindingFlagsCtor));
 			var cerasCtors = methods.Where(m => m.GetCustomAttribute<CerasConstructorAttribute>() != null).ToArray();
 
 			if (cerasCtors.Length > 1)
@@ -68,7 +69,7 @@ namespace Ceras
 			else
 			{
 				// No match, try default ctor
-				ctor = type.GetConstructors(BindingFlags).FirstOrDefault(c => c.GetParameters().Length == 0);
+				ctor = type.GetConstructors(BindingFlagsCtor).FirstOrDefault(c => c.GetParameters().Length == 0);
 			}
 			
 			// Apply this ctor or factory
@@ -80,6 +81,9 @@ namespace Ceras
 					typeConfig.TypeConstruction = TypeConstruction.ByStaticMethod(methodInfo);
 			}
 
+
+			if (type.IsValueType && typeConfig.TypeConstruction == null)
+				typeConfig.TypeConstruction = ConstructNull.Instance;
 		}
 
 		// Use attributes on the members to further specialize the settings.
@@ -168,20 +172,30 @@ namespace Ceras
 		{
 			var type = typeConfig.Type;
 
+			// All structs
+			if (!type.IsPrimitive && type.IsValueType)
+			{
+				if(typeConfig.TypeConstruction == null)
+					typeConfig.TypeConstruction = ConstructNull.Instance;
+				
+				typeConfig.TargetMembers = TargetMember.AllFields;
+				return;
+			}
+
 			if (type.Assembly == typeof(Expression).Assembly)
 			{
 				if (!type.IsAbstract && type.IsSubclassOf(typeof(Expression)))
 				{
-					typeConfig.TypeConstruction = new UninitializedObject();
+					typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
 					typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
-					typeConfig.TargetMembers = TargetMember.PrivateFields;
+					typeConfig.TargetMembers = TargetMember.AllFields;
 					typeConfig.CustomResolver = ForceDynamicResolver;
 					return;
 				}
 
 				if (type.FullName.StartsWith("System.Runtime.CompilerServices.TrueReadOnlyCollection"))
 				{
-					typeConfig.TypeConstruction = new UninitializedObject();
+					typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
 					typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
 					typeConfig.TargetMembers = TargetMember.PrivateFields;
 					typeConfig.CustomResolver = ForceDynamicResolver;
@@ -192,7 +206,7 @@ namespace Ceras
 			if (type.Assembly == typeof(ReadOnlyCollection<>).Assembly)
 				if (type.FullName.StartsWith("System.Collections.ObjectModel.ReadOnlyCollection"))
 				{
-					typeConfig.TypeConstruction = new UninitializedObject();
+					typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
 					typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
 					typeConfig.TargetMembers = TargetMember.PrivateFields;
 					typeConfig.CustomResolver = ForceDynamicResolver;

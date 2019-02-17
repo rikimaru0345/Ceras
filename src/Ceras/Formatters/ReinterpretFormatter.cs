@@ -1,8 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Ceras.Formatters
 {
@@ -18,9 +14,11 @@ namespace Ceras.Formatters
 
 		public ReinterpretFormatter()
 		{
+			ThrowIfNotSupported();
+
 			_size = Marshal.SizeOf(default(T));
 		}
-
+		
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
 			SerializerBinary.EnsureCapacity(ref buffer, offset, _size);
@@ -44,6 +42,11 @@ namespace Ceras.Formatters
 
 			offset += _size;
 		}
+
+		internal static void ThrowIfNotSupported()
+		{
+			if (!BitConverter.IsLittleEndian) throw new Exception("The reinterpret formatters require a little endian environment (CPU/OS). Please turn off " + nameof(SerializerConfig.Advanced.UseReinterpretFormatter));
+		}
 	}
 
 	/// <summary>
@@ -61,11 +64,13 @@ namespace Ceras.Formatters
 
 		public ReinterpretArrayFormatter(uint maxCount)
 		{
+			ReinterpretFormatter<T>.ThrowIfNotSupported();
+
 			_maxCount = maxCount;
 			_size = Marshal.SizeOf(default(T));
 		}
 
-		public void Serialize(ref byte[] buffer, ref int offset, T[] value)
+		public unsafe void Serialize(ref byte[] buffer, ref int offset, T[] value)
 		{
 			// Ensure capacity
 			int size = _size;
@@ -76,29 +81,41 @@ namespace Ceras.Formatters
 			int count = value.Length;
 			SerializerBinary.WriteUInt32NoCheck(buffer, ref offset, (uint)count);
 
+			int bytes = count * size;
+			if (bytes == 0)
+				return;
+
 			// Write
-			var bytes = count * size;
-			Buffer.BlockCopy(value, 0, buffer, offset, bytes);
+			fixed (T* p = value)
+				Marshal.Copy(new IntPtr(p), buffer, offset, count);
 
 			offset += bytes;
 		}
 
-		public void Deserialize(byte[] buffer, ref int offset, ref T[] value)
+		public unsafe void Deserialize(byte[] buffer, ref int offset, ref T[] value)
 		{
 			// Count
 			int count = (int)SerializerBinary.ReadUInt32(buffer, ref offset);
 
-			if(count > _maxCount)
+			if (count > _maxCount)
 				throw new InvalidOperationException($"The data describes an array with '{count}' elements, which exceeds the allowed limit of '{_maxCount}'");
 
 			// Create target array
-			if(value == null || value.Length != count)
+			if (value == null || value.Length != count)
 				value = new T[count];
 
-			// Read
 			int bytes = count * _size;
-			Buffer.BlockCopy(buffer, offset, value, 0, bytes);
 			
+			if (bytes == 0)
+				return;
+
+			// Read
+			fixed (T* ar = value)
+			{
+				byte* byteAr = (byte*)ar;
+				Marshal.Copy(buffer, offset, new IntPtr(byteAr), bytes);
+			}
+
 			offset += bytes;
 		}
 	}

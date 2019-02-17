@@ -347,36 +347,6 @@
 		}
 
 
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteGuid(ref byte[] buffer, ref int offset, Guid value)
-		{
-			EnsureCapacity(ref buffer, offset, 16);
-
-			fixed (byte* dst = &buffer[offset])
-			{
-				var src = &value;
-				*(Guid*)dst = *src;
-			}
-
-			offset += 16;
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static Guid ReadGuid(byte[] buffer, ref int offset)
-		{
-			Guid guid;
-
-			fixed (byte* src = &buffer[offset])
-			{
-				guid = *(Guid*)src;
-			}
-
-			offset += 16;
-
-			return guid;
-		}
-
-
 		static readonly UTF8Encoding _utf8Encoding = new UTF8Encoding(false, true);
 
 

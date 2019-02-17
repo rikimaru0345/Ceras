@@ -26,7 +26,7 @@ namespace Ceras.Resolvers
 			if(!_ceras.Config.Advanced.UseReinterpretFormatter)
 				return null;
 
-			if (!ReflectionHelper.IsUnmanaged(type))
+			if (!ReflectionHelper.IsBlittableType(type))
 				return null;
 
 			var formatterType = typeof(ReinterpretFormatter<>).MakeGenericType(type);

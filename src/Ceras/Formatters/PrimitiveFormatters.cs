@@ -184,5 +184,4 @@ namespace Ceras.Formatters
 		}
 	}
 
-
 }

@@ -25,7 +25,7 @@
 
 		public Type GetTypeFromBaseAndAgruments(string baseTypeName, params Type[] genericTypeArguments)
 		{
-			return SimpleTypeBinderHelper.GetTypeFromBaseAndAgruments(baseTypeName, genericTypeArguments);
+			return SimpleTypeBinderHelper.GetTypeFromBaseAndArguments(baseTypeName, genericTypeArguments);
 		}
 	}
 
@@ -80,7 +80,7 @@
 			throw new Exception("Cannot find type " + baseTypeName + " after searching in all user provided assemblies and all loaded assemblies. Is the type in some plugin-module that was not yet loaded? Or did the assembly that contains the type change (ie the type got removed)?");
 		}
 
-		public static Type GetTypeFromBaseAndAgruments(string baseTypeName, params Type[] genericTypeArguments)
+		public static Type GetTypeFromBaseAndArguments(string baseTypeName, params Type[] genericTypeArguments)
 		{
 			var baseType = GetTypeFromBase(baseTypeName);
 			return baseType.MakeGenericType(genericTypeArguments);

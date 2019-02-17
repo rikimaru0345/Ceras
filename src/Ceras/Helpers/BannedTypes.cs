@@ -179,8 +179,8 @@ namespace Ceras.Formatters
 
 		internal static void ThrowIfNonspecific(Type type)
 		{
-			if (type.IsAbstract || type.IsInterface)
-				throw new InvalidOperationException("Can only generate code for specific types. The type " + type.Name + " is abstract or an interface.");
+			if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
+				throw new InvalidOperationException("Can only generate code for specific types. The type " + type.Name + " is abstract, or an interface, or an open generic.");
 		}
 	}
 

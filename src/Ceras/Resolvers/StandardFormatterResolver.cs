@@ -3,6 +3,7 @@
 	using Formatters;
 	using Helpers;
 	using System;
+	using System.Collections;
 	using System.Collections.Generic;
 	using System.Collections.Specialized;
 	using System.Diagnostics.CodeAnalysis;
@@ -11,7 +12,7 @@
 	using static SerializerBinary;
 
 	/// <summary>
-	/// Another boring resolver that handles "common" types like <see cref="DateTime"/>, <see cref="decimal"/>, <see cref="Tuple"/>, and many more...
+	/// Another boring resolver that handles "common" types like <see cref="DateTime"/>, <see cref="Guid"/>, <see cref="Tuple"/>, and many more...
 	/// </summary>
 	public sealed class StandardFormatterResolver : IFormatterResolver
 	{
@@ -54,10 +55,11 @@
 			_primitiveFormatters.GetOrAddValueRef(typeof(DateTime)) = new DateTimeFormatter();
 			_primitiveFormatters.GetOrAddValueRef(typeof(DateTimeOffset)) = new DateTimeOffsetFormatter();
 			_primitiveFormatters.GetOrAddValueRef(typeof(TimeSpan)) = new TimeSpanFormatter();
-			_primitiveFormatters.GetOrAddValueRef(typeof(Guid)) = new GuidFormatter();
-			_primitiveFormatters.GetOrAddValueRef(typeof(decimal)) = new DecimalFormatter();
 			_primitiveFormatters.GetOrAddValueRef(typeof(BitVector32)) = new BitVector32Formatter();
 			_primitiveFormatters.GetOrAddValueRef(typeof(BigInteger)) = new BigIntegerFormatter();
+
+			_primitiveFormatters.GetOrAddValueRef(typeof(Uri)) = new UriFormatter();
+			_primitiveFormatters.GetOrAddValueRef(typeof(BitArray)) = new BitArrayFormatter();
 		}
 
 		public IFormatter GetFormatter(Type type)
@@ -230,44 +232,6 @@
 			public void Deserialize(byte[] buffer, ref int offset, ref TimeSpan value)
 			{
 				value = new TimeSpan(ReadInt64Fixed(buffer, ref offset));
-			}
-		}
-
-		class GuidFormatter : IFormatter<Guid>
-		{
-			public void Serialize(ref byte[] buffer, ref int offset, Guid value)
-			{
-				WriteGuid(ref buffer, ref offset, value);
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref Guid value)
-			{
-				value = ReadGuid(buffer, ref offset);
-			}
-		}
-
-		class DecimalFormatter : IFormatter<decimal>
-		{
-			public unsafe void Serialize(ref byte[] buffer, ref int offset, decimal value)
-			{
-				EnsureCapacity(ref buffer, offset, 16);
-				fixed (byte* dst = &buffer[offset])
-				{
-					var src = &value;
-
-					*(decimal*)(dst) = *src;
-
-					offset += 16;
-				}
-			}
-
-			public unsafe void Deserialize(byte[] buffer, ref int offset, ref decimal value)
-			{
-				fixed (byte* src = &buffer[offset])
-				{
-					value = *(decimal*)(src);
-					offset += 16;
-				}
 			}
 		}
 

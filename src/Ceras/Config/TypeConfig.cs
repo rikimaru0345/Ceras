@@ -136,8 +136,7 @@
 																	  null);
 
 			_allMembers = members.ToList();
-
-
+			
 			TypeConfigDefaults.ApplyTypeAttributes(this);
 			TypeConfigDefaults.ApplySpecializedDefaults(this);
 

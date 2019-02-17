@@ -12,9 +12,10 @@ namespace LiveTesting
 	using System.Linq.Expressions;
 	using System.Numerics;
 	using System.Reflection;
-	using System.Text;
+	using Ceras.Test;
 	using Tutorial;
 	using Xunit;
+	using Encoding = System.Text.Encoding;
 
 	class Program
 	{
@@ -23,6 +24,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			new StructReinterpret().BigStruct();
+
 			CustomComparerFormatter();
 
 			ExpressionTreesTest();
