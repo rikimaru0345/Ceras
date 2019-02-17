@@ -2,6 +2,8 @@
 
 namespace Ceras.Formatters
 {
+	using System.Linq.Expressions;
+	using System.Runtime.CompilerServices;
 	using System.Runtime.InteropServices;
 
 	/// <summary>
@@ -10,38 +12,51 @@ namespace Ceras.Formatters
 	/// </summary>
 	public sealed unsafe class ReinterpretFormatter<T> : IFormatter<T> where T : unmanaged
 	{
-		readonly int _size;
+		internal static readonly int _size = Marshal.SizeOf(default(T));
 
 		public ReinterpretFormatter()
 		{
 			ThrowIfNotSupported();
-
-			_size = Marshal.SizeOf(default(T));
 		}
 		
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
 			SerializerBinary.EnsureCapacity(ref buffer, offset, _size);
 
-			fixed (byte* pBuffer = buffer)
-			{
-				var ptr = (T*)(pBuffer + offset);
-				*ptr = value;
-			}
+			WriteNoCheck(buffer, offset, ref value);
 
 			offset += _size;
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
-			fixed (byte* pBuffer = buffer)
+			Read(buffer, offset, ref value);
+
+			offset += _size;
+		}
+
+		// Write value type, don't check if it fits, don't modify offset
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		internal static void WriteNoCheck(byte[] buffer, int offset, ref T value)
+		{
+			fixed (byte* pBuffer = &buffer[0])
+			{
+				var ptr = (T*)(pBuffer + offset);
+				*ptr = value;
+			}
+		}
+		
+		// Read value type, don't modify offset
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		internal static void Read(byte[] buffer, int offset, ref T value)
+		{
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				var ptr = (T*)(pBuffer + offset);
 				value = *ptr;
 			}
-
-			offset += _size;
 		}
+
 
 		internal static void ThrowIfNotSupported()
 		{
@@ -86,7 +101,7 @@ namespace Ceras.Formatters
 				return;
 
 			// Write
-			fixed (T* p = value)
+			fixed (T* p = &value[0])
 				Marshal.Copy(new IntPtr(p), buffer, offset, count);
 
 			offset += bytes;
@@ -110,7 +125,7 @@ namespace Ceras.Formatters
 				return;
 
 			// Read
-			fixed (T* ar = value)
+			fixed (T* ar = &value[0])
 			{
 				byte* byteAr = (byte*)ar;
 				Marshal.Copy(buffer, offset, new IntPtr(byteAr), bytes);
@@ -120,4 +135,9 @@ namespace Ceras.Formatters
 		}
 	}
 
+
+	interface IInlineEmitter
+	{
+		void EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize);
+	}
 }

@@ -48,16 +48,10 @@ namespace LiveTesting
 				   .With(Platform.X64)
 				   .WithLaunchCount(1));
 
+
 			Add(MarkdownExporter.GitHub);
 			Add(HtmlExporter.Default);
-			Add(new CsvExporter(CsvSeparator.Comma, new SummaryStyle
-			{
-				PrintUnitsInContent = false,
-				PrintUnitsInHeader = true,
-			}));
 
-
-			Set(new DefaultOrderer(SummaryOrderPolicy.FastestToSlowest, MethodOrderPolicy.Declared));
 			Add(BenchmarkLogicalGroupRule.ByCategory);
 
 			Add(CategoriesColumn.Default);
@@ -65,13 +59,9 @@ namespace LiveTesting
 			Add(BaselineRatioColumn.RatioMean);
 			Add(StatisticColumn.Mean, StatisticColumn.StdErr);
 
-
-			Add(BenchmarkDotNet.Columns.DefaultColumnProviders.Params);
+			Add(DefaultColumnProviders.Params);
 
 			Add(new ConsoleLogger());
-
-			StopOnFirstError = true;
-			//KeepBenchmarkFiles = true;
 		}
 	}
 
@@ -158,60 +148,7 @@ namespace LiveTesting
 
 			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
 		}
-		sealed class FloatFormatter : IFormatter<float>
-		{
-			public void Serialize(ref byte[] buffer, ref int offset, float value)
-			{
-				SerializerBinary.WriteFloat32Fixed(ref buffer, ref offset, value);
-			}
 
-			public void Deserialize(byte[] buffer, ref int offset, ref float value)
-			{
-				value = SerializerBinary.ReadFloat32Fixed(buffer, ref offset);
-			}
-		}
-
-		// Not possible to do this with expressions unfortunately. Will have to come back later to just do it in a DynamicMethod.
-		/*
-		class Vector3Formatter_ExpressionAutoGen : IFormatter<Vector3>
-		{
-			readonly SerializeDelegate<Vector3> _dynamicSerializer;
-
-			public Vector3Formatter_ExpressionAutoGen()
-			{
-				List<Expression> body = new List<Expression>();
-				List<ParameterExpression> parameters = new List<ParameterExpression>();
-				List<ParameterExpression> locals = new List<ParameterExpression>();
-
-				// Parameters
-				var refBuffer = Expression.Parameter(typeof(byte[]).MakeByRefType());
-				var refOffset = Expression.Parameter(typeof(int).MakeByRefType());
-				var value = Expression.Parameter(typeof(Vector3));
-				parameters.AddRange(new[] { refBuffer, refOffset, value });
-
-				// Ensure capacity
-				var v3Size = 3 * 4;
-				var ensureCapacity = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.EnsureCapacity));
-
-				body.Add(Expression.Call(ensureCapacity, arg0: refBuffer, arg1: refOffset, Expression.Constant(v3Size)));
-				
-				// Buffer to ptr
-				var bytePtr = Expression.Variable(typeof(byte*));
-				Expression.
-
-				_dynamicSerializer = Expression.Lambda<SerializeDelegate<Vector3>>(Expression.Block(locals, body), parameters).Compile();
-			}
-			
-			public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
-			{
-				const int v3Size = 3 * 4;
-
-				SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
-
-
-			}
-		}
-		*/
 
 
 		IFormatter<Vector3>[] _formatterInstances =
@@ -220,8 +157,8 @@ namespace LiveTesting
 				//new Vector3Formatter_MergeBlit1(),
 				//new Vector3Formatter_MergeBlit2(),
 				//new Vector3Formatter_MergeBlit3(),
-				//new Vector3Formatter_MergeBlit4(),
-				//new Vector3Formatter_MergeBlit5(),
+				new Vector3Formatter_MergeBlit_WriteFloat32FixedNoCheck(),
+				new Vector3Formatter_MergeBlit_Fixed(),
 				new Vector3Formatter_Interface(),
 				new ReinterpretFormatter<Vector3>(),
 		};
@@ -393,32 +330,24 @@ namespace LiveTesting
 		public void MessagePack_Single() => RunMessagePackCSharp(_person);
 		[BenchmarkCategory("Single"), Benchmark(Baseline = true)]
 		public void Ceras_Single() => RunCeras(_person);
-		[BenchmarkCategory("Single"), Benchmark]
-		public void Protobuf_Single() => RunProtobuf(_person);
-		[BenchmarkCategory("Single"), Benchmark]
-		public void Wire_Single() => RunWire(_person);
-		[BenchmarkCategory("Single"), Benchmark]
-		public void NetSerializer_Single() => RunNetSerializer(_person);
+		//[BenchmarkCategory("Single"), Benchmark]
+		//public void Protobuf_Single() => RunProtobuf(_person);
+		//[BenchmarkCategory("Single"), Benchmark]
+		//public void Wire_Single() => RunWire(_person);
+		//[BenchmarkCategory("Single"), Benchmark]
+		//public void NetSerializer_Single() => RunNetSerializer(_person);
 
-		[BenchmarkCategory("List"), Benchmark(Baseline = true)]
-		public void Ceras_List() => RunCeras(_list);
-		[BenchmarkCategory("List"), Benchmark]
-		public void MessagePack_List() => RunMessagePackCSharp(_list);
-		[BenchmarkCategory("List"), Benchmark]
-		public void Protobuf_List() => RunProtobuf(_list);
-		[BenchmarkCategory("List"), Benchmark]
-		public void Wire_List() => RunWire(_list);
-		[BenchmarkCategory("List"), Benchmark]
-		public void NetSerializer_List() => RunNetSerializer(_list);
+		//[BenchmarkCategory("List"), Benchmark(Baseline = true)]
+		//public void Ceras_List() => RunCeras(_list);
+		//[BenchmarkCategory("List"), Benchmark]
+		//public void MessagePack_List() => RunMessagePackCSharp(_list);
+		//[BenchmarkCategory("List"), Benchmark]
+		//public void Protobuf_List() => RunProtobuf(_list);
+		//[BenchmarkCategory("List"), Benchmark]
+		//public void Wire_List() => RunWire(_list);
+		//[BenchmarkCategory("List"), Benchmark]
+		//public void NetSerializer_List() => RunNetSerializer(_list);
 
-
-		// Json is way too slow, it messes with the graph I want to draw
-		/*
-		[BenchmarkCategory("Single"), Benchmark]
-		public void JsonNet_Single() => RunJson(_person);
-		[BenchmarkCategory("List"), Benchmark]
-		public void Json_List() => RunJson(_list);
-		*/
 
 		static T RunCeras<T>(T obj) // Size = 76
 		{

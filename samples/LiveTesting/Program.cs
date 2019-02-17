@@ -26,11 +26,12 @@ namespace LiveTesting
 		{
 			new StructReinterpret().BigStruct();
 
+			Benchmarks();
+
 			CustomComparerFormatter();
 
 			ExpressionTreesTest();
 
-			Benchmarks();
 
 			DictInObjArrayTest();
 
@@ -535,7 +536,7 @@ namespace LiveTesting
 
 		static void Benchmarks()
 		{
-			return;
+			//return;
 
 			var config = new CerasGlobalBenchmarkConfig();
 

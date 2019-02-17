@@ -4,15 +4,6 @@
 	using System.Runtime.CompilerServices;
 	using System.Text;
 
-	/*
-	 * We've benchmarked all sorts of ways to write stuff:
-	 * - for each byte: buffer[offset + 0] = unchecked((byte)(value >> (7 * 8)));
-	 * - fixed(...) *((long*)(pBuffer + offset)) = value;
-	 * - ...
-	 *
-	 * The "Unsafe"/Pointer way was always the fastest in 32bit as well as 64bit.
-	 * Ranging from 5x faster to "only" 1.8x
-	*/
 	public static unsafe class SerializerBinary
 	{
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -20,7 +11,7 @@
 		{
 			EnsureCapacity(ref buffer, offset, 2);
 
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				*((short*)(pBuffer + offset)) = value;
 			}
@@ -33,7 +24,7 @@
 		{
 			short value;
 
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				value = *((short*)(pBuffer + offset));
 			}
@@ -143,7 +134,7 @@
 		{
 			EnsureCapacity(ref buffer, offset, 8);
 
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				*((long*)(pBuffer + offset)) = value;
 			}
@@ -156,7 +147,7 @@
 		{
 			long value;
 
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				value = *((long*)(pBuffer + offset));
 			}
@@ -171,7 +162,7 @@
 		{
 			EnsureCapacity(ref buffer, offset, 4);
 
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				*((int*)(pBuffer + offset)) = value;
 			}
@@ -184,7 +175,7 @@
 		{
 			int value;
 
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				value = *((int*)(pBuffer + offset));
 			}
@@ -199,7 +190,7 @@
 		{
 			EnsureCapacity(ref buffer, offset, 4);
 
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				*((uint*)(pBuffer + offset)) = value;
 			}
@@ -212,7 +203,7 @@
 		{
 			uint value;
 
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				value = *((uint*)(pBuffer + offset));
 			}
@@ -282,7 +273,7 @@
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteFloat32FixedNoCheck(byte[] buffer, ref int offset, float value)
 		{
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				*((float*)(pBuffer + offset)) = value;
 			}
@@ -296,7 +287,7 @@
 		{
 			EnsureCapacity(ref buffer, offset, 4);
 
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				*((float*)(pBuffer + offset)) = value;
 			}
@@ -308,7 +299,7 @@
 		public static float ReadFloat32Fixed(byte[] buffer, ref int offset)
 		{
 			float d;
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				d = *((float*)(pBuffer + offset));
 			}
@@ -324,7 +315,7 @@
 		{
 			EnsureCapacity(ref buffer, offset, 8);
 
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				*((double*)(pBuffer + offset)) = value;
 			}
@@ -336,7 +327,7 @@
 		public static double ReadDouble64Fixed(byte[] buffer, ref int offset)
 		{
 			double d;
-			fixed (byte* pBuffer = buffer)
+			fixed (byte* pBuffer = &buffer[0])
 			{
 				d = *((double*)(pBuffer + offset));
 			}
