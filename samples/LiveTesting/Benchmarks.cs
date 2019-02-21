@@ -36,6 +36,8 @@ namespace LiveTesting
 	{
 		public CerasGlobalBenchmarkConfig()
 		{
+			Set(new DefaultOrderer(SummaryOrderPolicy.FastestToSlowest));
+
 			//Add(Job.ShortRun
 			Add(Job.MediumRun
 				   .WithOutlierMode(OutlierMode.OnlyUpper)
