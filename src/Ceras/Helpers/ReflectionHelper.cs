@@ -3,6 +3,7 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using System.Linq.Expressions;
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
 	using System.Runtime.InteropServices;
@@ -450,6 +451,28 @@
 
 			// Types don't match, and are not compatible generics
 			return false;
+		}
+
+
+		
+		internal static MethodInfo GetMethod(Expression<Action> e)
+		{
+			var b = e.Body;
+
+			if (b is MethodCallExpression m)
+				return m.Method;
+
+			throw new ArgumentException();
+		}
+
+		internal static MethodInfo GetMethod<T>(Expression<Func<T>> e)
+		{
+			var b = e.Body;
+
+			if (b is MethodCallExpression m)
+				return m.Method;
+
+			throw new ArgumentException();
 		}
 
 	}

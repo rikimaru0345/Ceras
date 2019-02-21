@@ -3,16 +3,23 @@
 namespace Ceras.Formatters
 {
 	using System.Linq.Expressions;
+	using System.Reflection;
 	using System.Runtime.CompilerServices;
 	using System.Runtime.InteropServices;
+	using Helpers;
 
 	/// <summary>
 	/// Extremely fast formatter that can be used with all unmanaged types. For example DateTime, int, Vector3, Point, ...
 	/// <para>This formatter always uses native endianness!</para>
 	/// </summary>
-	public sealed unsafe class ReinterpretFormatter<T> : IFormatter<T> where T : unmanaged
+	public sealed unsafe class ReinterpretFormatter<T> : IFormatter<T>, IInlineEmitter where T : unmanaged
 	{
+		delegate void ReadWriteRawDelegate(byte[] buffer, int offset, ref T value);
+		
 		internal static readonly int _size = Marshal.SizeOf(default(T));
+		internal static readonly MethodInfo _writeMethod = new ReadWriteRawDelegate(Write_Raw).Method;
+		internal static readonly MethodInfo _readMethod = new ReadWriteRawDelegate(Read_Raw).Method;
+
 
 		public ReinterpretFormatter()
 		{
@@ -23,21 +30,45 @@ namespace Ceras.Formatters
 		{
 			SerializerBinary.EnsureCapacity(ref buffer, offset, _size);
 
-			WriteNoCheck(buffer, offset, ref value);
+			Write_Raw(buffer, offset, ref value);
 
 			offset += _size;
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
-			Read(buffer, offset, ref value);
+			Read_Raw(buffer, offset, ref value);
 
 			offset += _size;
 		}
 
+		
+		Expression IInlineEmitter.EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize)
+		{
+			var call = Expression.Call(method: _writeMethod,
+									   arg0: bufferExp,
+									   arg1: offsetExp,
+									   arg2: valueExp);
+			writtenSize = _size;
+
+			return call;
+		}
+
+		Expression IInlineEmitter.EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize)
+		{
+			var call = Expression.Call(method: _readMethod,
+									   arg0: bufferExp,
+									   arg1: offsetExp,
+									   arg2: valueExp);
+			readSize = _size;
+
+			return call;
+		}
+
+
 		// Write value type, don't check if it fits, don't modify offset
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		internal static void WriteNoCheck(byte[] buffer, int offset, ref T value)
+		static void Write_Raw(byte[] buffer, int offset, ref T value)
 		{
 			fixed (byte* pBuffer = &buffer[0])
 			{
@@ -48,7 +79,7 @@ namespace Ceras.Formatters
 		
 		// Read value type, don't modify offset
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		internal static void Read(byte[] buffer, int offset, ref T value)
+		static void Read_Raw(byte[] buffer, int offset, ref T value)
 		{
 			fixed (byte* pBuffer = &buffer[0])
 			{
@@ -62,6 +93,7 @@ namespace Ceras.Formatters
 		{
 			if (!BitConverter.IsLittleEndian) throw new Exception("The reinterpret formatters require a little endian environment (CPU/OS). Please turn off " + nameof(SerializerConfig.Advanced.UseReinterpretFormatter));
 		}
+
 	}
 
 	/// <summary>
@@ -101,8 +133,17 @@ namespace Ceras.Formatters
 				return;
 
 			// Write
+#if NETSTANDARD2_0 || NET47
+			fixed (T* srcAr = &value[0])
+			fixed (byte* dest = &buffer[offset])
+			{
+				byte* srcByteAr = (byte*) srcAr;
+				Buffer.MemoryCopy(srcByteAr, dest, bytes, bytes);
+			}
+#else
 			fixed (T* p = &value[0])
 				Marshal.Copy(new IntPtr(p), buffer, offset, count);
+#endif
 
 			offset += bytes;
 		}
@@ -135,9 +176,11 @@ namespace Ceras.Formatters
 		}
 	}
 
-
+	// We can often write multiple unmanaged things in one batch
 	interface IInlineEmitter
 	{
-		void EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize);
+		// Implement a call 
+		Expression EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize);
+		Expression EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize);
 	}
 }

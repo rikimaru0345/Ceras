@@ -304,6 +304,13 @@ namespace Ceras.Formatters
 		}
 
 
+		internal static void EmitBatchReadWrite()
+		{
+			// todo: sort structs that contain references to the end
+			// todo: sort arrays to the end
+
+			// Take all blittable things and emit a read/write to them directly
+		}
 	}
 
 	struct MemberParameterPair
