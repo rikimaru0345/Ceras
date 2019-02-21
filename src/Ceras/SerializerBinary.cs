@@ -269,7 +269,7 @@
 				shift += 7;
 			}
 		}
-		
+
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteFloat32FixedNoCheck(byte[] buffer, ref int offset, float value)
 		{
@@ -357,7 +357,7 @@
 			// might be even faster.
 
 			var encoding = _utf8Encoding;
-			
+
 			var valueBytesCount = encoding.GetByteCount(value);
 			EnsureCapacity(ref buffer, offset, valueBytesCount + 5); // 5 bytes space for the VarInt
 
@@ -380,7 +380,7 @@
 			// Data
 			var str = _utf8Encoding.GetString(buffer, offset, length);
 			offset += length;
-			
+
 			return str;
 		}
 
@@ -393,14 +393,14 @@
 			if (length == -1)
 				return null;
 
-			if ((uint) length > maxLength)
+			if ((uint)length > maxLength)
 				throw new InvalidOperationException($"The current data contains a string of length '{length}', but the maximum allowed string length is '{maxLength}'");
 
 
 			// Data
 			var str = _utf8Encoding.GetString(buffer, offset, length);
 			offset += length;
-			
+
 			return str;
 		}
 
@@ -423,41 +423,222 @@
 		}
 
 
+		/// <summary>
+		/// Copy up to 512 bytes in a fast path.
+		/// </summary>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		internal static void FastCopy(byte[] sourceArray, byte[] targetArray, int n)
+		{
+			#if DEBUG
+			if (n < 0)
+				throw new InvalidOperationException("n must be > 0");
+			if (n == 0 || sourceArray.Length == 0 || targetArray.Length == 0)
+				throw new InvalidOperationException("Copy 0 bytes *must* be optimized out higher up in the call hierarchy because FastCopy does not handle this case!");
+			if (sourceArray.Length < n || targetArray.Length < n)
+				throw new InvalidOperationException("target or source array have a size smaller than n");
+			#endif
+
+
+			if (n > 512)
+			{
+#if !NET45
+				fixed (byte* destPtr = &sourceArray[0])
+				fixed (byte* srcPtr = &targetArray[0])
+					Buffer.MemoryCopy(srcPtr, destPtr, n, n);
+#else
+				Buffer.BlockCopy(sourceArray, 0, targetArray, 0, n);
+#endif
+				return;
+			}
+
+			// Copy up to 512 bytes very quickly
+			fixed (byte* destPtr = &sourceArray[0])
+			fixed (byte* srcPtr = &targetArray[0])
+			{
+				byte* dest = destPtr;
+				byte* src = srcPtr;
+
+				SMALLTABLE: // Handles 0 to 16 bytes
+				switch (n)
+				{
+				case 16:
+					*(long*)dest = *(long*)src;
+					*(long*)(dest + 8) = *(long*)(src + 8);
+					return;
+				case 15:
+					*(short*)(dest + 12) = *(short*)(src + 12);
+					*(dest + 14) = *(src + 14);
+					goto case 12;
+				case 14:
+					*(short*)(dest + 12) = *(short*)(src + 12);
+					goto case 12;
+				case 13:
+					*(dest + 12) = *(src + 12);
+					goto case 12;
+				case 12:
+					*(long*)dest = *(long*)src;
+					*(int*)(dest + 8) = *(int*)(src + 8);
+					return;
+				case 11:
+					*(short*)(dest + 8) = *(short*)(src + 8);
+					*(dest + 10) = *(src + 10);
+					goto case 8;
+				case 10:
+					*(short*)(dest + 8) = *(short*)(src + 8);
+					goto case 8;
+				case 9:
+					*(dest + 8) = *(src + 8);
+					goto case 8;
+				case 8:
+					*(long*)dest = *(long*)src;
+					return;
+				case 7:
+					*(short*)(dest + 4) = *(short*)(src + 4);
+					*(dest + 6) = *(src + 6);
+					goto case 4;
+				case 6:
+					*(short*)(dest + 4) = *(short*)(src + 4);
+					goto case 4;
+				case 5:
+					*(dest + 4) = *(src + 4);
+					goto case 4;
+				case 4:
+					*(int*)dest = *(int*)src;
+					return;
+				case 3:
+					*(dest + 2) = *(src + 2);
+					goto case 2;
+				case 2:
+					*(short*)dest = *(short*)src;
+					return;
+				case 1:
+					*dest = *src;
+					return;
+				case 0:
+					return;
+				default:
+					break;
+				}
+
+
+				// Manually copy large chunks, start with blocks of 32 bytes
+				int count = n / 32;
+				n -= (n / 32) * 32;
+
+				// Copy in blocks of 32 bytes
+				while (count > 0)
+				{
+					((long*)dest)[0] = ((long*)src)[0]; // 8
+					((long*)dest)[1] = ((long*)src)[1]; // 16
+					((long*)dest)[2] = ((long*)src)[2]; // 24
+					((long*)dest)[3] = ((long*)src)[3]; // 32
+
+					dest += 32;
+					src += 32;
+					count--;
+				}
+
+				// Copy 16 byte blocks
+				if (n > 16)
+				{
+					((long*)dest)[0] = ((long*)src)[0];
+					((long*)dest)[1] = ((long*)src)[1];
+
+					src += 16;
+					dest += 16;
+					n -= 16;
+				}
+
+				// The remaining bytes can be handled by the jump table optimized for small copies
+				goto SMALLTABLE;
+			}
+		}
+
+
+		// Microsoft docs: "0x7fffffc7 for byte arrays and arrays of single-byte structures"
+		const int MaximumArraySize = 0x7fffffc7;
+
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void EnsureCapacity(ref byte[] buffer, int offset, int size)
 		{
+			// Fast path
 			int newSize = offset + size;
-
 			if (buffer.Length >= newSize)
 				return;
 
+			// Slow path
+			// We now know that we'll end up having to do a resize.
+			// Compared to the fast-path above, this will take a lot longer and is also very rare!
+			// That means we won't have to spend much time optimizing any calculations that come next,
+			// since any potential gains won't even be measurable because of the alloc/copy operation.
+			ExpandBuffer(ref buffer, newSize);
+		}
+
+		static void ExpandBuffer(ref byte[] buffer, int newSize)
+		{
+			ThrowIfBufferTooLarge(newSize);
+
 			if (newSize < 0x4000)
+			{
 				newSize = 0x4000;
+			}
 			else
-				newSize *= 2;
+			{
+				// Increase base buffer size until we have enough space
+				var size = 0x4000;
+				while (size < newSize)
+				{
+					size = unchecked(size * 2);
+					if (size < 0)
+					{
+						size = MaximumArraySize;
+						break;
+					}
+				}
+
+				newSize = size;
+			}
 
 			FastResize(ref buffer, newSize);
 		}
 
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void FastResize(ref byte[] array, int newSize)
+		static void FastResize(ref byte[] buffer, int newSize)
 		{
-			if (newSize < 0)
+			if (newSize <= 0)
 				throw new ArgumentOutOfRangeException(nameof(newSize));
 
-			byte[] array2 = array;
-			if (array2 == null)
-			{
-				array = new byte[newSize];
-				return;
-			}
+			var oldBuffer = buffer;
+			var pool = CerasBufferPool.Pool ?? NullPool.Instance;
 
-			if (array2.Length != newSize)
+			if (newSize <= oldBuffer.Length)
+				throw new ArgumentOutOfRangeException(nameof(newSize) + " cannot be smaller than (or equal to) the old size");
+
+			// Get a new buffer
+			byte[] newBuffer = pool.RentBuffer(newSize);
+
+			// Copy what we've written so far into the new buffer
+#if !NET45
+			fixed (byte* pSrc = &oldBuffer[0])
+			fixed (byte* pDst = &newBuffer[0])
 			{
-				byte[] array3 = new byte[newSize];
-				Buffer.BlockCopy(array2, 0, array3, 0, (array2.Length > newSize) ? newSize : array2.Length);
-				array = array3;
+				Buffer.MemoryCopy(pSrc, pDst, newBuffer.Length, buffer.Length);
 			}
+#else
+			Buffer.BlockCopy(buffer, 0, newBuffer, 0, buffer.Length);
+#endif
+
+			// Return the old buffer
+			pool.Return(buffer);
+
+			// And replace the current buffer reference
+			buffer = newBuffer;
 		}
+
+		static void ThrowIfBufferTooLarge(int newSize)
+		{
+			if (newSize > MaximumArraySize || newSize < 0)
+				throw new InvalidOperationException($"Trying to expand a buffer to {newSize} bytes, which is greater than the maximum allowed size {MaximumArraySize}. This is a limitation of the runtime, but you can either use IExternalRootObject to split your object graph into parts (if there is no single element that is causing this), or write a custom formatter if you have a single huge element that is causing this. Checkout the GitHub page for more information.");
+		}
+
 	}
 }

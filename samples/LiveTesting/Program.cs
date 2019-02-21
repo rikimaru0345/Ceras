@@ -2,6 +2,7 @@
 
 namespace LiveTesting
 {
+	using System.Buffers;
 	using BenchmarkDotNet.Running;
 	using Ceras;
 	using Ceras.Formatters;
@@ -533,10 +534,9 @@ namespace LiveTesting
 		}
 
 
-
 		static void Benchmarks()
 		{
-			//return;
+			return;
 
 			var config = new CerasGlobalBenchmarkConfig();
 
