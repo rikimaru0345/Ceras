@@ -91,7 +91,13 @@ namespace Ceras.Formatters
 
 		internal static void ThrowIfNotSupported()
 		{
-			if (!BitConverter.IsLittleEndian) throw new Exception("The reinterpret formatters require a little endian environment (CPU/OS). Please turn off " + nameof(SerializerConfig.Advanced.UseReinterpretFormatter));
+			// todo: check if T is layout sequential
+			// todo: T must not have any holes, must not have any fixed buffers,
+			// todo: must have the same memory layout as in the meta-data (same offsets using OffsetOf())
+			// todo: must have the same size as we've expected
+
+			if (!BitConverter.IsLittleEndian)
+				throw new Exception("The reinterpret formatters require a little endian environment (CPU/OS). Please turn off " + nameof(SerializerConfig.Advanced.UseReinterpretFormatter));
 		}
 
 	}
