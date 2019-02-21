@@ -3,6 +3,7 @@
 namespace Ceras.Test
 {
 	using System.Collections;
+	using System.Collections.Generic;
 	using System.Numerics;
 	using Xunit;
 
@@ -133,6 +134,36 @@ namespace Ceras.Test
 		}
 
 #endif
+
+		[Fact]
+		public void Stack()
+		{
+			Stack<int> stack = new Stack<int>();
+			stack.Push(1);
+			stack.Push(2);
+			stack.Push(3);
+
+			var clone = Clone(stack);
+
+			Assert.True(stack.Count == clone.Count);
+			for (int i = 0; i < 3; i++)
+				Assert.True(stack.Pop() == clone.Pop());
+		}
+		
+		[Fact]
+		public void Queue()
+		{
+			Queue<int> queue = new Queue<int>();
+			queue.Enqueue(1);
+			queue.Enqueue(2);
+			queue.Enqueue(3);
+
+			var clone = Clone(queue);
+
+			Assert.True(queue.Count == clone.Count);
+			for (int i = 0; i < 3; i++)
+				Assert.True(queue.Dequeue() == clone.Dequeue());
+		}
 
 	}
 }

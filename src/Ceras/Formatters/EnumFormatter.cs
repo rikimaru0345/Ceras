@@ -8,6 +8,7 @@
 		delegate void WriteEnum(ref byte[] buffer, ref int offset, T enumVal);
 		delegate void ReadEnum(byte[] buffer, ref int offset, out T enumVal);
 
+		// Those delegates cannot be cached for each T because the user might override the formatter for byte, int, or long
 		WriteEnum _enumWriter;
 		ReadEnum _enumReader;
 

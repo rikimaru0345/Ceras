@@ -59,6 +59,28 @@
 
 
 			//
+			// Special collection? (Stack, Queue)
+			//
+			var closedStack = ReflectionHelper.FindClosedType(type, typeof(Stack<>));
+			if (closedStack != null)
+			{
+				var formatterType = typeof(StackFormatter<>).MakeGenericType(closedStack.GetGenericArguments());
+				formatter = (IFormatter)Activator.CreateInstance(formatterType);
+				_formatterInstances[type] = formatter;
+				return formatter;
+			}
+
+			var closedQueue = ReflectionHelper.FindClosedType(type, typeof(Queue<>));
+			if (closedQueue != null)
+			{
+				var formatterType = typeof(QueueFormatter<>).MakeGenericType(closedQueue.GetGenericArguments());
+				formatter = (IFormatter)Activator.CreateInstance(formatterType);
+				_formatterInstances[type] = formatter;
+				return formatter;
+			}
+
+
+			//
 			// Collection?
 			//
 			// If it implements ICollection, we can serialize it!
