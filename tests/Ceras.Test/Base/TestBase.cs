@@ -22,16 +22,16 @@ namespace Ceras.Test
 		protected long rngLong => ((long)rng.Next(int.MinValue, int.MaxValue) << 32) + (long)rng.Next(int.MinValue, int.MaxValue);
 
 
-		SerializerConfig CreateWith(Action<SerializerConfig> f)
+		protected SerializerConfig CreateConfig(Action<SerializerConfig> f)
 		{
 			var s = new SerializerConfig();
 			f(s);
 			return s;
 		}
 		
-		protected SerializerConfig Config_WithReinterpret => CreateWith(x => x.Advanced.UseReinterpretFormatter = true);
-		protected SerializerConfig Config_NoReinterpret => CreateWith(x => x.Advanced.UseReinterpretFormatter = false);
-		protected SerializerConfig Config_WithVersioning => CreateWith(x => x.VersionTolerance = VersionTolerance.AutomaticEmbedded);
+		protected SerializerConfig Config_WithReinterpret => CreateConfig(x => x.Advanced.UseReinterpretFormatter = true);
+		protected SerializerConfig Config_NoReinterpret => CreateConfig(x => x.Advanced.UseReinterpretFormatter = false);
+		protected SerializerConfig Config_WithVersioning => CreateConfig(x => x.VersionTolerance = VersionTolerance.AutomaticEmbedded);
 
 		SerializerConfig[] _currentTestConfigurations = { new SerializerConfig() };
 		int _runCount = 0;

@@ -424,10 +424,10 @@
 
 
 		/// <summary>
-		/// Copy up to 512 bytes in a fast path.
+		/// Copy up to 512 bytes in a fast path, fallback to BlockCopy/MemoryCopy for larger buffers
 		/// </summary>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		internal static void FastCopy(byte[] sourceArray, byte[] targetArray, int n)
+		internal static void FastCopy(byte[] sourceArray, int sourceOffset, byte[] targetArray, int targetOffset, int n)
 		{
 			#if DEBUG
 			if (n < 0)
@@ -436,6 +436,10 @@
 				throw new InvalidOperationException("Copy 0 bytes *must* be optimized out higher up in the call hierarchy because FastCopy does not handle this case!");
 			if (sourceArray.Length < n || targetArray.Length < n)
 				throw new InvalidOperationException("target or source array have a size smaller than n");
+			if (sourceOffset < 0 || targetOffset < 0)
+				throw new ArgumentOutOfRangeException();
+			if (sourceOffset + n >= sourceArray.Length || targetOffset + n >= targetArray.Length)
+				throw new ArgumentOutOfRangeException();
 			#endif
 
 
@@ -444,9 +448,11 @@
 #if !NET45
 				fixed (byte* destPtr = &sourceArray[0])
 				fixed (byte* srcPtr = &targetArray[0])
-					Buffer.MemoryCopy(srcPtr, destPtr, n, n);
+				{
+					Buffer.MemoryCopy(srcPtr + sourceOffset, destPtr + targetOffset, n, n);
+				}
 #else
-				Buffer.BlockCopy(sourceArray, 0, targetArray, 0, n);
+				Buffer.BlockCopy(sourceArray, sourceOffset, targetArray, targetOffset, n);
 #endif
 				return;
 			}
@@ -455,8 +461,8 @@
 			fixed (byte* destPtr = &sourceArray[0])
 			fixed (byte* srcPtr = &targetArray[0])
 			{
-				byte* dest = destPtr;
-				byte* src = srcPtr;
+				byte* src = srcPtr + sourceOffset;
+				byte* dest = destPtr + targetOffset;
 
 				SMALLTABLE: // Handles 0 to 16 bytes
 				switch (n)

@@ -41,7 +41,7 @@ namespace Ceras
 
 #if !NET45
 	/// <summary>
-	/// Uses <see cref="ArrayPool<"/>
+	/// Uses <see cref="System.Buffers.ArrayPool{T}"/>
 	/// </summary>
 	class CerasDefaultBufferPool : ICerasBufferPool
 	{

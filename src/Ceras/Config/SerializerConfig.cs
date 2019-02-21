@@ -206,6 +206,7 @@
 		DelegateSerializationMode IAdvancedConfigOptions.DelegateSerialization { get; set; } = DelegateSerializationMode.Off;
 		bool IAdvancedConfigOptions.UseReinterpretFormatter { get; set; } = true;
 		bool IAdvancedConfigOptions.RespectNonSerializedAttribute { get; set; } = true;
+		BitmapMode IAdvancedConfigOptions.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
 	}
 
 
@@ -312,6 +313,13 @@
 		/// <para>Default: true</para>
 		/// </summary>
 		bool RespectNonSerializedAttribute { get; set; }
+
+		/// <summary>
+		/// Set this to any mode to enable serialization of 'System.Drawing.Bitmap'
+		/// <para>Default: DontSerializeBitmaps</para>
+		/// </summary>
+		BitmapMode BitmapMode { get; set; }
+
 	}
 
 
@@ -387,4 +395,14 @@
 
 	public delegate IFormatter FormatterResolverCallback(CerasSerializer ceras, Type typeToBeFormatted);
 
+	/// <summary>
+	/// Ceras can serialize System.Drawing.Bitmap on platforms that have it (all .NET Framework platforms, but not .NET Standard/Core)
+	/// </summary>
+	public enum BitmapMode
+	{
+		DontSerializeBitmaps = 0,
+		SaveAsBmp = 1,
+		SaveAsPng = 2,
+		SaveAsJpg = 3,
+	}
 }
