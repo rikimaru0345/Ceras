@@ -17,8 +17,6 @@ namespace Ceras.Test
 			SetSerializerConfigurations(Config_NoReinterpret, Config_WithReinterpret, Config_WithVersioning);
 		}
 
-
-
 		[Fact]
 		public void BuiltInFormatters()
 		{
@@ -64,6 +62,39 @@ namespace Ceras.Test
 
 		}
 
+		[Fact]
+		public void DateTimeZone()
+		{
+			DateTime t1 = new DateTime(2000, 5, 5, 5, 5, 5, 5, DateTimeKind.Unspecified);
+			DateTime t2 = new DateTime(2000, 5, 5, 5, 5, 5, 5, DateTimeKind.Utc);
+			DateTime t3 = new DateTime(2000, 5, 5, 5, 5, 5, 5, DateTimeKind.Local);
+
+			var clone1 = Clone(t1);
+			AssertDateTimeEqual(t1, clone1);
+
+			var clone2 = Clone(t2);
+			AssertDateTimeEqual(t2, clone2);
+			
+			var clone3 = Clone(t3);
+			AssertDateTimeEqual(t3, clone3);
+
+
+		}
+
+		static void AssertDateTimeEqual(DateTime t1, DateTime t2)
+		{
+			Assert.True(t1.Kind == t2.Kind);
+
+			Assert.True(t1.Ticks == t2.Ticks);
+
+			Assert.True(t1.Year == t2.Year &&
+						t1.Month == t2.Month &&
+						t1.Day == t2.Day &&
+						t1.Hour == t2.Hour &&
+						t1.Minute == t2.Minute &&
+						t1.Second == t2.Second &&
+						t1.Millisecond == t2.Millisecond);
+		}
 
 	}
 }
