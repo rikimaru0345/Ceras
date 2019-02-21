@@ -127,6 +127,10 @@ namespace Ceras
 
 
 		internal readonly SerializerConfig Config;
+		/// <summary>
+		/// Get the config instance that was passed to the constructor of the serializer. Don't use this to modify any settings!
+		/// </summary>
+		public SerializerConfig GetConfig() => Config;
 
 		Type[] _knownTypes; // Copy of the list given by the user in Config; Array iteration is faster though
 

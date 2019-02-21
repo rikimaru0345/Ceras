@@ -4,12 +4,20 @@
     <TargetFramework>netstandard2.0</TargetFramework>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DefineConstants>TRACE;UNITY_2017_2_OR_NEWER</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DefineConstants>TRACE;UNITY_2017_2_OR_NEWER</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="UnityEngine">
-      <HintPath>..\..\..\..\..\..\..\..\Program Files\Unity\Hub\Editor\2018.3.0b10\Editor\Data\Managed\UnityEngine.dll</HintPath>
-    </Reference>
     <Reference Include="Ceras">
       <HintPath>..\Ceras\bin\Release\netstandard2.0\Ceras.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>..\..\..\..\..\..\..\..\Program Files\Unity\Hub\Editor\2019.2.0a4\Editor\Data\Managed\UnityEngine.dll</HintPath>
     </Reference>
   </ItemGroup>
 
