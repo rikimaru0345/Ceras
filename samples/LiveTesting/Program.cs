@@ -141,7 +141,7 @@ namespace LiveTesting
 		{
 			// Sub-formatters are automatically set by Ceras' dependency injection
 			IFormatter<byte[]> _byteArrayFormatter;
-			IFormatter<IEqualityComparer<byte[]>> _comparerFormatter; // auto-implemented by Ceras using DynamicObjectFormatter
+			IFormatter<IEqualityComparer<byte[]>> _comparerFormatter; // auto-implemented by Ceras using DynamicFormatter
 
 			public void Serialize(ref byte[] buffer, ref int offset, HashSet<byte[]> set)
 			{
@@ -1421,7 +1421,7 @@ namespace LiveTesting
 			 *
 			 * - potentially improve number encoding speed (varint encoding is naturally not super fast, maybe we can apply some tricks...)
 			 *
-			 * - have DynamicObjectFormatter generate its expressions, but inline the result directly to the reference formatter
+			 * - have DynamicFormatter generate its expressions, but inline the result directly to the reference formatter
 			 *
 			 * - reference proxies: use array instead of a list, don't return references to a pool, just reset them!
 			 *

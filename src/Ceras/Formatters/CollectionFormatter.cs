@@ -5,7 +5,7 @@
 	using System.Linq.Expressions;
 	using System.Reflection;
 
-	// todo: at the moment we refer to the item formatter through an interface field. Would we get a performance improvement if we'd compile a dedicated formatter that has the itemFormatter built-in as a constant instead? (just like the DynamicObjectFormatter already does)? Would we save performance if we'd cache the itemFormatter into a local variable before entering the loops?
+	// todo: at the moment we refer to the item formatter through an interface field. Would we get a performance improvement if we'd compile a dedicated formatter that has the itemFormatter built-in as a constant instead? (just like the DynamicFormatter already does)? Would we save performance if we'd cache the itemFormatter into a local variable before entering the loops?
 
 	// Idea from a user: at the moment we obtain a generic formatter for the item and then write the entries one after another. But would it be possible somehow (if the type is sealed or value-type) to write the type only once at the start, establishing something like "now X objects of this exact type Y will follow".
 	// -> No! We'd still need a reference formatter to ensure references are maintained. And at that point we have saved absolutely nothing because that check already encodes type IF its needed!

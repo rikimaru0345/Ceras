@@ -27,7 +27,7 @@ namespace Ceras.Formatters
 	 * > The ReferenceFormatter<> does that by "dispatching" to the actual type at runtime, dispatching one of many different DynamicObjectForamtters.
 	 * 
 	 * - "Why does it not implement ISchemaTaintedFormatter?"
-	 * > That concept only applies to types whos schema can change. So in VersionTolerant serialization both DynamicObjectFormatter and SchemaDynamicFormatter are used.
+	 * > That concept only applies to types whos schema can change. So in VersionTolerant serialization both DynamicFormatter and SchemaDynamicFormatter are used.
 	 *   This one is used for framework-types that are not supported, and SchemaDynamicFormatter is used for user-types.
 	 *   Because user-types can change over time, and framework-types stay the same, and if they change that has to be dealt with in a completely different way anyway.
 	 */
@@ -44,14 +44,14 @@ namespace Ceras.Formatters
 	// Instead of obtaining an 'Int32Formatter' and the like, we should compile a call directly to SerializerBinary.WriteInt32() ...
 	// That would avoid quite some overhead: removing the vtable dispatch, enabling inlining!
 
-	sealed class DynamicObjectFormatter<T> : IFormatter<T>
+	sealed class DynamicFormatter<T> : IFormatter<T>
 	{
 		readonly CerasSerializer _ceras;
 		readonly SerializeDelegate<T> _dynamicSerializer;
 		readonly DeserializeDelegate<T> _dynamicDeserializer;
 
 
-		public DynamicObjectFormatter(CerasSerializer serializer)
+		public DynamicFormatter(CerasSerializer serializer)
 		{
 			_ceras = serializer;
 
@@ -101,7 +101,7 @@ namespace Ceras.Formatters
 				var formatter = _ceras.GetReferenceFormatter(member.MemberType);
 
 				// Get the formatter and its Serialize method
-				// var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicObjectFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
+				// var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
 				var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
 				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter " + formatter.GetType().FullName);
 
@@ -235,6 +235,7 @@ namespace Ceras.Formatters
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value) => _dynamicDeserializer(buffer, ref offset, ref value);
 	}
+
 
 	static class DynamicFormatterHelpers
 	{

@@ -134,7 +134,7 @@ namespace Ceras
 
 		Type[] _knownTypes; // Copy of the list given by the user in Config; Array iteration is faster though
 
-		// A special resolver. It creates instances of the "dynamic formatter", the DynamicObjectFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
+		// A special resolver. It creates instances of the "dynamic formatter", the DynamicFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
 		// for a given object type.
 		readonly IFormatterResolver _dynamicResolver;
 
@@ -223,7 +223,7 @@ namespace Ceras
 			// That is because we only want to have specific resolvers in the resolvers-list
 			_dynamicResolver = new DynamicObjectFormatterResolver(this);
 
-			// System.Linq.Expressions - mostly handled by special configurations and DynamicObjectFormatter, but there are some special cases.
+			// System.Linq.Expressions - mostly handled by special configurations and DynamicFormatter, but there are some special cases.
 			_resolvers.Add(new ExpressionFormatterResolver());
 
 

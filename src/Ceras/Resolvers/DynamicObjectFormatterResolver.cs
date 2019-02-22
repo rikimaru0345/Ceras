@@ -5,7 +5,7 @@
 	using System;
 
 	/// <summary>
-	/// This resolver creates instances of <see cref="DynamicObjectFormatter{T}"/>, which can handle pretty much every complex object (assuming it has a correct TypeConfig to work with). It is always used last because it *always* returns a result.
+	/// This resolver creates instances of <see cref="DynamicFormatter{T}"/>, which can handle pretty much every complex object (assuming it has a correct TypeConfig to work with). It is always used last because it *always* returns a result.
 	/// </summary>
 	public class DynamicObjectFormatterResolver : IFormatterResolver
 	{
@@ -23,7 +23,7 @@
 			if (formatter != null)
 				return formatter;
 
-			var dynamicFormatterType = typeof(DynamicObjectFormatter<>).MakeGenericType(type);
+			var dynamicFormatterType = typeof(DynamicFormatter<>).MakeGenericType(type);
 			formatter = (IFormatter)Activator.CreateInstance(dynamicFormatterType, _ceras);
 			
 			return formatter;
