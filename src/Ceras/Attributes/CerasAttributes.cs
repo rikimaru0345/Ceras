@@ -1,7 +1,9 @@
-﻿namespace Ceras
+﻿using System;
+
+
+namespace Ceras
 {
 	using Formatters;
-	using System;
 
 
 	/// <summary>
@@ -184,10 +186,8 @@
 
 namespace Ceras.Formatters
 {
-	using System;
-
 	/// <summary>
-	/// Add this attribute to your <see cref="IFormatter{T}"/> class to configure Ceras' dependency injection system.
+	/// Add this attribute to your <see cref="IFormatter{T}"/> class to configure Ceras' dependency injection system. (Only needed to turn it off, it's enabled, even for private fields, by default)
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Class)]
 	public class CerasInjectAttribute : Attribute
@@ -204,8 +204,8 @@ namespace Ceras.Formatters
 	/// <summary>
 	/// Add this to a field inside an <see cref="IFormatter{T}"/> to let Ceras ignore it. Only useful on fields that could potentially have anything injected into them in the first place (field types like <see cref="CerasSerializer"/> or inheriting from <see cref="IFormatter"/>)
 	/// </summary>
-	[AttributeUsage(AttributeTargets.Field)]
-	public class NoInjectAttribute : Attribute
+	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Class)]
+	public class CerasNoInjectAttribute : Attribute
 	{
 	}
 
@@ -216,5 +216,17 @@ namespace Ceras.Formatters
 	public class CerasNoReference : Attribute
 	{
 
+	}
+}
+
+namespace Ceras.Formatters.AotGenerator
+{
+	/// <summary>
+	/// Put this attribute on every class/struct you want to serialize when you are using IL2CPP (or any other AOT scenario).
+	/// The formatter generator looks for it and generates formatters only for types with the attribute.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
+	public class CerasAutoGenAttribute : Attribute
+	{
 	}
 }

@@ -168,29 +168,45 @@
 		*/
 	}
 
-	struct SchemaMember
+	class SchemaMember
 	{
-		readonly SerializedMember _member;
+		const BindingFlags _bindingFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-		public readonly string PersistentName; // If set, this gets written as type name
+		public string PersistentName { get; } // If set, this gets written as type name
+		public MemberInfo Member { get; }
 
-		public MemberInfo MemberInfo => _member.MemberInfo;
-		public Type MemberType => _member.MemberType;
-		public string MemberName => _member.Name;
-		
+		public MemberInfo MemberInfo => Member;
+		public Type MemberType => Member is FieldInfo f ? f.FieldType : ((PropertyInfo)Member).PropertyType;
+		public string MemberName => Member.Name;
 		public bool IsSkip => MemberInfo == null; // If this is true, then member and override formatter are not used; while reading the element is skipped (by reading its size)
 
-		public SchemaMember(string persistentName, SerializedMember serializedMember)
+
+		public SchemaMember(string persistentName, MemberInfo memberInfo)
 		{
+			if (memberInfo == null)
+				throw new ArgumentNullException(nameof(memberInfo));
+			
+			var declaringType = memberInfo.DeclaringType;
+			if (declaringType == null)
+				throw new Exception("declaring type is null");
+
+			if (memberInfo is PropertyInfo p)
+			{
+				p = p.DeclaringType.GetProperty(p.Name, _bindingFlags);
+				if (!p.CanRead || !p.CanWrite)
+					throw new Exception("property must be readable and writable");
+			}
+
+
 			PersistentName = persistentName;
-			_member = serializedMember;
+			Member = memberInfo;
 		}
 
 		// Used when reading a schema and the member was not found
 		public SchemaMember(string persistentName)
 		{
 			PersistentName = persistentName;
-			_member = default;
+			Member = default;
 		}
 
 		public override string ToString()

@@ -703,6 +703,9 @@ namespace Ceras
 			var formatterType = formatter.GetType();
 			var config = formatterType.GetCustomAttribute<CerasInjectAttribute>() ?? CerasInjectAttribute.Default;
 
+			if (formatterType.GetCustomAttribute<CerasNoInjectAttribute>() != null)
+				return; // Don't inject anything
+
 			var flags = BindingFlags.Public | BindingFlags.Instance;
 			if (config.IncludePrivate)
 				flags |= BindingFlags.NonPublic;
@@ -710,7 +713,7 @@ namespace Ceras
 			var fields = formatter.GetType().GetFields(flags);
 			foreach (var f in fields)
 			{
-				if (f.GetCustomAttribute<NoInjectAttribute>() != null)
+				if (f.GetCustomAttribute<CerasNoInjectAttribute>() != null)
 					continue;
 
 				bool noRef = f.GetCustomAttribute<CerasNoReference>() != null;
@@ -846,7 +849,7 @@ namespace Ceras
 			{
 				if (memberConfig.ComputeFinalInclusionFast())
 				{
-					var schemaMember = new SchemaMember(memberConfig.PersistentName, SerializedMember.Create(memberConfig.Member, true));
+					var schemaMember = new SchemaMember(memberConfig.PersistentName, memberConfig.Member);
 					schema.Members.Add(schemaMember);
 				}
 				else
@@ -890,7 +893,7 @@ namespace Ceras
 				if (member == null)
 					schema.Members.Add(new SchemaMember(name));
 				else
-					schema.Members.Add(new SchemaMember(name, SerializedMember.Create(member, true)));
+					schema.Members.Add(new SchemaMember(name, member));
 			}
 
 			//

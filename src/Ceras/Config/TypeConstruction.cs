@@ -183,9 +183,7 @@ namespace Ceras
 			if(allowDynamicCodeGen)
 				return Expression.Lambda<Func<object>>(Expression.New(Constructor)).Compile();
 
-			Func<object> f = () => { return Constructor.Invoke(null); };
-
-			return f;
+			return () => Constructor.Invoke(null);
 		}
 
 		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
