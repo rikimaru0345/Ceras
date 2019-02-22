@@ -83,12 +83,12 @@
 			get => _versionTolerance;
 			set
 			{
-				if(_versionTolerance == VersionTolerance.Disabled && value != VersionTolerance.Disabled)
+				if (_versionTolerance == VersionTolerance.Disabled && value != VersionTolerance.Disabled)
 					Advanced.UseReinterpretFormatter = false;
 				_versionTolerance = value;
 			}
 		}
-		
+
 		/// <summary>
 		/// If all the other things (ShouldSerializeMember / Attributes) don't produce a decision, then this setting is used to determine if a member should be included.
 		/// By default only public fields are serialized. ReadonlyHandling is a separate option found inside <see cref="Advanced"/>
@@ -108,8 +108,8 @@
 		{
 			if (_configEntries.TryGetValue(type, out var typeConfig))
 				return typeConfig;
-			
-			if(type.ContainsGenericParameters)
+
+			if (type.ContainsGenericParameters)
 				throw new InvalidOperationException("You can not configure 'open' types (like List<>)! Only 'closed' types (like 'List<int>') can be configured statically. For dynamic configuration (which is what you are trying to do) use the 'OnConfigNewType' callback. It will be called for every fully instantiated type.");
 
 			typeConfig = (TypeConfig)Activator.CreateInstance(
@@ -130,7 +130,7 @@
 			if (_configEntries.TryGetValue(type, out var typeConfig))
 				return typeConfig;
 
-			if(type.ContainsGenericParameters)
+			if (type.ContainsGenericParameters)
 				return null;
 
 			typeConfig = (TypeConfig)Activator.CreateInstance(
@@ -207,6 +207,7 @@
 		bool IAdvancedConfigOptions.UseReinterpretFormatter { get; set; } = true;
 		bool IAdvancedConfigOptions.RespectNonSerializedAttribute { get; set; } = true;
 		BitmapMode IAdvancedConfigOptions.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
+		AotMode IAdvancedConfigOptions.AotMode { get; set; } = AotMode.None;
 	}
 
 
@@ -315,11 +316,15 @@
 		bool RespectNonSerializedAttribute { get; set; }
 
 		/// <summary>
-		/// Set this to any mode to enable serialization of 'System.Drawing.Bitmap'
+		/// Set this to any mode to enable serialization of 'System.Drawing.Bitmap' (only works on .NET Framework, since other platforms don't have access to System.Drawing)
 		/// <para>Default: DontSerializeBitmaps</para>
 		/// </summary>
 		BitmapMode BitmapMode { get; set; }
 
+		/// <summary>
+		/// On an AoT platforms (for example Unity IL2CPP) Ceras can not use dynamic code generation. When enabled, Ceras will use reflection for everything where it would otherwise use dynamic code generation. This is slow, but it allows for testing and debugging on those platforms until 
+		/// </summary>
+		AotMode AotMode { get; set; }
 	}
 
 
@@ -395,14 +400,23 @@
 
 	public delegate IFormatter FormatterResolverCallback(CerasSerializer ceras, Type typeToBeFormatted);
 
-	/// <summary>
-	/// Ceras can serialize System.Drawing.Bitmap on platforms that have it (all .NET Framework platforms, but not .NET Standard/Core)
-	/// </summary>
 	public enum BitmapMode
 	{
 		DontSerializeBitmaps = 0,
 		SaveAsBmp = 1,
 		SaveAsPng = 2,
 		SaveAsJpg = 3,
+	}
+
+	public enum AotMode
+	{
+		/// <summary>
+		/// The default mode, don't do anything special for compatibility with AoT runtimes
+		/// </summary>
+		None,
+		/// <summary>
+		/// Enable AoT mode, which disables all dynamic code-gen and instead uses fallback methods.
+		/// </summary>
+		Enabled,
 	}
 }

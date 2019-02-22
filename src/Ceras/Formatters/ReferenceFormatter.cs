@@ -5,10 +5,7 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
-	using System.Linq;
 	using System.Linq.Expressions;
-	using System.Reflection;
-	using System.Runtime.Serialization;
 
 #if FAST_EXP
 	using FastExpressionCompiler;
@@ -50,7 +47,7 @@
 	 *			Downside: Makes the actual code **really** hard to follow and understand, and impossible to debug.
 	 *
 	 */
-	sealed class ReferenceFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
+	public sealed class ReferenceFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
 	where T : class
 	{
 		// -5: To support stuff like 'object obj = typeof(Bla);'. The story is more complicated and explained at the end of the file.
@@ -101,7 +98,7 @@
 
 			var specificType = value.GetType();
 			var entry = GetOrCreateEntry(specificType);
-			
+
 			if (entry.IsType) // This is very rare, so we cache the check itself, and do the cast below
 			{
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, InlineType, Bias);
@@ -307,8 +304,16 @@
 			var formatter = _ceras.GetSpecificFormatter(type);
 
 			// Create dispatchers and ctor
-			entry.CurrentSerializeDispatcher = CreateSpecificSerializerDispatcher(type, formatter);
-			entry.CurrentDeserializeDispatcher = CreateSpecificDeserializerDispatcher(type, formatter);
+			if (_ceras.Config.Advanced.AotMode == AotMode.None)
+			{
+				entry.CurrentSerializeDispatcher = CreateSpecificSerializerDispatcher(type, formatter);
+				entry.CurrentDeserializeDispatcher = CreateSpecificDeserializerDispatcher(type, formatter);
+			}
+			else
+			{
+				entry.CurrentSerializeDispatcher = CreateSpecificSerializerDispatcher_Aot(type, formatter);
+				entry.CurrentDeserializeDispatcher = CreateSpecificDeserializerDispatcher_Aot(type, formatter);
+			}
 			entry.Constructor = CreateObjectConstructor(type);
 
 			if (!meta.IsFrameworkType) // Framework types do not have a schemata dict
@@ -351,7 +356,8 @@
 			}
 			else
 			{
-				return tc.GetRefFormatterConstructor();
+				bool allowDynCode = _ceras.Config.Advanced.AotMode == AotMode.None;
+				return tc.GetRefFormatterConstructor(allowDynCode);
 			}
 		}
 
@@ -497,9 +503,42 @@
 		}
 
 
+		static SerializeDelegate<T> CreateSpecificSerializerDispatcher_Aot(Type type, IFormatter specificFormatter)
+		{
+			var serializeMethod = specificFormatter.GetType().GetMethod("Serialize");
+			var args = new object[3];
+			return new SerializeDelegate<T>((ref byte[] buffer, ref int offset, T value) =>
+			{
+				args[0] = buffer;
+				args[1] = offset;
+				args[2] = value;
+				serializeMethod.Invoke(specificFormatter, args);
+				buffer = (byte[])args[0];
+				offset = (int)args[1];
+			});
+		}
+
+		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher_Aot(Type type, IFormatter specificFormatter)
+		{
+			var deserializeMethod = specificFormatter.GetType().GetMethod("Deserialize");
+			var args = new object[3];
+			return new DeserializeDelegate<T>((byte[] buffer, ref int offset, ref T value) =>
+			{
+				args[0] = buffer;
+				args[1] = offset;
+				args[2] = value;
+
+				deserializeMethod.Invoke(specificFormatter, args);
+
+				offset = (int) args[1];
+				value = (T) args[2];
+			});
+		}
 
 
-		public void OnSchemaChanged(TypeMetaData meta)
+
+
+		void ISchemaTaintedFormatter.OnSchemaChanged(TypeMetaData meta)
 		{
 			// If we've encountered this specific type already...
 			if (_dispatchers.TryGetValue(meta.Type, out var entry))

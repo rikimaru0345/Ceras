@@ -15,7 +15,7 @@ namespace Ceras
 		internal TypeConfig TypeConfig; // Not as clean as I'd like, this can't be set from a protected base ctor, because users might eventually want to create their own
 
 		internal abstract bool HasDataArguments { get; }
-		internal abstract Func<object> GetRefFormatterConstructor();
+		internal abstract Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen);
 
 		internal virtual void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, MemberParameterPair[] memberParameters)
 		{
@@ -135,7 +135,7 @@ namespace Ceras
 		ConstructNull() { }
 
 		internal override bool HasDataArguments => false;
-		internal override Func<object> GetRefFormatterConstructor() => () => null;
+		internal override Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen) => () => null;
 	}
 
 	abstract class MethodBaseConstruction : TypeConstruction
@@ -178,9 +178,14 @@ namespace Ceras
 		}
 
 		internal override bool HasDataArguments => Constructor.GetParameters().Length > 0;
-		internal override Func<object> GetRefFormatterConstructor()
+		internal override Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen)
 		{
-			return Expression.Lambda<Func<object>>(Expression.New(Constructor)).Compile();
+			if(allowDynamicCodeGen)
+				return Expression.Lambda<Func<object>>(Expression.New(Constructor)).Compile();
+
+			Func<object> f = () => { return Constructor.Invoke(null); };
+
+			return f;
 		}
 
 		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
@@ -222,7 +227,7 @@ namespace Ceras
 
 
 		internal override bool HasDataArguments => Method.GetParameters().Length > 0;
-		internal override Func<object> GetRefFormatterConstructor()
+		internal override Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen)
 		{
 			if (Method.IsStatic)
 				return (Func<object>)Delegate.CreateDelegate(typeof(Func<object>), Method);
@@ -270,7 +275,7 @@ namespace Ceras
 
 		internal override bool HasDataArguments => _directConstructor != null && _directConstructor.GetParameters().Length > 0;
 
-		internal override Func<object> GetRefFormatterConstructor()
+		internal override Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen)
 		{
 			// todo: There are a lot of hardcore tricks to improve performance here. But for now it would be wasted time since the feature will (probably) be used very rarely.
 			var t = TypeConfig.Type;
