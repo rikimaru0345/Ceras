@@ -19,6 +19,12 @@
 
 		public IFormatter GetFormatter(Type type)
 		{
+			if (_ceras.Config.Advanced.AotMode == AotMode.Enabled)
+			{
+				throw new InvalidOperationException($"No formatter for the Type '{type.FullName}' was found. Ceras is trying to fall back to the DynamicFormatter, but that formatter will never work in on AoT compiled platforms. Use the code generator tool to automatically generate a formatter for this type.");
+			}
+
+
 			ref var formatter = ref _dynamicFormatters.GetOrAddValueRef(type);
 			if (formatter != null)
 				return formatter;
