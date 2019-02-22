@@ -32,7 +32,7 @@
 	 *
 	 * todo: we might be able to eliminate the following check:
 	 *			if (value is IExternalRootObject externalObj)
-	 *		 by moving it out of here and into the DynamicObjectFormatter.
+	 *		 by moving it out of here and into the DynamicFormatter.
 	 *		 There we know what concrete type we're dealing with and if it is an IExternalObject.
 	 *		 So that way we only have to check if the current object is equal to the current root object, easy!
 	 *		 For deserialization we can statically compile in the check for the external resolver as well!
@@ -506,8 +506,17 @@
 		static SerializeDelegate<T> CreateSpecificSerializerDispatcher_Aot(Type type, IFormatter specificFormatter)
 		{
 			var serializeMethod = specificFormatter.GetType().GetMethod("Serialize");
+			if (type == typeof(T))
+			{
+				var f = (IFormatter<T>) specificFormatter;
+
+				return (SerializeDelegate<T>)Delegate.CreateDelegate(typeof(SerializeDelegate<T>), f, serializeMethod);
+				// return (ref byte[] buffer, ref int offset, T value) => { f.Serialize(ref buffer, ref offset, value); };
+			}
+			
+			// Can't call directly, need to invoke through reflection so T gets casted up/down correctly.
 			var args = new object[3];
-			return new SerializeDelegate<T>((ref byte[] buffer, ref int offset, T value) =>
+			return (ref byte[] buffer, ref int offset, T value) =>
 			{
 				args[0] = buffer;
 				args[1] = offset;
@@ -515,12 +524,21 @@
 				serializeMethod.Invoke(specificFormatter, args);
 				buffer = (byte[])args[0];
 				offset = (int)args[1];
-			});
+			};
 		}
 
 		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher_Aot(Type type, IFormatter specificFormatter)
 		{
 			var deserializeMethod = specificFormatter.GetType().GetMethod("Deserialize");
+			if (type == typeof(T))
+			{
+				var f = (IFormatter<T>) specificFormatter;
+
+				return (DeserializeDelegate<T>)Delegate.CreateDelegate(typeof(DeserializeDelegate<T>), f, deserializeMethod);
+				// return (ref byte[] buffer, ref int offset, T value) => { f.Serialize(ref buffer, ref offset, value); };
+			}
+
+
 			var args = new object[3];
 			return new DeserializeDelegate<T>((byte[] buffer, ref int offset, ref T value) =>
 			{
