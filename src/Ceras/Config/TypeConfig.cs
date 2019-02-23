@@ -314,6 +314,12 @@
 
 		#region Formatter
 
+		public new IFormatter<T> CustomFormatter
+		{
+			get => (IFormatter<T>)base.CustomFormatter;
+			set => base.CustomFormatter = value;
+		}
+
 		/// <summary>
 		/// Set a custom formatter that will get used to serialize this type
 		/// </summary>

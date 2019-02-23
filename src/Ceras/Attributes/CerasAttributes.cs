@@ -215,18 +215,28 @@ namespace Ceras.Formatters
 	[AttributeUsage(AttributeTargets.Field)]
 	public class CerasNoReference : Attribute
 	{
-
 	}
 }
 
 namespace Ceras.Formatters.AotGenerator
 {
 	/// <summary>
+	/// When using the formatter generator you should have a static method somewhere that returns a SerializerConfig, the tool will find the method using this attribute and then execute it so it can use the same config that you are using when the program runs.
+	/// That way the generator knows what types to generate formatters for, and what members to include or exclude.
+	/// The tool inspects 'KnownTypes' as well as all types that you configured using the ConfigType methods. Types that are only handled in "OnConfigNewType" will not be handled in any way because that method is only called when any type is actually encountered (serialized or deserialized).
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Method)]
+	public class CerasAutoGenConfigAttribute : Attribute
+	{
+	}
+
+	/// <summary>
 	/// Put this attribute on every class/struct you want to serialize when you are using IL2CPP (or any other AOT scenario).
 	/// The formatter generator looks for it and generates formatters only for types with the attribute.
+	/// If a base type (for example 'abstract class NetworkMessage') has this attribute, then all derived types that the tool can find will also have a formatter generated for them.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
-	public class CerasAutoGenAttribute : Attribute
+	public class CerasAutoGenFormatterAttribute : Attribute
 	{
 	}
 }

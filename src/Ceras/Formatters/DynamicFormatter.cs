@@ -66,8 +66,8 @@ namespace Ceras.Formatters
 			var schema = meta.PrimarySchema;
 			if (schema.Members.Count > 0)
 			{
-				_dynamicSerializer = GenerateSerializer(schema);
-				_dynamicDeserializer = GenerateDeserializer(schema);
+				_dynamicSerializer = GenerateSerializer(_ceras, schema).Compile();
+				_dynamicDeserializer = GenerateDeserializer(_ceras, schema).Compile();
 			}
 			else
 			{
@@ -77,7 +77,7 @@ namespace Ceras.Formatters
 		}
 
 
-		SerializeDelegate<T> GenerateSerializer(Schema schema)
+		static Expression<SerializeDelegate<T>> GenerateSerializer(CerasSerializer ceras, Schema schema)
 		{
 			var members = schema.Members;
 
@@ -97,7 +97,7 @@ namespace Ceras.Formatters
 				// todo: depending on the configuration, we could have a "StructBlitFormatter" which just re-interprets the pointer and writes the data directly in a single assignment; like casting the byte[] to a byte* to a Vector3* and then doing a direct assignment. (only works with blittable types, and if the setting is active)
 				// todo: if we have a setting for that, it should be global (as a fallback) as well as a per-type config; the TypeConfig has to get its default value from the global value (maybe in the CerasSerializer ctor), so it doesn't have to keep looking into the global config; and so there is no bug when someone configures some types directly first and then sets the default after!
 				// todo: fully unpack known formatters as well. Maybe let matching formatters implement an interface that can return some sort of "Expression GetDirectCall(bufferArg, offsetArg, localStore)"
-				var formatter = _ceras.GetReferenceFormatter(member.MemberType);
+				var formatter = ceras.GetReferenceFormatter(member.MemberType);
 
 				// Get the formatter and its Serialize method
 				// var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
@@ -117,15 +117,15 @@ namespace Ceras.Formatters
 #if FAST_EXP
 			return Expression.Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg).CompileFast(true);
 #else
-			return Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg).Compile();
+			return Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg);
 #endif
 
 		}
 
-		DeserializeDelegate<T> GenerateDeserializer(Schema schema)
+		static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema)
 		{
 			var members = schema.Members;
-			var typeConfig = _ceras.Config.GetTypeConfig(schema.Type);
+			var typeConfig = ceras.Config.GetTypeConfig(schema.Type);
 			var tc = typeConfig.TypeConstruction;
 
 			bool constructObject = tc.HasDataArguments; // Are we responsible for instantiating an object?
@@ -162,7 +162,7 @@ namespace Ceras.Formatters
 				var member = members[i];
 				var tempStore = locals[i];
 
-				var formatter = _ceras.GetReferenceFormatter(member.MemberType);
+				var formatter = ceras.GetReferenceFormatter(member.MemberType);
 				var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
 
@@ -226,9 +226,10 @@ namespace Ceras.Formatters
 #if FAST_EXP
 			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
 #else
-			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, refOffsetArg, refValueArg).Compile();
+			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, refOffsetArg, refValueArg);
 #endif
 		}
+
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value) => _dynamicSerializer(ref buffer, ref offset, value);
 
