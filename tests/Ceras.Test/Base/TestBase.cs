@@ -31,7 +31,11 @@ namespace Ceras.Test
 		
 		protected SerializerConfig Config_WithReinterpret => CreateConfig(x => x.Advanced.UseReinterpretFormatter = true);
 		protected SerializerConfig Config_NoReinterpret => CreateConfig(x => x.Advanced.UseReinterpretFormatter = false);
-		protected SerializerConfig Config_WithVersioning => CreateConfig(x => x.VersionTolerance = VersionTolerance.AutomaticEmbedded);
+		protected SerializerConfig Config_WithVersioning => CreateConfig(x =>
+		{
+			x.VersionTolerance.Mode = VersionToleranceMode.Standard;
+			x.VersionTolerance.VerifySizes = true;
+		});
 
 		SerializerConfig[] _currentTestConfigurations = { new SerializerConfig() };
 		int _runCount = 0;

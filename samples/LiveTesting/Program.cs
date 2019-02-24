@@ -1305,7 +1305,8 @@ namespace LiveTesting
 		static void VersionToleranceTest()
 		{
 			var config = new SerializerConfig();
-			config.VersionTolerance = VersionTolerance.AutomaticEmbedded;
+			config.VersionTolerance.Mode = VersionToleranceMode.Standard;
+			config.VersionTolerance.VerifySizes = true;
 
 			config.Advanced.TypeBinder = new DebugVersionTypeBinder();
 

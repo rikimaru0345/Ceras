@@ -27,10 +27,10 @@ namespace Ceras.Formatters
 		static readonly Type _sizeType = typeof(uint);
 		static readonly MethodInfo _sizeWriteMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.WriteUInt32Fixed));
 		static readonly MethodInfo _sizeReadMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadUInt32Fixed));
-
+		static readonly MethodInfo _offsetMismatchMethod = ReflectionHelper.GetMethod(() => ThrowOffsetMismatch(0, 0, 0));
 
 		readonly CerasSerializer _ceras;
-		
+
 		SerializeDelegate<T> _serializer;
 		DeserializeDelegate<T> _deserializer;
 
@@ -83,7 +83,7 @@ namespace Ceras.Formatters
 				locals.Add(startPos = Variable(typeof(int), "startPos"));
 				locals.Add(size = Variable(typeof(int), "size"));
 			}
-			
+
 			Dictionary<Type, ConstantExpression> typeToFormatter = new Dictionary<Type, ConstantExpression>();
 			foreach (var m in members.Where(m => !m.IsSkip).DistinctBy(m => m.MemberType))
 				typeToFormatter.Add(m.MemberType, Constant(ceras.GetReferenceFormatter(m.MemberType)));
@@ -100,7 +100,7 @@ namespace Ceras.Formatters
 				var formatter = formatterExp.Value;
 				var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
 				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter " + formatter.GetType().FullName);
-				
+
 				// Access the field that we want to serialize
 				var fieldExp = MakeMemberAccess(valueArg, member.MemberInfo);
 
@@ -158,6 +158,7 @@ namespace Ceras.Formatters
 
 		internal static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter)
 		{
+			bool verifySizes = isSchemaFormatter && ceras.Config.VersionTolerance.VerifySizes;
 			var members = schema.Members;
 			var typeConfig = ceras.Config.GetTypeConfig(schema.Type);
 			var tc = typeConfig.TypeConstruction;
@@ -172,13 +173,13 @@ namespace Ceras.Formatters
 			var body = new List<Expression>();
 			var locals = new List<ParameterExpression>(schema.Members.Count);
 
-			ParameterExpression blockSize = null;
+			ParameterExpression blockSize = null, offsetStart = null;
 			if (isSchemaFormatter)
 			{
-				blockSize = Variable(typeof(int), "blockSize");
-				locals.Add(blockSize);
+				locals.Add(blockSize = Variable(typeof(int), "blockSize"));
+				locals.Add(offsetStart = Variable(typeof(int), "offsetStart"));
 			}
-			
+
 
 			// MemberInfo -> Variable()
 			Dictionary<MemberInfo, ParameterExpression> memberInfoToLocal = new Dictionary<MemberInfo, ParameterExpression>();
@@ -224,6 +225,13 @@ namespace Ceras.Formatters
 					var readCall = Call(method: _sizeReadMethod, arg0: bufferArg, arg1: refOffsetArg);
 					body.Add(Assign(blockSize, Convert(readCall, typeof(int))));
 
+					if (verifySizes)
+					{
+						// Store the offset before reading the member so we can compare it later
+						body.Add(Assign(offsetStart, refOffsetArg));
+					}
+
+
 					if (m.IsSkip)
 					{
 						// Skip over the field
@@ -235,17 +243,25 @@ namespace Ceras.Formatters
 
 				if (m.IsSkip && !isSchemaFormatter)
 					throw new InvalidOperationException("DynamicFormatter can not skip members in non-schema mode");
-				
+
 
 				var formatterExp = typeToFormatter[m.MemberType];
 				var formatter = formatterExp.Value;
 				var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
-				
+
 				var local = memberInfoToLocal[m.MemberInfo];
 				body.Add(Call(formatterExp, deserializeMethod, bufferArg, refOffsetArg, local));
 
-				// todo: In schema-mode, we could check if the expected blockSize matches what we've actually read
+				if (isSchemaFormatter && verifySizes)
+				{
+					// Compare blockSize with how much we've actually read
+					// if ( offsetStart + blockSize != offset )
+					//     ThrowException();
+
+					body.Add(IfThen(test: NotEqual(Add(offsetStart, blockSize), refOffsetArg),
+									ifTrue: Call(instance: null, _offsetMismatchMethod, offsetStart, refOffsetArg, blockSize)));
+				}
 			}
 
 			//
@@ -257,7 +273,7 @@ namespace Ceras.Formatters
 						from m in schema.Members
 						where !m.IsSkip
 						let local = memberInfoToLocal[m.MemberInfo]
-						select new MemberParameterPair {LocalVar = local, Member = m.MemberInfo}
+						select new MemberParameterPair { LocalVar = local, Member = m.MemberInfo }
 				).ToArray();
 
 				usedVariables = new HashSet<ParameterExpression>();
@@ -311,6 +327,11 @@ namespace Ceras.Formatters
 			var bodyBlock = Block(variables: locals, expressions: body);
 
 			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, refOffsetArg, refValueArg);
+		}
+
+		static void ThrowOffsetMismatch(int startOffset, int offset, int blockSize)
+		{
+			throw new InvalidOperationException($"The data being read is corrupted. The amount of data read did not match the expected block-size! BlockStart:{startOffset} BlockSize:{blockSize} CurrentOffset:{offset}");
 		}
 	}
 }

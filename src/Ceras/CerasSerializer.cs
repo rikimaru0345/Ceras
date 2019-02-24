@@ -177,10 +177,10 @@ namespace Ceras
 			if (Config.ExternalObjectResolver == null)
 				Config.ExternalObjectResolver = new ErrorResolver();
 
-			if (Config.Advanced.UseReinterpretFormatter && Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+			if (Config.Advanced.UseReinterpretFormatter && Config.VersionTolerance.Mode != VersionToleranceMode.Disabled)
 				throw new NotSupportedException("You can not use 'UseReinterpretFormatter' together with version tolerance. Either disable version tolerance, or use the old formatter for blittable types by setting 'Config.Advanced.UseReinterpretFormatter' to false.");
 
-			if (Config.Advanced.AotMode != AotMode.None && Config.VersionTolerance != VersionTolerance.Disabled)
+			if (Config.Advanced.AotMode != AotMode.None && Config.VersionTolerance.Mode != VersionToleranceMode.Disabled)
 				throw new NotSupportedException("You can not use 'AotMode.Enabled' and version tolerance at the same time for now. If you would like this feature implemented, please open an issue on GitHub explaining your use-case, or join the Discord server.");
 
 			TypeBinder = Config.Advanced.TypeBinder ?? new NaiveTypeBinder();
@@ -620,7 +620,7 @@ namespace Ceras
 
 
 			// 4.) Depending on the VersionTolerance we use different formatters
-			if (Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
+			if (Config.VersionTolerance.Mode != VersionToleranceMode.Disabled)
 			{
 				if (!meta.IsFrameworkType)
 				{

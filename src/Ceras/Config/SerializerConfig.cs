@@ -8,7 +8,7 @@
 	/// <summary>
 	/// Allows detailed configuration of the <see cref="CerasSerializer"/>. Advanced options can be found inside <see cref="Advanced"/>
 	/// </summary>
-	public class SerializerConfig : IAdvancedConfigOptions, ISizeLimitsConfig
+	public class SerializerConfig : IAdvancedConfigOptions, ISizeLimitsConfig, IVersionToleranceConfig
 	{
 		bool _isSealed; // todo
 		internal bool IsSealed => _isSealed;
@@ -70,25 +70,7 @@
 		/// <para>Default: true</para>
 		/// </summary>
 		public bool PreserveReferences { get; set; } = true;
-
-		VersionTolerance _versionTolerance = VersionTolerance.Disabled;
-		/// <summary>
-		/// Sometimes you want to persist objects even while they evolve (fields being added, removed, renamed).
-		/// Type changes are not supported (yet, nobody has requested it so far).
-		/// Check out the tutorial for more information (and a way to deal with changing types)
-		/// <para>Default: Disabled</para>
-		/// </summary>
-		public VersionTolerance VersionTolerance
-		{
-			get => _versionTolerance;
-			set
-			{
-				if (_versionTolerance == VersionTolerance.Disabled && value != VersionTolerance.Disabled)
-					Advanced.UseReinterpretFormatter = false;
-				_versionTolerance = value;
-			}
-		}
-
+		
 		/// <summary>
 		/// If all the other things (ShouldSerializeMember / Attributes) don't produce a decision, then this setting is used to determine if a member should be included.
 		/// By default only public fields are serialized. ReadonlyHandling is a separate option found inside <see cref="Advanced"/>
@@ -98,7 +80,31 @@
 
 		#endregion
 
+		#region Version Tolerance
 
+		/// <summary>
+		/// Sometimes you want to persist objects even while they evolve (fields being added, removed, renamed).
+		/// Type changes are not supported (yet, nobody has requested it so far).
+		/// Check out the tutorial for more information (and a way to deal with changing types)
+		/// </summary>
+		public IVersionToleranceConfig VersionTolerance => this;
+		
+		VersionToleranceMode _versionToleranceMode = VersionToleranceMode.Disabled;
+		VersionToleranceMode IVersionToleranceConfig.Mode
+		{
+			get => _versionToleranceMode;
+			set
+			{
+				if (_versionToleranceMode == VersionToleranceMode.Disabled && value != VersionToleranceMode.Disabled)
+					Advanced.UseReinterpretFormatter = false;
+				_versionToleranceMode = value;
+			}
+		}
+		bool IVersionToleranceConfig.VerifySizes { get; set; } = false;
+		//bool IVersionToleranceConfig.IncludeFrameworkTypes { get; set; } = false;
+
+		#endregion
+		
 		#region Type Configuration
 
 		Dictionary<Type, TypeConfig> _configEntries = new Dictionary<Type, TypeConfig>();
@@ -326,8 +332,7 @@
 		/// </summary>
 		AotMode AotMode { get; set; }
 	}
-
-
+	
 	public interface ISizeLimitsConfig
 	{
 		/// <summary>
@@ -346,6 +351,32 @@
 		/// Maximum number of elements to read for any collection (everything that implements ICollection, so List, Dictionary, ...)
 		/// </summary>
 		uint MaxCollectionSize { get; set; }
+	}
+
+	public interface IVersionToleranceConfig
+	{
+		/// <summary>
+		/// Checkout the documentation for <see cref="VersionToleranceMode.Standard"/>
+		/// <para>Default: <see cref="VersionToleranceMode.Disabled"/></para>
+		/// </summary>
+		VersionToleranceMode Mode { get; set; }
+		
+		/// <summary>
+		/// When using VersionTolerance, the size of each member is written/read, but this information can also be used to verify if the data has been read correctly.
+		/// Turn it on to gain some protection against data-corruption, or leave it off to not pay the performance penalty of doing the check.
+		/// <para>Default: false</para>
+		/// </summary>
+		bool VerifySizes { get; set; }
+		
+		/*
+		/// <summary>
+		/// By default Ceras will not embed any version-relevant data for framework types (types that come from the assemblies 'mscorlib', 'System', 'System.Core').
+		/// Activating this will increase the output size by quite a lot.
+		/// It's very rare that any of the base types (at least those that you probably serialize) will change. 
+		/// <para>Default: false</para>
+		/// </summary>
+		bool IncludeFrameworkTypes { get; set; }
+		*/
 	}
 
 	public enum DelegateSerializationMode
@@ -392,10 +423,45 @@
 		ForcedOverwrite = 2,
 	}
 
-	public enum VersionTolerance
+	[Flags]
+	public enum VersionToleranceMode
 	{
-		Disabled,
-		AutomaticEmbedded,
+		/// <summary>
+		/// No version tolerance, any name or type change in any serialized type changes will be a breaking change
+		/// </summary>
+		Disabled = 0,
+
+		/// <summary>
+		/// Embed member names and sizes. The most common way version tolerance is implemented.
+		/// This mode is equivalent to how version-tolerant most other formats are, for example Json, Xml, and MessagePack all have the same "depth" of version tolerance as this mode.
+		/// 
+		/// <para>
+		/// This makes the serialized data robust against: renaming members, removing members, adding new members!
+		/// </para>
+		/// <para>
+		/// This does not help against: renaming types themselves, changing the type of a member while keeping the name (you'd need to rename the member so it won't conflict with any old data).
+		/// </para>
+		///
+		/// <para>
+		/// In order to find and map members again after their name has changed, you need to place the [PreviousName].
+		/// </para>
+		///
+		/// <para>
+		/// To get resistance against type-name-changes use the Extended mode (not yet implemented, contact me on GitHub or Discord if you have a need for it)
+		/// </para>
+		/// </summary>
+		Standard = 1,
+
+		/// <summary>
+		/// In addition to the <see cref="Standard"/> mode, this also embeds the type names of serialized objects, as well as the types of the members.
+		/// <para>
+		/// As far as tolerance to changes goes, this mode is literally as good as it gets. Every relevant bit of information is encoded, and old data is converted/upgraded by calling your conversion functions.
+		/// </para>
+		/// <para>
+		/// Warning: This mode is not implemented yet as it's still a bit unclear how users would prefer the conversion process to look like. Get in contact on GitHub or Discord if you need this mode.
+		/// </para>
+		/// </summary>
+		Extended = 2,
 	}
 
 	public delegate IFormatter FormatterResolverCallback(CerasSerializer ceras, Type typeToBeFormatted);
