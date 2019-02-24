@@ -2,8 +2,13 @@
 
 namespace Ceras.Test
 {
+	using Formatters;
+	using Resolvers;
 	using System.Collections;
 	using System.Collections.Generic;
+	using System.Collections.Immutable;
+	using System.Collections.ObjectModel;
+	using System.Linq;
 	using System.Numerics;
 	using Xunit;
 
@@ -100,11 +105,11 @@ namespace Ceras.Test
 		{
 			var appveyor = Environment.GetEnvironmentVariable("APPVEYOR");
 			if (appveyor != null && appveyor.Equals("true", StringComparison.OrdinalIgnoreCase))
-					// No GDI
+				// No GDI
 				return;
 			appveyor = Environment.GetEnvironmentVariable("CI");
 			if (appveyor != null && appveyor.Equals("true", StringComparison.OrdinalIgnoreCase))
-					// No GDI
+				// No GDI
 				return;
 
 
@@ -125,15 +130,15 @@ namespace Ceras.Test
 			for (int y = 0; y < 16; y++)
 				for (int x = 0; x < 16; x++)
 					Assert.True(bmp.GetPixel(x, y) == bmpClone.GetPixel(x, y));
-				
-			
+
+
 			// Clone as PNG
 			var pngClone = Clone(bmp, cPng);
 			Assert.True(pngClone != null);
 			for (int y = 0; y < 16; y++)
 				for (int x = 0; x < 16; x++)
 					Assert.True(bmp.GetPixel(x, y) == pngClone.GetPixel(x, y));
-			
+
 			// Clone as JPG
 			var jpgClone = Clone(bmp, cJpg);
 			Assert.True(jpgClone != null);
@@ -159,7 +164,7 @@ namespace Ceras.Test
 			for (int i = 0; i < 3; i++)
 				Assert.True(stack.Pop() == clone.Pop());
 		}
-		
+
 		[Fact]
 		public void Queue()
 		{
@@ -173,6 +178,35 @@ namespace Ceras.Test
 			Assert.True(queue.Count == clone.Count);
 			for (int i = 0; i < 3; i++)
 				Assert.True(queue.Dequeue() == clone.Dequeue());
+		}
+
+		[Fact]
+		public void ImmutableCollections()
+		{
+			var rc = new ReadOnlyCollection<int>(new[] { 4, 5, rngInt, 6, rngInt, 7, 8, rngInt, 98, 34, 2435, 32131 });
+			TestDeepEquality(rc);
+
+
+			var immAr = ImmutableArray.Create(9, 8, 7, 6, 5, 4, 3, 32, rngInt, 123, 15, 42, 5, rngInt, rngInt);
+			TestDeepEquality(immAr);
+
+
+			ImmutableDictionary<int, string> immDict = ImmutableDictionary<int, string>.Empty.AddRange(new[]
+			{
+				new KeyValuePair<int, string>(rng.Next(0, 10), "a"),
+				new KeyValuePair<int, string>(rng.Next(30, 40), "d"),
+			});
+			TestDeepEquality(immDict);
+
+
+			var iq = ImmutableQueue.Create(1, 2, 3, rngInt, 5, 6, 7);
+			TestDeepEquality(iq);
+
+			var istack = ImmutableStack.Create(1, 23, rngInt, 2, 4, 5, 22);
+			TestDeepEquality(istack);
+
+			var ihs = ImmutableHashSet.Create(5, 5, 5, 5, 5, 5, rngInt, rngInt, 1, 2, 3, 4, 5, 6, 7, 8, 9);
+			TestDeepEquality(ihs);
 		}
 
 	}

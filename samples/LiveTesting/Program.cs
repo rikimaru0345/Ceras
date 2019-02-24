@@ -26,6 +26,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			new Basics().ImmutableCollections();
+
 			Benchmarks();
 
 			CustomComparerFormatter();

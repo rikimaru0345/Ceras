@@ -7,9 +7,11 @@
  
 
   <ItemGroup>
+    <ProjectReference Include="..\..\Ceras.ImmutableCollections\Ceras.ImmutableCollections.csproj" />
     <ProjectReference Include="..\..\src\Ceras\Ceras.csproj" />
     <PackageReference Include="MSTest.TestAdapter" Version="1.4.0" />
     <PackageReference Include="MSTest.TestFramework" Version="1.4.0" />
+    <PackageReference Include="System.Collections.Immutable" Version="1.5.0" />
     <PackageReference Include="xunit" Version="2.4.1" />
     <PackageReference Include="xunit.extensibility.execution" Version="2.4.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.1">

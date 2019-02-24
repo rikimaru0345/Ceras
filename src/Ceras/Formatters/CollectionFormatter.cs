@@ -4,6 +4,7 @@
 	using System.Collections.Generic;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using Helpers;
 
 	// todo: at the moment we refer to the item formatter through an interface field. Would we get a performance improvement if we'd compile a dedicated formatter that has the itemFormatter built-in as a constant instead? (just like the DynamicFormatter already does)? Would we save performance if we'd cache the itemFormatter into a local variable before entering the loops?
 
@@ -140,9 +141,18 @@
 			}
 		}
 
-		static void ThrowReadonly(object value)
+		static void ThrowReadonly(object collection)
 		{
-			throw new InvalidOperationException($"To serialize readonly collections you must configure a construction mode for the type '{value.GetType().FullName}'. (It's pretty easy, take a look at the tutorial or open an issue on GitHub)");
+			var type = collection.GetType();
+			var name = type.FriendlyName();
+
+			if (type.FullName.Contains("System.Collections.Immutable"))
+			{
+				throw new InvalidOperationException("To serialize types from the 'System.Collections.Immutable' library, please install 'Ceras.ImmutableCollections' from NuGet. " +
+													$"The affect type is '{name}'");
+			}
+			
+			throw new InvalidOperationException($"To serialize readonly collections you must configure a construction mode for the type '{name}'. (It's pretty easy, take a look at the tutorial or open an issue on GitHub)");
 		}
 	}
 }

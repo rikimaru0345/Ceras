@@ -11,7 +11,7 @@
       Extremely fast binary serializer with tons of features.
       Full reference persistence (including circular references), polymorphism, zero-allocations, can handle readonly fields, delegates, 'KnownTypes' list for whitelisting and optimization in network scenarios... checkout the github page for a full feature list!
     </Description>
-    <PackageTags>utility, ceras, serialization, binary, serializer, formatter, unity, unity3d, network, networking</PackageTags>
+    <PackageTags>utility, ceras, serialization, binary, serializer, formatter, unity, unity3d, network, networking, immutable, il2cpp, aot</PackageTags>
   </PropertyGroup>
 
 

@@ -7,6 +7,7 @@ namespace Ceras.Test
 	using System.Collections;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using ImmutableCollections;
 	using Xunit;
 
 	public class TestBase
@@ -29,12 +30,21 @@ namespace Ceras.Test
 			return s;
 		}
 		
-		protected SerializerConfig Config_WithReinterpret => CreateConfig(x => x.Advanced.UseReinterpretFormatter = true);
-		protected SerializerConfig Config_NoReinterpret => CreateConfig(x => x.Advanced.UseReinterpretFormatter = false);
+		protected SerializerConfig Config_WithReinterpret => CreateConfig(x =>
+		{
+			x.Advanced.UseReinterpretFormatter = true;
+			x.UseImmutableFormatters();
+		});
+		protected SerializerConfig Config_NoReinterpret => CreateConfig(x =>
+		{
+			x.Advanced.UseReinterpretFormatter = false;
+			x.UseImmutableFormatters();
+		});
 		protected SerializerConfig Config_WithVersioning => CreateConfig(x =>
 		{
 			x.VersionTolerance.Mode = VersionToleranceMode.Standard;
 			x.VersionTolerance.VerifySizes = true;
+			x.UseImmutableFormatters();
 		});
 
 		SerializerConfig[] _currentTestConfigurations = { new SerializerConfig() };

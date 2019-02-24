@@ -40,7 +40,9 @@ namespace Ceras
 		internal static readonly Type _rtTypeType, _rtFieldType, _rtPropType, _rtCtorType, _rtMethodType;
 		static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
 
-		[Obsolete("Use 'config.ConfigType(type)' instead to configure how new objects are created."), EditorBrowsable(EditorBrowsableState.Never)]
+		/// <summary>
+		/// Use only when you're creating a IFormatter implementation. Otherwise use config.ConfigType()!
+		/// </summary>
 		public static void AddFormatterConstructedType(Type type)
 		{
 			_formatterConstructedTypes.Add(type);
