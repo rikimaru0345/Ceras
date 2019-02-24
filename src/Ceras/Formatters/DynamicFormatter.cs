@@ -3,8 +3,8 @@
 // ReSharper disable ArgumentsStyleNamedExpression
 namespace Ceras.Formatters
 {
-	using System;
 	using Helpers;
+	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Linq;
@@ -12,42 +12,27 @@ namespace Ceras.Formatters
 	using System.Reflection;
 	using static System.Linq.Expressions.Expression;
 
-#if FAST_EXP
-	using FastExpressionCompiler;
-#endif
-
-
-	// todo: Can we use a static-generic as a cache instead of dict? Is that even possible in our case? Would we even save anything? How much would it be faster?
 	/*
 	 * This formatter is used for every object-type that Ceras cannot deal with.
 	 * It analyzes the members of the class or struct and compiles an optimized formatter for it.
-	 * 
-	 * - "How does it handle abstract classes?"
-	 * > The ReferenceFormatter<> does that by "dispatching" to the actual type at runtime, dispatching one of many different DynamicObjectForamtters.
-	 * 
-	 * - "Why does it not implement ISchemaTaintedFormatter?"
-	 * > That concept only applies to types whos schema can change. So in VersionTolerant serialization both DynamicFormatter and SchemaDynamicFormatter are used.
-	 *   This one is used for framework-types that are not supported, and SchemaDynamicFormatter is used for user-types.
-	 *   Because user-types can change over time, and framework-types stay the same, and if they change that has to be dealt with in a completely different way anyway.
+	 * Polymorphism is handled in ReferenceFormatter.
 	 */
-
-	// todo: what about some member-attributes for:
-	// - using a specific formatter? (HalfFloat, Int32Fixed, MyUserFormatter)
-	// - ignore caching (not using the reference formatter)
-
-	// todo: merge constants
-	// If there's an object that has multiple 'int' fields, then we would obtain multiple 'int' formatters which is bad.
-	// Instead we could put them into a dictionary and lookup what formatter to use for what type, so after compiling there is only one instance per formatter
-
-	// todo: access primitive writers directly
-	// Instead of obtaining an 'Int32Formatter' and the like, we should compile a call directly to SerializerBinary.WriteInt32() ...
-	// That would avoid quite some overhead: removing the vtable dispatch, enabling inlining!
+	// todo: override formatters?
+	// todo: merge-blitting ReinterpretFormatter<T>.Write_NoCheckNoAdvance()
 
 	sealed class DynamicFormatter<T> : IFormatter<T>
 	{
+		// Schema field prefix
+		const int FieldSizePrefixBytes = 4;
+		static readonly Type _sizeType = typeof(uint);
+		static readonly MethodInfo _sizeWriteMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.WriteUInt32Fixed));
+		static readonly MethodInfo _sizeReadMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadUInt32Fixed));
+
+
 		readonly CerasSerializer _ceras;
-		readonly SerializeDelegate<T> _dynamicSerializer;
-		readonly DeserializeDelegate<T> _dynamicDeserializer;
+		
+		SerializeDelegate<T> _serializer;
+		DeserializeDelegate<T> _deserializer;
 
 
 		public DynamicFormatter(CerasSerializer serializer)
@@ -57,72 +42,121 @@ namespace Ceras.Formatters
 			var type = typeof(T);
 			BannedTypes.ThrowIfNonspecific(type);
 
-			var meta = _ceras.GetTypeMetaData(type);
-			
+			var schema = _ceras.GetTypeMetaData(type).PrimarySchema;
+
 			var typeConfig = _ceras.Config.GetTypeConfig(type);
 			typeConfig.VerifyConstructionMethod();
 
+			if (!schema.IsPrimary)
+				throw new InvalidOperationException("Non-Primary Schema requires SchemaFormatter instead of DynamicFormatter!");
 
-			var schema = meta.PrimarySchema;
-			if (schema.Members.Count > 0)
+			if (schema.Members.Count == 0)
 			{
-				_dynamicSerializer = GenerateSerializer(_ceras, schema).Compile();
-				_dynamicDeserializer = GenerateDeserializer(_ceras, schema).Compile();
+				_serializer = (ref byte[] buffer, ref int offset, T value) => { };
+				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
+				return;
 			}
-			else
-			{
-				_dynamicSerializer = (ref byte[] buffer, ref int offset, T value) => { };
-				_dynamicDeserializer = (byte[] buffer, ref int offset, ref T value) => { };
-			}
+
+			_serializer = GenerateSerializer(_ceras, schema, false).Compile();
+			_deserializer = GenerateDeserializer(_ceras, schema, false).Compile();
 		}
 
 
-		static Expression<SerializeDelegate<T>> GenerateSerializer(CerasSerializer ceras, Schema schema)
+		public void Serialize(ref byte[] buffer, ref int offset, T value) => _serializer(ref buffer, ref offset, value);
+
+		public void Deserialize(byte[] buffer, ref int offset, ref T value) => _deserializer(buffer, ref offset, ref value);
+
+
+		internal static Expression<SerializeDelegate<T>> GenerateSerializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter)
 		{
 			var members = schema.Members;
-
 			var refBufferArg = Parameter(typeof(byte[]).MakeByRefType(), "buffer");
 			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
 			var valueArg = Parameter(typeof(T), "value");
 
-			var block = new List<Expression>();
+			var body = new List<Expression>();
+			var locals = new List<ParameterExpression>();
 
-
-			foreach (var sMember in members)
+			ParameterExpression startPos = null, size = null;
+			if (isSchemaFormatter)
 			{
-				var member = sMember;
+				locals.Add(startPos = Variable(typeof(int), "startPos"));
+				locals.Add(size = Variable(typeof(int), "size"));
+			}
+			
+			Dictionary<Type, ConstantExpression> typeToFormatter = new Dictionary<Type, ConstantExpression>();
+			foreach (var m in members.Where(m => !m.IsSkip).DistinctBy(m => m.MemberType))
+				typeToFormatter.Add(m.MemberType, Constant(ceras.GetReferenceFormatter(m.MemberType)));
 
-				// todo: have a lookup list to directly get the actual 'SerializerBinary' method. There is no reason to actually use objects like "Int32Formatter" IF we can "unpack" them
-				// todo: .. we could have a dictionary that maps formatter-types to MethodInfo, that would also make it so we don't even have to keep a constant with the reference to the formatter around
-				// todo: depending on the configuration, we could have a "StructBlitFormatter" which just re-interprets the pointer and writes the data directly in a single assignment; like casting the byte[] to a byte* to a Vector3* and then doing a direct assignment. (only works with blittable types, and if the setting is active)
-				// todo: if we have a setting for that, it should be global (as a fallback) as well as a per-type config; the TypeConfig has to get its default value from the global value (maybe in the CerasSerializer ctor), so it doesn't have to keep looking into the global config; and so there is no bug when someone configures some types directly first and then sets the default after!
-				// todo: fully unpack known formatters as well. Maybe let matching formatters implement an interface that can return some sort of "Expression GetDirectCall(bufferArg, offsetArg, localStore)"
-				var formatter = ceras.GetReferenceFormatter(member.MemberType);
+
+			// Serialize all members
+			foreach (var member in members)
+			{
+				if (member.IsSkip)
+					continue;
 
 				// Get the formatter and its Serialize method
-				// var formatter = _ceras.GetFormatter(fieldInfo.FieldType, extraErrorInformation: $"DynamicFormatter ObjectType: {specificType.FullName} FieldType: {fieldInfo.FieldType.FullName}");
+				var formatterExp = typeToFormatter[member.MemberType];
+				var formatter = formatterExp.Value;
 				var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
 				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter " + formatter.GetType().FullName);
-
+				
 				// Access the field that we want to serialize
 				var fieldExp = MakeMemberAccess(valueArg, member.MemberInfo);
 
 				// Call "Serialize"
-				var serializeCall = Call(Constant(formatter), serializeMethod, refBufferArg, refOffsetArg, fieldExp);
-				block.Add(serializeCall);
+				if (!isSchemaFormatter)
+				{
+					var serializeCall = Call(formatterExp, serializeMethod, refBufferArg, refOffsetArg, fieldExp);
+					body.Add(serializeCall);
+				}
+				else
+				{
+					// remember current position
+					// startPos = offset; 
+					body.Add(Assign(startPos, refOffsetArg));
+
+					// reserve space for the length prefix
+					// offset += 4;
+					body.Add(AddAssign(refOffsetArg, Constant(FieldSizePrefixBytes)));
+
+					// Serialize(...) write the actual data
+					body.Add(Call(
+								   instance: formatterExp,
+								   method: serializeMethod,
+								   arg0: refBufferArg,
+								   arg1: refOffsetArg,
+								   arg2: MakeMemberAccess(valueArg, member.MemberInfo)
+								  ));
+
+					// calculate the size of what we just wrote
+					// size = (offset - startPos) - 4; 
+					body.Add(Assign(size, Subtract(Subtract(refOffsetArg, startPos), Constant(FieldSizePrefixBytes))));
+
+					// go back to where we started and write the size into the reserved space
+					// offset = startPos;
+					body.Add(Assign(refOffsetArg, startPos));
+
+					// WriteInt32( size )
+					body.Add(Call(
+								   method: _sizeWriteMethod,
+								   arg0: refBufferArg,
+								   arg1: refOffsetArg,
+								   arg2: Convert(size, _sizeType)
+								  ));
+
+					// continue after the written data
+					// offset = startPos + skipOffset; 
+					body.Add(Assign(refOffsetArg, Add(Add(startPos, size), Constant(FieldSizePrefixBytes))));
+				}
 			}
 
-			var serializeBlock = Block(expressions: block);
+			var serializeBlock = Block(variables: locals, expressions: body);
 
-#if FAST_EXP
-			return Expression.Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg).CompileFast(true);
-#else
 			return Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg);
-#endif
-
 		}
 
-		static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema)
+		internal static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter)
 		{
 			var members = schema.Members;
 			var typeConfig = ceras.Config.GetTypeConfig(schema.Type);
@@ -138,38 +172,80 @@ namespace Ceras.Formatters
 			var body = new List<Expression>();
 			var locals = new List<ParameterExpression>(schema.Members.Count);
 
+			ParameterExpression blockSize = null;
+			if (isSchemaFormatter)
+			{
+				blockSize = Variable(typeof(int), "blockSize");
+				locals.Add(blockSize);
+			}
+			
+
+			// MemberInfo -> Variable()
+			Dictionary<MemberInfo, ParameterExpression> memberInfoToLocal = new Dictionary<MemberInfo, ParameterExpression>();
+			foreach (var m in members)
+			{
+				if (m.IsSkip)
+					continue;
+
+				var local = Variable(m.MemberType, m.MemberName + "_local");
+				locals.Add(local);
+				memberInfoToLocal.Add(m.MemberInfo, local);
+			}
+
+			// Type -> Constant(IFormatter<Type>)
+			Dictionary<Type, ConstantExpression> typeToFormatter = new Dictionary<Type, ConstantExpression>();
+			foreach (var m in members.Where(m => !m.IsSkip).DistinctBy(m => m.MemberType))
+				typeToFormatter.Add(m.MemberType, Constant(ceras.GetReferenceFormatter(m.MemberType)));
+
+
 			//
 			// 1. Read existing values into locals (Why? See explanation at the end of the file)
-			for (var i = 0; i < members.Count; i++)
+			foreach (var m in members)
 			{
-				var member = members[i];
-
-				// Read the data into a new local variable 
-				var tempStore = Variable(member.MemberType, member.MemberName + "_local");
-				locals.Add(tempStore);
-
 				if (constructObject)
-					continue; // Can't read existing data when 
+					continue; // Can't read existing data when there is no object yet...
+
+				if (m.IsSkip)
+					continue; // Member doesn't exist
 
 				// Init the local with the current value
-				body.Add(Assign(tempStore, MakeMemberAccess(refValueArg, member.MemberInfo)));
+				var local = memberInfoToLocal[m.MemberInfo];
+				body.Add(Assign(local, MakeMemberAccess(refValueArg, m.MemberInfo)));
 			}
 
 			//
-			// 2. Deserialize using local variable (faster and more robust than working with field/prop directly)
-			for (var i = 0; i < members.Count; i++)
+			// 2. Deserialize into local (faster and more robust than field/prop directly)
+			foreach (var m in members)
 			{
-				var member = members[i];
-				var tempStore = locals[i];
+				if (isSchemaFormatter)
+				{
+					// Read block size
+					// blockSize = ReadSize();
+					var readCall = Call(method: _sizeReadMethod, arg0: bufferArg, arg1: refOffsetArg);
+					body.Add(Assign(blockSize, Convert(readCall, typeof(int))));
 
-				var formatter = ceras.GetReferenceFormatter(member.MemberType);
+					if (m.IsSkip)
+					{
+						// Skip over the field
+						// offset += blockSize;
+						body.Add(AddAssign(refOffsetArg, blockSize));
+						continue;
+					}
+				}
+
+				if (m.IsSkip && !isSchemaFormatter)
+					throw new InvalidOperationException("DynamicFormatter can not skip members in non-schema mode");
+				
+
+				var formatterExp = typeToFormatter[m.MemberType];
+				var formatter = formatterExp.Value;
 				var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
 				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
+				
+				var local = memberInfoToLocal[m.MemberInfo];
+				body.Add(Call(formatterExp, deserializeMethod, bufferArg, refOffsetArg, local));
 
-				// Deserialize the data into the local
-				// todo: fully unpack known formatters as well. Maybe let matching formatters implement an interface that can return some sort of "Expression GetDirectCall(bufferArg, offsetArg, localStore)"
-				var tempReadCall = Call(Constant(formatter), deserializeMethod, bufferArg, refOffsetArg, tempStore);
-				body.Add(tempReadCall);
+				// todo: In schema-mode, we could check if the expected blockSize matches what we've actually read
 			}
 
 			//
@@ -177,7 +253,12 @@ namespace Ceras.Formatters
 			if (constructObject)
 			{
 				// Create a helper array for the implementing type construction
-				var memberParameters = schema.Members.Zip(locals, (m, l) => new MemberParameterPair {Member = m.MemberInfo, LocalVar = l}).ToArray();
+				var memberParameters = (
+						from m in schema.Members
+						where !m.IsSkip
+						let local = memberInfoToLocal[m.MemberInfo]
+						select new MemberParameterPair {LocalVar = local, Member = m.MemberInfo}
+				).ToArray();
 
 				usedVariables = new HashSet<ParameterExpression>();
 				tc.EmitConstruction(schema, body, refValueArg, usedVariables, memberParameters);
@@ -185,54 +266,51 @@ namespace Ceras.Formatters
 
 			//
 			// 4. Write back values in one batch
-			for (int i = 0; i < members.Count; i++)
+			foreach (var m in members)
 			{
-				var member = members[i];
-				var tempStore = locals[i];
-				var type = member.MemberType;
-				
-				if (usedVariables != null && usedVariables.Contains(tempStore))
+				if (m.IsSkip)
+					continue;
+
+				var local = memberInfoToLocal[m.MemberInfo];
+				var type = m.MemberType;
+
+				if (usedVariables != null && usedVariables.Contains(local))
 					// Member was already used in the constructor / factory method, no need to write it again
 					continue;
 
-				if (member.MemberInfo is FieldInfo fieldInfo)
+				if (m.IsSkip)
+					continue;
+
+				if (m.MemberInfo is FieldInfo fieldInfo)
 				{
 					if (fieldInfo.IsInitOnly)
 					{
 						// Readonly field
-						var memberConfig = typeConfig.Members.First(m => m.Member == member.MemberInfo);
+						var memberConfig = typeConfig.Members.First(x => x.Member == m.MemberInfo);
 						var rh = memberConfig.ComputeReadonlyHandling();
-						DynamicFormatterHelpers.EmitReadonlyWriteBack(type, rh, fieldInfo, refValueArg, tempStore, body);
+						DynamicFormatterHelpers.EmitReadonlyWriteBack(type, rh, fieldInfo, refValueArg, local, body);
 					}
 					else
 					{
 						// Normal assignment
 						body.Add(Assign(left: Field(refValueArg, fieldInfo),
-										right: tempStore));
+										right: local));
 					}
 				}
 				else
 				{
 					// Context
-					var p = (PropertyInfo)member.MemberInfo;
+					var p = (PropertyInfo)m.MemberInfo;
 
 					var setMethod = p.GetSetMethod(true);
-					body.Add(Call(instance: refValueArg, setMethod, tempStore));
+					body.Add(Call(instance: refValueArg, setMethod, local));
 				}
 			}
 
 
 			var bodyBlock = Block(variables: locals, expressions: body);
-#if FAST_EXP
-			return Expression.Lambda<DeserializeDelegate<T>>(serializeBlock, bufferArg, refOffsetArg, refValueArg).CompileFast(true);
-#else
+
 			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, refOffsetArg, refValueArg);
-#endif
 		}
-
-
-		public void Serialize(ref byte[] buffer, ref int offset, T value) => _dynamicSerializer(ref buffer, ref offset, value);
-
-		public void Deserialize(byte[] buffer, ref int offset, ref T value) => _dynamicDeserializer(buffer, ref offset, ref value);
 	}
 }

@@ -13,6 +13,7 @@ namespace LiveTesting
 	using System.Linq.Expressions;
 	using System.Numerics;
 	using System.Reflection;
+	using Ceras.Helpers;
 	using Ceras.Test;
 	using Tutorial;
 	using Xunit;
@@ -25,14 +26,11 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			new StructReinterpret().BigStruct();
-
 			Benchmarks();
 
 			CustomComparerFormatter();
 
 			ExpressionTreesTest();
-
 
 			DictInObjArrayTest();
 
