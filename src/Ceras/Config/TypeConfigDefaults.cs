@@ -3,7 +3,7 @@ using System.Linq;
 
 namespace Ceras
 {
-	using Ceras.Exceptions;
+	using Exceptions;
 	using System.Collections.Generic;
 	using System.Collections.ObjectModel;
 	using System.Linq.Expressions;
@@ -13,8 +13,8 @@ namespace Ceras
 
 	static class TypeConfigDefaults
 	{
-		const BindingFlags BindingFlagsStatic = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
-		const BindingFlags BindingFlagsCtor = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.CreateInstance;
+		const BindingFlags BindingFlagsStatic = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+		const BindingFlags BindingFlagsCtor = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.CreateInstance;
 
 
 		// Apply default settings to the newly created TypeConfig based on the attributes on the Type
@@ -177,7 +177,8 @@ namespace Ceras
 			{
 				if(typeConfig.TypeConstruction == null)
 					typeConfig.TypeConstruction = ConstructNull.Instance;
-				
+
+				typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
 				typeConfig.TargetMembers = TargetMember.AllFields;
 				return;
 			}
@@ -186,19 +187,13 @@ namespace Ceras
 			{
 				if (!type.IsAbstract && type.IsSubclassOf(typeof(Expression)))
 				{
-					typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
-					typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
-					typeConfig.TargetMembers = TargetMember.AllFields;
-					typeConfig.CustomResolver = ForceDynamicResolver;
+					ForceSerialization(typeConfig);
 					return;
 				}
 
 				if (type.FullName.StartsWith("System.Runtime.CompilerServices.TrueReadOnlyCollection"))
 				{
-					typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
-					typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
-					typeConfig.TargetMembers = TargetMember.PrivateFields;
-					typeConfig.CustomResolver = ForceDynamicResolver;
+					ForceSerialization(typeConfig);
 					return;
 				}
 			}
@@ -206,12 +201,17 @@ namespace Ceras
 			if (type.Assembly == typeof(ReadOnlyCollection<>).Assembly)
 				if (type.FullName.StartsWith("System.Collections.ObjectModel.ReadOnlyCollection"))
 				{
-					typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
-					typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
-					typeConfig.TargetMembers = TargetMember.PrivateFields;
-					typeConfig.CustomResolver = ForceDynamicResolver;
+					ForceSerialization(typeConfig);
 					return;
 				}
+		}
+
+		static void ForceSerialization(TypeConfig typeConfig)
+		{
+			typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
+			typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
+			typeConfig.TargetMembers = TargetMember.PrivateFields;
+			typeConfig.CustomResolver = ForceDynamicResolver;
 		}
 
 
