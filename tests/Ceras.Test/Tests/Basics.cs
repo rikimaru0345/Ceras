@@ -98,6 +98,16 @@ namespace Ceras.Test
 		[Fact]
 		public void Bitmap()
 		{
+			var appveyor = Environment.GetEnvironmentVariable("APPVEYOR");
+			if (appveyor != null && appveyor.Equals("true", StringComparison.OrdinalIgnoreCase))
+					// No GDI
+				return;
+			appveyor = Environment.GetEnvironmentVariable("CI");
+			if (appveyor != null && appveyor.Equals("true", StringComparison.OrdinalIgnoreCase))
+					// No GDI
+				return;
+
+
 			var cBmp = CreateConfig(c => c.Advanced.BitmapMode = BitmapMode.SaveAsBmp);
 			var cPng = CreateConfig(c => c.Advanced.BitmapMode = BitmapMode.SaveAsPng);
 			var cJpg = CreateConfig(c => c.Advanced.BitmapMode = BitmapMode.SaveAsJpg);
