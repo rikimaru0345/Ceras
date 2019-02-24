@@ -81,8 +81,8 @@ The above are just examples, Ceras is made so it can be used in pretty much ever
 
 - If you need human readable output for some reason. For example some file that you want to be able to edit in a text-editor. For those usages JSON or XML are likely better suited.
 
-- You plan to use this on a platform that does not support code generation. Serializers for user-types are created at runtime through code-generation. And if that isn't allowed (for example on iOS) Ceras won't be able to generate arbitrary object-formatters. Built-in types will still work though. There are ways to fix this though... (pre-generating the formatters)
-
+- ~~You plan to use this on a platform that does not support code generation. Serializers for user-types are created at runtime through code-generation. And if that isn't allowed (for example on iOS) Ceras won't be able to generate arbitrary object-formatters. Built-in types will still work though. There are ways to fix this though... (pre-generating the formatters)~~
+  Ceras now has a dedicated `AotMode` in the config and a [code-generator](https://github.com/rikimaru0345/Ceras/tree/master/CerasAotFormatterGenerator) for IL2CPP/Unity/AoT.
 
 
 # Support
