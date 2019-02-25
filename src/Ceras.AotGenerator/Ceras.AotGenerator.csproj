@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\src\Ceras\Ceras.csproj" />
+    <ProjectReference Include="..\Ceras\Ceras.csproj" />
   </ItemGroup>
 
   <ItemGroup>

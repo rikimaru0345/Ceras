@@ -1,7 +1,7 @@
 ﻿// ReSharper disable RedundantTypeArgumentsOfMethod
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("LiveTesting")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.Test")]
-[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("CerasAotFormatterGenerator")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.AotGenerator")]
 namespace Ceras
 {
 	using Exceptions;
