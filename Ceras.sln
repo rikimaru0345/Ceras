@@ -17,7 +17,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BinaryDemo", "samples\Binar
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{6765D856-DB60-4D76-AB22-20252F870E6F}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CerasAotFormatterGenerator", "CerasAotFormatterGenerator\CerasAotFormatterGenerator.csproj", "{7EC30F99-32D0-4608-9F46-8A1AC70C174E}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ceras.AotGenerator", "CerasAotFormatterGenerator\Ceras.AotGenerator.csproj", "{7EC30F99-32D0-4608-9F46-8A1AC70C174E}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ceras.ImmutableCollections", "Ceras.ImmutableCollections\Ceras.ImmutableCollections.csproj", "{B501B391-9D31-49ED-9B81-996DDB08059C}"
 EndProject
