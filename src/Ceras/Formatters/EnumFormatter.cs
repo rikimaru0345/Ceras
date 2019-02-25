@@ -1,9 +1,13 @@
 ﻿namespace Ceras.Resolvers
 {
+	using System;
 	using Formatters;
 	using System.Linq.Expressions;
 
-	public sealed class EnumFormatter<T> : IFormatter<T>
+	/// <summary>
+	/// The default enum formatter writes the underlying binary data, which is fast and robust against renaming!
+	/// </summary>
+	public sealed class EnumFormatter<T> : IFormatter<T> where T : System.Enum
 	{
 		delegate void WriteEnum(ref byte[] buffer, ref int offset, T enumVal);
 		delegate void ReadEnum(byte[] buffer, ref int offset, out T enumVal);
@@ -14,6 +18,9 @@
 
 		public EnumFormatter(CerasSerializer serializer)
 		{
+			if (serializer.Config.Advanced.AotMode != AotMode.None)
+				throw new InvalidOperationException("The default enum formatter can not be used in AoT mode. Ceras should have automatically selected an alternative formatter, so this must be a bug. Please report it on GitHub!");
+
 			var refBuffer = Expression.Parameter(typeof(byte[]).MakeByRefType(), "buffer");
 			var refOffset = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
 			var value = Expression.Parameter(typeof(T), "value");
@@ -66,6 +73,29 @@
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
 			_enumReader(buffer, ref offset, out value);
+		}
+	}
+
+
+	/// <summary>
+	/// This formatter uses enum.ToString() and Enum.Parse(). It is not used by default, but you can activate through the type config if you want to.
+	/// </summary>
+	public sealed class EnumAsStringFormatter<T> : IFormatter<T> where T : System.Enum
+	{
+		ISizeLimitsConfig _sizeLimits;
+
+		public void Serialize(ref byte[] buffer, ref int offset, T value)
+		{
+			var str = value.ToString();
+			SerializerBinary.WriteString(ref buffer, ref offset, str);
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref T value)
+		{
+			var maxStrLen = _sizeLimits.MaxStringLength;
+			var str = SerializerBinary.ReadStringLimited(buffer, ref offset, maxStrLen);
+
+			value = (T)System.Enum.Parse(typeof(T), str);
 		}
 	}
 }
