@@ -2,7 +2,7 @@
 
   <!-- Package -->
   <PropertyGroup>
-    <Version>4.0.0</Version>
+    <Version>4.0.0-rc</Version>
     <Authors>rikimaru0345</Authors>
     <Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
     <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
