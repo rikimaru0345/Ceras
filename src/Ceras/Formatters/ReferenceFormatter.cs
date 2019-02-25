@@ -295,7 +295,7 @@
 
 			// Get type meta-data and create a dispatcher entry
 			var meta = _ceras.GetTypeMetaData(type);
-			entry = new DispatcherEntry(type, meta.IsFrameworkType, meta.CurrentSchema);
+			entry = new DispatcherEntry(type, meta.HasSchema, meta.CurrentSchema);
 
 			if (entry.IsType)
 				return entry; // Don't need to do anything else...
@@ -316,7 +316,7 @@
 			}
 			entry.Constructor = CreateObjectConstructor(type);
 
-			if (!meta.IsFrameworkType) // Framework types do not have a schemata dict
+			if (meta.HasSchema) // Framework types do not have a schemata dict
 			{
 				var pair = new DispatcherPair(entry.CurrentSerializeDispatcher, entry.CurrentDeserializeDispatcher);
 				entry.SchemaDispatchers[entry.CurrentSchema] = pair;
@@ -581,7 +581,6 @@
 		class DispatcherEntry
 		{
 			public readonly Type Type;
-			public readonly bool IsFrameworkType;
 
 			public Func<object> Constructor;
 
@@ -595,10 +594,9 @@
 
 			public readonly Dictionary<Schema, DispatcherPair> SchemaDispatchers;
 
-			public DispatcherEntry(Type type, bool isFrameworkType, Schema currentSchema)
+			public DispatcherEntry(Type type, bool hasSchema, Schema currentSchema)
 			{
 				Type = type;
-				IsFrameworkType = isFrameworkType;
 				CurrentSchema = currentSchema;
 
 				IsType = typeof(Type).IsAssignableFrom(type);
@@ -606,7 +604,7 @@
 				IsValueType = type.IsValueType;
 
 				// We only need a dictionary when the schema can actually change, which is never the case for framework types
-				if (!isFrameworkType)
+				if (hasSchema)
 					SchemaDispatchers = new Dictionary<Schema, DispatcherPair>();
 			}
 		}

@@ -80,6 +80,20 @@ namespace Ceras.Test
 
 			Assert.False(ReflectionHelper.IsBlittableType(typeof(string)));
 		}
+
+		[Fact]
+		public void TypeMetaData()
+		{
+			// We need to ensure the type meta-data is correct.
+
+			var ceras = new CerasSerializer();
+
+			var m1 = ceras.GetTypeMetaData(typeof(int));
+			Assert.True(m1.IsFrameworkType && m1.IsPrimitive);
+
+
+
+		}
 	}
 
 

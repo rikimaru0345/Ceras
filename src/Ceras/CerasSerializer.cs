@@ -10,7 +10,6 @@ namespace Ceras
 	using Resolvers;
 	using System;
 	using System.Collections.Generic;
-	using System.ComponentModel;
 	using System.Linq;
 	using System.Reflection;
 	using System.Text;
@@ -62,13 +61,10 @@ namespace Ceras
 
 			if (type.IsPrimitive)
 				return true;
-			
-			if(type.IsArray)
-				return true;
 
-			if(type.IsEnum)
-				return true;
-			
+			if (type.IsArray)
+				return IsPrimitiveType(type.GetElementType());
+
 			if (type == typeof(string))
 				return true;
 
@@ -224,7 +220,7 @@ namespace Ceras
 
 			// MemberInfos (FieldInfo, RuntimeFieldInfo, ...)
 			_resolvers.Add(new ReflectionFormatterResolver(this));
-			
+
 			// DynamicObjectResolver is a special case, so it is not in the resolver-list
 			// That is because we only want to have specific resolvers in the resolvers-list
 			_dynamicResolver = new DynamicObjectFormatterResolver(this);
@@ -586,18 +582,18 @@ namespace Ceras
 
 			// Sanity checks
 			if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
-				throw new InvalidOperationException("You cannot get a formatter for abstract, interface, and open generic types because they are not ");
+				throw new InvalidOperationException("You cannot get a formatter for abstract, interface, and open generic types.");
 
 
-			// 2.) TypeConfig - Custom Formatter, Custom Resolver 
-			if (meta.TypeConfig.CustomFormatter != null)
+			// 2.) TypeConfig - Custom Formatter, Custom Resolver
+			if (!meta.IsPrimitive && meta.TypeConfig.CustomFormatter != null)
 			{
 				meta.SpecificFormatter = meta.TypeConfig.CustomFormatter;
 				FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
 				InjectDependencies(meta.SpecificFormatter);
 				return meta.SpecificFormatter;
 			}
-			if (meta.TypeConfig.CustomResolver != null)
+			if (!meta.IsPrimitive && meta.TypeConfig.CustomResolver != null)
 			{
 				var formatter = meta.TypeConfig.CustomResolver(this, type);
 				meta.SpecificFormatter = formatter ?? throw new InvalidOperationException($"The custom formatter-resolver registered for Type '{type.FullName}' has returned 'null'.");
@@ -607,24 +603,26 @@ namespace Ceras
 			}
 
 
+
 			// 3.) User
-			for (int i = 0; i < _userResolvers.Length; i++)
-			{
-				var formatter = _userResolvers[i](this, type);
-				if (formatter != null)
+			if (!meta.IsPrimitive)
+				for (int i = 0; i < _userResolvers.Length; i++)
 				{
-					meta.SpecificFormatter = formatter;
-					FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
-					InjectDependencies(formatter);
-					return formatter;
+					var formatter = _userResolvers[i](this, type);
+					if (formatter != null)
+					{
+						meta.SpecificFormatter = formatter;
+						FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
+						InjectDependencies(formatter);
+						return formatter;
+					}
 				}
-			}
 
 
 			// 4.) Depending on the VersionTolerance we use different formatters
 			if (Config.VersionTolerance.Mode != VersionToleranceMode.Disabled)
 			{
-				if (!meta.IsFrameworkType)
+				if (!meta.IsFrameworkType && !meta.IsPrimitive)
 				{
 					// Create SchemaFormatter, it will automatically adjust itself to the schema when it's read
 					var formatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
@@ -647,7 +645,7 @@ namespace Ceras
 					return formatter;
 				}
 			}
-			
+
 			// 6.) Dynamic
 			{
 				var formatter = _dynamicResolver.GetFormatter(type);
@@ -669,20 +667,17 @@ namespace Ceras
 			if (meta != null)
 				return meta;
 
-			bool isFrameworkType;
-			// In the context of versioning, arrays are considered a framework type, because arrays are always serialized the same way.
-			// It's only the elements themselves that are serialized differently!
-			if (type.IsArray)
-				isFrameworkType = true;
-			else
-				isFrameworkType = _frameworkAssemblies.Contains(type.Assembly);
-
 			BannedTypes.ThrowIfBanned(type);
 
-			var typeConfig = Config.GetTypeConfig(type);
+			bool isSerializationPrimitive = IsPrimitiveType(type);
+			bool isFrameworkType = _frameworkAssemblies.Contains(type.Assembly);
 
-			meta = new TypeMetaData(type, typeConfig, isFrameworkType);
-			meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type);
+			var typeConfig = isSerializationPrimitive ? null : Config.GetTypeConfig(type);
+
+			meta = new TypeMetaData(type, typeConfig, isFrameworkType, isSerializationPrimitive);
+
+			if (!isSerializationPrimitive)
+				meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type);
 
 			return meta;
 		}
@@ -723,10 +718,25 @@ namespace Ceras
 
 				var fieldType = f.FieldType;
 
-				// Reference to the serializer
+				// Reference to the serializer, config, or any config interface
 				if (fieldType == typeof(CerasSerializer))
 				{
 					SafeInject(formatter, f, this);
+					continue;
+				}
+				else if (fieldType == typeof(SerializerConfig))
+				{
+					SafeInject(formatter, f, Config);
+					continue;
+				}
+				else if (fieldType == typeof(IAdvancedConfigOptions))
+				{
+					SafeInject(formatter, f, Config.Advanced);
+					continue;
+				}
+				else if (fieldType == typeof(ISizeLimitsConfig))
+				{
+					SafeInject(formatter, f, Config.Advanced.SizeLimits);
 					continue;
 				}
 
@@ -774,7 +784,7 @@ namespace Ceras
 						SafeInject(formatter, f, directFormatter);
 						continue;
 					}
-					
+
 					var anyExisting = directFormatter ?? requestedFormatter;
 
 					throw new InvalidOperationException($"The formatter '{formatter.GetType().FullName}' has a dependency on '{fieldType.GetType().FullName}' (via the field '{f.Name}') to format '{formattedType.FullName}', but this Ceras instance is already using '{anyExisting.GetType().FullName}' to handle this type.");
@@ -837,12 +847,12 @@ namespace Ceras
 		// Creates the primary schema for a given type
 		Schema CreatePrimarySchema(Type type)
 		{
-			if(IsPrimitiveType(type))
+			if (IsPrimitiveType(type))
 				return null;
-			
+
 			if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
 				return null;
-			
+
 			var typeConfig = Config.GetTypeConfig(type);
 			typeConfig.Seal();
 
@@ -879,8 +889,8 @@ namespace Ceras
 
 			var meta = GetTypeMetaData(type);
 
-			if (meta.IsFrameworkType)
-				throw new InvalidOperationException("Cannot read a Schema for a framework type! This must be either a serious bug, or the given data has been tampered with. Please report it on GitHub!");
+			if (meta.IsPrimitive)
+				throw new InvalidOperationException("Cannot read a Schema for a primitive type! This must be either a serious bug, or the given data has been tampered with. Please report it on GitHub!");
 
 			//
 			// Read Schema
@@ -941,6 +951,58 @@ namespace Ceras
 				if (!char.IsLetterOrDigit(name[i]) && !allowedChars.Contains(name[i]))
 					throw new Exception($"The name '{name}' has character '{name[i]}' at index '{i}', which is not allowed. Must be a letter or digit.");
 		}
+
+
+		/// <summary>
+		/// If you're ever not sure why some member gets included (or doesn't) this method will help.
+		/// The report will explain for every member why exactly Ceras decided that it should get serialized (or why it should be excluded).
+		/// You can also look into each member individually by checking out <see cref="Members"/> if you don't need the full report.
+		/// </summary>
+		public string GenerateSerializationDebugReport(Type type)
+		{
+			if (IsPrimitiveType(type))
+				return type.FullName + " is a serialization primitive. It's serialization logic is hard-coded, so it has no schema.";
+
+
+			var typeConfig = Config.GetTypeConfig(type);
+			var allMembers = typeConfig._allMembers;
+
+			var inc = allMembers.Where(m => m.ComputeFinalInclusionFast()).ToArray();
+			var exc = allMembers.Where(m => !m.ComputeFinalInclusionFast()).ToArray();
+
+			string report = $"Schema report for Type '{type.FriendlyName()}' ({allMembers.Count} data members):\r\n";
+
+
+			var formatter = GetSpecificFormatter(type);
+			var formatterType = formatter.GetType();
+
+			if (formatterType.IsGenericType && formatterType.GetGenericTypeDefinition() != typeof(DynamicFormatter<>))
+			{
+				report += "\r\n";
+				report += "!! Warning: This report only makes sense for types handled by 'DynamicFormatter<>'.\r\n";
+				report += $"!! Ceras uses '{formatterType.FriendlyName()}' for this type.\r\n";
+				report += "\r\n";
+			}
+
+
+			report += "\r\n";
+			report += $"Serialized Members (Count = {inc.Length}):\r\n";
+			foreach (var m in inc)
+				report += $"[{m.Member.Name}] {m.ComputeFinalInclusion().Reason}\r\n";
+			if (inc.Length == 0)
+				report += "(empty)\r\n";
+
+			report += "\r\n";
+
+			report += $"Members excluded from serialization (Count = {exc.Length}):\r\n";
+			foreach (var m in exc)
+				report += $"[{m.Member.Name}] {m.ComputeFinalInclusion().Reason}\r\n";
+			if (exc.Length == 0)
+				report += "(empty)\r\n";
+
+			return report;
+		}
+
 
 
 
@@ -1084,7 +1146,9 @@ namespace Ceras
 	{
 		public readonly Type Type;
 		public readonly bool IsFrameworkType;
+		public readonly bool IsPrimitive; // serialization primitive is meant
 		public readonly bool IsValueType;
+		public bool HasSchema => !IsPrimitive && !IsFrameworkType;
 
 		public readonly TypeConfig TypeConfig;
 
@@ -1101,10 +1165,11 @@ namespace Ceras
 		public readonly List<ISchemaTaintedFormatter> OnSchemaChangeTargets = new List<ISchemaTaintedFormatter>();
 
 
-		public TypeMetaData(Type type, TypeConfig typeConfig, bool isFrameworkType)
+		public TypeMetaData(Type type, TypeConfig typeConfig, bool isFrameworkType, bool isSerializationPrimitive)
 		{
 			Type = type;
 			IsFrameworkType = isFrameworkType;
+			IsPrimitive = isSerializationPrimitive;
 			IsValueType = type.IsValueType;
 			TypeConfig = typeConfig;
 		}

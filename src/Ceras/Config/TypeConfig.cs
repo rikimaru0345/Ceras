@@ -1,7 +1,7 @@
 ﻿namespace Ceras
 {
-	using Ceras.Exceptions;
-	using Ceras.Formatters;
+	using Exceptions;
+	using Formatters;
 	using Helpers;
 	using System;
 	using System.Collections.Generic;
@@ -136,7 +136,7 @@
 																	  null);
 
 			_allMembers = members.ToList();
-			
+
 			TypeConfigDefaults.ApplyTypeAttributes(this);
 			TypeConfigDefaults.ApplySpecializedDefaults(this);
 
@@ -151,7 +151,6 @@
 		{
 			return _allMembers;
 		}
-
 
 
 		internal void Seal()

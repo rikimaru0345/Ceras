@@ -12,8 +12,12 @@ namespace Ceras.Helpers
 		{
 			if (!typeof(T).IsEnum)
 				throw new ArgumentException();
-
+			
 			var str = enumValue.ToString();
+
+			if (str.EndsWith("ies"))
+				return str.Substring(0, str.Length - 3) + "y";
+			
 			return str.TrimEnd('s');
 		}
 
