@@ -12,7 +12,7 @@
 	// -> No! We'd still need a reference formatter to ensure references are maintained. And at that point we have saved absolutely nothing because that check already encodes type IF its needed!
 	// Which means that we'd not even save a single byte, because there are no bytes to save. We already do not waste any bytes on encoding "yup same type" because that information is packed into the reference-formatters "serialization mode id". We'd have to either write the ID of an existing object or use one byte for "new object" anyway. And the thing is: This unavoidable byte is already used to also encode that...
 
-	sealed class ArrayFormatter<TItem> : IFormatter<TItem[]>
+	public sealed class ArrayFormatter<TItem> : IFormatter<TItem[]>
 	{
 		readonly IFormatter<TItem> _itemFormatter;
 		readonly uint _maxSize;
@@ -63,7 +63,7 @@
 	}
 
 
-	sealed class CollectionFormatter<TCollection, TItem> : IFormatter<TCollection>
+	public class CollectionFormatter<TCollection, TItem> : IFormatter<TCollection>
 		where TCollection : ICollection<TItem>
 	{
 		readonly IFormatter<TItem> _itemFormatter;
@@ -86,7 +86,7 @@
 				else if (collectionType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
 					ctor = collectionType.GetConstructor(new Type[] { typeof(int) });
 
-				if (ctor != null)
+				if (ctor != null && serializer.Config.Advanced.AotMode == AotMode.None)
 				{
 					var sizeArg = Expression.Parameter(typeof(int));
 					_capacityConstructor = Expression.Lambda<Func<int, TCollection>>(Expression.New(ctor, sizeArg), sizeArg).Compile();
@@ -106,8 +106,19 @@
 
 			// Write each item
 			var f = _itemFormatter;
-			foreach (var item in value)
-				f.Serialize(ref buffer, ref offset, item);
+			// Guarantee no boxing
+			IEnumerator<TItem> e = value.GetEnumerator();
+			try
+			{
+				while (e.MoveNext())
+				{
+					f.Serialize(ref buffer, ref offset, e.Current);
+				}
+			}
+			finally
+			{
+				e.Dispose();
+			}
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref TCollection value)

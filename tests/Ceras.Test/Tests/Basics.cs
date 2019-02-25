@@ -209,5 +209,23 @@ namespace Ceras.Test
 			TestDeepEquality(ihs);
 		}
 
+		[Fact]
+		public void Collections()
+		{
+			object[] randomStuff = new object[]
+			{
+				DateTime.Now,
+				Environment.TickCount,
+				rngLong,
+				rngFloat.ToString(),
+				new List<bool>{ true, true, false},
+				StructuralComparisons.StructuralComparer,
+			};
+			TestDeepEquality(randomStuff);
+
+
+			var link = new LinkedList<string>(new[] {"abc", "123", "xyz", "!!!"});
+			TestDeepEquality(link);
+		}
 	}
 }
