@@ -7,6 +7,7 @@
     <Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
     <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
     <RepositoryUrl>https://github.com/rikimaru0345/Ceras</RepositoryUrl>
+    <releaseNotes>https://github.com/rikimaru0345/Ceras/releases</releaseNotes>
     <Description>
       Extremely fast binary serializer with tons of features.
       Full reference persistence (including circular references), polymorphism, zero-allocations, can handle readonly fields, delegates, 'KnownTypes' list for whitelisting and optimization in network scenarios... checkout the github page for a full feature list!
