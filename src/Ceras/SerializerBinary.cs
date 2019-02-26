@@ -49,7 +49,6 @@
 			return (int)DecodeZigZag(zigZag);
 		}
 
-
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteUInt32(ref byte[] buffer, ref int offset, uint value)
 		{
@@ -63,7 +62,7 @@
 		{
 			return (uint)ReadVarInt(buffer, ref offset, 32);
 		}
-
+		
 
 		#region Specialized
 
@@ -125,6 +124,23 @@
 		{
 			var zigZag = ReadVarInt(buffer, ref offset, 64);
 			return (int)DecodeZigZag(zigZag);
+		}
+
+		
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteUInt64(ref byte[] buffer, ref int offset, ulong value)
+		{
+			EnsureCapacity(ref buffer, offset, 8 + 1);
+
+			var zigZag = EncodeZigZag((long)value, 64);
+			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static ulong ReadUInt64(byte[] buffer, ref int offset)
+		{
+			var zigZag = ReadVarInt(buffer, ref offset, 64);
+			return (ulong)DecodeZigZag(zigZag);
 		}
 
 
