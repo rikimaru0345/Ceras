@@ -61,6 +61,21 @@ namespace Ceras.Test
 				throw new Exception("on config new type should not be called for 'serialization primitives'");
 		}
 
+		[Fact]
+		public void CustomFormatterForEnum()
+		{
+			var config = new SerializerConfig();
+			config.ConfigType<DayOfWeek>().CustomFormatter = new DayOfWeekFormatter();
+
+			var ceras = new CerasSerializer(config);
+			
+			Assert.True(ceras.Deserialize<DayOfWeek>(ceras.Serialize(DayOfWeek.Sunday)) == DayOfWeek.Sunday);
+			Assert.True(ceras.Deserialize<DayOfWeek>(ceras.Serialize(DayOfWeek.Monday)) == DayOfWeek.Monday);
+			Assert.True(ceras.Deserialize<DayOfWeek>(ceras.Serialize(DayOfWeek.Saturday)) == DayOfWeek.Saturday);
+			Assert.True(ceras.Deserialize<DayOfWeek>(ceras.Serialize((DayOfWeek)591835)) == (DayOfWeek)591835);
+
+		}
+
 		static void ExpectException(Action f)
 		{
 			try
@@ -71,6 +86,19 @@ namespace Ceras.Test
 			catch
 			{
 			}
+		}
+	}
+
+	class DayOfWeekFormatter : IFormatter<DayOfWeek>
+	{
+		public void Serialize(ref byte[] buffer, ref int offset, DayOfWeek value)
+		{
+			SerializerBinary.WriteUInt64(ref buffer, ref offset, (ulong)value);
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref DayOfWeek value)
+		{
+			value = (DayOfWeek)SerializerBinary.ReadUInt64(buffer, ref offset);
 		}
 	}
 
