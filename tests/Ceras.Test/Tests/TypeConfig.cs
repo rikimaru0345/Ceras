@@ -9,7 +9,7 @@ namespace Ceras.Test
 	public class TypeConfig : TestBase
 	{
 		[Fact]
-		public void Report()
+		public void CanGenerateDebugReports()
 		{
 			var ceras = new CerasSerializer();
 
@@ -25,7 +25,7 @@ namespace Ceras.Test
 		}
 
 		[Fact]
-		public void PreventNonsense()
+		public void CanNotConfigurePrimitives()
 		{
 			// Changing any settings for "Serialization Primitives" should not be allowed
 			// String, Type, int, ...
@@ -41,16 +41,24 @@ namespace Ceras.Test
 				typeof(string),
 			};
 
+			bool configGotCalled = false;
+
 			config.OnConfigNewType = t =>
 			{
 				if (primitiveTypes.Contains(t.Type))
-					throw new Exception("on config new type should not be called for 'serialization primitives'");
+					configGotCalled = true;
 			};
 
+			// Configuring primitives should not be possible
 			foreach (var t in primitiveTypes)
 				ExpectException(() => config.ConfigType(t));
 
+			// Enum is not a real type (it's an abstract base class)
+			ExpectException(() => config.ConfigType(typeof(Enum)));
 
+
+			if (configGotCalled)
+				throw new Exception("on config new type should not be called for 'serialization primitives'");
 		}
 
 		static void ExpectException(Action f)

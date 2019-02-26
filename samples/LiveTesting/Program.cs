@@ -22,12 +22,9 @@ namespace LiveTesting
 	class Program
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
-		delegate void ActionDelegate();
 
 		static void Main(string[] args)
 		{
-			new Basics().ImmutableCollections();
-
 			Benchmarks();
 
 			CustomComparerFormatter();
@@ -106,6 +103,8 @@ namespace LiveTesting
 			Console.WriteLine("All tests completed.");
 			Console.ReadKey();
 		}
+
+
 
 		static void CustomComparerFormatter()
 		{

@@ -75,10 +75,18 @@ namespace Ceras.Test
 		{
 			Assert.True(ReflectionHelper.IsBlittableType(typeof(bool)));
 			Assert.True(ReflectionHelper.IsBlittableType(typeof(double)));
-
 			Assert.True(ReflectionHelper.IsBlittableType(typeof(double)));
 
+
 			Assert.False(ReflectionHelper.IsBlittableType(typeof(string)));
+			Assert.False(ReflectionHelper.IsBlittableType(typeof(DayOfWeek)));
+			Assert.False(ReflectionHelper.IsBlittableType(typeof(Enum)));
+			Assert.False(ReflectionHelper.IsBlittableType(typeof(byte*)));
+			Assert.False(ReflectionHelper.IsBlittableType(typeof(int*)));
+			Assert.False(ReflectionHelper.IsBlittableType(typeof(IntPtr)));
+			Assert.False(ReflectionHelper.IsBlittableType(typeof(UIntPtr)));
+			Assert.False(ReflectionHelper.IsBlittableType(typeof(void)));
+
 		}
 
 		[Fact]

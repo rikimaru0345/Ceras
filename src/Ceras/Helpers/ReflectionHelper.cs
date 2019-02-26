@@ -196,22 +196,27 @@
 		{
 			if (!type.IsValueType)
 				return false;
+			
+
+			if(type.IsEnum)
+				return true; // enums are auto-layout, but they're always blittable
 
 			if (type.IsPointer || type == typeof(IntPtr) || type == typeof(UIntPtr))
-				return false;
+				return false; // pointers are primitive, but we can never blit them (because they can be a different size)
+			
+			if (type.IsPrimitive)
+				return true; // any other primitive can definitely be blitted
+
 
 			if(type.ContainsGenericParameters)
-				return false;
+				return false; // open types are not real (yet), so they can't be blitted
 
 			if(type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
-				return false; // Blitting nullables is just not efficient
+				return false; // we want to have explicit control over nullables
 
 			if (type.IsAutoLayout)
 				return false; // generic structs are always auto-layout (since you can't know what layout is best before inserting the generic args)
-
-
-			if (type.IsPrimitive)
-				return true;
+			
 
 			foreach (var f in GetAllDataMembers(type, true, false).Cast<FieldInfo>())
 			{

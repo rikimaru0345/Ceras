@@ -6,7 +6,6 @@ namespace Ceras.Formatters
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
 	using System.Runtime.InteropServices;
-	using Helpers;
 
 	/// <summary>
 	/// Extremely fast formatter that can be used with all unmanaged types. For example DateTime, int, Vector3, Point, ...
@@ -15,17 +14,28 @@ namespace Ceras.Formatters
 	public sealed unsafe class ReinterpretFormatter<T> : IFormatter<T>, IInlineEmitter where T : unmanaged
 	{
 		delegate void ReadWriteRawDelegate(byte[] buffer, int offset, ref T value);
-		
-		internal static readonly int _size = Marshal.SizeOf(default(T));
+
 		internal static readonly MethodInfo _writeMethod = new ReadWriteRawDelegate(Write_Raw).Method;
 		internal static readonly MethodInfo _readMethod = new ReadWriteRawDelegate(Read_Raw).Method;
 
+		internal static readonly int _size;
+
+
+		static ReinterpretFormatter()
+		{
+			var type = typeof(T);
+			
+			if (type.IsEnum)
+				type = type.GetEnumUnderlyingType();
+
+			_size = Marshal.SizeOf(type);
+		}
 
 		public ReinterpretFormatter()
 		{
 			ThrowIfNotSupported();
 		}
-		
+
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
 			SerializerBinary.EnsureCapacity(ref buffer, offset, _size);
@@ -42,7 +52,7 @@ namespace Ceras.Formatters
 			offset += _size;
 		}
 
-		
+
 		Expression IInlineEmitter.EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize)
 		{
 			var call = Expression.Call(method: _writeMethod,
@@ -76,7 +86,7 @@ namespace Ceras.Formatters
 				*ptr = value;
 			}
 		}
-		
+
 		// Read value type, don't modify offset
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		static void Read_Raw(byte[] buffer, int offset, ref T value)
@@ -167,7 +177,7 @@ namespace Ceras.Formatters
 				value = new T[count];
 
 			int bytes = count * _size;
-			
+
 			if (bytes == 0)
 				return;
 

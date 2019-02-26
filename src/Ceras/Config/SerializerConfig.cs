@@ -74,9 +74,9 @@
 		/// <summary>
 		/// If all the other things (ShouldSerializeMember / Attributes) don't produce a decision, then this setting is used to determine if a member should be included.
 		/// By default only public fields are serialized. ReadonlyHandling is a separate option found inside <see cref="Advanced"/>
-		/// <para>Default: PublicFields</para>
+		/// <para>Default: AllPublic</para>
 		/// </summary>
-		public TargetMember DefaultTargets { get; set; } = TargetMember.PublicFields;
+		public TargetMember DefaultTargets { get; set; } = TargetMember.AllPublic;
 
 		#endregion
 

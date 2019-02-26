@@ -3,12 +3,16 @@ using System.Collections.Generic;
 
 namespace Ceras.Test
 {
+	using System.Linq;
 	using Formatters;
+	using Resolvers;
 	using System.Runtime.InteropServices;
 	using Xunit;
 
-	public class StructReinterpret : TestBase
+	public class Blitting : TestBase
 	{
+		// Types that the reinterpret formatter should be able to handle
+		// Arrays are handled by "ReinterpretArrayFormatter" of course
 		static Type[] _blittableTypes =
 		{
 			typeof(int),
@@ -34,9 +38,12 @@ namespace Ceras.Test
 			typeof(BigStruct[]),
 			typeof(Vector3[]),
 
+			typeof(DayOfWeek), // The base type "Enum" can't be blitted, but an actual enum can!
 
 		};
 
+		// Types where neither ReinterpretFormatter nor ReinterpretArrayFormatter
+		// should be used!
 		static Type[] _nonBlittableTypes =
 		{
 			typeof(IntPtr),
@@ -74,20 +81,22 @@ namespace Ceras.Test
 			typeof(ValueTuple<BigStruct, Vector3[], byte>),
 		};
 
+		// Formatters Ceras is allowed to use to handle "blittable types"
 		static Type[] _blitFormattersOpenTypes =
 		{
 			typeof(ReinterpretArrayFormatter<>),
 			typeof(ReinterpretFormatter<>),
 
-			typeof(BoolFormatter),
+			typeof(EnumFormatter<>),
 
+			typeof(BoolFormatter),
 			typeof(ByteFormatter),
 			typeof(SByteFormatter),
 
 			typeof(CharFormatter),
-
 			typeof(Int16Formatter),
 			typeof(UInt16Formatter),
+
 			typeof(Int32Formatter),
 			typeof(UInt32Formatter),
 			typeof(Int64Formatter),
@@ -99,7 +108,7 @@ namespace Ceras.Test
 
 
 		[Fact]
-		public void Formatters()
+		public void BlittableTypesUseCorrectFormatter()
 		{
 			var config = new SerializerConfig();
 			config.Advanced.UseReinterpretFormatter = true;
@@ -130,7 +139,7 @@ namespace Ceras.Test
 		}
 
 		[Fact]
-		public unsafe void BigStruct()
+		public unsafe void BigStructBlittedCorrectly()
 		{
 			BigStruct bigStruct = new BigStruct();
 			var bigStructSize = Marshal.SizeOf(typeof(BigStruct));
@@ -204,7 +213,7 @@ namespace Ceras.Test
 			// changed somehow and that no extra bytes were added
 			{
 				Assert.True(serializedData.Length == bigStructSize);
-				
+
 				byte* oriBytes = (byte*)oriStructAddr;
 				byte* cloneBytes = (byte*)cloneStructAddr;
 
@@ -214,7 +223,81 @@ namespace Ceras.Test
 					Assert.True(serializedData[i] == *(cloneBytes + i));
 				}
 			}
-			
+
 		}
+
+		[Fact]
+		public void BlittingEnums()
+		{
+			// We will not use the reinterpret-formatter for enums usually, only if the user forces it.
+
+			var stressTestValues = new[]
+			{
+				long.MinValue, long.MaxValue, -1, 0, 1, 5, 1000, 255, 256,
+				rngByte, rngByte, rngByte,
+				rngLong, rngLong, rngLong, rngLong, rngLong, rngLong,
+			};
+
+
+			var config = new SerializerConfig();
+			config.OnConfigNewType = t => t.CustomResolver = (c, t2) => c.GetFormatterResolver<ReinterpretFormatterResolver>().GetFormatter(t2);
+			var ceras = new CerasSerializer(config);
+
+			var typesToTest = new[]
+			{
+				typeof(TestEnumInt8),
+				typeof(TestEnumUInt8),
+				typeof(TestEnumInt16),
+				typeof(TestEnumUInt16),
+				typeof(TestEnumInt64),
+				typeof(TestEnumUInt64),
+			};
+			
+			var serializeMethod = typeof(CerasSerializer).GetMethods().First(m => m.Name == nameof(CerasSerializer.Serialize) && m.GetParameters().Length == 1);
+			var deserializeMethod = typeof(CerasSerializer).GetMethods().First(m => m.Name == nameof(CerasSerializer.Deserialize) && m.GetParameters().Length == 1);
+			
+
+			foreach (var t in typesToTest)
+			{
+				Type baseType = t.GetEnumUnderlyingType();
+				int expectedSize = Marshal.SizeOf(baseType);
+				
+				var values = Enum.GetValues(t).Cast<object>().Concat(stressTestValues.Cast<object>());
+				
+				foreach (var v in values)
+				{
+					var obj = Enum.ToObject(t, v);
+
+					// We must call Serialize<T>, and we can't use <object> because that would embed the type information
+					var data = (byte[])serializeMethod.MakeGenericMethod(t).Invoke(ceras, new object[] { obj });
+					
+					Assert.True(data.Length == expectedSize);
+
+					var cloneObj = deserializeMethod.MakeGenericMethod(t).Invoke(ceras, new object[] { data });
+
+					Assert.True(obj.Equals(cloneObj));
+				}
+			}
+
+			
+			Assert.True(ceras.Serialize(TestEnumInt8.a).Length == 1);
+			Assert.True(ceras.Serialize(TestEnumUInt8.a).Length == 1);
+			
+			Assert.True(ceras.Serialize(TestEnumInt16.a).Length == 2);
+			Assert.True(ceras.Serialize(TestEnumUInt16.a).Length == 2);
+
+			Assert.True(ceras.Serialize(TestEnumInt64.a).Length == 8);
+			Assert.True(ceras.Serialize(TestEnumUInt64.a).Length == 8);
+		}
+
+		enum TestEnumInt8 : sbyte { a = 123, b, c }
+		enum TestEnumUInt8 : byte { a = 123, b, c }
+
+		enum TestEnumInt16 : short { a = 123, b, c }
+		enum TestEnumUInt16 : ushort { a = 123, b, c }
+
+		enum TestEnumInt64 : long { a = 123, b, c }
+		enum TestEnumUInt64 : ulong { a = 123, b, c }
+
 	}
 }
