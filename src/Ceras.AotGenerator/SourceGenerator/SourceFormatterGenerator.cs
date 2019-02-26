@@ -3,7 +3,9 @@
 	using Ceras;
 	using Ceras.Helpers;
 	using System;
+	using System.Collections.Generic;
 	using System.Text;
+	using Ceras.Formatters;
 
 	static class SourceFormatterGenerator
 	{
@@ -86,4 +88,34 @@
 			return typeName;
 		}
 	}
+
+	// Since we must use the same encoding that non-aot Ceras uses, we emulate the code it generates.
+	static class EnumGenerator
+	{
+		public static void Generate(Type enumType, StringBuilder text)
+		{
+			var n = enumType.FullName;
+			var baseType = enumType.GetEnumUnderlyingType();
+			
+			text.AppendLine($@"
+class EnumFormatter : IFormatter<{n}>
+{{
+		IFormatter<{baseType.FullName}> _valueFormatter;
+
+		public void Serialize(ref byte[] buffer, ref int offset, {n} value)
+		{{
+			_valueFormatter.Serialize(ref buffer, ref offset, ({baseType.FullName})value);
+		}}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref {n} value)
+		{{
+			{baseType.FullName} x = default({baseType.FullName});
+			_valueFormatter.Deserialize(buffer, ref offset, ref x);
+			value = x;
+		}}
+}}");
+		}
+	}
+
+	
 }

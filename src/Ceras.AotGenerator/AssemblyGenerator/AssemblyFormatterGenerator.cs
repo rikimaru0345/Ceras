@@ -12,6 +12,16 @@ namespace CerasAotFormatterGenerator
 	using System.Reflection.Emit;
 	using System.Security.Permissions;
 
+	//
+	// Generating an assembly is a nice idea, but there are some problems right now that make it harder than it needs to be.
+	// There's actually not really any advantage to generate an already compiled assembly, instead of just emitting .cs files.
+	// At least you can debug .cs files, but you can't debug a generated assembly.
+	//
+	// Conclusion:
+	// Generating an assembly has literally no advantages, is harder to do, and also has the down side of not being able to debug it. 
+	// So for now we'll just stick with generating source code...
+	//
+
 	class AssemblyFormatterGenerator
 	{
 		const BindingFlags BindingFlags = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic;
