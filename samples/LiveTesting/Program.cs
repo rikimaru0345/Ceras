@@ -25,7 +25,7 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			new Basics().BasicUsage();
+			new BuiltInTypes().BasicUsage();
 
 			Benchmarks();
 
@@ -33,20 +33,12 @@ namespace LiveTesting
 
 			ExpressionTreesTest();
 
-			DictInObjArrayTest();
-
-			TestDirectPoolingMethods();
-
-			DelegatesTest();
-
 			TuplesTest();
 
 			EnsureSealedTypesThrowsException();
 
 			InjectSpecificFormatterTest();
-
-			BigIntegerTest();
-
+			
 			VersionToleranceTest();
 
 			ReadonlyTest();
@@ -72,9 +64,7 @@ namespace LiveTesting
 			NullableTest();
 
 			ErrorOnDirectEnumerable();
-
-			CtorTest();
-
+			
 			PropertyTest();
 
 			NetworkTest();
@@ -331,209 +321,6 @@ namespace LiveTesting
 		}
 
 
-		class Person
-		{
-			public const string CtorSuffix = " (modified by constructor)";
-
-			public string Name;
-			public int Health;
-			public Person BestFriend;
-
-			public Person()
-			{
-			}
-
-			public Person(string name)
-			{
-				Name = name + CtorSuffix;
-			}
-
-			public int GetHealth() => Health;
-
-			public string SayHello() => $"Hello I'm {Name}";
-		}
-
-		static void TestDirectPoolingMethods()
-		{
-			var pool = new InstancePoolTest();
-
-			// Test: Ctor with argument
-			{
-				SerializerConfig config = new SerializerConfig();
-
-				config.ConfigType<Person>()
-					  // Select ctor, not delegate
-					  .ConstructBy(() => new Person("name"));
-
-				var clone = DoRoundTripTest(config);
-				Debug.Assert(clone != null);
-				Debug.Assert(clone.Name.StartsWith("riki"));
-				Debug.Assert(clone.Name.EndsWith(Person.CtorSuffix));
-			}
-
-			// Test: Manual config
-			{
-				SerializerConfig config = new SerializerConfig();
-
-				config.ConfigType<Person>()
-					  .ConstructBy(TypeConstruction.ByStaticMethod(() => StaticPoolTest.CreatePerson()));
-
-				var clone = DoRoundTripTest(config);
-				Debug.Assert(clone != null);
-			}
-
-			// Test: Normal ctor, but explicitly
-			{
-				SerializerConfig config = new SerializerConfig();
-
-				config.ConfigType<Person>()
-					  // Select ctor, not delegate
-					  .ConstructBy(() => new Person());
-
-				var clone = DoRoundTripTest(config);
-				Debug.Assert(clone != null);
-			}
-
-			// Test: Construct from instance-pool
-			{
-				SerializerConfig config = new SerializerConfig();
-
-				config.ConfigType<Person>()
-					  // Instance + method select
-					  .ConstructBy(pool, () => pool.CreatePerson());
-
-				var clone = DoRoundTripTest(config);
-				Debug.Assert(clone != null);
-				Debug.Assert(pool.IsFromPool(clone));
-			}
-
-			// Test: Construct from static-pool
-			{
-				SerializerConfig config = new SerializerConfig();
-
-				config.ConfigType<Person>()
-					  // method select
-					  .ConstructBy(() => StaticPoolTest.CreatePerson());
-
-				var clone = DoRoundTripTest(config);
-				Debug.Assert(clone != null);
-				Debug.Assert(StaticPoolTest.IsFromPool(clone));
-			}
-
-			// Test: Construct from any delegate (in this example: a lambda expression)
-			{
-				SerializerConfig config = new SerializerConfig();
-
-				Person referenceCapturedByLambda = null;
-
-				config.ConfigType<Person>()
-					  // Use delegate
-					  .ConstructByDelegate(() =>
-					  {
-						  var obj = new Person();
-						  referenceCapturedByLambda = obj;
-						  return obj;
-					  });
-
-				var clone = DoRoundTripTest(config);
-				Debug.Assert(clone != null);
-				Debug.Assert(ReferenceEquals(clone, referenceCapturedByLambda));
-			}
-
-			// Test: Construct from instance-pool, with parameter
-			{
-				SerializerConfig config = new SerializerConfig();
-
-				config.ConfigType<Person>()
-					  // Use instance + method selection
-					  .ConstructBy(pool, () => pool.CreatePersonWithName("abc"));
-
-				var clone = DoRoundTripTest(config);
-				Debug.Assert(clone != null);
-				Debug.Assert(clone.Name.StartsWith("riki"));
-				Debug.Assert(pool.IsFromPool(clone));
-			}
-
-			// Test: Construct from static-pool, with parameter
-			{
-				SerializerConfig config = new SerializerConfig();
-
-				config.ConfigType<Person>()
-					  // Use instance + method selection
-					  .ConstructBy(() => StaticPoolTest.CreatePersonWithName("abc"));
-
-				var clone = DoRoundTripTest(config);
-				Debug.Assert(clone != null);
-				Debug.Assert(clone.Name.StartsWith("riki"));
-				Debug.Assert(StaticPoolTest.IsFromPool(clone));
-			}
-		}
-
-		static Person DoRoundTripTest(SerializerConfig config, string name = "riki")
-		{
-			var ceras = new CerasSerializer(config);
-
-			var p = new Person();
-			p.Name = name;
-
-			var data = ceras.Serialize(p);
-
-			var clone = ceras.Deserialize<Person>(data);
-			return clone;
-		}
-
-		static class StaticPoolTest
-		{
-			static HashSet<Person> _objectsCreatedByPool = new HashSet<Person>();
-
-			public static Person CreatePerson()
-			{
-				var p = new Person();
-				_objectsCreatedByPool.Add(p);
-				return p;
-			}
-
-			public static Person CreatePersonWithName(string name)
-			{
-				var p = new Person();
-				p.Name = name;
-				_objectsCreatedByPool.Add(p);
-				return p;
-			}
-
-			public static bool IsFromPool(Person p) => _objectsCreatedByPool.Contains(p);
-
-			public static void DiscardPooledObjectTest(Person p)
-			{
-			}
-		}
-
-		class InstancePoolTest
-		{
-			HashSet<Person> _objectsCreatedByPool = new HashSet<Person>();
-
-			public Person CreatePerson()
-			{
-				var p = new Person();
-				_objectsCreatedByPool.Add(p);
-				return p;
-			}
-
-			public Person CreatePersonWithName(string name)
-			{
-				var p = new Person();
-				p.Name = name;
-				_objectsCreatedByPool.Add(p);
-				return p;
-			}
-
-			public bool IsFromPool(Person p) => _objectsCreatedByPool.Contains(p);
-
-			public void DiscardPooledObjectTest(Person p)
-			{
-			}
-		}
-
 
 		static void Benchmarks()
 		{
@@ -663,20 +450,6 @@ namespace LiveTesting
 
 			public void Serialize(ref byte[] buffer, ref int offset, Person value) => throw new NotImplementedException();
 			public void Deserialize(byte[] buffer, ref int offset, ref Person value) => throw new NotImplementedException();
-		}
-
-		static void BigIntegerTest()
-		{
-			BigInteger big = new BigInteger(28364526879);
-			big = BigInteger.Pow(big, 6);
-
-			CerasSerializer ceras = new CerasSerializer();
-
-			var data = ceras.Serialize(big);
-
-			var clone = ceras.Deserialize<BigInteger>(data);
-
-			Debug.Assert(clone.ToString() == big.ToString());
 		}
 
 		static void ReadonlyTest()
@@ -905,168 +678,8 @@ namespace LiveTesting
 
 		}
 
-		static int Add1(int x) => x + 1;
-		static int Add2(int x) => x + 2;
-
-		static void DelegatesTest()
-		{
-			var config = new SerializerConfig();
-			config.Advanced.DelegateSerialization = DelegateSerializationFlags.AllowStatic;
-			var ceras = new CerasSerializer(config);
-
-			// 1. Simple test: can ceras persist a static-delegate
-			{
-				Func<int, int> staticFunc = Add1;
-
-				var data = ceras.Serialize(staticFunc);
-
-				var staticFuncClone = ceras.Deserialize<Func<int, int>>(data);
-
-				Debug.Assert(staticFuncClone != null);
-				Debug.Assert(object.Equals(staticFunc, staticFuncClone) == true); // must be considered the same
-				Debug.Assert(object.ReferenceEquals(staticFunc, staticFuncClone) == false); // must be a new instance
 
 
-				Debug.Assert(staticFuncClone(5) == staticFunc(5));
-			}
-
-			// 2. What about a collection of them
-			{
-				var rng = new Random();
-				List<Func<int, int>> funcs = new List<Func<int, int>>();
-
-				for (int i = 0; i < rng.Next(15, 20); i++)
-				{
-					Func<int, int> f;
-
-					if (rng.Next(100) < 50)
-						f = Add1;
-					else
-						f = Add2;
-
-					funcs.Add(f);
-				}
-
-				var data = ceras.Serialize(funcs);
-				var cloneList = ceras.Deserialize<List<Func<int, int>>>(data);
-
-				// Check by checking if the result is the same
-				Debug.Assert(funcs.Count == cloneList.Count);
-				for (int i = 0; i < funcs.Count; i++)
-				{
-					var n = rng.Next();
-					Debug.Assert(funcs[i](n) == cloneList[i](n));
-				}
-			}
-
-			// 3. If we switch to "allow instance", it should persist instance-delegates, but no lambdas
-			{
-				config.Advanced.DelegateSerialization = DelegateSerializationFlags.AllowInstance;
-				ceras = new CerasSerializer(config);
-
-
-				//
-				// A) Direct Instance
-				//
-				var method = GetMethod(() => new Person().GetHealth());
-				var p = new Person("direct instance") { Health = 3456 };
-				var del = (Func<int>)Delegate.CreateDelegate(typeof(Func<int>), p, method);
-
-				// Does our delegate even work?
-				var testResult = del();
-				Debug.Assert(testResult == p.Health);
-
-				// Can we serialize the normal instance delegate?
-				var data = ceras.Serialize(del);
-				var clone = ceras.Deserialize<Func<int>>(data);
-
-				// Does it still work?
-				Debug.Assert(testResult == clone());
-
-
-				
-
-			}
-
-
-			return;
-			/*
-			Func<int, int> myFunc = Add1;
-
-			int localCapturedInt = 6;
-
-			myFunc = x => 
-			{
-				Console.WriteLine("Original delegate got called!");
-				return localCapturedInt + 7;
-			};
-			
-			myFunc = (Func<int, int>)Delegate.Combine(myFunc, myFunc);
-			myFunc = (Func<int, int>)Delegate.Combine(myFunc, myFunc);
-			myFunc = (Func<int, int>)Delegate.Combine(myFunc, myFunc);
-
-			var targets = myFunc.GetInvocationList();
-			
-
-			var result = myFunc(1); // writes the console message above 8 times, *facepalm*
-
-			Debug.Assert(myFunc(5) == 6);
-
-			*/
-
-
-			// Expected: no type-name appears multiple times, and deserialization works correctly.
-
-
-			//var multipleTypesHolderData = ceras.Serialize(multipleTypesHolder);
-			//multipleTypesHolderData.VisualizePrint("TypeTestClass");
-			//var multipleTypesHolderClone = ceras.Deserialize<TypeTestClass>(multipleTypesHolderData);
-
-
-			/*
-
-			var memberInfo = new MemberInfoHolder();
-			memberInfo.Field = typeof(MemberInfoHolder).GetFields()[0];
-			memberInfo.Property = typeof(MemberInfoHolder).GetProperty("property", BindingFlags.NonPublic | BindingFlags.Instance);
-			memberInfo.Method = typeof(MemberInfoHolder).GetMethod("method", BindingFlags.NonPublic | BindingFlags.Instance);
-
-			var memberInfoClone = ceras.Deserialize<MemberInfoHolder>(ceras.Serialize(memberInfo));
-
-			var valueHolder = new DelegateValueHolder();
-
-			valueHolder.A = 1;
-			valueHolder.B = 0;
-
-			Action action = () =>
-			{
-				valueHolder.B += valueHolder.A;
-			};
-
-			HiddenFieldsTestClass test = new HiddenFieldsTestClass();
-			test.SimpleActionEvent += () => { };
-
-			var testType = typeof(HiddenFieldsTestClass);
-
-
-			var clonedAction = ceras.Deserialize<Action>(ceras.Serialize(action));
-
-			clonedAction();
-
-			Func<int> get2 = () => 2;
-			var t = get2.GetType();
-
-			var get2Clone = ceras.Deserialize<Func<int>>(ceras.Serialize(get2));
-
-
-			Debug.Assert(get2() == 2);
-			Debug.Assert(get2Clone() == get2());
-			*/
-		}
-
-		class DelegateTestClass
-		{
-			public event Action<int> OnSomeNumberHappened;
-		}
 
 		class TypeTestClass
 		{
@@ -1081,28 +694,7 @@ namespace LiveTesting
 			public MethodInfo Method;
 		}
 
-		class MemberInfoHolder
-		{
-			public FieldInfo Field;
-			public PropertyInfo Property;
-			public MethodInfo Method;
-
-			string property { get; set; }
-			void method() { }
-		}
-
-		class DelegateValueHolder
-		{
-			public int A;
-			public int B;
-		}
-
-		class HiddenFieldsTestClass
-		{
-			public event Action SimpleActionEvent;
-			public event Action<int> SimpleEventWithArg;
-		}
-
+		
 		static void SimpleDictionaryTest()
 		{
 			var dict = new Dictionary<string, object>
@@ -1119,44 +711,6 @@ namespace LiveTesting
 			string n1 = dict["name"] as string;
 			string n2 = clone["name"] as string;
 			Debug.Assert(n1 == n2);
-		}
-
-		static void DictInObjArrayTest()
-		{
-			var dict = new Dictionary<string, object>
-			{
-				["test"] = new Dictionary<string, object>
-				{
-					["test"] = new object[]
-					{
-						new Dictionary<string, object>
-						{
-							["test"] = 3
-						}
-					}
-				}
-			};
-
-
-			var s = new CerasSerializer();
-
-			var data = s.Serialize(dict);
-
-			var cloneDict = s.Deserialize<Dictionary<string, object>>(data);
-
-			var inner1 = cloneDict["test"] as Dictionary<string, object>;
-			Debug.Assert(inner1 != null);
-
-			var objArray = inner1["test"] as object[];
-			Debug.Assert(objArray != null);
-
-			var dictElement = objArray[0] as Dictionary<string, object>;
-			Debug.Assert(dictElement != null);
-
-			var three = dictElement["test"];
-
-			Debug.Assert(three.GetType() == typeof(int));
-			Debug.Assert(3.Equals(three));
 		}
 
 		static void MaintainTypeTest()
@@ -1536,23 +1090,7 @@ namespace LiveTesting
 			}
 		}
 
-		static void CtorTest()
-		{
-			var obj = new ConstructorTest(5);
-			var ceras = new CerasSerializer();
-
-			try
-			{
-				// Expected to throw: no default ctor
-				var data = ceras.Serialize(obj);
-				var clone = ceras.Deserialize<ConstructorTest>(data);
-
-				Debug.Assert(false, "objects with no ctor and no TypeConfig should not serialize");
-			}
-			catch (Exception e)
-			{
-			}
-		}
+		
 
 		static void PropertyTest()
 		{
@@ -1749,12 +1287,14 @@ namespace LiveTesting
 				{ typeof(VersionTest2), "*" }
 		};
 
+		SimpleTypeBinder _simpleTypeBinder = new SimpleTypeBinder();
+
 		public string GetBaseName(Type type)
 		{
 			if (_commonNames.TryGetValue(type, out string v))
 				return v;
 
-			return SimpleTypeBinderHelper.GetBaseName(type);
+			return _simpleTypeBinder.GetBaseName(type);
 		}
 
 		public Type GetTypeFromBase(string baseTypeName)
@@ -1764,10 +1304,10 @@ namespace LiveTesting
 			if (_commonNames.ContainsValue(baseTypeName))
 				return typeof(VersionTest2);
 
-			return SimpleTypeBinderHelper.GetTypeFromBase(baseTypeName);
+			return _simpleTypeBinder.GetTypeFromBase(baseTypeName);
 		}
 
-		public Type GetTypeFromBaseAndAgruments(string baseTypeName, params Type[] genericTypeArguments)
+		public Type GetTypeFromBaseAndArguments(string baseTypeName, params Type[] genericTypeArguments)
 		{
 			throw new NotSupportedException("this binder is only for debugging");
 			// return SimpleTypeBinderHelper.GetTypeFromBaseAndAgruments(baseTypeName, genericTypeArguments);
@@ -1795,16 +1335,7 @@ namespace LiveTesting
 		public int D = 53;
 	}
 
-	class ConstructorTest
-	{
-		public int x;
-
-		public ConstructorTest(int x)
-		{
-			this.x = x;
-		}
-	}
-
+	
 	public enum LongEnum : long
 	{
 		a = 1,

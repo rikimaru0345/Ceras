@@ -76,6 +76,29 @@ namespace Ceras.Test
 
 		}
 
+		[Fact]
+		public void CtorTest()
+		{
+			var obj = new ConstructorTest(5);
+			var ceras = new CerasSerializer();
+
+			bool success = false;
+			try
+			{
+				// Expected to throw: no default ctor
+				var data = ceras.Serialize(obj);
+				var clone = ceras.Deserialize<ConstructorTest>(data);
+			}
+			catch (Exception e)
+			{
+				success = true;
+			}
+			
+			Assert.True(success, "objects with no ctor and no TypeConfig should not serialize");
+		}
+
+
+
 		static void ExpectException(Action f)
 		{
 			try
@@ -109,4 +132,15 @@ namespace Ceras.Test
 
 		void Throw() => throw new InvalidOperationException("This shouldn't happen");
 	}
+
+	class ConstructorTest
+	{
+		public int x;
+
+		public ConstructorTest(int x)
+		{
+			this.x = x;
+		}
+	}
+
 }

@@ -150,7 +150,7 @@
 				// Read construct full composite (example: Dictionary<string, object>)
 				var compositeProxy = typeCache.CreateDeserializationProxy();
 
-				type = _typeBinder.GetTypeFromBaseAndAgruments(baseType.FullName, genericArgs);
+				type = _typeBinder.GetTypeFromBaseAndArguments(baseType.FullName, genericArgs);
 				compositeProxy.Type = type; // make it available for future deserializations
 
 				if (_isSealed)

@@ -77,11 +77,11 @@ namespace Ceras
 			return false;
 		}
 
-		static HashSet<Assembly> _frameworkAssemblies = new HashSet<Assembly>
+		internal static HashSet<Assembly> _frameworkAssemblies = new HashSet<Assembly>
 		{
-				typeof(object).Assembly, // mscorelib
-				typeof(Uri).Assembly, // System.dll
-				typeof(Enumerable).Assembly, // System.Core.dll
+			typeof(object).Assembly, // mscorelib
+			typeof(Uri).Assembly, // System.dll
+			typeof(Enumerable).Assembly, // System.Core.dll
 		};
 
 
@@ -181,7 +181,7 @@ namespace Ceras
 			if (Config.Advanced.AotMode != AotMode.None && Config.VersionTolerance.Mode != VersionToleranceMode.Disabled)
 				throw new NotSupportedException("You can not use 'AotMode.Enabled' and version tolerance at the same time for now. If you would like this feature implemented, please open an issue on GitHub explaining your use-case, or join the Discord server.");
 
-			TypeBinder = Config.Advanced.TypeBinder ?? new NaiveTypeBinder();
+			TypeBinder = Config.Advanced.TypeBinder;
 			DiscardObjectMethod = Config.Advanced.DiscardObjectMethod;
 
 			_userResolvers = Config.OnResolveFormatter.ToArray();
@@ -618,23 +618,7 @@ namespace Ceras
 					}
 				}
 
-
-			// 4.) Depending on the VersionTolerance we use different formatters
-			if (Config.VersionTolerance.Mode != VersionToleranceMode.Disabled)
-			{
-				if (!meta.IsFrameworkType && !meta.IsPrimitive && !meta.Type.IsArray)
-				{
-					// Create SchemaFormatter, it will automatically adjust itself to the schema when it's read
-					var formatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
-					var schemaFormatter = (IFormatter)Activator.CreateInstance(formatterType, args: new object[] { this, meta.PrimarySchema });
-
-					meta.SpecificFormatter = schemaFormatter;
-					return schemaFormatter;
-				}
-			}
-
-
-			// 5.) Built-in
+			// 4.) Built-in
 			for (int i = 0; i < _resolvers.Count; i++)
 			{
 				var formatter = _resolvers[i].GetFormatter(type);
@@ -646,7 +630,7 @@ namespace Ceras
 				}
 			}
 
-			// 6.) Dynamic
+			// 5.) Dynamic (optionally using Schema)
 			{
 				var formatter = _dynamicResolver.GetFormatter(type);
 				if (formatter != null)

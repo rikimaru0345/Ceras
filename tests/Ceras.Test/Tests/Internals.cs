@@ -5,6 +5,7 @@ namespace Ceras.Test
 {
 	using Helpers;
 	using System;
+	using System.Collections.Generic;
 
 	public class Internals : TestBase
 	{
@@ -71,22 +72,19 @@ namespace Ceras.Test
 
 
 		[Fact]
-		public void TypeChecks()
+		public void IsBlittableChecks()
 		{
 			Assert.True(ReflectionHelper.IsBlittableType(typeof(bool)));
 			Assert.True(ReflectionHelper.IsBlittableType(typeof(double)));
 			Assert.True(ReflectionHelper.IsBlittableType(typeof(double)));
-
-
+			Assert.True(ReflectionHelper.IsBlittableType(typeof(DayOfWeek))); // actual enum
+			
 			Assert.False(ReflectionHelper.IsBlittableType(typeof(string)));
-			Assert.False(ReflectionHelper.IsBlittableType(typeof(DayOfWeek)));
-			Assert.False(ReflectionHelper.IsBlittableType(typeof(Enum)));
+			Assert.False(ReflectionHelper.IsBlittableType(typeof(Enum))); // enum class itself
 			Assert.False(ReflectionHelper.IsBlittableType(typeof(byte*)));
 			Assert.False(ReflectionHelper.IsBlittableType(typeof(int*)));
 			Assert.False(ReflectionHelper.IsBlittableType(typeof(IntPtr)));
 			Assert.False(ReflectionHelper.IsBlittableType(typeof(UIntPtr)));
-			Assert.False(ReflectionHelper.IsBlittableType(typeof(void)));
-
 		}
 
 		[Fact]
@@ -96,11 +94,30 @@ namespace Ceras.Test
 
 			var ceras = new CerasSerializer();
 
-			var m1 = ceras.GetTypeMetaData(typeof(int));
-			Assert.True(m1.IsFrameworkType && m1.IsPrimitive);
+			// true and false keywords are both highlighted in the same color, so this makes it easier to see :P
+			const bool False = false;
 
+			// isPrimitive means "is a serialization primitive", not primitive as in "primitive type" like int or something.
+			var tests = new List<(bool isFramework, bool isPrimitive, bool isBlittable, Type testType)>();
 
+			tests.Add((isFramework: true, isPrimitive: true, isBlittable: true, typeof(int)));
+			tests.Add((isFramework: true, isPrimitive: true, isBlittable: true, typeof(bool)));
+			tests.Add((isFramework: true, isPrimitive: true, isBlittable: true, typeof(char)));
+			
+			tests.Add((isFramework: true, isPrimitive: true, isBlittable: False, typeof(Type)));
+			tests.Add((isFramework: true, isPrimitive: true, isBlittable: False, typeof(Type).GetType()));
+			
+			tests.Add((isFramework: true, isPrimitive: False, isBlittable: False, typeof(List<int>)));
+			
 
+			foreach (var test in tests)
+			{
+				var meta = ceras.GetTypeMetaData(test.testType);
+
+				Assert.True(meta.IsFrameworkType == test.isFramework);
+				Assert.True(meta.IsPrimitive == test.isPrimitive);
+				Assert.True(ReflectionHelper.IsBlittableType(test.testType) == test.isBlittable);
+			}
 		}
 	}
 

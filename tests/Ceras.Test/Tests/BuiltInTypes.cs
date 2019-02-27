@@ -9,9 +9,9 @@ namespace Ceras.Test
 	using System.Numerics;
 	using Xunit;
 
-	public class Basics : TestBase
+	public class BuiltInTypes : TestBase
 	{
-		public Basics()
+		public BuiltInTypes()
 		{
 			SetSerializerConfigurations(Config_NoReinterpret, Config_WithReinterpret, Config_WithVersioning);
 		}
@@ -80,20 +80,74 @@ namespace Ceras.Test
 
 		}
 
-		static void AssertDateTimeEqual(DateTime t1, DateTime t2)
+
+		[Fact]
+		public void PrimitiveArrays()
 		{
-			Assert.True(t1.Kind == t2.Kind);
+			var nullBytes = (byte[])null;
+			TestDeepEquality(nullBytes, TestMode.AllowNull);
 
-			Assert.True(t1.Ticks == t2.Ticks);
+			TestDeepEquality(new byte[0]);
 
-			Assert.True(t1.Year == t2.Year &&
-						t1.Month == t2.Month &&
-						t1.Day == t2.Day &&
-						t1.Hour == t2.Hour &&
-						t1.Minute == t2.Minute &&
-						t1.Second == t2.Second &&
-						t1.Millisecond == t2.Millisecond);
+			var byteAr = new byte[rng.Next(100, 200)];
+			rng.NextBytes(byteAr);
+			TestDeepEquality(byteAr);
 		}
+
+		[Fact]
+		public void StructArrays()
+		{
+			TestDeepEquality((sbyte[])null, TestMode.AllowNull);
+			TestDeepEquality(new sbyte[0]);
+			TestDeepEquality(new sbyte[] { -5, -128, 0, 34 });
+
+			TestDeepEquality((decimal[])null, TestMode.AllowNull);
+			TestDeepEquality(new decimal[0]);
+			TestDeepEquality(new decimal[] { 1M, 2M, 3M, decimal.MinValue, decimal.MaxValue });
+
+			TestDeepEquality(new[]
+			{
+				new Vector3(1, rngFloat, 3),
+				new Vector3(rngFloat, rngFloat, float.NaN),
+				new Vector3(float.Epsilon, rngFloat, float.NegativeInfinity),
+				new Vector3(-5, float.MaxValue, rngFloat),
+			});
+			
+			TestDeepEquality(new[]
+			{
+				ValueTuple.Create((byte)150, 5f, 3.0, "a"),
+				ValueTuple.Create((byte)150, 5f, 3.0, "b"),
+				ValueTuple.Create((byte)150, -5f, 1.0, "c"),
+			});
+
+			var r = new Random(DateTime.Now.GetHashCode());
+			var decimalData = new decimal[r.Next(100, 200)];
+			for (var i = 0; i < decimalData.Length; ++i)
+				decimalData[i] = (decimal)r.NextDouble();
+
+			TestDeepEquality(decimalData);
+		}
+
+		[Fact]
+		public void ObjectArrays()
+		{
+			TestDeepEquality(new[] { new object(), new object(), new object() });
+			
+			TestDeepEquality(new[] { "asdfg", "asdfg", "asdfg", "", "", "1", "2", "3", ",.-üä#ß351293ß6!§`?=&=$&" });
+			
+			TestDeepEquality(new[] { (object)DateTime.Now, (object)DateTime.Now, (object)DateTime.Now, (object)DateTime.Now, });
+
+			TestDeepEquality(new[]
+			{
+				new List<Tuple<int, string>> { Tuple.Create(5, "a"), Tuple.Create(-2222, "q"), Tuple.Create(int.MinValue, "x") },
+				new List<Tuple<int, string>> { Tuple.Create(6, "a"), Tuple.Create(33333, "v"), Tuple.Create(int.MinValue / 2, "y") },
+				new List<Tuple<int, string>> { Tuple.Create(7, "a"), Tuple.Create(23457, "w"), Tuple.Create(int.MaxValue, "z") },
+			});
+		}
+
+
+
+
 
 #if NETFRAMEWORK
 
@@ -253,13 +307,33 @@ namespace Ceras.Test
 			var data = ceras.Serialize(c);
 			var clone = ceras.Deserialize<Container>(data);
 
-			Assert.True(clone.Elements.Length == 2);
+			Assert.True(clone.Elements.Length == 3);
 			Assert.True(clone.Elements[0].Name == "a");
 			Assert.True(clone.Elements[1].Id == 123);
 
 #if NETFRAMEWORK
 			Assert.True(clone.Elements[2].Color == c.Elements[2].Color);
 #endif
+		}
+
+
+
+
+
+		
+		static void AssertDateTimeEqual(DateTime t1, DateTime t2)
+		{
+			Assert.True(t1.Kind == t2.Kind);
+
+			Assert.True(t1.Ticks == t2.Ticks);
+
+			Assert.True(t1.Year == t2.Year &&
+						t1.Month == t2.Month &&
+						t1.Day == t2.Day &&
+						t1.Hour == t2.Hour &&
+						t1.Minute == t2.Minute &&
+						t1.Second == t2.Second &&
+						t1.Millisecond == t2.Millisecond);
 		}
 
 	}

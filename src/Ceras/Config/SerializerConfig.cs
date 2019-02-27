@@ -208,7 +208,7 @@
 		bool IAdvancedConfigOptions.PersistTypeCache { get; set; } = false;
 		bool IAdvancedConfigOptions.SealTypesWhenUsingKnownTypes { get; set; } = true;
 		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
-		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = null;
+		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = new SimpleTypeBinder();
 		DelegateSerializationFlags IAdvancedConfigOptions.DelegateSerialization { get; set; } = DelegateSerializationFlags.Off;
 		bool IAdvancedConfigOptions.UseReinterpretFormatter { get; set; } = true;
 		bool IAdvancedConfigOptions.RespectNonSerializedAttribute { get; set; } = true;
@@ -291,8 +291,9 @@
 		/// <para>Examples:</para>
 		/// <para>- Mapping server objects to client objects</para>
 		/// <para>- Shortening / abbreviating type-names to save space and performance</para>
-		/// The default type binder (NaiveTypeBinder) simply uses '.FullName'
 		/// See the readme on github for more information.
+		///
+		/// <para>Default: new SimpleTypeBinder()</para>
 		/// </summary>
 		ITypeBinder TypeBinder { get; set; }
 
