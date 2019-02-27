@@ -209,7 +209,7 @@
 		bool IAdvancedConfigOptions.SealTypesWhenUsingKnownTypes { get; set; } = true;
 		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
 		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = null;
-		DelegateSerializationMode IAdvancedConfigOptions.DelegateSerialization { get; set; } = DelegateSerializationMode.Off;
+		DelegateSerializationFlags IAdvancedConfigOptions.DelegateSerialization { get; set; } = DelegateSerializationFlags.Off;
 		bool IAdvancedConfigOptions.UseReinterpretFormatter { get; set; } = true;
 		bool IAdvancedConfigOptions.RespectNonSerializedAttribute { get; set; } = true;
 		BitmapMode IAdvancedConfigOptions.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
@@ -307,7 +307,7 @@
 		/// While 'AllowInstance' will also allow serialization of instance-methods, meaning that the target object will be "pulled into" the serialization as well.
 		/// <para>Default: Off</para>
 		/// </summary>
-		DelegateSerializationMode DelegateSerialization { get; set; }
+		DelegateSerializationFlags DelegateSerialization { get; set; }
 
 		/// <summary>
 		/// Allows Ceras to use an extremely fast formatter for so called "blittable" types. Works for single objects as well as arrays! This formatter always uses the native memory layout, does not respect endianness, and does not support version tolerance.
@@ -379,20 +379,21 @@
 		*/
 	}
 
-	public enum DelegateSerializationMode
+	[Flags]
+	public enum DelegateSerializationFlags
 	{
 		/// <summary>
 		/// Throw an exception when trying to serialize a delegate type
 		/// </summary>
-		Off,
+		Off = 0,
 		/// <summary>
 		/// Allow delegates as long as they point to static methods
 		/// </summary>
-		AllowStatic,
+		AllowStatic = 1 << 0,
 		/// <summary>
 		/// Allow delegates even when they include an object reference (that will get serialized as well)
 		/// </summary>
-		AllowInstance,
+		AllowInstance = 1 << 1,
 	}
 
 

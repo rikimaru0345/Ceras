@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.Net.Sdk">
 
-  <!-- Package -->
+  <!-- NuGet Package -->
   <PropertyGroup>
-    <Version>4.0.0-rc</Version>
+    <Version>4.0.18</Version>
     <Authors>rikimaru0345</Authors>
     <Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
     <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
@@ -17,47 +17,50 @@
 
 
 
-  <!-- Project Settings -->
+
+  <!--    -->
+  <!-- C# Compiler Settings -->
+  <!--    -->
   <PropertyGroup>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>7.3</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
-    
-    <!-- Don't warn about missing XML documentation on some uninteresting types and members -->
-    <NoWarn>1591;</NoWarn> 
+    <!-- Missing XML comment for type... -->
+    <NoWarn>1591;</NoWarn>
   </PropertyGroup>
 
-
-
-  <!-- Adjust target frameworks when not compiling on windows -->
-  <PropertyGroup Condition=" '$(OS)' != 'Windows_NT' ">
-    <TargetFramework>netstandard2.0</TargetFramework>
-  </PropertyGroup>
-
-  <PropertyGroup Condition=" '$(OS)' == 'Windows_NT' ">
-    <TargetFrameworks>net45;net47;netstandard2.0;</TargetFrameworks>
-  </PropertyGroup>
-
-  <!-- .NET 4.5 -->
-  <ItemGroup Condition="'$(TargetFramework)' == 'net45'">
-    <PackageReference Include="System.ValueTuple" Version="4.5.0" />
-  </ItemGroup>
-
-  <!-- For targets newer than NET45 we support the built-in buffer pool -->
-  <ItemGroup Condition="'$(TargetFramework)' != 'net45'">
-    <PackageReference Include="System.Buffers" Version="4.5.0" />
-  </ItemGroup>
-
-  <!-- Define 'DEBUG' -->
   <PropertyGroup Condition="'$(Configuration)'=='Debug'">
     <DefineConstants>TRACE;DEBUG</DefineConstants>
   </PropertyGroup>
 
 
 
+  <!--    -->
+  <!-- Target Framework -->
+  <!--    -->
+  <PropertyGroup Condition=" '$(OS)' != 'Windows_NT' ">
+    <!-- Linux & Mac don't have .NET Framework -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(OS)' == 'Windows_NT' ">
+    <TargetFrameworks>net45;net47;netstandard2.0;</TargetFrameworks>
+  </PropertyGroup>
+
+
+  <!--    -->
+  <!-- References -->
+  <!--    -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net45'">
+    <PackageReference Include="System.ValueTuple" Version="4.5.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' != 'net45'">
+    <PackageReference Include="System.Buffers" Version="4.5.0" />
+  </ItemGroup>
+
 
   <!-- Use T4 Generators -->
-  <ItemGroup> <!-- T4 compilation service -->
+  <ItemGroup>
+    <!-- T4 compilation service -->
     <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
   </ItemGroup>
 

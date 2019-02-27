@@ -909,7 +909,7 @@ namespace LiveTesting
 		static void DelegatesTest()
 		{
 			var config = new SerializerConfig();
-			config.Advanced.DelegateSerialization = DelegateSerializationMode.AllowStatic;
+			config.Advanced.DelegateSerialization = DelegateSerializationFlags.AllowStatic;
 			var ceras = new CerasSerializer(config);
 
 			// 1. Simple test: can ceras persist a static-delegate
@@ -959,7 +959,7 @@ namespace LiveTesting
 
 			// 3. If we switch to "allow instance", it should persist instance-delegates, but no lambdas
 			{
-				config.Advanced.DelegateSerialization = DelegateSerializationMode.AllowInstance;
+				config.Advanced.DelegateSerialization = DelegateSerializationFlags.AllowInstance;
 				ceras = new CerasSerializer(config);
 
 
