@@ -2,13 +2,10 @@
 
 namespace Ceras.Test
 {
-	using Formatters;
-	using Resolvers;
 	using System.Collections;
 	using System.Collections.Generic;
 	using System.Collections.Immutable;
 	using System.Collections.ObjectModel;
-	using System.Linq;
 	using System.Numerics;
 	using Xunit;
 
@@ -224,8 +221,60 @@ namespace Ceras.Test
 			TestDeepEquality(randomStuff);
 
 
-			var link = new LinkedList<string>(new[] {"abc", "123", "xyz", "!!!"});
+			var link = new LinkedList<string>(new[] { "abc", "123", "xyz", "!!!" });
 			TestDeepEquality(link);
 		}
+
+
+		[Fact]
+		public void BasicUsage()
+		{
+			var config = new SerializerConfig();
+			config.DefaultTargets = TargetMember.AllFields;
+			config.Advanced.BitmapMode = BitmapMode.SaveAsPng;
+			config.Advanced.RespectNonSerializedAttribute = false;
+			config.VersionTolerance.Mode = VersionToleranceMode.Standard;
+			config.VersionTolerance.VerifySizes = false;
+
+			var ceras = new CerasSerializer(config);
+
+			var c = new Container
+			{
+				Elements = new Element[]
+				{
+					new Element {Id = 5, Name = "a"},
+					new Element {Id = 123, Name = "z"},
+#if NETFRAMEWORK
+					new Element { Id=0, Name ="color",  Color = System.Drawing.Color.FromArgb(rngInt)},
+#endif
+				},
+			};
+
+			var data = ceras.Serialize(c);
+			var clone = ceras.Deserialize<Container>(data);
+
+			Assert.True(clone.Elements.Length == 2);
+			Assert.True(clone.Elements[0].Name == "a");
+			Assert.True(clone.Elements[1].Id == 123);
+
+#if NETFRAMEWORK
+			Assert.True(clone.Elements[2].Color == c.Elements[2].Color);
+#endif
+		}
+
+	}
+
+	class Container
+	{
+		public Element[] Elements;
+	}
+
+	class Element
+	{
+		public string Name;
+		public int Id;
+#if NETFRAMEWORK
+		public System.Drawing.Color Color;
+#endif
 	}
 }

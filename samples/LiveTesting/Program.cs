@@ -25,6 +25,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
+			new Basics().BasicUsage();
+
 			Benchmarks();
 
 			CustomComparerFormatter();

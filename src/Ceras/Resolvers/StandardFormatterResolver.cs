@@ -63,6 +63,7 @@
 
 			#if NETFRAMEWORK
 			_primitiveFormatters.GetOrAddValueRef(typeof(System.Drawing.Bitmap)) = new BitmapFormatter();
+			_primitiveFormatters.GetOrAddValueRef(typeof(System.Drawing.Color)) = new ColorFormatter();
 			#endif
 		}
 
