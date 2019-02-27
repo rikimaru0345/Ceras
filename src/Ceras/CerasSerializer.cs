@@ -622,7 +622,7 @@ namespace Ceras
 			// 4.) Depending on the VersionTolerance we use different formatters
 			if (Config.VersionTolerance.Mode != VersionToleranceMode.Disabled)
 			{
-				if (!meta.IsFrameworkType && !meta.IsPrimitive)
+				if (!meta.IsFrameworkType && !meta.IsPrimitive && !meta.Type.IsArray)
 				{
 					// Create SchemaFormatter, it will automatically adjust itself to the schema when it's read
 					var formatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
