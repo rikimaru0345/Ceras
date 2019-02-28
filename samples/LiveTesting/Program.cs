@@ -25,7 +25,8 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			new BuiltInTypes().BasicUsage();
+			new Misc().SerializeStaticPart();
+
 
 			Benchmarks();
 
@@ -96,6 +97,10 @@ namespace LiveTesting
 			Console.ReadKey();
 		}
 
+		static void SerializeStatic()
+		{
+			throw new NotImplementedException();
+		}
 
 
 		static void CustomComparerFormatter()

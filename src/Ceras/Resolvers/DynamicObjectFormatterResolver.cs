@@ -36,12 +36,12 @@
 			{
 				// SchemaFormatter will automatically adjust itself to the schema when it's read
 				var formatterType = typeof(SchemaDynamicFormatter<>).MakeGenericType(type);
-				return (IFormatter)Activator.CreateInstance(formatterType, args: new object[] { _ceras, meta.PrimarySchema });
+				return (IFormatter)Activator.CreateInstance(formatterType, args: new object[] { _ceras, meta.PrimarySchema, false });
 			}
 			else
 			{
 				var formatterType  = typeof(DynamicFormatter<>).MakeGenericType(type);
-				return (IFormatter)Activator.CreateInstance(formatterType, _ceras);
+				return (IFormatter)Activator.CreateInstance(formatterType, new object[] { _ceras, false });
 			}
 		}
 	}

@@ -77,32 +77,56 @@
 			return IsAssignableToGenericType(baseType, genericType);
 		}
 
+
 		public static IEnumerable<MemberInfo> GetAllDataMembers(this Type type, bool fields = true, bool properties = true)
 		{
-			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-
 			if (type.IsPrimitive)
 				yield break;
 
+			foreach (var m in EnumerateMembers(type))
+			{
+				if(m is FieldInfo f && fields && !f.IsStatic)
+					yield return m;
+				if(m is PropertyInfo p && properties && !p.GetAccessors(true)[0].IsStatic)
+					yield return m;
+			}
+		}
+
+		public static IEnumerable<MemberInfo> GetAllStaticDataMembers(this Type type, bool fields = true, bool properties = true)
+		{
+			if (type.IsPrimitive)
+				yield break;
+
+			foreach (var m in EnumerateMembers(type))
+			{
+				if(m is FieldInfo f && fields && f.IsStatic)
+					yield return m;
+				if(m is PropertyInfo p && properties && p.GetAccessors(true)[0].IsStatic)
+					yield return m;
+			}
+		}
+
+		static IEnumerable<MemberInfo> EnumerateMembers(this Type type)
+		{
+			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+
 			while (type != null)
 			{
-				if (fields)
-					foreach (var f in type.GetFields(flags))
-						if (f.DeclaringType == type)
-							yield return f;
+				foreach (var f in type.GetFields(flags))
+					if (f.DeclaringType == type)
+						yield return f;
 
-				if (properties)
-					foreach (var p in type.GetProperties(flags))
-						if (p.DeclaringType == type)
-						{
-							var getter = p.GetGetMethod(true);
-							if (getter != null)
-								if (getter.GetParameters().Length > 0)
-									// Indexers are not data
-									continue;
+				foreach (var p in type.GetProperties(flags))
+					if (p.DeclaringType == type)
+					{
+						var getter = p.GetGetMethod(true);
+						if (getter != null)
+							if (getter.GetParameters().Length > 0)
+								// Indexers are not data
+								continue;
 
-							yield return p;
-						}
+						yield return p;
+					}
 
 				type = type.BaseType;
 			}
@@ -146,7 +170,7 @@
 					return true;
 				}
 			}
-			
+
 
 			if (type.IsAutoLayout)
 				return false; // Automatic layout means the type might be larger
@@ -196,27 +220,27 @@
 		{
 			if (!type.IsValueType)
 				return false;
-			
 
-			if(type.IsEnum)
+
+			if (type.IsEnum)
 				return true; // enums are auto-layout, but they're always blittable
 
 			if (type.IsPointer || type == typeof(IntPtr) || type == typeof(UIntPtr))
 				return false; // pointers are primitive, but we can never blit them (because they can be a different size)
-			
+
 			if (type.IsPrimitive)
 				return true; // any other primitive can definitely be blitted
 
 
-			if(type.ContainsGenericParameters)
+			if (type.ContainsGenericParameters)
 				return false; // open types are not real (yet), so they can't be blitted
 
-			if(type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+			if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
 				return false; // we want to have explicit control over nullables
 
 			if (type.IsAutoLayout)
 				return false; // generic structs are always auto-layout (since you can't know what layout is best before inserting the generic args)
-			
+
 
 			foreach (var f in GetAllDataMembers(type, true, false).Cast<FieldInfo>())
 			{
@@ -459,7 +483,7 @@
 		}
 
 
-		
+
 		internal static MethodInfo GetMethod(Expression<Action> e)
 		{
 			var b = e.Body;
@@ -480,6 +504,15 @@
 			throw new ArgumentException();
 		}
 
+		internal static bool IsStatic(this Type type)
+		{
+			return type.IsAbstract && type.IsSealed;
+		}
+
+		internal static bool IsAbstract(this Type type)
+		{
+			return type.IsAbstract && !type.IsSealed;
+		}
 
 		public static string FriendlyName(this Type type)
 		{
@@ -489,7 +522,7 @@
 				return "short";
 			else if (type == typeof(byte))
 				return "byte";
-			else if (type == typeof(bool)) 
+			else if (type == typeof(bool))
 				return "bool";
 			else if (type == typeof(long))
 				return "long";

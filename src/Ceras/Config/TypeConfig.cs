@@ -29,6 +29,7 @@
 	{
 		public Type Type { get; }
 		public SerializerConfig Config { get; }
+		public bool IsStatic { get; }
 
 		bool _isSealed = false;
 
@@ -120,14 +121,15 @@
 		public IEnumerable<MemberConfig> Members => _allMembers.Where(m => !m.IsCompilerGenerated);
 
 
-		protected TypeConfig(SerializerConfig config, Type type)
+		protected TypeConfig(SerializerConfig config, Type type, bool isStatic)
 		{
 			Config = config;
 			Type = type;
+			IsStatic = isStatic;
 
 			var configType = typeof(MemberConfig<>).MakeGenericType(type);
 
-			var members = from m in type.GetAllDataMembers()
+			var members = from m in  isStatic ? type.GetAllStaticDataMembers() : type.GetAllDataMembers()
 						  let a = new object[] { this, m }
 						  select (MemberConfig)Activator.CreateInstance(configType,
 																	  BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
@@ -179,7 +181,7 @@
 	/// <inheritdoc/>
 	public class TypeConfig<T> : TypeConfig
 	{
-		internal TypeConfig(SerializerConfig config) : base(config, typeof(T)) { }
+		internal TypeConfig(SerializerConfig config, bool isStatic) : base(config, typeof(T), isStatic) { }
 
 		#region Construction
 

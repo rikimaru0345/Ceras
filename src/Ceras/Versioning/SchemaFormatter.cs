@@ -24,6 +24,7 @@ namespace Ceras.Helpers
 	{
 		readonly CerasSerializer _ceras;
 		readonly Dictionary<Schema, SerializerPair> _generatedSerializerPairs = new Dictionary<Schema, SerializerPair>();
+		readonly bool _isStatic;
 
 		Schema _currentSchema;
 
@@ -33,16 +34,17 @@ namespace Ceras.Helpers
 		int _deserializationDepth; // recursion tracker for special types of schema-changes (can be removed eventually when we implemented a better solution)
 
 
-		public SchemaDynamicFormatter(CerasSerializer ceras, Schema schema)
+		public SchemaDynamicFormatter(CerasSerializer ceras, Schema schema, bool isStatic)
 		{
 			_ceras = ceras;
 			_currentSchema = schema;
+			_isStatic = isStatic;
 
 			var type = typeof(T);
 
 			BannedTypes.ThrowIfNonspecific(type);
 			
-			var typeConfig = _ceras.Config.GetTypeConfig(type);
+			var typeConfig = _ceras.Config.GetTypeConfig(type, isStatic);
 			typeConfig.VerifyConstructionMethod();
 
 			ActivateSchema(_currentSchema);
@@ -74,7 +76,7 @@ namespace Ceras.Helpers
 				_ceras.InstanceData.EncounteredSchemaTypes.Add(type);
 
 				// Read the schema in which the data was written
-				var schema = _ceras.ReadSchema(buffer, ref offset, type);
+				var schema = _ceras.ReadSchema(buffer, ref offset, type, _isStatic);
 
 				_ceras.ActivateSchemaOverride(type, schema);
 			}
@@ -151,12 +153,13 @@ namespace Ceras.Helpers
 				return;
 			}
 
+			bool isStatic = schema.IsStatic;
 
 			// Generate
 			if (schema.IsPrimary)
 			{
-				_serializer = DynamicFormatter<T>.GenerateSerializer(_ceras, schema, true).Compile();
-				_deserializer = DynamicFormatter<T>.GenerateDeserializer(_ceras, schema, true).Compile();
+				_serializer = DynamicFormatter<T>.GenerateSerializer(_ceras, schema, true, isStatic).Compile();
+				_deserializer = DynamicFormatter<T>.GenerateDeserializer(_ceras, schema, true, isStatic).Compile();
 			}
 			else
 			{
@@ -166,7 +169,7 @@ namespace Ceras.Helpers
 				// And we get into all sorts of troubles with type-conversion (not implemented yet, but it will probably arrive earlier than this...)
 				// This also protects us against bugs!
 				_serializer = ErrorSerializer;
-				_deserializer = DynamicFormatter<T>.GenerateDeserializer(_ceras, schema, true).Compile();
+				_deserializer = DynamicFormatter<T>.GenerateDeserializer(_ceras, schema, true, isStatic).Compile();
 			}
 
 			_currentSchema = schema;

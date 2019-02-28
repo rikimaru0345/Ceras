@@ -38,13 +38,15 @@
 	class Schema
 	{
 		public Type Type { get; }
+		public bool IsStatic { get; }
 		public bool IsPrimary { get; }
 		public List<SchemaMember> Members { get; } = new List<SchemaMember>();
 		
-		public Schema(bool isPrimary, Type type)
+		public Schema(bool isPrimary, Type type, bool isStatic)
 		{
 			IsPrimary = isPrimary;
 			Type = type;
+			IsStatic = isStatic;
 		}
 
 		// this assumes that a schema will not change after being created
@@ -170,8 +172,6 @@
 
 	class SchemaMember
 	{
-		const BindingFlags _bindingFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-
 		public string PersistentName { get; } // If set, this gets written as type name
 		public MemberInfo Member { get; }
 
@@ -192,7 +192,6 @@
 
 			if (memberInfo is PropertyInfo p)
 			{
-				p = p.DeclaringType.GetProperty(p.Name, _bindingFlags);
 				if (!p.CanRead || !p.CanWrite)
 					throw new Exception("property must be readable and writable");
 			}

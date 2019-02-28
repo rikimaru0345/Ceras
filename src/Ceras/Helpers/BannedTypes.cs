@@ -3,6 +3,7 @@
 // ReSharper disable ArgumentsStyleNamedExpression
 namespace Ceras.Formatters
 {
+	using Ceras.Helpers;
 	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
@@ -179,7 +180,7 @@ namespace Ceras.Formatters
 
 		internal static void ThrowIfNonspecific(Type type)
 		{
-			if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
+			if (type.IsAbstract() || type.IsInterface || type.ContainsGenericParameters)
 				throw new InvalidOperationException("Can only generate code for specific types. The type " + type.Name + " is abstract, or an interface, or an open generic.");
 		}
 	}

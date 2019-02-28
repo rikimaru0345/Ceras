@@ -4,6 +4,8 @@
 	using Resolvers;
 	using System;
 	using System.Collections.Generic;
+	using Exceptions;
+	using Helpers;
 
 	/// <summary>
 	/// Allows detailed configuration of the <see cref="CerasSerializer"/>. Advanced options can be found inside <see cref="Advanced"/>
@@ -70,7 +72,7 @@
 		/// <para>Default: true</para>
 		/// </summary>
 		public bool PreserveReferences { get; set; } = true;
-		
+
 		/// <summary>
 		/// If all the other things (ShouldSerializeMember / Attributes) don't produce a decision, then this setting is used to determine if a member should be included.
 		/// By default only public fields are serialized. ReadonlyHandling is a separate option found inside <see cref="Advanced"/>
@@ -88,7 +90,7 @@
 		/// Check out the tutorial for more information (and a way to deal with changing types)
 		/// </summary>
 		public IVersionToleranceConfig VersionTolerance => this;
-		
+
 		VersionToleranceMode _versionToleranceMode = VersionToleranceMode.Disabled;
 		VersionToleranceMode IVersionToleranceConfig.Mode
 		{
@@ -104,54 +106,56 @@
 		//bool IVersionToleranceConfig.IncludeFrameworkTypes { get; set; } = false;
 
 		#endregion
-		
-		#region Type Configuration
 
+		#region Type Configuration
+			
 		Dictionary<Type, TypeConfig> _configEntries = new Dictionary<Type, TypeConfig>();
+		Dictionary<Type, TypeConfig> _staticConfigEntries = new Dictionary<Type, TypeConfig>();
 
 		// Get a TypeConfig without calling 'OnConfigNewType'
-		TypeConfig GetTypeConfigForConfiguration(Type type)
+		TypeConfig GetTypeConfigForConfiguration(Type type, bool isStatic = false)
 		{
-			if (_configEntries.TryGetValue(type, out var typeConfig))
+			var configDict = isStatic ? _staticConfigEntries : _configEntries;
+			if (configDict.TryGetValue(type, out var typeConfig))
 				return typeConfig;
-
+				
 			if (type.ContainsGenericParameters)
 				throw new InvalidOperationException("You can not configure 'open' types (like List<>)! Only 'closed' types (like 'List<int>') can be configured statically. For dynamic configuration (which is what you are trying to do) use the 'OnConfigNewType' callback. It will be called for every fully instantiated type.");
 
-			typeConfig = (TypeConfig)Activator.CreateInstance(
-															   typeof(TypeConfig<>).MakeGenericType(type),
+			typeConfig = (TypeConfig)Activator.CreateInstance(typeof(TypeConfig<>).MakeGenericType(type),
 															   System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
 															   null,
-															   new object[] { this },
+															   new object[] { this, isStatic },
 															   null);
-			_configEntries.Add(type, typeConfig);
+			configDict.Add(type, typeConfig);
 
 			return typeConfig;
 		}
 
 		// Get a TypeConfig for usage, meaning if by now the type has not been configured then
 		// use 'OnConfigNewType' as a last chance (or if no callback is set just use the defaults)
-		internal TypeConfig GetTypeConfig(Type type)
+		internal TypeConfig GetTypeConfig(Type type, bool isStatic)
 		{
-			if (_configEntries.TryGetValue(type, out var typeConfig))
+			var configDict = isStatic ? _staticConfigEntries : _configEntries;
+			if (configDict.TryGetValue(type, out var typeConfig))
 				return typeConfig;
 
 			if (type.ContainsGenericParameters)
 				return null;
 
-			typeConfig = (TypeConfig)Activator.CreateInstance(
-															  typeof(TypeConfig<>).MakeGenericType(type),
+			typeConfig = (TypeConfig)Activator.CreateInstance(typeof(TypeConfig<>).MakeGenericType(type),
 															  System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
 															  null,
-															  new object[] { this },
+															  new object[] { this, isStatic },
 															  null);
 
 			// Let the user handle it
 			OnConfigNewType?.Invoke((TypeConfig)typeConfig);
 
-			_configEntries.Add(type, typeConfig);
+			configDict.Add(type, typeConfig);
 			return typeConfig;
 		}
+
 
 
 		/// <summary>
@@ -161,6 +165,12 @@
 		/// </para>
 		/// </summary>
 		public TypeConfig ConfigType(Type type) => GetTypeConfigForConfiguration(type);
+
+		/// <summary>
+		/// Configure a static type (or the static part of a type that is not static but has some static members)
+		/// </summary>
+		public TypeConfig ConfigStaticType(Type type) => GetTypeConfigForConfiguration(type, true);
+
 		/// <summary>
 		/// Use this when you want to configure types directly (instead of through attributes, or <see cref="OnConfigNewType"/>). Any changes you make using this method will override any settings applied through attributes on the type.
 		/// </summary>
@@ -333,7 +343,7 @@
 		/// </summary>
 		AotMode AotMode { get; set; }
 	}
-	
+
 	public interface ISizeLimitsConfig
 	{
 		/// <summary>
@@ -361,14 +371,14 @@
 		/// <para>Default: <see cref="VersionToleranceMode.Disabled"/></para>
 		/// </summary>
 		VersionToleranceMode Mode { get; set; }
-		
+
 		/// <summary>
 		/// When using VersionTolerance, the size of each member is written/read, but this information can also be used to verify if the data has been read correctly.
 		/// Turn it on to gain some protection against data-corruption, or leave it off to not pay the performance penalty of doing the check.
 		/// <para>Default: false</para>
 		/// </summary>
 		bool VerifySizes { get; set; }
-		
+
 		/*
 		/// <summary>
 		/// By default Ceras will not embed any version-relevant data for framework types (types that come from the assemblies 'mscorlib', 'System', 'System.Core').

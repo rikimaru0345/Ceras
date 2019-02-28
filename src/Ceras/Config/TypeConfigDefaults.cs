@@ -9,6 +9,7 @@ namespace Ceras
 	using System.Linq.Expressions;
 	using System.Reflection;
 	using Formatters;
+	using Helpers;
 	using Resolvers;
 
 	static class TypeConfigDefaults
@@ -41,8 +42,9 @@ namespace Ceras
 			if (typeConfig.TypeConstruction != null)
 				return;
 
+
 			if(typeConfig.TypeConstruction == null)
-				if (CerasSerializer.IsFormatterConstructed(typeConfig.Type))
+				if (CerasSerializer.IsFormatterConstructed(typeConfig.Type) || (typeConfig.Type.IsStatic()))
 				{
 					typeConfig.TypeConstruction = TypeConstruction.Null();
 					return;

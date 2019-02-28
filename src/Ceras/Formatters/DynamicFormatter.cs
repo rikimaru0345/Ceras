@@ -35,16 +35,18 @@ namespace Ceras.Formatters
 		DeserializeDelegate<T> _deserializer;
 
 
-		public DynamicFormatter(CerasSerializer serializer)
+		public DynamicFormatter(CerasSerializer serializer, bool isStatic)
 		{
 			_ceras = serializer;
 
 			var type = typeof(T);
 			BannedTypes.ThrowIfNonspecific(type);
 
-			var schema = _ceras.GetTypeMetaData(type).PrimarySchema;
+			var schema = isStatic 
+					? _ceras.GetStaticTypeMetaData(type).PrimarySchema
+					: _ceras.GetTypeMetaData(type).PrimarySchema;
 
-			var typeConfig = _ceras.Config.GetTypeConfig(type);
+			var typeConfig = _ceras.Config.GetTypeConfig(type, isStatic);
 			typeConfig.VerifyConstructionMethod();
 
 			if (!schema.IsPrimary)
@@ -57,22 +59,26 @@ namespace Ceras.Formatters
 				return;
 			}
 
-			_serializer = GenerateSerializer(_ceras, schema, false).Compile();
-			_deserializer = GenerateDeserializer(_ceras, schema, false).Compile();
+			_serializer = GenerateSerializer(_ceras, schema, false, isStatic).Compile();
+			_deserializer = GenerateDeserializer(_ceras, schema, false, isStatic).Compile();
 		}
-
+		
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value) => _serializer(ref buffer, ref offset, value);
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value) => _deserializer(buffer, ref offset, ref value);
 
 
-		internal static Expression<SerializeDelegate<T>> GenerateSerializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter)
+		internal static Expression<SerializeDelegate<T>> GenerateSerializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)
 		{
 			var members = schema.Members;
 			var refBufferArg = Parameter(typeof(byte[]).MakeByRefType(), "buffer");
 			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
 			var valueArg = Parameter(typeof(T), "value");
+
+			if (isStatic)
+				valueArg = null;
+
 
 			var body = new List<Expression>();
 			var locals = new List<ParameterExpression>();
@@ -153,14 +159,18 @@ namespace Ceras.Formatters
 
 			var serializeBlock = Block(variables: locals, expressions: body);
 
+			
+			if (isStatic)
+				valueArg = Parameter(typeof(T), "value");
+
 			return Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg);
 		}
 
-		internal static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter)
+		internal static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)
 		{
 			bool verifySizes = isSchemaFormatter && ceras.Config.VersionTolerance.VerifySizes;
 			var members = schema.Members;
-			var typeConfig = ceras.Config.GetTypeConfig(schema.Type);
+			var typeConfig = ceras.Config.GetTypeConfig(schema.Type, isStatic);
 			var tc = typeConfig.TypeConstruction;
 
 			bool constructObject = tc.HasDataArguments; // Are we responsible for instantiating an object?
@@ -169,6 +179,8 @@ namespace Ceras.Formatters
 			var bufferArg = Parameter(typeof(byte[]), "buffer");
 			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
 			var refValueArg = Parameter(typeof(T).MakeByRefType(), "value");
+			if (isStatic)
+				refValueArg = null;
 
 			var body = new List<Expression>();
 			var locals = new List<ParameterExpression>(schema.Members.Count);
@@ -325,6 +337,10 @@ namespace Ceras.Formatters
 
 
 			var bodyBlock = Block(variables: locals, expressions: body);
+
+
+			if (isStatic)
+				refValueArg = Parameter(typeof(T).MakeByRefType(), "value");
 
 			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, refOffsetArg, refValueArg);
 		}

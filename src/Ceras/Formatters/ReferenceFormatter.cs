@@ -82,6 +82,9 @@
 		{
 			_ceras = ceras;
 
+			if (typeof(T).IsStatic())
+				throw new InvalidOperationException("static");
+
 			_typeFormatter = (TypeFormatter)ceras.GetSpecificFormatter(typeof(Type));
 
 			_allowReferences = _ceras.Config.PreserveReferences;
@@ -340,7 +343,7 @@
 			}
 
 			// Create a custom factory method, but also respect the userFactory if there is one
-			var typeConfig = _ceras.Config.GetTypeConfig(type);
+			var typeConfig = _ceras.Config.GetTypeConfig(type, false);
 
 			var tc = typeConfig.TypeConstruction;
 

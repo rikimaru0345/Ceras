@@ -10,8 +10,10 @@ namespace Ceras
 	using Resolvers;
 	using System;
 	using System.Collections.Generic;
+	using System.Diagnostics;
 	using System.Linq;
 	using System.Reflection;
+	using System.Runtime.CompilerServices;
 	using System.Text;
 
 	/*
@@ -50,6 +52,9 @@ namespace Ceras
 		internal static bool IsFormatterConstructed(Type type)
 		{
 			// Array is also always constructed by the caller, but it is handled separately
+
+			if(type.IsAbstract)
+				return true;
 
 			return _formatterConstructedTypes.Contains(type);
 		}
@@ -148,6 +153,7 @@ namespace Ceras
 
 
 		readonly TypeDictionary<TypeMetaData> _metaData = new TypeDictionary<TypeMetaData>();
+		readonly TypeDictionary<TypeMetaData> _staticMetaData = new TypeDictionary<TypeMetaData>();
 		readonly FactoryPool<InstanceData> _instanceDataPool;
 
 		internal readonly Action<object> DiscardObjectMethod;
@@ -397,6 +403,69 @@ namespace Ceras
 			}
 		}
 
+		/// <summary>
+		/// Serialize the values of a static class or the static members of a normal class.
+		/// </summary>
+		internal byte[] SerializeStatic(Type type)
+		{
+			if (type.ContainsGenericParameters)
+				throw new InvalidOperationException();
+
+			var meta = GetStaticTypeMetaData(type);
+			IFormatter f = meta.SpecificFormatter;
+			if (f == null)
+			{
+				var ft = typeof(DynamicFormatter<>).MakeGenericType(type);
+				f = meta.SpecificFormatter = (IFormatter)Activator.CreateInstance(ft, new object[] { this, true });
+			}
+
+			var serialize = f.GetType().GetMethod("Serialize");
+			
+
+			var buffer = new byte[0x1000];
+			var args = new object[]
+			{
+				buffer, // buffer
+				0, // offset
+				null // value: for static classes this is null
+			};
+			serialize.Invoke(f, args);
+
+			buffer = (byte[])args[0];
+			int offset = (int)args[1];
+
+			Array.Resize(ref buffer, offset);
+
+			return buffer;
+		}
+
+		/// <summary>
+		/// Deserialize the values of a static class or the static members of a normal class.
+		/// </summary>
+		internal void DeserializeStatic(Type type, byte[] buffer)
+		{
+			if (type.ContainsGenericParameters)
+				throw new InvalidOperationException();
+
+			var meta = GetStaticTypeMetaData(type);
+			IFormatter f = meta.SpecificFormatter;
+			if (f == null)
+			{
+				var ft = typeof(DynamicFormatter<>).MakeGenericType(type);
+				f = meta.SpecificFormatter = (IFormatter)Activator.CreateInstance(ft, new object[] { this, true });
+			}
+
+
+			var deserialize = f.GetType().GetMethod("Deserialize");
+
+			var args = new object[]
+			{
+				buffer, // buffer
+				0, // offset
+				null // value: for static classes this is null
+			};
+			deserialize.Invoke(f, args);
+		}
 
 
 		/// <summary>
@@ -550,12 +619,7 @@ namespace Ceras
 
 
 			// 2.) Create a reference formatter (which internally obtains the matching specific one)
-
-			// var refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
-			Type refFormatterType;
-
-			refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
-
+			Type refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
 			var referenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
 
 			meta.ReferenceFormatter = referenceFormatter;
@@ -581,8 +645,8 @@ namespace Ceras
 				return meta.SpecificFormatter;
 
 			// Sanity checks
-			if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
-				throw new InvalidOperationException("You cannot get a formatter for abstract, interface, and open generic types.");
+			if (type.IsAbstract() || type.IsInterface || type.ContainsGenericParameters)
+				throw new InvalidOperationException("You cannot get a formatter for abstract, static, open generic, or interface types.");
 
 
 			// 2.) TypeConfig - Custom Formatter, Custom Resolver
@@ -644,10 +708,29 @@ namespace Ceras
 			throw new NotSupportedException($"Ceras could not find any IFormatter<T> for the type '{type.FullName}'. Maybe exclude that field/prop from serializaion or write a custom formatter for it.");
 		}
 
-
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		internal TypeMetaData GetTypeMetaData(Type type)
 		{
 			ref var meta = ref _metaData.GetOrAddValueRef(type);
+			if (meta != null)
+				return meta;
+
+			return CreateMetaData(type, false);
+		}
+
+		internal TypeMetaData GetStaticTypeMetaData(Type type)
+		{
+			ref var meta = ref _staticMetaData.GetOrAddValueRef(type);
+			if (meta != null)
+				return meta;
+
+			return CreateMetaData(type, true);
+		}
+
+		TypeMetaData CreateMetaData(Type type, bool isStatic)
+		{
+			var dict = isStatic ? _staticMetaData : _metaData;
+			ref var meta = ref dict.GetOrAddValueRef(type);
 			if (meta != null)
 				return meta;
 
@@ -656,15 +739,17 @@ namespace Ceras
 			bool isSerializationPrimitive = IsPrimitiveType(type);
 			bool isFrameworkType = _frameworkAssemblies.Contains(type.Assembly);
 
-			var typeConfig = isSerializationPrimitive ? null : Config.GetTypeConfig(type);
+			var typeConfig = isSerializationPrimitive ? null : Config.GetTypeConfig(type, isStatic);
 
 			meta = new TypeMetaData(type, typeConfig, isFrameworkType, isSerializationPrimitive);
 
 			if (!isSerializationPrimitive)
-				meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type);
+				meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type, isStatic);
 
 			return meta;
 		}
+
+		
 
 		void SetFormatters(Type type, IFormatter specific, IFormatter reference)
 		{
@@ -829,18 +914,18 @@ namespace Ceras
 
 
 		// Creates the primary schema for a given type
-		Schema CreatePrimarySchema(Type type)
+		Schema CreatePrimarySchema(Type type, bool isStatic)
 		{
 			if (IsPrimitiveType(type))
 				return null;
 
-			if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
+			if (type.IsAbstract() || type.IsInterface || type.ContainsGenericParameters)
 				return null;
 
-			var typeConfig = Config.GetTypeConfig(type);
+			var typeConfig = Config.GetTypeConfig(type, isStatic);
 			typeConfig.Seal();
 
-			Schema schema = new Schema(true, type);
+			Schema schema = new Schema(true, type, isStatic);
 
 			foreach (var memberConfig in typeConfig._allMembers)
 			{
@@ -863,7 +948,7 @@ namespace Ceras
 			return schema;
 		}
 
-		internal Schema ReadSchema(byte[] buffer, ref int offset, Type type)
+		internal Schema ReadSchema(byte[] buffer, ref int offset, Type type, bool isStatic)
 		{
 			// todo 1: Skipping
 			// We should add some sort of skipping mechanism later.
@@ -878,7 +963,7 @@ namespace Ceras
 
 			//
 			// Read Schema
-			var schema = new Schema(false, type);
+			var schema = new Schema(false, type, isStatic);
 
 			var memberCount = SerializerBinary.ReadInt32(buffer, ref offset);
 			for (int i = 0; i < memberCount; i++)
@@ -948,7 +1033,7 @@ namespace Ceras
 				return type.FullName + " is a serialization primitive. It's serialization logic is hard-coded, so it has no schema.";
 
 
-			var typeConfig = Config.GetTypeConfig(type);
+			var typeConfig = Config.GetTypeConfig(type, false);
 			var allMembers = typeConfig._allMembers;
 
 			var inc = allMembers.Where(m => m.ComputeFinalInclusionFast()).ToArray();
