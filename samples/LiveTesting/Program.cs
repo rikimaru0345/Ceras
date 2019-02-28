@@ -2,18 +2,16 @@
 
 namespace LiveTesting
 {
-	using System.Buffers;
 	using BenchmarkDotNet.Running;
 	using Ceras;
 	using Ceras.Formatters;
 	using Ceras.Resolvers;
 	using System.Collections.Generic;
 	using System.Diagnostics;
+	using System.Drawing;
 	using System.Linq;
 	using System.Linq.Expressions;
-	using System.Numerics;
 	using System.Reflection;
-	using Ceras.Helpers;
 	using Ceras.Test;
 	using Tutorial;
 	using Xunit;
@@ -25,7 +23,27 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			new Misc().SerializeStaticPart();
+			new Internals().FastCopy();
+
+			var config = new SerializerConfig();
+			config.Advanced.BitmapMode = BitmapMode.SaveAsBmp;
+			var ceras = new CerasSerializer(config);
+
+			var images = new Image[]
+			{
+				Image.FromFile(@"C:\Users\Fello\Downloads\68747470733a2f2f692e696d6775722e636f6d2f513839365567562e706e67.png"),
+				Image.FromFile(@"C:\Users\Fello\Downloads\7plX.gif"),
+				Image.FromFile(@"C:\Users\Fello\Downloads\TexturesCom_BrickOldMixedSize0012_1_seamless_S.jpg"),
+				Image.FromFile(@"C:\Users\Fello\Downloads\New Drawing.png"),
+				Image.FromFile(@"C:\Users\Fello\Downloads\smoke_1_40_128_corrected.png"),
+				Image.FromFile(@"C:\Users\Fello\Downloads\Spheres_thumb9.png"),
+			};
+			
+			var imgData1 = ceras.Serialize(images);
+			var imagesClone1 = ceras.Deserialize<Image[]>(imgData1);
+			var imgData2 = ceras.Serialize(images);
+			var imagesClone2 = ceras.Deserialize<Image[]>(imgData2);
+
 
 
 			Benchmarks();
@@ -39,7 +57,7 @@ namespace LiveTesting
 			EnsureSealedTypesThrowsException();
 
 			InjectSpecificFormatterTest();
-			
+
 			VersionToleranceTest();
 
 			ReadonlyTest();
@@ -65,7 +83,7 @@ namespace LiveTesting
 			NullableTest();
 
 			ErrorOnDirectEnumerable();
-			
+
 			PropertyTest();
 
 			NetworkTest();
@@ -97,9 +115,28 @@ namespace LiveTesting
 			Console.ReadKey();
 		}
 
-		static void SerializeStatic()
+
+		static void Benchmarks()
 		{
-			throw new NotImplementedException();
+			var config = new CerasGlobalBenchmarkConfig();
+
+			var b = new ConstantsInGenericContainerBenchmarks();
+			b.Setup();
+
+			for (int i = 0; i < 500; i++)
+			{
+				b.Method1();
+				b.Method2();
+			}
+
+			//BenchmarkRunner.Run<MergeBlittingBenchmarks>(config);
+			//BenchmarkRunner.Run<Feature_MreRefs_Benchmarks>(config);
+			//BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
+			BenchmarkRunner.Run<ConstantsInGenericContainerBenchmarks>(config);
+
+
+
+			Environment.Exit(0);
 		}
 
 
@@ -266,7 +303,7 @@ namespace LiveTesting
 				var data = ceras.Serialize(obj);
 
 				var clone = ceras.Deserialize<ReadonlyTestClass>(data);
-				
+
 				Debug.Assert(obj.GetName() == clone.GetName());
 				Debug.Assert(obj.GetBaseName() == clone.GetBaseName());
 
@@ -281,7 +318,7 @@ namespace LiveTesting
 				// Serialize and deserialize delegate
 				SerializerConfig config = new SerializerConfig();
 				var ceras = new CerasSerializer(config);
-				
+
 				var data = ceras.Serialize<object>(body);
 				var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
 
@@ -311,7 +348,7 @@ namespace LiveTesting
 
 				var clonedExp = ceras.Deserialize<Expression<Func<string, int, char>>>(data);
 
-				
+
 				// Compile the restored expression, check if it works and returns the same result
 				var del2 = clonedExp.Compile();
 
@@ -325,22 +362,6 @@ namespace LiveTesting
 			}
 		}
 
-
-
-		static void Benchmarks()
-		{
-			return;
-
-			var config = new CerasGlobalBenchmarkConfig();
-
-			//BenchmarkRunner.Run<MergeBlittingBenchmarks>(config);
-			//BenchmarkRunner.Run<Feature_MreRefs_Benchmarks>(config);
-			BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
-
-
-
-			Environment.Exit(0);
-		}
 
 		static void TuplesTest()
 		{
@@ -699,7 +720,7 @@ namespace LiveTesting
 			public MethodInfo Method;
 		}
 
-		
+
 		static void SimpleDictionaryTest()
 		{
 			var dict = new Dictionary<string, object>
@@ -1095,7 +1116,7 @@ namespace LiveTesting
 			}
 		}
 
-		
+
 
 		static void PropertyTest()
 		{
@@ -1253,7 +1274,7 @@ namespace LiveTesting
 		}
 
 
-		static  MethodInfo GetMethod(Expression<Action>  e)
+		static MethodInfo GetMethod(Expression<Action> e)
 		{
 			var b = e.Body;
 
@@ -1263,7 +1284,7 @@ namespace LiveTesting
 			throw new ArgumentException();
 		}
 
-		static  MethodInfo GetMethod<T>(Expression<Func<T>>  e)
+		static MethodInfo GetMethod<T>(Expression<Func<T>> e)
 		{
 			var b = e.Body;
 
@@ -1273,7 +1294,7 @@ namespace LiveTesting
 			throw new ArgumentException();
 		}
 
-		static  ConstructorInfo GetCtor<T>(Expression<Func<T>>  e)
+		static ConstructorInfo GetCtor<T>(Expression<Func<T>> e)
 		{
 			var b = e.Body;
 
@@ -1340,7 +1361,7 @@ namespace LiveTesting
 		public int D = 53;
 	}
 
-	
+
 	public enum LongEnum : long
 	{
 		a = 1,

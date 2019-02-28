@@ -3,15 +3,12 @@
 	using Formatters;
 	using System;
 	using System.Collections.Generic;
-	using System.Linq.Expressions;
 
 	/// <summary>
 	/// A really really boring resolver that produces formatters for all the "primitives" like bool, int, float, double, ... 
 	/// </summary>
 	public sealed class PrimitiveResolver : IFormatterResolver
 	{
-		readonly CerasSerializer _ceras;
-
 		static Dictionary<Type, IFormatter> _primitiveFormatters = new Dictionary<Type, IFormatter>
 		{
 			[typeof(bool)] = new BoolFormatter(),
@@ -32,10 +29,13 @@
 
 			[typeof(float)] = new FloatFormatter(),
 			[typeof(double)] = new DoubleFormatter(),
-			
+
 			[typeof(IntPtr)] = new IntPtrFormatter(),
 			[typeof(UIntPtr)] = new UIntPtrFormatter(),
 		};
+
+		readonly CerasSerializer _ceras;
+
 
 
 		public PrimitiveResolver(CerasSerializer ceras)

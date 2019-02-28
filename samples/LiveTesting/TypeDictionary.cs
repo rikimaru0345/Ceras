@@ -39,17 +39,18 @@ namespace LiveTesting
         // Array.Empty would give divide by zero in modulo operation. So we use static one element arrays.
         // The first add will cause a resize replacing these with real arrays of three elements.
         // Arrays are wrapped in a class to avoid being duplicated for each <Type, TValue>
-        private static readonly Entry[] InitialEntries = new Entry[1];
-        private int _count;
+		static readonly Entry[] InitialEntries = new Entry[1];
+
+		int _count;
         // 0-based index into _entries of head of free chain: -1 means empty
-        private int _freeList = -1;
+		int _freeList = -1;
         // 1-based index into _entries; 0 means empty
-        private int[] _buckets;
-        private Entry[] _entries;
+		int[] _buckets;
+		Entry[] _entries;
 
 
         [DebuggerDisplay("({key}, {value})->{next}")]
-        private struct Entry
+		struct Entry
         {
             public Type key;
             public TValue value;
@@ -245,7 +246,7 @@ namespace LiveTesting
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private ref TValue AddKey(Type key, int bucketIndex)
+		ref TValue AddKey(Type key, int bucketIndex)
         {
             Entry[] entries = _entries;
             int entryIndex;
@@ -272,7 +273,7 @@ namespace LiveTesting
             return ref entries[entryIndex].value;
         }
 
-        private Entry[] Resize()
+		Entry[] Resize()
         {
             Debug.Assert(_entries.Length == _count || _entries.Length == 1); // We only copy _count, so if it's longer we will miss some
             int count = _count;
@@ -318,10 +319,10 @@ namespace LiveTesting
         /// </summary>
         public struct Enumerator : IEnumerator<KeyValuePair<Type, TValue>>
         {
-            private readonly TypeDictionary<TValue> _dictionary;
-            private int _index;
-            private int _count;
-            private KeyValuePair<Type, TValue> _current;
+			readonly TypeDictionary<TValue> _dictionary;
+			int _index;
+			int _count;
+			KeyValuePair<Type, TValue> _current;
 
             internal Enumerator(TypeDictionary<TValue> dictionary)
             {
@@ -373,10 +374,10 @@ namespace LiveTesting
             public void Dispose() { }
         }
     }
-	
-    internal sealed class TypeDictionaryDebugView<V>
+
+	sealed class TypeDictionaryDebugView<V>
     {
-        private readonly TypeDictionary<V> _dictionary;
+		readonly TypeDictionary<V> _dictionary;
 
         public TypeDictionaryDebugView(TypeDictionary<V> dictionary)
         {

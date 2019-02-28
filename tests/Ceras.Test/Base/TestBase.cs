@@ -5,10 +5,12 @@ using System.Linq;
 namespace Ceras.Test
 {
 	using System.Collections;
+	using System.IO;
 	using System.Linq.Expressions;
 	using System.Reflection;
 	using ImmutableCollections;
 	using Xunit;
+	using Xunit.Abstractions;
 
 	public class TestBase
 	{

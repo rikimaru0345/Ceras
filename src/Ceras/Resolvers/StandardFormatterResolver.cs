@@ -16,7 +16,8 @@
 	/// </summary>
 	public sealed class StandardFormatterResolver : IFormatterResolver
 	{
-		static readonly TypeDictionary<IFormatter> _primitiveFormatters = new TypeDictionary<IFormatter>();
+		// implemented by both tuple and value tuple
+		static readonly Type _iTupleInterface = typeof(Tuple<>).GetInterfaces().First(t => t.Name == "ITuple");
 
 		static readonly Type[] _tupleFormatterTypes = new Type[]
 		{
@@ -42,11 +43,10 @@
 				typeof(ValueTupleFormatter<,,,,,,,>), // 7
 		};
 
-		// implemented by both tuple and value tuple
-		static readonly Type _iTupleInterface = typeof(Tuple<>).GetInterfaces().First(t => t.Name == "ITuple");
-
-
+		
+		readonly TypeDictionary<IFormatter> _primitiveFormatters = new TypeDictionary<IFormatter>();
 		readonly CerasSerializer _ceras;
+		
 
 		public StandardFormatterResolver(CerasSerializer ceras)
 		{

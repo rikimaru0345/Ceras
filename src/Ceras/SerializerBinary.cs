@@ -62,7 +62,7 @@
 		{
 			return (uint)ReadVarInt(buffer, ref offset, 32);
 		}
-		
+
 
 		#region Specialized
 
@@ -126,7 +126,7 @@
 			return (int)DecodeZigZag(zigZag);
 		}
 
-		
+
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteUInt64(ref byte[] buffer, ref int offset, ulong value)
 		{
@@ -445,7 +445,24 @@
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		internal static void FastCopy(byte[] sourceArray, int sourceOffset, byte[] targetArray, int targetOffset, int n)
 		{
-			#if DEBUG
+#if DEBUG
+
+#if NET45 || NET451 || NET452
+			global::System.Console.WriteLine("FastCopy on NET4.5.x");
+#elif NET47 || NET471 || NET472
+			global::System.Console.WriteLine("FastCopy on NET4.7.x");
+#elif NETSTANDARD2_0
+			global::System.Console.WriteLine("FastCopy on NET STANDARD 2.0");
+#else
+#error Unknown compiler version
+#endif
+
+#endif
+
+
+
+
+#if DEBUG
 			if (n < 0)
 				throw new InvalidOperationException("n must be > 0");
 			if (n == 0 || sourceArray.Length == 0 || targetArray.Length == 0)
@@ -454,9 +471,9 @@
 				throw new InvalidOperationException("target or source array have a size smaller than n");
 			if (sourceOffset < 0 || targetOffset < 0)
 				throw new ArgumentOutOfRangeException();
-			if (sourceOffset + n >= sourceArray.Length || targetOffset + n >= targetArray.Length)
+			if (sourceOffset + n > sourceArray.Length || targetOffset + n > targetArray.Length)
 				throw new ArgumentOutOfRangeException();
-			#endif
+#endif
 
 
 			if (n > 512)

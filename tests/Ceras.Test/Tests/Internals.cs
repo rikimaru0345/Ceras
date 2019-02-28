@@ -78,7 +78,7 @@ namespace Ceras.Test
 			Assert.True(ReflectionHelper.IsBlittableType(typeof(double)));
 			Assert.True(ReflectionHelper.IsBlittableType(typeof(double)));
 			Assert.True(ReflectionHelper.IsBlittableType(typeof(DayOfWeek))); // actual enum
-			
+
 			Assert.False(ReflectionHelper.IsBlittableType(typeof(string)));
 			Assert.False(ReflectionHelper.IsBlittableType(typeof(Enum))); // enum class itself
 			Assert.False(ReflectionHelper.IsBlittableType(typeof(byte*)));
@@ -103,12 +103,12 @@ namespace Ceras.Test
 			tests.Add((isFramework: true, isPrimitive: true, isBlittable: true, typeof(int)));
 			tests.Add((isFramework: true, isPrimitive: true, isBlittable: true, typeof(bool)));
 			tests.Add((isFramework: true, isPrimitive: true, isBlittable: true, typeof(char)));
-			
+
 			tests.Add((isFramework: true, isPrimitive: true, isBlittable: False, typeof(Type)));
 			tests.Add((isFramework: true, isPrimitive: true, isBlittable: False, typeof(Type).GetType()));
-			
+
 			tests.Add((isFramework: true, isPrimitive: False, isBlittable: False, typeof(List<int>)));
-			
+
 
 			foreach (var test in tests)
 			{
@@ -119,6 +119,57 @@ namespace Ceras.Test
 				Assert.True(ReflectionHelper.IsBlittableType(test.testType) == test.isBlittable);
 			}
 		}
+
+		[Fact]
+		public void FastCopy()
+		{
+#if NET45 || NET451 || NET452
+			global::System.Console.WriteLine("Testing FastCopy on NET4.5.x");
+#elif NET47 || NET471 || NET472
+			global::System.Console.WriteLine("Testing FastCopy on NET4.7.x");
+#elif NETSTANDARD2_0 || NETCOREAPP2_0 || NETCOREAPP2_1 || NETCOREAPP2_2
+			global::System.Console.WriteLine("Testing FastCopy on NET STANDARD 2.0 / NETCOREAPP2_x");
+#else
+
+#error Unknown compiler version
+
+#endif
+
+
+			var sizes = new int[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 100, 200, 300, 400, 510, 511, 512, 513, 514, 1000, 5000, 10 * 1000, 100 * 1000 };
+
+			List<byte[]> sourceArrays = new List<byte[]>();
+			foreach (var s in sizes)
+			{
+				var ar = new byte[s];
+				rng.NextBytes(ar);
+				sourceArrays.Add(ar);
+			}
+
+			List<byte[]> targetArrays = new List<byte[]>();
+			foreach (var s in sizes)
+			{
+				var ar = new byte[s];
+				rng.NextBytes(ar);
+				targetArrays.Add(ar);
+			}
+
+
+			for (int arIndex = 0; arIndex < sourceArrays.Count; arIndex++)
+			{
+				var size = sizes[arIndex];
+				var source = sourceArrays[arIndex];
+				var target = targetArrays[arIndex];
+
+				SerializerBinary.FastCopy(source, 0, target, 0, size);
+				
+				Assert.True(size == source.Length);
+				Assert.True(size == target.Length);
+				for (int i = 0; i < size; i++)
+					Assert.True(source[i] == target[i]);
+			}
+		}
+
 	}
 
 

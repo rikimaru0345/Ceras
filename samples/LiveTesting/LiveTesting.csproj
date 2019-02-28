@@ -1,12 +1,13 @@
 ﻿<Project Sdk="Microsoft.Net.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFrameworks>net47;netcoreapp2.2;</TargetFrameworks>
+    <TargetFrameworks>net452;net47;netcoreapp2.2;</TargetFrameworks>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <LangVersion>7.3</LangVersion>
 
     <PlatformTarget>AnyCPU</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <StartupObject>LiveTesting.Program</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
