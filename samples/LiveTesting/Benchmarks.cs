@@ -7,12 +7,10 @@ namespace LiveTesting
 	using BenchmarkDotNet.Configs;
 	using BenchmarkDotNet.Environments;
 	using BenchmarkDotNet.Exporters;
-	using BenchmarkDotNet.Exporters.Csv;
 	using BenchmarkDotNet.Jobs;
 	using BenchmarkDotNet.Loggers;
 	using BenchmarkDotNet.Mathematics;
 	using BenchmarkDotNet.Order;
-	using BenchmarkDotNet.Reports;
 	using BenchmarkDotNet.Toolchains.CsProj;
 	using Ceras;
 	using Ceras.Formatters;
@@ -38,8 +36,8 @@ namespace LiveTesting
 		{
 			Set(new DefaultOrderer(SummaryOrderPolicy.FastestToSlowest));
 
-			//Add(Job.ShortRun
-			Add(Job.MediumRun
+			Add(Job.ShortRun
+				   //Add(Job.MediumRun
 				   .WithOutlierMode(OutlierMode.OnlyUpper)
 
 				   .With(CsProjCoreToolchain.NetCoreApp22)
@@ -67,6 +65,98 @@ namespace LiveTesting
 		}
 	}
 
+	public class ConstantsInGenericContainerBenchmarks
+	{
+		byte[] _buffer = new byte[0x1000];
+
+		SerializeDelegate<Person> _serializer1;
+		SerializeDelegate<Person> _serializer2;
+		Person _person;
+
+
+		[GlobalSetup]
+		public void Setup()
+		{
+			var ceras = new CerasSerializer();
+			
+			var parent1 = new Person
+			{
+				Age = -901,
+				FirstName = "Parent 1",
+				LastName = "abc",
+				Sex = Sex.Male,
+			};
+			var parent2 = new Person
+			{
+				Age = 7881964,
+				FirstName = "Parent 2",
+				LastName = "xyz",
+				Sex = Sex.Female,
+			};
+			_person = new Person
+			{
+				Age = 5,
+				FirstName = "Riki",
+				LastName = "Example Person Object",
+				Sex = Sex.Unknown,
+				Parent1 = parent1,
+				Parent2 = parent2,
+			};
+
+			var meta = ceras.GetTypeMetaData(typeof(Person));
+			var schema = meta.PrimarySchema;
+
+			_serializer1 = DynamicFormatter<Person>.GenerateSerializer(ceras, schema, false, false).Compile();
+			//_serializer2 = DynamicFormatter<Person>.GenerateSerializer2(ceras, schema, false, false);
+		}
+
+
+		[Benchmark(Baseline = true)]
+		public void Method1()
+		{
+			int offset = 0;
+
+			var b = _buffer;
+			var p = _person;
+			
+			_serializer1(ref b, ref offset, p);
+			_serializer1(ref b, ref offset, p);
+			_serializer1(ref b, ref offset, p);
+			_serializer1(ref b, ref offset, p);
+		}
+
+		[Benchmark]
+		public void Method2()
+		{
+			int offset = 0;
+
+			var b = _buffer;
+			var p = _person;
+			
+			_serializer2(ref b, ref offset, p);
+			_serializer2(ref b, ref offset, p);
+			_serializer2(ref b, ref offset, p);
+			_serializer2(ref b, ref offset, p);
+		}
+
+		
+		public class Person
+		{
+			public int Age { get; set; }
+			public string FirstName { get; set; }
+			public string LastName { get; set; }
+			public Sex Sex { get; set; }
+			public Person Parent1 { get; set; }
+			public Person Parent2 { get; set; }
+			public int[] LuckyNumbers { get; set; } = new int[0];
+		}
+
+		public enum Sex : sbyte
+		{
+			Unknown, Male, Female,
+		}
+	}
+
 
 	public class MergeBlittingBenchmarks
 	{
@@ -76,7 +166,7 @@ namespace LiveTesting
 			public float Y;
 			public float Z;
 		}
-		
+
 		// todo: reinterpret formatter
 		// todo: test if passing the value in Serialize() by ref is faster in single tests, and faster in general
 		//			.. check with bool, int, float, Vector3! But also with strings and larger real-world objects
@@ -1170,7 +1260,7 @@ namespace LiveTesting
 		{
 		}
 	}
-	
+
 	/*
 	public class Feature_MreRefs_Benchmarks
 	{

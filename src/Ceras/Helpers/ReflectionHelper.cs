@@ -50,6 +50,15 @@
 			return null;
 		}
 
+		public static Type FindClosedArg(this Type objectType, Type openGeneric, int argIndex = 0)
+		{
+			var closed = FindClosedType(objectType, openGeneric);
+			if(closed == null)
+				return null;
+			var args = closed.GetGenericArguments();
+			return args[argIndex];
+		}
+
 		public static bool IsAssignableToGenericType(Type givenType, Type genericType)
 		{
 			if (genericType.IsAssignableFrom(givenType))

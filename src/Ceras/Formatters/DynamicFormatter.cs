@@ -10,6 +10,7 @@ namespace Ceras.Formatters
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using System.Reflection.Emit;
 	using static System.Linq.Expressions.Expression;
 
 	/*
@@ -42,7 +43,7 @@ namespace Ceras.Formatters
 			var type = typeof(T);
 			BannedTypes.ThrowIfNonspecific(type);
 
-			var schema = isStatic 
+			var schema = isStatic
 					? _ceras.GetStaticTypeMetaData(type).PrimarySchema
 					: _ceras.GetTypeMetaData(type).PrimarySchema;
 
@@ -62,7 +63,7 @@ namespace Ceras.Formatters
 			_serializer = GenerateSerializer(_ceras, schema, false, isStatic).Compile();
 			_deserializer = GenerateDeserializer(_ceras, schema, false, isStatic).Compile();
 		}
-		
+
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value) => _serializer(ref buffer, ref offset, value);
 
@@ -159,12 +160,136 @@ namespace Ceras.Formatters
 
 			var serializeBlock = Block(variables: locals, expressions: body);
 
-			
+
 			if (isStatic)
 				valueArg = Parameter(typeof(T), "value");
 
 			return Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg);
 		}
+
+		/*
+
+		internal static SerializeDelegate<T> GenerateSerializer2(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)
+		{
+			var members = schema.Members;
+			var refBufferArg = Parameter(typeof(byte[]).MakeByRefType(), "buffer");
+			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
+			var valueArg = Parameter(typeof(T), "value");
+
+			if (isStatic)
+				valueArg = null;
+
+
+			var body = new List<Expression>();
+			var locals = new List<ParameterExpression>();
+
+			ParameterExpression startPos = null, size = null;
+			if (isSchemaFormatter)
+			{
+				locals.Add(startPos = Variable(typeof(int), "startPos"));
+				locals.Add(size = Variable(typeof(int), "size"));
+			}
+			
+			
+			Dictionary<Type, IFormatter> typeToFormatter = new Dictionary<Type, IFormatter>();
+			foreach (var m in members.Where(m => !m.IsSkip).DistinctBy(m => m.MemberType))
+				typeToFormatter.Add(m.MemberType, ceras.GetReferenceFormatter(m.MemberType));
+
+			Dictionary<Type, ConstantExpression> typeToFormatterExp = typeToFormatter.ToDictionary(x => x.Key, x => Constant(x.Value));
+
+
+			//
+			// Create tuple to hold all the formatters
+			Type[] formatterTypes = typeToFormatter.Values.Select(f => f.GetType()).ToArray();
+			var create = ReflectionHelper.ResolveMethod(typeof(Tuple), "Create", formatterTypes);
+			var formatterContainer = create.Invoke(null, typeToFormatter.Values.Cast<object>().ToArray());
+
+			// Pass this as arg
+			var tupleType = formatterContainer.GetType();
+			var formattersArg = Parameter(tupleType, "formatterContainer");
+			var newTypeToFormatter = new Dictionary<Type, (Expression getExp, object actualValue)>();
+			foreach (var kvp in typeToFormatter)
+			{
+				var t = kvp.Key;
+				var formatterInstance = kvp.Value;
+				var prop = tupleType.GetProperties().First(p => p.PropertyType.FindClosedArg(typeof(IFormatter<>)) == t);
+				newTypeToFormatter[t] = (MakeMemberAccess(formattersArg, prop), formatterInstance);
+			}
+			//
+			//
+
+
+			// Serialize all members
+			foreach (var member in members)
+			{
+				if (member.IsSkip)
+					continue;
+
+				// Get the formatter and its Serialize method
+				var formatterE = newTypeToFormatter[member.MemberType];
+				var formatter = formatterE.actualValue;
+				var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
+				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter " + formatter.GetType().FullName);
+
+				// Access the field that we want to serialize
+				var fieldExp = MakeMemberAccess(valueArg, member.MemberInfo);
+
+				// Call "Serialize"
+				if (!isSchemaFormatter)
+				{
+					var serializeCall = Call(formatterE.getExp, serializeMethod, refBufferArg, refOffsetArg, fieldExp);
+					body.Add(serializeCall);
+				}
+
+			}
+
+			var serializeBlock = Block(variables: locals, expressions: body);
+
+
+			if (isStatic)
+				valueArg = Parameter(typeof(T), "value");
+
+
+			var serialize2Type = typeof(SerializeDelegate2<,>);
+			var innerDelegateType = serialize2Type.MakeGenericType(tupleType, typeof(T));
+
+			var lambda = Lambda(delegateType: innerDelegateType,
+								body: serializeBlock,
+								parameters: new ParameterExpression[]
+								{
+									formattersArg,
+									refBufferArg, refOffsetArg, valueArg
+								});
+
+			var innerDelegate = lambda.Compile();
+
+			var lambdaMethodInfo = innerDelegate.Method;
+
+			var dynAsm = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("abc"), AssemblyBuilderAccess.RunAndSave);
+			var dynMod = dynAsm.DefineDynamicModule("module");
+			var dynType = dynMod.DefineType("type", TypeAttributes.Public);
+			var dynMethod = dynType.DefineMethod("doSerialize", MethodAttributes.Public | MethodAttributes.Static, typeof(void), new Type[]
+			{
+				tupleType,
+				typeof(byte[]).MakeByRefType(),
+				typeof(int).MakeByRefType(),
+				typeof(T)
+			});
+
+			lambda.CompileToMethod(dynMethod);
+
+			var createdType = dynType.CreateType();
+			var generatedMethodInfo = dynType.GetMethod(dynMethod.Name, dynMethod.GetParameters().Select(p => p.ParameterType).ToArray());
+
+			// Now bind to the created tuple!
+			//var finalDelegate = Delegate.CreateDelegate(typeof(SerializeDelegate<T>), formatterContainer, lambdaMethodInfo);
+			var finalDelegate = generatedMethodInfo.CreateDelegate(typeof(SerializeDelegate<T>), formatterContainer);
+			
+			return (SerializeDelegate<T>)finalDelegate;
+		}
+
+		*/
+
 
 		internal static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)
 		{
@@ -350,4 +475,6 @@ namespace Ceras.Formatters
 			throw new InvalidOperationException($"The data being read is corrupted. The amount of data read did not match the expected block-size! BlockStart:{startOffset} BlockSize:{blockSize} CurrentOffset:{offset}");
 		}
 	}
+
+	public delegate void SerializeDelegate2<TFormatterContainer, TValue>(TFormatterContainer formatters, ref byte[] buffer, ref int offset, TValue value);
 }
