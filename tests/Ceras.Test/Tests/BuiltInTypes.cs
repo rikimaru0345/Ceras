@@ -307,7 +307,6 @@ namespace Ceras.Test
 			var data = ceras.Serialize(c);
 			var clone = ceras.Deserialize<Container>(data);
 
-			Assert.True(clone.Elements.Length == 3);
 			Assert.True(clone.Elements[0].Name == "a");
 			Assert.True(clone.Elements[1].Id == 123);
 
