@@ -240,7 +240,7 @@ namespace Ceras.Test
 
 
 			var config = new SerializerConfig();
-			config.OnConfigNewType = t => t.CustomResolver = (c, t2) => c.GetFormatterResolver<ReinterpretFormatterResolver>().GetFormatter(t2);
+			config.OnConfigNewType = t => t.CustomResolver = (c, t2) => c.Advanced.GetFormatterResolver<ReinterpretFormatterResolver>().GetFormatter(t2);
 			var ceras = new CerasSerializer(config);
 
 			var typesToTest = new[]

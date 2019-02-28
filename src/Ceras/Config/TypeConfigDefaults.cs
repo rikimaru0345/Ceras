@@ -219,7 +219,7 @@ namespace Ceras
 
 		static IFormatter ForceDynamicResolver(CerasSerializer ceras, Type type)
 		{
-			var r = ceras.GetFormatterResolver<DynamicObjectFormatterResolver>();
+			var r = ((ICerasAdvanced)ceras).GetFormatterResolver<DynamicObjectFormatterResolver>();
 			return r.GetFormatter(type);
 		}
 	}

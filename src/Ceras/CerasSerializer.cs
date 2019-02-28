@@ -30,12 +30,13 @@ namespace Ceras
 	 * - GenerateChecksum should be automatic when KnownTypes contains types and AutoSeal is active
 	 *
 	 */
+	
 	/// <summary>
 	/// <para>Ceras serializes any object to a byte-array and back.</para>
 	/// <para>Want more features? Or something not working right?</para>
 	/// <para>-> Then go here: https://github.com/rikimaru0345/Ceras </para>
 	/// </summary>
-	public class CerasSerializer
+	public class CerasSerializer : ICerasAdvanced
 	{
 		// Some types are constructed by the formatter directly
 		internal static readonly Type _rtTypeType, _rtFieldType, _rtPropType, _rtCtorType, _rtMethodType;
@@ -135,6 +136,11 @@ namespace Ceras
 		/// Get the config instance that was passed to the constructor of the serializer. Don't use this to modify any settings!
 		/// </summary>
 		public SerializerConfig GetConfig() => Config;
+
+		/// <summary>
+		/// More advanced features...
+		/// </summary>
+		public ICerasAdvanced Advanced => this;
 
 		Type[] _knownTypes; // Copy of the list given by the user in Config; Array iteration is faster though
 
@@ -403,10 +409,8 @@ namespace Ceras
 			}
 		}
 
-		/// <summary>
-		/// Serialize the values of a static class or the static members of a normal class.
-		/// </summary>
-		internal byte[] SerializeStatic(Type type)
+
+		byte[] ICerasAdvanced.SerializeStatic(Type type)
 		{
 			if (type.ContainsGenericParameters)
 				throw new InvalidOperationException();
@@ -438,11 +442,8 @@ namespace Ceras
 
 			return buffer;
 		}
-
-		/// <summary>
-		/// Deserialize the values of a static class or the static members of a normal class.
-		/// </summary>
-		internal void DeserializeStatic(Type type, byte[] buffer)
+		
+		void ICerasAdvanced.DeserializeStatic(Type type, byte[] buffer)
 		{
 			if (type.ContainsGenericParameters)
 				throw new InvalidOperationException();
@@ -560,11 +561,8 @@ namespace Ceras
 			}
 		}
 
-		/// <summary>
-		/// Allows you to "peek" the object the data contains without having to fully deserialize the whole object.
-		/// <para>Only works for data that was saved without version tolerance (maybe that will be supported eventually, if someone requests it)</para>
-		/// </summary>
-		public Type PeekType(byte[] buffer)
+
+		Type ICerasAdvanced.PeekType(byte[] buffer)
 		{
 			Type t = null;
 			int offset = 0;
@@ -573,23 +571,16 @@ namespace Ceras
 			return t;
 		}
 
-
-		/// <summary>
-		/// Get all resolvers that this <see cref="CerasSerializer"/> has available. Does not include any user-registered callbacks in <see cref="SerializerConfig.OnResolveFormatter"/>.
-		/// </summary>
-		public IEnumerable<IFormatterResolver> GetFormatterResolvers()
+		IEnumerable<IFormatterResolver> ICerasAdvanced.GetFormatterResolvers()
 		{
 			foreach (var r in _resolvers)
 				yield return r;
 			yield return _dynamicResolver;
 		}
 
-		/// <summary>
-		/// Get an instance of any specific type of resolver (or null if no resolver matching that type can be found)
-		/// </summary>
-		public IFormatterResolver GetFormatterResolver<TResolver>() where TResolver : IFormatterResolver
+		IFormatterResolver ICerasAdvanced.GetFormatterResolver<TResolver>()
 		{
-			return GetFormatterResolvers().OfType<TResolver>().FirstOrDefault();
+			return this.Advanced.GetFormatterResolvers().OfType<TResolver>().FirstOrDefault();
 		}
 
 
@@ -1113,6 +1104,34 @@ namespace Ceras
 		}
 	}
 
+	public interface ICerasAdvanced
+	{
+		/// <summary>
+		/// Serialize the values of a static class or the static members of a normal class.
+		/// </summary>
+		byte[] SerializeStatic(Type type);
+
+		/// <summary>
+		/// Deserialize the values of a static class or the static members of a normal class.
+		/// </summary>
+		void DeserializeStatic(Type type, byte[] buffer);
+
+		/// <summary>
+		/// Allows you to "peek" the object the data contains without having to fully deserialize the whole object.
+		/// <para>Only works for data that was saved without version tolerance (maybe that will be supported eventually, if someone requests it)</para>
+		/// </summary>
+		Type PeekType(byte[] buffer);
+
+		/// <summary>
+		/// Get all resolvers that this <see cref="CerasSerializer"/> has available. Does not include any user-registered callbacks in <see cref="SerializerConfig.OnResolveFormatter"/>.
+		/// </summary>
+		IEnumerable<IFormatterResolver> GetFormatterResolvers();
+
+		/// <summary>
+		/// Get an instance of any specific type of resolver (or null if no resolver matching that type can be found)
+		/// </summary>
+		IFormatterResolver GetFormatterResolver<TResolver>() where TResolver : IFormatterResolver;
+	}
 
 	// In order to support recursive serialization/deserialization, we need to "instantiate"
 	// some values for each call.

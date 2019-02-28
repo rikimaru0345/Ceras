@@ -57,7 +57,7 @@ namespace Ceras.Test
 
 			var ceras = new CerasSerializer(config);
 
-			var dataDefault = ceras.SerializeStatic(typeof(StaticClassTest));
+			var dataDefault = ceras.Advanced.SerializeStatic(typeof(StaticClassTest));
 
 			StaticClassTest.ValueField = 1;
 			StaticClassTest.StringField = "2";
@@ -67,7 +67,7 @@ namespace Ceras.Test
 			StaticClassTest.NotIncluded2 = 6;
 			StaticClassTest.NotIncluded3 = 7;
 
-			var dataChanged = ceras.SerializeStatic(typeof(StaticClassTest));
+			var dataChanged = ceras.Advanced.SerializeStatic(typeof(StaticClassTest));
 
 
 
@@ -75,7 +75,7 @@ namespace Ceras.Test
 			//
 			// Check if the "reset" works
 			//
-			ceras.DeserializeStatic(typeof(StaticClassTest), dataDefault);
+			ceras.Advanced.DeserializeStatic(typeof(StaticClassTest), dataDefault);
 
 			Assert.True(StaticClassTest.ValueField == -3);
 			Assert.True(StaticClassTest.StringField == "-3");
@@ -89,7 +89,7 @@ namespace Ceras.Test
 			//
 			// Now we restore the changed state
 			//
-			ceras.DeserializeStatic(typeof(StaticClassTest), dataChanged);
+			ceras.Advanced.DeserializeStatic(typeof(StaticClassTest), dataChanged);
 
 			Assert.True(StaticClassTest.ValueField == 1);
 			Assert.True(StaticClassTest.StringField == "2");
@@ -111,7 +111,7 @@ namespace Ceras.Test
 			var obj = new StaticMembersTest();
 
 
-			var dataStaticDefault = ceras.SerializeStatic(typeof(StaticMembersTest));
+			var dataStaticDefault = ceras.Advanced.SerializeStatic(typeof(StaticMembersTest));
 			var dataInstanceDefault = ceras.Serialize(obj);
 			
 			Assert.True(StaticMembersTest.ValueField == -12);
@@ -120,7 +120,7 @@ namespace Ceras.Test
 			obj.InstanceValue = 1;
 			StaticMembersTest.ValueField = 2;
 
-			var dataStaticChanged = ceras.SerializeStatic(typeof(StaticMembersTest));
+			var dataStaticChanged = ceras.Advanced.SerializeStatic(typeof(StaticMembersTest));
 			var dataInstanceChanged = ceras.Serialize(obj);
 
 			Assert.True(StaticMembersTest.ValueField == 2);
@@ -130,7 +130,7 @@ namespace Ceras.Test
 			// Deserialize
 			//
 
-			ceras.DeserializeStatic(typeof(StaticMembersTest), dataStaticDefault);
+			ceras.Advanced.DeserializeStatic(typeof(StaticMembersTest), dataStaticDefault);
 			ceras.Deserialize(ref obj, dataInstanceDefault);
 			
 			Assert.True(StaticMembersTest.ValueField == -12);
@@ -138,7 +138,7 @@ namespace Ceras.Test
 			
 
 
-			ceras.DeserializeStatic(typeof(StaticMembersTest), dataStaticChanged);
+			ceras.Advanced.DeserializeStatic(typeof(StaticMembersTest), dataStaticChanged);
 			ceras.Deserialize(ref obj, dataInstanceChanged);
 			
 			Assert.True(StaticMembersTest.ValueField == 2);
