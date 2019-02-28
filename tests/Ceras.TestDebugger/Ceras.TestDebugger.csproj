@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <StartupObject>Ceras.TestDebugger.Program</StartupObject>
+
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net452;net47;net472</TargetFrameworks>
+
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DefineConstants>TRACE;DEBUG</DefineConstants>
+
+  </PropertyGroup>
+
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ceras\Ceras.csproj" />
+    <ProjectReference Include="..\Ceras.Test\Ceras.Test.csproj" />
+  </ItemGroup>
+
+</Project>

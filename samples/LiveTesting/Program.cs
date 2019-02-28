@@ -23,29 +23,7 @@ namespace LiveTesting
 
 		static void Main(string[] args)
 		{
-			new Internals().FastCopy();
-
-			var config = new SerializerConfig();
-			config.Advanced.BitmapMode = BitmapMode.SaveAsBmp;
-			var ceras = new CerasSerializer(config);
-
-			var images = new Image[]
-			{
-				Image.FromFile(@"C:\Users\Fello\Downloads\68747470733a2f2f692e696d6775722e636f6d2f513839365567562e706e67.png"),
-				Image.FromFile(@"C:\Users\Fello\Downloads\7plX.gif"),
-				Image.FromFile(@"C:\Users\Fello\Downloads\TexturesCom_BrickOldMixedSize0012_1_seamless_S.jpg"),
-				Image.FromFile(@"C:\Users\Fello\Downloads\New Drawing.png"),
-				Image.FromFile(@"C:\Users\Fello\Downloads\smoke_1_40_128_corrected.png"),
-				Image.FromFile(@"C:\Users\Fello\Downloads\Spheres_thumb9.png"),
-			};
 			
-			var imgData1 = ceras.Serialize(images);
-			var imagesClone1 = ceras.Deserialize<Image[]>(imgData1);
-			var imgData2 = ceras.Serialize(images);
-			var imagesClone2 = ceras.Deserialize<Image[]>(imgData2);
-
-
-
 			Benchmarks();
 
 			CustomComparerFormatter();

@@ -23,9 +23,6 @@ namespace Ceras.Formatters
 
 		public void Serialize(ref byte[] buffer, ref int offset, Bitmap img)
 		{
-			if (_sharedMemoryStream == null)
-				_sharedMemoryStream = new MemoryStream(1024 * 1024);
-
 			// Let the image serialize itself to the memory stream
 			// Its unfortunate that there's only a stream-based api...
 			// The alternative would be manually locking the bits.
@@ -34,49 +31,59 @@ namespace Ceras.Formatters
 			var mode = BitmapMode;
 			var format = BitmapModeToImgFormat(mode);
 
-			_sharedMemoryStream.Position = 0;
-			img.Save(_sharedMemoryStream, format);
+			if (_sharedMemoryStream == null)
+				_sharedMemoryStream = new MemoryStream((int)(4 * (img.Width * img.Height) * 1.35));
+			var ms = _sharedMemoryStream;
 
-			long sizeLong = _sharedMemoryStream.Position;
+			ms.Position = 0;
+			img.Save(ms, format);
+
+			long sizeLong = ms.Position;
 			if (sizeLong > int.MaxValue)
 				throw new InvalidOperationException("image too large");
 			int size = (int)sizeLong;
 
-			_sharedMemoryStream.Position = 0;
-			var memoryStreamBuffer = _sharedMemoryStream.GetBuffer();
+			ms.Position = 0;
+			var memoryStreamBuffer = ms.GetBuffer();
 
 			// Write Size
 			SerializerBinary.WriteUInt32Fixed(ref buffer, ref offset, (uint)size);
 
 			// Write data into serialization buffer
-			SerializerBinary.EnsureCapacity(ref buffer, offset, size);
-
 			if (size > 0)
+			{
+				SerializerBinary.EnsureCapacity(ref buffer, offset, size);
 				SerializerBinary.FastCopy(memoryStreamBuffer, 0, buffer, offset, size);
+			}
 
 			offset += size;
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Bitmap img)
 		{
-			if (_sharedMemoryStream == null)
-				_sharedMemoryStream = new MemoryStream(1024 * 1024);
-
 			// Read data size
 			int size = (int)SerializerBinary.ReadUInt32Fixed(buffer, ref offset);
 
 			// Copy data into stream
-			if (_sharedMemoryStream.Capacity < size)
+			if (_sharedMemoryStream == null)
+				_sharedMemoryStream = new MemoryStream(size);
+			else if (_sharedMemoryStream.Capacity < size)
 				_sharedMemoryStream.Capacity = size;
 
-			var memoryStreamBuffer = _sharedMemoryStream.GetBuffer();
+			var ms = _sharedMemoryStream;
 
+			ms.Position = 0;
+			var memoryStreamBuffer = ms.GetBuffer();
+			
 			if (size > 0)
+			{
 				SerializerBinary.FastCopy(buffer, offset, memoryStreamBuffer, 0, size);
+			}
 
 			// Now we can load the image back from the stream
-			_sharedMemoryStream.Position = 0;
-			img = new Bitmap(_sharedMemoryStream);
+			ms.Position = 0;
+
+			img = new Bitmap(ms);
 
 			offset += size;
 		}

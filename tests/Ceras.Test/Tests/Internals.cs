@@ -124,9 +124,9 @@ namespace Ceras.Test
 		public void FastCopy()
 		{
 #if NET45 || NET451 || NET452
-			global::System.Console.WriteLine("Testing FastCopy on NET4.5.x");
+			global::System.Console.WriteLine("Testing FastCopy on NET45.x");
 #elif NET47 || NET471 || NET472
-			global::System.Console.WriteLine("Testing FastCopy on NET4.7.x");
+			global::System.Console.WriteLine("Testing FastCopy on NET47.x");
 #elif NETSTANDARD2_0 || NETCOREAPP2_0 || NETCOREAPP2_1 || NETCOREAPP2_2
 			global::System.Console.WriteLine("Testing FastCopy on NET STANDARD 2.0 / NETCOREAPP2_x");
 #else

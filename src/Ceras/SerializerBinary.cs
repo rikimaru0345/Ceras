@@ -446,23 +446,6 @@
 		internal static void FastCopy(byte[] sourceArray, int sourceOffset, byte[] targetArray, int targetOffset, int n)
 		{
 #if DEBUG
-
-#if NET45 || NET451 || NET452
-			global::System.Console.WriteLine("FastCopy on NET4.5.x");
-#elif NET47 || NET471 || NET472
-			global::System.Console.WriteLine("FastCopy on NET4.7.x");
-#elif NETSTANDARD2_0
-			global::System.Console.WriteLine("FastCopy on NET STANDARD 2.0");
-#else
-#error Unknown compiler version
-#endif
-
-#endif
-
-
-
-
-#if DEBUG
 			if (n < 0)
 				throw new InvalidOperationException("n must be > 0");
 			if (n == 0 || sourceArray.Length == 0 || targetArray.Length == 0)
@@ -479,10 +462,12 @@
 			if (n > 512)
 			{
 #if !NET45
-				fixed (byte* destPtr = &sourceArray[0])
-				fixed (byte* srcPtr = &targetArray[0])
+				fixed (byte* srcPtr = &sourceArray[0])
+				fixed (byte* destPtr = &targetArray[0])
 				{
-					Buffer.MemoryCopy(srcPtr + sourceOffset, destPtr + targetOffset, n, n);
+					byte* src = srcPtr + sourceOffset;
+					byte* dst = destPtr + targetOffset;
+					Buffer.MemoryCopy(src, dst, n, n);
 				}
 #else
 				Buffer.BlockCopy(sourceArray, sourceOffset, targetArray, targetOffset, n);
@@ -491,8 +476,8 @@
 			}
 
 			// Copy up to 512 bytes very quickly
-			fixed (byte* destPtr = &sourceArray[0])
-			fixed (byte* srcPtr = &targetArray[0])
+			fixed (byte* srcPtr = &sourceArray[0])
+			fixed (byte* destPtr = &targetArray[0])
 			{
 				byte* src = srcPtr + sourceOffset;
 				byte* dest = destPtr + targetOffset;
