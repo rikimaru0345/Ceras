@@ -10,7 +10,7 @@ namespace Ceras.Formatters
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
-	using System.Reflection.Emit;
+	using System.Runtime.Serialization;
 	using static System.Linq.Expressions.Expression;
 
 	/*
@@ -298,6 +298,11 @@ namespace Ceras.Formatters
 			var typeConfig = ceras.Config.GetTypeConfig(schema.Type, isStatic);
 			var tc = typeConfig.TypeConstruction;
 
+			var membersWithOrder = from m in members
+								   let dataMember = m.MemberInfo.GetCustomAttribute<DataMemberAttribute>()
+								   where dataMember != null
+								   orderby dataMember.Order
+								   select m;
 			bool constructObject = tc.HasDataArguments; // Are we responsible for instantiating an object?
 			HashSet<ParameterExpression> usedVariables = null;
 
@@ -309,6 +314,7 @@ namespace Ceras.Formatters
 
 			var body = new List<Expression>();
 			var locals = new List<ParameterExpression>(schema.Members.Count);
+
 
 			ParameterExpression blockSize = null, offsetStart = null;
 			if (isSchemaFormatter)
@@ -419,7 +425,7 @@ namespace Ceras.Formatters
 
 			//
 			// 4. Write back values in one batch
-			foreach (var m in members)
+			foreach (var m in membersWithOrder)
 			{
 				if (m.IsSkip)
 					continue;

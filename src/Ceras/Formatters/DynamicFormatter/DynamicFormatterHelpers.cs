@@ -3,10 +3,9 @@
 	using Exceptions;
 	using System;
 	using System.Collections.Generic;
-	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
-	using Helpers;
+	using static System.Linq.Expressions.Expression;
 
 	static class DynamicFormatterHelpers
 	{
@@ -58,16 +57,18 @@
 				// Either they match perfectly -> do nothing
 				// Or the values are not the same -> either throw an exception of do a forced overwrite
 
+				
+
 				Expression onMismatch;
 				if (readonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
 					// field.SetValue(valueArg, tempStore)
-					onMismatch = Expression.Call(Expression.Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: Expression.Convert(tempStore, typeof(object))); // Explicit boxing needed
+					onMismatch = Call(Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: Convert(tempStore, typeof(object))); // Explicit boxing needed
 				else
-					onMismatch = Expression.Throw(Expression.Constant(new CerasException($"The value-type in field '{fieldInfo.Name}' does not match the expected value, but the field is readonly and overwriting is not allowed in the configuration. Make the field writeable or enable 'ForcedOverwrite' in the serializer settings to allow Ceras to overwrite the readonly-field.")));
+					onMismatch = Throw(Constant(new CerasException($"The value-type in field '{fieldInfo.Name}' does not match the expected value, but the field is readonly and overwriting is not allowed in the configuration. Make the field writeable or enable 'ForcedOverwrite' in the serializer settings to allow Ceras to overwrite the readonly-field.")));
 
-				block.Add(Expression.IfThenElse(
-									 test: Expression.Equal(tempStore, Expression.MakeMemberAccess(refValueArg, fieldInfo)),
-									 ifTrue: Expression.Empty(),
+				block.Add(IfThenElse(
+									 test: Equal(tempStore, MakeMemberAccess(refValueArg, fieldInfo)),
+									 ifTrue: Empty(),
 									 ifFalse: onMismatch
 									));
 			}
@@ -86,17 +87,17 @@
 				Expression onReassignment;
 				if (readonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
 					// field.SetValue(valueArg, tempStore)
-					onReassignment = Expression.Call(Expression.Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: tempStore);
+					onReassignment = Call(Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: tempStore);
 				else
-					onReassignment = Expression.Throw(Expression.Constant(new CerasException("The reference in the readonly-field '" + fieldInfo.Name + "' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
+					onReassignment = Throw(Constant(new CerasException("The reference in the readonly-field '" + fieldInfo.Name + "' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
 
 				// Did the reference change?
-				block.Add(Expression.IfThenElse(
-									 test: Expression.ReferenceEqual(tempStore, Expression.MakeMemberAccess(refValueArg, fieldInfo)),
+				block.Add(IfThenElse(
+									 test: ReferenceEqual(tempStore, MakeMemberAccess(refValueArg, fieldInfo)),
 
 									 // Still the same. Whatever has happened (and there are a LOT of cases), it seems to be ok.
 									 // Maybe the existing object's content was overwritten, or the instance reference was already as expected, or...
-									 ifTrue: Expression.Empty(),
+									 ifTrue: Empty(),
 
 									 // Reference changed. Handle it depending on if its allowed or not
 									 ifFalse: onReassignment
