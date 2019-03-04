@@ -10,7 +10,6 @@ namespace Ceras.Formatters
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
-	using System.Runtime.Serialization;
 	using static System.Linq.Expressions.Expression;
 
 	/*
@@ -298,11 +297,6 @@ namespace Ceras.Formatters
 			var typeConfig = ceras.Config.GetTypeConfig(schema.Type, isStatic);
 			var tc = typeConfig.TypeConstruction;
 
-			var membersWithOrder = from m in members
-								   let dataMember = m.MemberInfo.GetCustomAttribute<DataMemberAttribute>()
-								   where dataMember != null
-								   orderby dataMember.Order
-								   select m;
 			bool constructObject = tc.HasDataArguments; // Are we responsible for instantiating an object?
 			HashSet<ParameterExpression> usedVariables = null;
 
@@ -425,7 +419,8 @@ namespace Ceras.Formatters
 
 			//
 			// 4. Write back values in one batch
-			foreach (var m in membersWithOrder)
+			var orderedMembers = OrderMembersForWriteBack(members);
+			foreach (var m in orderedMembers)
 			{
 				if (m.IsSkip)
 					continue;
@@ -474,6 +469,13 @@ namespace Ceras.Formatters
 				refValueArg = Parameter(typeof(T).MakeByRefType(), "value");
 
 			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, refOffsetArg, refValueArg);
+		}
+
+		static IEnumerable<SchemaMember> OrderMembersForWriteBack(List<SchemaMember> members)
+		{
+			return from m in members
+				   orderby m.WriteBackOrder ascending, members.IndexOf(m)
+				   select m;
 		}
 
 		static void ThrowOffsetMismatch(int startOffset, int offset, int blockSize)

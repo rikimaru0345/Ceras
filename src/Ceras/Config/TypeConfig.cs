@@ -146,6 +146,18 @@
 				TypeConfigDefaults.ApplyMemberAttributes(m);
 		}
 
+		internal MemberConfig GetMemberConfig(MemberInfo memberInfo)
+		{
+			for (int i = 0; i < _allMembers.Count; i++)
+			{
+				var mc = _allMembers[i];
+				if(mc.Member == memberInfo)
+					return mc;
+			}
+
+			throw new InvalidOperationException("member not found");
+		}
+
 		/// <summary>
 		/// Don't use this.
 		/// </summary>
@@ -429,6 +441,16 @@
 
 			get => _readonlyOverride;
 		}
+
+		/// <summary>
+		/// Controls when Ceras will write this member to the class/struct after deserialization.
+		/// By default (<see cref="WriteBackOrder"/> == 0) writes are optimized for performance.
+		/// But sometimes you might have a property that needs to be written last (maybe after some fields are written already or something...).
+		/// 
+		/// Members are set in ascending order.
+		/// <para>Default: Value from [<see cref="System.Runtime.Serialization.DataMember"/>.Order] or 0 if the member has no attribute</para>
+		/// </summary>
+		public int WriteBackOrder { get; set; }
 
 
 		string _explicitInclusionReason = "Error: no inclusion/exclusion override is set for this member";

@@ -170,6 +170,34 @@ namespace Ceras.Test
 			}
 		}
 
+		[Fact]
+		void SchemaClonesAreEqual()
+		{
+			// Clone schema, check if equal
+
+			var ceras = new CerasSerializer();
+			var meta = ceras.GetTypeMetaData(typeof(Element));
+
+			var schema = meta.PrimarySchema;
+
+			byte[] buffer = new byte[100];
+			int offset = 0;
+			CerasSerializer.WriteSchema(ref buffer, ref offset, schema);
+
+			offset = 0;
+			var clone = ceras.ReadSchema(buffer, ref offset, typeof(Element), false);
+
+			Assert.True(Equals(schema, clone));
+
+			
+			// Check if List<Schema>.IndexOf() works correctly
+			List<Schema> list = new List<Schema>();
+			list.Add(schema);
+
+			int index = list.IndexOf(clone);
+
+			Assert.True(index == 0);
+		}
 	}
 
 

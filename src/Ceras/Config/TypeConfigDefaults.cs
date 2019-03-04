@@ -8,9 +8,10 @@ namespace Ceras
 	using System.Collections.ObjectModel;
 	using System.Linq.Expressions;
 	using System.Reflection;
-	using Formatters;
+	using System.Runtime.Serialization;
 	using Helpers;
 	using Resolvers;
+	using IFormatter = Formatters.IFormatter;
 
 	static class TypeConfigDefaults
 	{
@@ -95,6 +96,14 @@ namespace Ceras
 			var type = memberConfig.TypeConfig.Type;
 
 			var memberInfo = memberConfig.Member;
+
+			// Apply WriteBackOrder
+			var dataMemberAttribute = memberInfo.GetCustomAttribute<DataMemberAttribute>();
+			if (dataMemberAttribute != null)
+			{
+				memberConfig.WriteBackOrder = dataMemberAttribute.Order;
+			}
+
 
 			// Skip compiler generated
 			if (memberConfig.IsCompilerGenerated)

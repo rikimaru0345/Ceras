@@ -38,14 +38,16 @@
 	class Schema
 	{
 		public Type Type { get; }
+		public TypeConfig TypeConfig { get; }
 		public bool IsStatic { get; }
 		public bool IsPrimary { get; }
 		public List<SchemaMember> Members { get; } = new List<SchemaMember>();
 		
-		public Schema(bool isPrimary, Type type, bool isStatic)
+		public Schema(bool isPrimary, Type type, TypeConfig typeConfig, bool isStatic)
 		{
 			IsPrimary = isPrimary;
 			Type = type;
+			TypeConfig = typeConfig;
 			IsStatic = isStatic;
 		}
 
@@ -145,35 +147,13 @@
 
 			return false;
 		}
-
-
-		// Removed until we are ready to deal with the V2 of version tolerance (to include type-information)
-		/*
-		static IFormatter DetermineOverrideFormatter(MemberInfo memberInfo)
-		{
-			var prevType = memberInfo.GetCustomAttribute<PreviousType>();
-			if (prevType != null)
-				return GetGenericFormatter(prevType.MemberType);
-
-			var prevFormatter = memberInfo.GetCustomAttribute<PreviousFormatter>();
-			if (prevFormatter != null)
-			{
-				var formatter = ReflectionHelper.FindClosedType(prevFormatter.FormatterType, typeof(IFormatter<>));
-				if (formatter == null)
-					throw new Exception($"Type '{prevFormatter.FormatterType.FullName}' must inherit from IFormatter<>");
-
-				return (IFormatter)Activator.CreateInstance(formatter);
-			}
-
-			return null;
-		}
-		*/
 	}
 
 	class SchemaMember
 	{
 		public string PersistentName { get; } // If set, this gets written as type name
 		public MemberInfo Member { get; }
+		public int WriteBackOrder { get; } // when to write the data back to the target (uses [DataMember.Order])
 
 		public MemberInfo MemberInfo => Member;
 		public Type MemberType => Member is FieldInfo f ? f.FieldType : ((PropertyInfo)Member).PropertyType;
@@ -181,7 +161,7 @@
 		public bool IsSkip => MemberInfo == null; // If this is true, then member and override formatter are not used; while reading the element is skipped (by reading its size)
 
 
-		public SchemaMember(string persistentName, MemberInfo memberInfo)
+		public SchemaMember(string persistentName, MemberInfo memberInfo, int writeBackOrder)
 		{
 			if (memberInfo == null)
 				throw new ArgumentNullException(nameof(memberInfo));
@@ -195,17 +175,19 @@
 				if (!p.CanRead || !p.CanWrite)
 					throw new Exception("property must be readable and writable");
 			}
-
-
+			
 			PersistentName = persistentName;
 			Member = memberInfo;
+			WriteBackOrder = writeBackOrder;
 		}
 
 		// Used when reading a schema and the member was not found
+		// >> IsSkip == true
 		public SchemaMember(string persistentName)
 		{
 			PersistentName = persistentName;
 			Member = default;
+			WriteBackOrder = 0;
 		}
 
 		public override string ToString()

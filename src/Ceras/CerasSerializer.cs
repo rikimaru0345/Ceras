@@ -916,13 +916,13 @@ namespace Ceras
 			var typeConfig = Config.GetTypeConfig(type, isStatic);
 			typeConfig.Seal();
 
-			Schema schema = new Schema(true, type, isStatic);
+			Schema schema = new Schema(true, type, typeConfig, isStatic);
 
 			foreach (var memberConfig in typeConfig._allMembers)
 			{
 				if (memberConfig.ComputeFinalInclusionFast())
 				{
-					var schemaMember = new SchemaMember(memberConfig.PersistentName, memberConfig.Member);
+					var schemaMember = new SchemaMember(memberConfig.PersistentName, memberConfig.Member, memberConfig.WriteBackOrder);
 					schema.Members.Add(schemaMember);
 				}
 				else
@@ -951,10 +951,12 @@ namespace Ceras
 
 			if (meta.IsPrimitive)
 				throw new InvalidOperationException("Cannot read a Schema for a primitive type! This must be either a serious bug, or the given data has been tampered with. Please report it on GitHub!");
+			
+			var typeConfig = Config.GetTypeConfig(type, isStatic);
 
 			//
 			// Read Schema
-			var schema = new Schema(false, type, isStatic);
+			var schema = new Schema(false, type, typeConfig, isStatic);
 
 			var memberCount = SerializerBinary.ReadInt32(buffer, ref offset);
 			for (int i = 0; i < memberCount; i++)
@@ -964,9 +966,15 @@ namespace Ceras
 				var member = Schema.FindMemberInType(type, name);
 
 				if (member == null)
+				{
+					// Skip
 					schema.Members.Add(new SchemaMember(name));
+				}
 				else
-					schema.Members.Add(new SchemaMember(name, member));
+				{
+					var memberConfig = typeConfig.GetMemberConfig(member);
+					schema.Members.Add(new SchemaMember(name, member, memberConfig.WriteBackOrder));
+				}
 			}
 
 			//
