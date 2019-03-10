@@ -35,6 +35,7 @@ namespace Ceras
 	/// <para>Ceras serializes any object to a byte-array and back.</para>
 	/// <para>Want more features? Or something not working right?</para>
 	/// <para>-> Then go here: https://github.com/rikimaru0345/Ceras </para>
+	/// <para>For performance reasons <see cref="CerasSerializer"/>, <see cref="SerializerConfig"/>, and <see cref="TypeConfig"/> are not thread-safe! You shouldn't share a single instance of a SerializerConfig either.</para>
 	/// </summary>
 	public class CerasSerializer : ICerasAdvanced
 	{

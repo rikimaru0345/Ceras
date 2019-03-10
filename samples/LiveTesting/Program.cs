@@ -9,6 +9,7 @@ namespace LiveTesting
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Drawing;
+	using System.IO;
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
@@ -16,14 +17,15 @@ namespace LiveTesting
 	using Tutorial;
 	using Xunit;
 	using Encoding = System.Text.Encoding;
+	using K4os.Compression.LZ4;
 
 	class Program
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
+		
 
 		static void Main(string[] args)
 		{
-			
 			// Benchmarks();
 
 			CustomComparerFormatter();

@@ -9,6 +9,7 @@
 
 	/// <summary>
 	/// Allows detailed configuration of the <see cref="CerasSerializer"/>. Advanced options can be found inside <see cref="Advanced"/>
+	/// <para>For performance reasons <see cref="CerasSerializer"/>, <see cref="SerializerConfig"/>, and <see cref="TypeConfig"/> are not thread-safe! You shouldn't share a single instance of a SerializerConfig either.</para>
 	/// </summary>
 	public class SerializerConfig : IAdvancedConfigOptions, ISizeLimitsConfig, IVersionToleranceConfig
 	{

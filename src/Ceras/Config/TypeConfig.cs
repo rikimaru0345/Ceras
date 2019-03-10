@@ -25,6 +25,9 @@
 	// todo: If we create something from uninitialized; do we give an option to run some specific ctor? Do we write some props/fields again after calling the ctor??
 	// todo: what about just calling Dispose() as an alternative to Discard!?
 
+	/// <summary>
+	/// <para>For performance reasons <see cref="CerasSerializer"/>, <see cref="SerializerConfig"/>, and <see cref="TypeConfig"/> are not thread-safe! You shouldn't share a single instance of a SerializerConfig either.</para>
+	/// </summary>
 	public abstract class TypeConfig
 	{
 		public Type Type { get; }
