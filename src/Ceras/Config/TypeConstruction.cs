@@ -82,21 +82,22 @@ namespace Ceras
 					if (SetMatchOrThrow(parameterInfo, tolerantMatches))
 						continue;
 
-					throw new CerasException($"Cannot find any automatic mapping from any member to the parameter '{parameterInfo.ParameterType.Name} {parameterInfo.Name}'");
+					var ctorParamStrings = string.Join(", ", parameters.Select(t => t.ParameterType.FriendlyName() + " " + t.Name));
+					throw new CerasException($"There is no mapping specified from the members of '{TypeConfig.Type.FriendlyName()}' to the constructor '({ctorParamStrings})'. Ceras has tried to automatically detect a mapping by matching the names of the fields/properties to the method parameters, but no source field or property could be found to populate the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}'");
 				}
 				else
 				{
 					// We already have a user-provided match, but is it part of the serialization?
 					var sourceMemberConfig = TypeConfig.Members.First(mc => mc.Member == sourceMember);
 					if (!sourceMemberConfig.ComputeFinalInclusionFast())
-						throw new CerasException($"The type construction mode for the type '{TypeConfig.Type.FullName}' is invalid because the parameter '{parameterInfo.ParameterType.Name} {parameterInfo.Name}' is supposed to be initialized from the member '{sourceMember.FieldOrPropType().Name} {sourceMember.Name}', but that member is not part of the serialization, so it will not be available at deserialization-time.");
+						throw new CerasException($"The type construction mode for the type '{TypeConfig.Type.FriendlyName()}' is invalid because the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}' is supposed to be initialized from the member '{sourceMember.FieldOrPropType().FriendlyName()} {sourceMember.Name}', but that member is not part of the serialization, so it will not be available at deserialization-time.");
 				}
 			}
 
 			bool SetMatchOrThrow(ParameterInfo p, MemberConfig[] configs)
 			{
 				if (configs.Length > 1)
-					throw new AmbiguousMatchException($"There are multiple members that match the parameter '{p.ParameterType.Name} {p.Name}': {string.Join(", ", configs.Select(c => c.Member.Name))}");
+					throw new AmbiguousMatchException($"There are multiple members that match the parameter '{p.ParameterType.FriendlyName()} {p.Name}': {string.Join(", ", configs.Select(c => c.Member.Name))}");
 
 				if(configs.Length == 0)
 					return false;

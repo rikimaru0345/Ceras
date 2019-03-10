@@ -5,6 +5,7 @@
 	using System.Collections.Generic;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using Helpers;
 	using static System.Linq.Expressions.Expression;
 
 	static class DynamicFormatterHelpers
@@ -48,7 +49,7 @@
 		internal static void EmitReadonlyWriteBack(Type type, ReadonlyFieldHandling readonlyFieldHandling, FieldInfo fieldInfo, ParameterExpression refValueArg, ParameterExpression tempStore, List<Expression> block)
 		{
 			if (readonlyFieldHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
-				throw new InvalidOperationException($"Error while trying to generate a deserializer for the field '{fieldInfo.DeclaringType.FullName}.{fieldInfo.Name}': the field is readonly, but ReadonlyFieldHandling is turned off in the configuration.");
+				throw new InvalidOperationException($"Error while trying to generate a deserializer for the field '{fieldInfo.DeclaringType.FriendlyName(true)}.{fieldInfo.Name}': the field is readonly, but ReadonlyFieldHandling is turned off in the configuration.");
 
 			// 4. ReferenceTypes and ValueTypes are handled a bit differently (Boxing, Equal-vs-ReferenceEqual, text in exception, ...)
 			if (type.IsValueType)

@@ -43,7 +43,7 @@ namespace CerasAotFormatterGenerator
 			var realFormatterType = formatter.GetType();
 
 			if (!realFormatterType.IsGenericType || realFormatterType.GetGenericTypeDefinition() != typeof(DynamicFormatter<>))
-				throw new Exception($"Ceras uses '{realFormatterType.Name}', instead of '{nameof(DynamicFormatter<int>)}<>' to format the type '{_type.Name}'. The AotTool could generate a formatter for this type, but it would not be used. This must mean there's some kind of configuration error?");
+				throw new Exception($"Ceras uses '{realFormatterType.FriendlyName()}', instead of '{nameof(DynamicFormatter<int>)}<>' to format the type '{_type.FriendlyName()}'. The AotTool could generate a formatter for this type, but it would not be used. This must mean there's some kind of configuration error?");
 
 
 			// Generate a new type to implement this formatter

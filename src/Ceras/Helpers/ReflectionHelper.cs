@@ -53,7 +53,7 @@
 		public static Type FindClosedArg(this Type objectType, Type openGeneric, int argIndex = 0)
 		{
 			var closed = FindClosedType(objectType, openGeneric);
-			if(closed == null)
+			if (closed == null)
 				return null;
 			var args = closed.GetGenericArguments();
 			return args[argIndex];
@@ -94,9 +94,9 @@
 
 			foreach (var m in EnumerateMembers(type))
 			{
-				if(m is FieldInfo f && fields && !f.IsStatic)
+				if (m is FieldInfo f && fields && !f.IsStatic)
 					yield return m;
-				if(m is PropertyInfo p && properties && !p.GetAccessors(true)[0].IsStatic)
+				if (m is PropertyInfo p && properties && !p.GetAccessors(true)[0].IsStatic)
 					yield return m;
 			}
 		}
@@ -108,9 +108,9 @@
 
 			foreach (var m in EnumerateMembers(type))
 			{
-				if(m is FieldInfo f && fields && f.IsStatic)
+				if (m is FieldInfo f && fields && f.IsStatic)
 					yield return m;
-				if(m is PropertyInfo p && properties && p.GetAccessors(true)[0].IsStatic)
+				if (m is PropertyInfo p && properties && p.GetAccessors(true)[0].IsStatic)
 					yield return m;
 			}
 		}
@@ -186,7 +186,7 @@
 
 			var layout = type.StructLayoutAttribute;
 			if (layout == null)
-				throw new Exception($"Type '{type.Name}' is a value-type but does not have a StructLayoutAttribute!");
+				throw new Exception($"Type '{type.FriendlyName(true)}' is a value-type but does not have a StructLayoutAttribute!");
 
 
 			size = 0;
@@ -215,11 +215,11 @@
 
 			if (layout.Size != 0)
 				if (layout.Size != size)
-					throw new Exception($"Computed size of '{type.Name}' did not match the StructLayout value");
+					throw new Exception($"Computed size of '{type.FriendlyName(true)}' did not match the StructLayout value");
 
 			var marshalSize = Marshal.SizeOf(type);
 			if (size != marshalSize)
-				throw new Exception($"Computed size of '{type.Name}' does not match marshal size");
+				throw new Exception($"Computed size of '{type.FriendlyName(true)}' does not match marshal size");
 
 			return true;
 		}
@@ -523,7 +523,7 @@
 			return type.IsAbstract && !type.IsSealed;
 		}
 
-		public static string FriendlyName(this Type type)
+		public static string FriendlyName(this Type type, bool fullName = false)
 		{
 			if (type == typeof(int))
 				return "int";
@@ -544,9 +544,14 @@
 			else if (type == typeof(string))
 				return "string";
 			else if (type.IsGenericType)
-				return type.Name.Split('`')[0] + "<" + string.Join(", ", type.GetGenericArguments().Select(FriendlyName).ToArray()) + ">";
+			{
+				var n = fullName ? type.FullName : type.Name;
+				return n.Split('`')[0] + "<" + string.Join(", ", type.GetGenericArguments().Select(t => t.FriendlyName(fullName)).ToArray()) + ">";
+			}
 			else
-				return type.Name;
+			{
+				return fullName ? type.FullName : type.Name;
+			}
 		}
 	}
 }

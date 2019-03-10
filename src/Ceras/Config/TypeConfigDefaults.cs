@@ -62,7 +62,7 @@ namespace Ceras
 			if (cerasCtors.Length > 1)
 			{
 				// Multiple matches
-				throw new InvalidConfigException($"There are multiple constructors on your type '{typeConfig.Type.Name}' that have the '[CerasConstructor]' attribute, so its unclear which one to use. Only one constructor in this type can have the attribute.");
+				throw new InvalidConfigException($"There are multiple constructors on your type '{typeConfig.Type.FriendlyName()}' that have the '[CerasConstructor]' attribute, so its unclear which one to use. Only one constructor in this type can have the attribute.");
 			}
 			else if (cerasCtors.Length == 1)
 			{
@@ -137,7 +137,7 @@ namespace Ceras
 			var hasNonSerialized = memberInfo.GetCustomAttribute<NonSerializedAttribute>(true) != null;
 			
 			if (hasInclude && (hasExclude || hasNonSerialized))
-				throw new Exception($"Member '{memberInfo.Name}' on type '{type.Name}' has both [Include] and [Exclude] (or [NonSerialized]) !");
+				throw new Exception($"Member '{memberInfo.Name}' on type '{type.FriendlyName()}' has both [Include] and [Exclude] (or [NonSerialized]) !");
 
 			if (hasExclude)
 				memberConfig.ExcludeWithReason("[Exclude] attribute");

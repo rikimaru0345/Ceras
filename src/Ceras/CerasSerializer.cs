@@ -261,7 +261,7 @@ namespace Ceras
 							foundDuplicates.Add(t);
 				}
 
-				var duplicateTypesStr = string.Join(", ", foundDuplicates.Select(t => t.Name));
+				var duplicateTypesStr = string.Join(", ", foundDuplicates.Select(t => t.FriendlyName()));
 
 				throw new Exception("KnownTypes can not contain any type multiple times! Your KnownTypes collection contains the following types more than once: " + duplicateTypesStr);
 			}
@@ -848,7 +848,7 @@ namespace Ceras
 
 					var anyExisting = directFormatter ?? requestedFormatter;
 
-					throw new InvalidOperationException($"The formatter '{formatter.GetType().FullName}' has a dependency on '{fieldType.GetType().FullName}' (via the field '{f.Name}') to format '{formattedType.FullName}', but this Ceras instance is already using '{anyExisting.GetType().FullName}' to handle this type.");
+					throw new InvalidOperationException($"The formatter '{formatter.GetType().FriendlyName(true)}' has a dependency on '{fieldType.GetType().FriendlyName()}' (via the field '{f.Name}') to format '{formattedType.FriendlyName(true)}', but this Ceras instance is already using '{anyExisting.GetType().FriendlyName(true)}' to handle this type.");
 				}
 			}
 

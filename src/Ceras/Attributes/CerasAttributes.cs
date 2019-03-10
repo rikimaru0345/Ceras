@@ -4,6 +4,7 @@
 namespace Ceras
 {
 	using Formatters;
+	using Helpers;
 
 
 	/// <summary>
@@ -155,7 +156,7 @@ namespace Ceras
 		static void CheckType(Type formatterType)
 		{
 			if (!typeof(IFormatter).IsAssignableFrom(formatterType))
-				throw new Exception($"The provided type {formatterType.Name} is not valid for 'PreviousFormatter', it needs to be a type that implements IFormatter<T>");
+				throw new Exception($"The provided type {formatterType.FriendlyName()} is not valid for 'PreviousFormatter', it needs to be a type that implements IFormatter<T>");
 		}
 	}
 

@@ -615,7 +615,7 @@
 			return TypeConfig.Config.Advanced.ReadonlyFieldHandling;
 		}
 
-		public override string ToString() => $"{TypeConfig.Type.Name}.{Member.Name} ({(ComputeFinalInclusionFast() ? "Included" : "Excluded")})";
+		public override string ToString() => $"{TypeConfig.Type.FriendlyName()}.{Member.Name} ({(ComputeFinalInclusionFast() ? "Included" : "Excluded")})";
 	}
 
 	public struct InclusionExclusionResult
