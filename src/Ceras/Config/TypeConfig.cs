@@ -158,7 +158,7 @@
 					return mc;
 			}
 
-			throw new InvalidOperationException("member not found");
+			throw new InvalidOperationException($"Cannot find member '{memberInfo.DeclaringType.FriendlyName()}.{memberInfo.Name}' in type '{Type.FriendlyName(true)}'");
 		}
 
 		/// <summary>

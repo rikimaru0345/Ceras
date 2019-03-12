@@ -2,7 +2,7 @@
 
   <!-- NuGet Package -->
   <PropertyGroup>
-    <Version>4.0.30</Version>
+    <Version>4.0.31</Version>
     <Authors>rikimaru0345</Authors>
     <Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
     <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
@@ -49,6 +49,7 @@
 
   <!--    -->
   <!-- References -->
+  <!-- ValueTuple, Buffers -->
   <!--    -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net45'">
     <PackageReference Include="System.ValueTuple" Version="4.5.0" />
@@ -58,13 +59,13 @@
   </ItemGroup>
 
 
+  <!--    -->
   <!-- Use T4 Generators -->
+  <!--    -->
   <ItemGroup>
     <!-- T4 compilation service -->
     <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
-  </ItemGroup>
 
-  <ItemGroup>
     <None Update="Formatters\TupleFormatter.tt">
       <Generator>TextTemplatingFileGenerator</Generator>
       <LastGenOutput>TupleFormatter.cs</LastGenOutput>

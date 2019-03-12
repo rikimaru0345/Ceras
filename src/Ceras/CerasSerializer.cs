@@ -961,12 +961,6 @@ namespace Ceras
 
 		internal Schema ReadSchema(byte[] buffer, ref int offset, Type type, bool isStatic)
 		{
-			// todo 1: Skipping
-			// We should add some sort of skipping mechanism later.
-			// We would write the schema-hash as well, and when reading it again we can check for the
-			// hash and see of we already have that schema (and skip reading it!)
-			// Or maybe we could at least find some way to make reading it cheaper (not instantiating a schema and lists and stuff that we won't use anyway)
-
 			var meta = GetTypeMetaData(type);
 
 			if (meta.IsPrimitive)
