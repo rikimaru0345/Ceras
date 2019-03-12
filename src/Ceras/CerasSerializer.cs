@@ -193,6 +193,9 @@ namespace Ceras
 
 			if (Config.Advanced.AotMode != AotMode.None && Config.VersionTolerance.Mode != VersionToleranceMode.Disabled)
 				throw new NotSupportedException("You can not use 'AotMode.Enabled' and version tolerance at the same time for now. If you would like this feature implemented, please open an issue on GitHub explaining your use-case, or join the Discord server.");
+			
+			if (Config.VersionTolerance.Mode == VersionToleranceMode.Extended)
+				throw new NotSupportedException($"Extended VersionTolerance mode has not yet been implemented. Please read the documentation by hovering over '{nameof(VersionToleranceMode)}.{nameof(VersionToleranceMode.Extended)}' or pressing F12 with the cursor on it.");
 
 			TypeBinder = Config.Advanced.TypeBinder;
 			DiscardObjectMethod = Config.Advanced.DiscardObjectMethod;
@@ -402,7 +405,6 @@ namespace Ceras
 			{
 				//
 				// Clear the root object again
-				//InstanceData.WrittenSchemata.Clear();
 				InstanceData.EncounteredSchemaTypes.Clear();
 				InstanceData.CurrentRoot = null;
 
@@ -555,6 +557,7 @@ namespace Ceras
 					InstanceData.TypeCache.ResetDeserializationCache();
 
 				InstanceData.ObjectCache.ClearDeserializationCache();
+				InstanceData.EncounteredSchemaTypes.Clear();
 			}
 			finally
 			{
@@ -1150,10 +1153,7 @@ namespace Ceras
 		public ObjectCache ObjectCache;
 
 		public IExternalRootObject CurrentRoot;
-
-		// Populated while writing so we know what schemata have actually been used.
-		// public HashSet<Schema> WrittenSchemata;
-
+		
 		// Why <Type> instead of <Schema> ? Becasue while reading we'll never encounter multiple different schemata for the same type.
 		// And while writing we'll only ever use the primary schema.
 		public HashSet<Type> EncounteredSchemaTypes;

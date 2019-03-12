@@ -162,7 +162,7 @@ namespace Ceras.Test
 				var target = targetArrays[arIndex];
 
 				SerializerBinary.FastCopy(source, 0, target, 0, size);
-				
+
 				Assert.True(size == source.Length);
 				Assert.True(size == target.Length);
 				for (int i = 0; i < size; i++)
@@ -189,7 +189,7 @@ namespace Ceras.Test
 
 			Assert.True(Equals(schema, clone));
 
-			
+
 			// Check if List<Schema>.IndexOf() works correctly
 			List<Schema> list = new List<Schema>();
 			list.Add(schema);
@@ -198,6 +198,65 @@ namespace Ceras.Test
 
 			Assert.True(index == 0);
 		}
+
+		[Fact]
+		void ShouldClearEncounteredSchemata()
+		{
+			var plugin = new Plugin();
+			var plugin2 = new Plugin();
+
+			var serializerConfig = new SerializerConfig();
+			serializerConfig.VersionTolerance.Mode = VersionToleranceMode.Standard;
+			var s = new CerasSerializer(serializerConfig);
+
+			for (int i = 0; i < 2; i++)
+			{
+				Assert.True(s.InstanceData.EncounteredSchemaTypes.Count == 0);
+				var data = s.Serialize(plugin);
+				Assert.True(s.InstanceData.EncounteredSchemaTypes.Count == 0);
+				var data2 = s.Serialize(plugin2);
+				Assert.True(s.InstanceData.EncounteredSchemaTypes.Count == 0);
+
+				for (int j = 0; j < 3; j++)
+				{
+					var p1 = s.Deserialize<Plugin>(data);
+					Assert.True(s.InstanceData.EncounteredSchemaTypes.Count == 0);
+					var p2 = s.Deserialize<Plugin>(data2);
+					Assert.True(s.InstanceData.EncounteredSchemaTypes.Count == 0);
+
+					Assert.True(p1?.PluginLocation?.PluginName != null);
+					Assert.True(p1.PluginLocation.PluginName == plugin.PluginLocation.PluginName);
+
+					Assert.True(p2?.PluginLocation?.PluginName != null);
+					Assert.True(p2.PluginLocation.PluginName == plugin2.PluginLocation.PluginName);
+				}
+			}
+		}
+
+
+		[Fact]
+		void ShouldThrowOnExtendedVersionTolerance()
+		{
+			Assert.ThrowsAny<NotSupportedException>(() =>
+			{
+				SerializerConfig s = new SerializerConfig();
+				s.VersionTolerance.Mode = VersionToleranceMode.Extended;
+				var c = new CerasSerializer(s);
+			});
+		}
+		
+		public class PluginLocation
+		{
+			static int _c = 5;
+
+			public string PluginName { get; set; } = (++_c).ToString();
+		}
+
+		public class Plugin
+		{
+			public PluginLocation PluginLocation { get; set; } = new PluginLocation();
+		}
+
 	}
 
 
