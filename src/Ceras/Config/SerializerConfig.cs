@@ -9,7 +9,18 @@
 
 	/// <summary>
 	/// Allows detailed configuration of the <see cref="CerasSerializer"/>. Advanced options can be found inside <see cref="Advanced"/>
-	/// <para>For performance reasons <see cref="CerasSerializer"/>, <see cref="SerializerConfig"/>, and <see cref="TypeConfig"/> are not thread-safe! You shouldn't share a single instance of a SerializerConfig either.</para>
+	///
+	/// <para>
+	/// Keep in mind that changes to the config will make previously serialized data incompatible.
+	/// Or in other words: when you serialize something with one specific 'SerializerConfig' and you then later change some settings, you won't be able to deserialize the data again.
+	/// The SerializerConfig must be configured with the exact same settings!
+	/// There are some exceptions where settings-changes won't cause any issues, but they are not exactly common and you shouldn't rely on them.
+	/// </para>
+	/// 
+	/// <para>
+	/// For performance reasons <see cref="CerasSerializer"/>, <see cref="SerializerConfig"/>, and <see cref="TypeConfig"/> are not thread-safe!
+	/// You shouldn't share a single instance of a SerializerConfig either
+	/// </para>
 	/// </summary>
 	public class SerializerConfig : IAdvancedConfigOptions, ISizeLimitsConfig, IVersionToleranceConfig
 	{

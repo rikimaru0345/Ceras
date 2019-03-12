@@ -2,20 +2,14 @@
 
 namespace Ceras
 {
-
 	/// <summary>
-	/// By default Ceras doesn't do any buffer pooling for you, because you need to be aware of some things (like not creating your own buffers, not keeping buffer references around after serialization, ...).
-	/// Ceras does however come with a default implementation that you can use (if you want to). To do so you can either just assign a new instance of 'CerasDefaultBufferPool' to the 'Pool' field, or create your own implementation.
-	/// </summary>
-	public static class CerasBufferPool
-	{
-		public static ICerasBufferPool Pool = null; // No pooling by default
-	}
-
-	/// <summary>
-	/// An object that Ceras uses to rent buffers from (and return it to).
-	/// Assign it to <see cref="CerasBufferPool.Pool"/>.
-	/// For performance reasons, there is always only one implementation for all Ceras instances; using some sort of thread-local storage inside your implementation is advised.
+	/// A pool that Ceras will to rent buffers from (and return it to), assign it to <see cref="CerasBufferPool.Pool"/>.
+	/// 
+	/// <para>If you are looking to get some more performance easily, then take a look at <see cref="CerasDefaultBufferPool"/> that Ceras comes with (only on platforms *newer* than NET45) for a very good default implementation!</para>
+	/// 
+	/// <para>Also take a look at the documentation on <see cref="CerasBufferPool"/> </para>
+	///
+	/// <para>Since <see cref="CerasBufferPool.Pool"/> is static, it is strongly advised to make the implementation thread-safe in some way.</para>
 	/// </summary>
 	public interface ICerasBufferPool
 	{
@@ -23,6 +17,18 @@ namespace Ceras
 		void Return(byte[] buffer);
 	}
 
+	/// <summary>
+	/// <para>
+	/// By default, Ceras does *not* use a buffer pool because the user might not be an experienced programmer and can't be expected to know that buffers from a pool must not be kept/stored.
+	/// </para>
+	/// Check out <see cref="CerasDefaultBufferPool"/> for a really good default implementation.
+	/// </summary>
+	public static class CerasBufferPool
+	{
+		public static ICerasBufferPool Pool = null; // No pooling by default, will fallback to 'NullPool'
+	}
+
+	// Default / Fallback pool that only allocates and lets the GC clean-up (assuming the user just throws the buffers they receive away)
 	sealed class NullPool : ICerasBufferPool
 	{
 		internal static readonly NullPool Instance = new NullPool();
@@ -41,9 +47,11 @@ namespace Ceras
 
 #if !NET45
 	/// <summary>
-	/// Uses <see cref="System.Buffers.ArrayPool{T}"/>
+	/// A simple implementation for <see cref="ICerasBufferPool"/> that you can use. This is a wrapper around <see cref="System.Buffers.ArrayPool{T}"/> which is a great implementation.
+	/// <para>Ceras comes with this pre-made pool because <see cref="System.Buffers.ArrayPool{T}"/> is very good pool to use that leaves pretty much nothing to be desired. Consider using this instead of going through the effort of creating your own <see cref="ICerasBufferPool"/> implementation.</para>
+	/// <para>Ceras does *not* use any sort of pool by default (<see cref="CerasBufferPool"/>.Pool is null be default!) since we can't assume that the user will definitely not re-use any buffers returned from Ceras' <c>Serialize</c> methods.</para>
 	/// </summary>
-	class CerasDefaultBufferPool : ICerasBufferPool
+	public class CerasDefaultBufferPool : ICerasBufferPool
 	{
 		public byte[] RentBuffer(int minimumSize)
 		{

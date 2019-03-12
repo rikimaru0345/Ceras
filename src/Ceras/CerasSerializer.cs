@@ -10,7 +10,6 @@ namespace Ceras
 	using Resolvers;
 	using System;
 	using System.Collections.Generic;
-	using System.Diagnostics;
 	using System.Linq;
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
@@ -30,7 +29,7 @@ namespace Ceras
 	 * - GenerateChecksum should be automatic when KnownTypes contains types and AutoSeal is active
 	 *
 	 */
-	
+
 	/// <summary>
 	/// <para>Ceras serializes any object to a byte-array and back.</para>
 	/// <para>Want more features? Or something not working right?</para>
@@ -48,17 +47,19 @@ namespace Ceras
 		/// </summary>
 		public static void AddFormatterConstructedType(Type type)
 		{
-			_formatterConstructedTypes.Add(type);
+			lock (_formatterConstructedTypes)
+				_formatterConstructedTypes.Add(type);
 		}
 
 		internal static bool IsFormatterConstructed(Type type)
 		{
 			// Array is also always constructed by the caller, but it is handled separately
 
-			if(type.IsAbstract)
+			if (type.IsAbstract)
 				return true;
 
-			return _formatterConstructedTypes.Contains(type);
+			lock (_formatterConstructedTypes)
+				return _formatterConstructedTypes.Contains(type);
 		}
 
 		internal static bool IsPrimitiveType(Type type)
@@ -193,7 +194,7 @@ namespace Ceras
 
 			if (Config.Advanced.AotMode != AotMode.None && Config.VersionTolerance.Mode != VersionToleranceMode.Disabled)
 				throw new NotSupportedException("You can not use 'AotMode.Enabled' and version tolerance at the same time for now. If you would like this feature implemented, please open an issue on GitHub explaining your use-case, or join the Discord server.");
-			
+
 			if (Config.VersionTolerance.Mode == VersionToleranceMode.Extended)
 				throw new NotSupportedException($"Extended VersionTolerance mode has not yet been implemented. Please read the documentation by hovering over '{nameof(VersionToleranceMode)}.{nameof(VersionToleranceMode.Extended)}' or pressing F12 with the cursor on it.");
 
@@ -337,33 +338,45 @@ namespace Ceras
 
 
 
-		/// <summary>!! Only use this method for testing !!
-		/// <para>This method is pretty inefficient because it has to allocate an array for you and later resize it!</para>
-		/// For much better performance use <see cref="Serialize{T}(T, ref byte[], int)"/> instead.
-		/// <para>Take a quick look at the first step of the tutorial (it's on GitHub) if you are not sure how.</para>
+		/// <summary>!! This method is slow, and only intended for testing!!
+		/// <para>In addition to just serializing the given object, this method also allocates a new buffer to fit the given data perfectly. That way there are no excess bytes at the end of the returned buffer. That obviously has a small performance impact though!</para>
+		/// <para>When you are done experimenting and want to get an immediate performance improvement, then take a look at the <see cref="Serialize{T}(T, ref byte[], int)"/> method instead</para>
+		/// <para>Ceras is not thread-safe</para>
 		/// </summary>
 		public byte[] Serialize<T>(T obj)
 		{
-			// Most of the time users write smaller objects when using this overload
-			byte[] result = new byte[0x1000];
+			// This method is often used for testing / smaller objects, so we allocate a small buffer
+			var pool = CerasBufferPool.Pool ?? NullPool.Instance;
+			byte[] buffer = pool.RentBuffer(0x1000);
 
-			int length = Serialize(obj, ref result);
+			int length = Serialize(obj, ref buffer);
 
-			Array.Resize(ref result, length);
+			// Return the result in a perfectly sized buffer
+			var result = new byte[length];
+			SerializerBinary.FastCopy(buffer, 0, result, 0, length);
+
+			// We created the temporary array, so now we need to free it again
+			pool.Return(buffer);
 
 			return result;
 		}
 
 		/// <summary>
-		/// Use this overload whenever you can. The intention is that you reuse the serialization buffer so the serializer only has to resize/reallocate a newer (larger) one if there really is not enough space; instead of allocating an array for every Serialize() call, this lets you avoid GC-pressure.
-		/// You *can* pass in null for 'targetByteArray' and let the serializer allocate one for you.
+		/// This is the main method you should use.
+		/// <para>The intention is that you reuse the serialization buffer instead of creating a new array for every Serialize() call, this lets you avoid GC-pressure.</para>
+		/// <para>You can pass in <c>null</c> for the buffer to let Ceras allocate a new one.</para>
+		/// <para>If you have set <see cref="CerasBufferPool.Pool"/>, it will be used to create/expand the buffer. Since the whole idea is to keep reusing the serialization buffer as much as possible, this method will *only* return the buffer to the pool when expanding it (so when it will rent a new larger buffer anyway).</para>
+		/// <para>Ceras is fully reentrant to support <see cref="IExternalRootObject"/>, but it is not thread-safe! </para>
 		/// </summary>
 		public int Serialize<T>(T obj, ref byte[] buffer, int offset = 0)
 		{
 			EnterRecursive(RecursionMode.Serialization);
 
 			if (buffer == null)
-				buffer = new byte[0x4000]; // 16k			
+			{
+				var pool = CerasBufferPool.Pool ?? NullPool.Instance;
+				buffer = pool.RentBuffer(0x4000); // 16k
+			}
 
 			try
 			{
@@ -427,7 +440,7 @@ namespace Ceras
 			}
 
 			var serialize = f.GetType().GetMethod("Serialize");
-			
+
 
 			var buffer = new byte[0x1000];
 			var args = new object[]
@@ -445,7 +458,7 @@ namespace Ceras
 
 			return buffer;
 		}
-		
+
 		void ICerasAdvanced.DeserializeStatic(Type type, byte[] buffer)
 		{
 			if (type.ContainsGenericParameters)
@@ -476,6 +489,7 @@ namespace Ceras
 		/// Convenience method that will most likely allocate a T to return (using 'new T()'). Unless the data says the object really is null, in that case no instance of T is allocated.
 		/// It would be smart to not use this method and instead use another overload. 
 		/// That way the deserializer will set/populate the object you've provided. Obviously this only works if you can overwrite/reuse objects like this! (which, depending on what you're doing, might not be possible at all)
+		/// <para>Ceras is not thread-safe</para>
 		/// </summary>
 		public T Deserialize<T>(byte[] buffer)
 		{
@@ -490,6 +504,7 @@ namespace Ceras
 		/// Deserializes an object from previously serialized data.
 		/// <para>You can put in anything for the <paramref name="value"/>, and if the object in the data matches, Ceras will populate your existing object (overwrite its fields, clear/refill the collections, ...)</para>
 		/// <para>Keep in mind that the config settings used for serialization must match exactly (should be obvious tho)</para>
+		/// <para>Ceras is not thread-safe</para>
 		/// </summary>
 		public void Deserialize<T>(ref T value, byte[] buffer)
 		{
@@ -503,6 +518,7 @@ namespace Ceras
 		/// <para>In this version you can put in the offset as well, telling Ceras where to start reading from inside the buffer.</para>
 		/// <para>After the method is done, the offset will be where Ceras has stopped reading.</para>
 		/// <para>If you pass in a value >0 for <paramref name="expectedReadLength"/> then Ceras will check how many bytes it has read (only rarely useful)</para>
+		/// <para>Ceras is fully reentrant to support <see cref="IExternalRootObject"/>, but it is not thread-safe! </para>
 		/// </summary>
 		public void Deserialize<T>(ref T value, byte[] buffer, ref int offset, int expectedReadLength = -1)
 		{
@@ -584,7 +600,7 @@ namespace Ceras
 
 		IFormatterResolver ICerasAdvanced.GetFormatterResolver<TResolver>()
 		{
-			return this.Advanced.GetFormatterResolvers().OfType<TResolver>().FirstOrDefault();
+			return Advanced.GetFormatterResolvers().OfType<TResolver>().FirstOrDefault();
 		}
 
 
@@ -744,7 +760,7 @@ namespace Ceras
 			return meta;
 		}
 
-		
+
 
 		void SetFormatters(Type type, IFormatter specific, IFormatter reference)
 		{
@@ -955,7 +971,7 @@ namespace Ceras
 
 			if (meta.IsPrimitive)
 				throw new InvalidOperationException("Cannot read a Schema for a primitive type! This must be either a serious bug, or the given data has been tampered with. Please report it on GitHub!");
-			
+
 			var typeConfig = Config.GetTypeConfig(type, isStatic);
 
 			//
@@ -1153,7 +1169,7 @@ namespace Ceras
 		public ObjectCache ObjectCache;
 
 		public IExternalRootObject CurrentRoot;
-		
+
 		// Why <Type> instead of <Schema> ? Becasue while reading we'll never encounter multiple different schemata for the same type.
 		// And while writing we'll only ever use the primary schema.
 		public HashSet<Type> EncounteredSchemaTypes;
