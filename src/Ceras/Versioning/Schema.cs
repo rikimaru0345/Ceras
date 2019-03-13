@@ -111,9 +111,13 @@
 		}
 
 
-		internal static MemberInfo FindMemberInType(Type type, string name)
+		internal static MemberInfo FindMemberInType(Type type, string name, bool isStatic)
 		{
-			foreach (var member in type.GetMembers(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+			var members = isStatic
+					? type.GetAllStaticDataMembers()
+					: type.GetAllDataMembers();
+
+			foreach (var member in members)
 			{
 				if (member is FieldInfo f)
 				{

@@ -233,7 +233,6 @@ namespace Ceras.Test
 			}
 		}
 
-
 		[Fact]
 		void ShouldThrowOnExtendedVersionTolerance()
 		{
@@ -244,11 +243,59 @@ namespace Ceras.Test
 				var c = new CerasSerializer(s);
 			});
 		}
-		
+
+		[Fact]
+		public void ReadSchemaCanFindAllMembers()
+		{
+			var sc = new SerializerConfig();
+			sc.DefaultTargets = TargetMember.AllFields;
+			sc.VersionTolerance.Mode = VersionToleranceMode.Standard;
+    
+			var ceras = new CerasSerializer(sc);
+			TestCls tc = new TestCls()
+			{
+				Field1 = "baseF" + Environment.TickCount,
+				PrivateText1 = "baseP" + Environment.TickCount,
+				Field2 = "derivedF" + Environment.TickCount,
+				PrivateText2 = "derivedP" + Environment.TickCount,
+			};
+			TestCls tcClone = ceras.Deserialize<TestCls>(ceras.Serialize(tc));
+			
+			Assert.True(tc.Field1 == tcClone.Field1);
+			Assert.True(tc.PrivateText1 == tcClone.PrivateText1);
+			Assert.True(tc.Field2 == tcClone.Field2);
+			Assert.True(tc.PrivateText2 == tcClone.PrivateText2);
+		}
+
+		public abstract class BaseCls
+		{
+			public string Field1;
+
+			string _privateText1;
+			public string PrivateText1
+			{
+				get => _privateText1;
+				set => _privateText1 = value;
+			}
+		}
+
+		public class TestCls : BaseCls
+		{
+			public string Field2;
+
+			string _privateText2;
+			public string PrivateText2
+			{
+				get => _privateText2;
+				set => _privateText2 = value;
+			}
+		}
+
+
+
 		public class PluginLocation
 		{
 			static int _c = 5;
-
 			public string PluginName { get; set; } = (++_c).ToString();
 		}
 
@@ -256,7 +303,6 @@ namespace Ceras.Test
 		{
 			public PluginLocation PluginLocation { get; set; } = new PluginLocation();
 		}
-
 	}
 
 

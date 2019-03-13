@@ -977,7 +977,7 @@ namespace Ceras
 			{
 				var name = SerializerBinary.ReadString(buffer, ref offset);
 
-				var member = Schema.FindMemberInType(type, name);
+				var member = Schema.FindMemberInType(type, name, isStatic);
 
 				if (member == null)
 				{
