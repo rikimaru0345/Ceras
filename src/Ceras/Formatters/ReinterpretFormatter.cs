@@ -130,7 +130,13 @@ namespace Ceras.Formatters
 			ReinterpretFormatter<T>.ThrowIfNotSupported();
 
 			_maxCount = maxCount;
-			_size = Marshal.SizeOf(default(T));
+
+			var type = typeof(T);
+
+			if (type.IsEnum)
+				type = type.GetEnumUnderlyingType();
+
+			_size = Marshal.SizeOf(type);
 		}
 
 		public unsafe void Serialize(ref byte[] buffer, ref int offset, T[] value)

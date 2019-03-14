@@ -317,7 +317,43 @@ namespace Ceras.Test
 
 
 
+		[Fact]
+		public void EnumArrays()
+		{
+			ConsoleKey[] keys =
+			{
+				ConsoleKey.A,
+				ConsoleKey.Enter,
+				ConsoleKey.LeftArrow,
+				ConsoleKey.Backspace,
+			};
 
+			TestDeepEquality(keys);
+
+			ByteEnum[] byteEnumAr =
+			{
+				ByteEnum.D,
+				ByteEnum.B,
+				ByteEnum.G,
+				ByteEnum.A,
+				ByteEnum.C,
+			};
+
+			TestDeepEquality(byteEnumAr);
+			
+			UInt64Enum[] longAr =
+			{
+				UInt64Enum.D,
+				UInt64Enum.E,
+				UInt64Enum.A,
+				UInt64Enum.B,
+				UInt64Enum.G,
+				UInt64Enum.C,
+				UInt64Enum.G,
+			};
+
+			TestDeepEquality(longAr);
+		}
 
 		
 		static void AssertDateTimeEqual(DateTime t1, DateTime t2)
@@ -335,6 +371,16 @@ namespace Ceras.Test
 						t1.Millisecond == t2.Millisecond);
 		}
 
+	}
+	
+	enum ByteEnum : byte
+	{
+		A, B, C, D, E, F, G
+	}
+
+	enum UInt64Enum : ulong
+	{
+		A, B, C, D, E, F, G
 	}
 
 	class Container
