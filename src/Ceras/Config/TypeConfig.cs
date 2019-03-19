@@ -9,6 +9,8 @@
 	using System.Linq.Expressions;
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
+	using System.Runtime.Serialization;
+	using IFormatter = Formatters.IFormatter;
 
 
 	// Serialization Constructors:
@@ -167,6 +169,41 @@
 		public IEnumerable<MemberConfig> UnsafeGetAllMembersIncludingCompilerGenerated()
 		{
 			return _allMembers;
+		}
+
+
+		/// <summary>
+		/// This will include/exclude all members according to the same rules 'DataContractSerializer' would use.
+		/// If the type has the <see cref="System.Runtime.Serialization.DataContractAttribute"/>, then the method succeeds and will include all members that have the <see cref="System.Runtime.Serialization.DataMemberAttribute"/> (doesn't matter if public or non-public).
+		/// If the type does not have the DataContractAttribute the method fails and does nothing.
+		/// If the <paramref name="force"/> parameter is true, the check for <see cref="System.Runtime.Serialization.DataContractAttribute"/> is skipped.
+		/// </summary>
+		public bool TryConfigureLikeDataContractSerializer(bool force = false)
+		{
+			var dataContract = Type.GetCustomAttribute<DataContractAttribute>();
+			if (dataContract == null && !force)
+				return false;
+
+			foreach (var member in Members)
+			{
+				var ignore = member.Member.GetCustomAttribute<IgnoreDataMemberAttribute>(true);
+				if (ignore != null)
+				{
+					member.ExcludeWithReason("User has called 'TryConfigureLikeDataContractSerializer', and the member has the [IgnoreDataMember] attribute.");
+					continue;
+				}
+
+				var dataMember = member.Member.GetCustomAttribute<DataMemberAttribute>(true);
+				if (dataMember != null)
+				{
+					if (!string.IsNullOrWhiteSpace(dataMember.Name))
+						member.PersistentName = dataMember.Name;
+
+					member.SetIncludeWithReason(SerializationOverride.ForceInclude, "User has called 'TryConfigureLikeDataContractSerializer', and the member has the [DataMember] attribute.");
+				}
+			}
+
+			return true;
 		}
 
 
