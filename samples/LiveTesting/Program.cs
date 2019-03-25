@@ -8,16 +8,12 @@ namespace LiveTesting
 	using Ceras.Resolvers;
 	using System.Collections.Generic;
 	using System.Diagnostics;
-	using System.Drawing;
-	using System.IO;
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
-	using Ceras.Test;
 	using Tutorial;
 	using Xunit;
 	using Encoding = System.Text.Encoding;
-	using K4os.Compression.LZ4;
 
 	class Program
 	{
@@ -26,6 +22,16 @@ namespace LiveTesting
 		static void Main(string[] args)
 		{
 			// Benchmarks();
+
+			List<long[]> list = new List<long[]>();
+			list.Add(new long[] { 5, 6, 7 });
+			list.Add(new long[] { 0, 3, 0 });
+			list.Add(new long[] { 2463267246, 893151729353, 1138288888 });
+
+			var ceras = new CerasSerializer();
+			var data = ceras.Serialize(list);
+			var clone = ceras.Deserialize<List<long[]>>(data);
+
 
 			CustomComparerFormatter();
 

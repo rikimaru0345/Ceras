@@ -141,13 +141,14 @@ namespace Ceras.Formatters
 
 		public unsafe void Serialize(ref byte[] buffer, ref int offset, T[] value)
 		{
+			int count = value.Length;
+
 			// Ensure capacity
 			int size = _size;
-			int neededSize = size + 5;
+			int neededSize = (count * size) + 5;
 			SerializerBinary.EnsureCapacity(ref buffer, offset, neededSize);
 
 			// Count
-			int count = value.Length;
 			SerializerBinary.WriteUInt32NoCheck(buffer, ref offset, (uint)count);
 
 			int bytes = count * size;
@@ -164,7 +165,7 @@ namespace Ceras.Formatters
 			}
 #else
 			fixed (T* p = &value[0])
-				Marshal.Copy(new IntPtr(p), buffer, offset, count);
+				Marshal.Copy(new IntPtr(p), buffer, offset, bytes);
 #endif
 
 			offset += bytes;
