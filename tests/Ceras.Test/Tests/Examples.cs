@@ -53,6 +53,31 @@ namespace Ceras.Test
 			Assert.True(clone.Objects[0].Name == "abc");
 
 		}
+
+		[Fact]
+		void CallMethodAfterDeserialize()
+		{
+			List<MyMethodCallTest> list = new List<MyMethodCallTest>();
+			list.Add(new MyMethodCallTest());
+			list.Add(new MyMethodCallTest());
+			list.Add(new MyMethodCallTest());
+
+			foreach (var obj in list)
+				obj.ComputeZ();
+
+			var clone = Clone(list);
+
+			for (var i = 0; i < list.Count; i++)
+			{
+				var obj1 = list[i];
+				var obj2 = clone[i];
+				
+				Assert.True(obj1.x == obj2.x);
+				Assert.True(obj1.y == obj2.y);
+				Assert.True(obj1.z == obj2.z);
+			}
+		}
+
 	}
 
 	class NormalClass
@@ -75,6 +100,38 @@ namespace Ceras.Test
 		{
 			set => _secretData = value;
 			get => throw new InvalidOperationException("this whole type should never be serialized!");
+		}
+	}
+
+	class MyMethodCallTest
+	{
+		public int x;
+		public int y;
+
+		[Exclude]
+		public int z;
+
+		public MyMethodCallTest()
+		{
+			var rng = new Random();
+			x = rng.Next(1, 100);
+			y = rng.Next(1, 100);
+		}
+
+		public void ComputeZ()
+		{
+			z = x + y;
+		}
+
+		[OnAfterDeserialize]
+		void OnAfterDeserialize() // method doesn't have to be named like that, it can have any name, the attribute is enough.
+		{
+			Assert.True(x != 0);
+			Assert.True(y != 0);
+
+			Assert.True(z == 0);
+			ComputeZ();
+			Assert.True(z != 0);
 		}
 	}
 }

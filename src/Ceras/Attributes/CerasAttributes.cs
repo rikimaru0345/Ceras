@@ -183,6 +183,16 @@ namespace Ceras
 	public class CerasConstructorAttribute : Attribute
 	{
 	}
+
+
+	/// <summary>
+	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// </summary>
+	public class OnAfterDeserializeAttribute : Attribute
+	{
+	}
+
+
 }
 
 namespace Ceras.Formatters

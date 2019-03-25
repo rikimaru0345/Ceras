@@ -79,9 +79,9 @@ namespace Ceras.Formatters
 			if (isStatic)
 				valueArg = null;
 
-
 			var body = new List<Expression>();
 			var locals = new List<ParameterExpression>();
+
 
 			ParameterExpression startPos = null, size = null;
 			if (isSchemaFormatter)
@@ -156,9 +156,8 @@ namespace Ceras.Formatters
 					body.Add(Assign(refOffsetArg, Add(Add(startPos, size), Constant(FieldSizePrefixBytes))));
 				}
 			}
-
+			
 			var serializeBlock = Block(variables: locals, expressions: body);
-
 
 			if (isStatic)
 				valueArg = Parameter(typeof(T), "value");
@@ -308,7 +307,8 @@ namespace Ceras.Formatters
 
 			var body = new List<Expression>();
 			var locals = new List<ParameterExpression>(schema.Members.Count);
-
+			
+			var onAfterDeserialize = GetOnAfterDeserialize(schema.Type);
 
 			ParameterExpression blockSize = null, offsetStart = null;
 			if (isSchemaFormatter)
@@ -461,6 +461,11 @@ namespace Ceras.Formatters
 				}
 			}
 
+			
+			// Call "OnAfterDeserialize"
+			if (onAfterDeserialize != null)
+				body.Add(Call(refValueArg, onAfterDeserialize));
+
 
 			var bodyBlock = Block(variables: locals, expressions: body);
 
@@ -469,6 +474,24 @@ namespace Ceras.Formatters
 				refValueArg = Parameter(typeof(T).MakeByRefType(), "value");
 
 			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, refOffsetArg, refValueArg);
+		}
+
+
+		static MethodInfo GetOnAfterDeserialize(Type type)
+		{
+			var allMethods = type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+			foreach (var m in allMethods)
+			{
+				if (m.ReturnType == typeof(void)
+					&& m.GetParameters().Length == 0
+					&& m.GetCustomAttribute<OnAfterDeserializeAttribute>() != null)
+				{
+					return m;
+				}
+			}
+
+			return null;
 		}
 
 		static IEnumerable<SchemaMember> OrderMembersForWriteBack(List<SchemaMember> members)
