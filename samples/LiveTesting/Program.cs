@@ -22,7 +22,7 @@ namespace LiveTesting
 		static void Main(string[] args)
 		{
 			// Benchmarks();
-
+			/*
 			List<long[]> list = new List<long[]>();
 			list.Add(new long[] { 5, 6, 7 });
 			list.Add(new long[] { 0, 3, 0 });
@@ -31,7 +31,7 @@ namespace LiveTesting
 			var ceras = new CerasSerializer();
 			var data = ceras.Serialize(list);
 			var clone = ceras.Deserialize<List<long[]>>(data);
-
+			*/
 
 			CustomComparerFormatter();
 
