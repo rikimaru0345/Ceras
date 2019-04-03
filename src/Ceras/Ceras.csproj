@@ -2,7 +2,7 @@
 
   <!-- NuGet Package -->
   <PropertyGroup>
-    <Version>4.0.35</Version>
+    <Version>4.0.36</Version>
     <Authors>rikimaru0345</Authors>
     <Copyright>https://github.com/rikimaru0345/Ceras/blob/master/LICENSE</Copyright>
     <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
