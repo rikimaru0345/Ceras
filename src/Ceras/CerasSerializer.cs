@@ -353,7 +353,9 @@ namespace Ceras
 
 			// Return the result in a perfectly sized buffer
 			var result = new byte[length];
-			SerializerBinary.FastCopy(buffer, 0, result, 0, length);
+
+			if(length > 0) // FastCopy must not handle 0
+				SerializerBinary.FastCopy(buffer, 0, result, 0, length);
 
 			// We created the temporary array, so now we need to free it again
 			pool.Return(buffer);

@@ -190,7 +190,6 @@ namespace Ceras
 					typeConfig.TypeConstruction = ConstructNull.Instance;
 
 				typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
-				typeConfig.TargetMembers = TargetMember.AllFields;
 				return;
 			}
 
