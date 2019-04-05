@@ -10,6 +10,8 @@
 
 	static class ReflectionHelper
 	{
+		static readonly Dictionary<Type, int> _typeToBlittableSize = new Dictionary<Type, int>();
+
 		public static Type FindClosedType(Type type, Type openGeneric)
 		{
 			if (openGeneric.IsInterface)
@@ -270,11 +272,37 @@
 					return false;
 			}
 
-			//var computedSizeSuccess = ComputeExpectedSize(type, out int expectedSize);
-			var marshalSize = Marshal.SizeOf(type);
-
 			return true;
 		}
+
+		public static int GetSize(Type type)
+		{
+			if (!IsBlittableType(type))
+				return -1;
+
+
+			lock (_typeToBlittableSize)
+			{
+				if(_typeToBlittableSize.TryGetValue(type, out int size))
+					return size;
+				
+				//var computedSizeSuccess = ComputeExpectedSize(type, out int expectedSize);
+
+				if (!type.IsGenericType)
+				{
+					size = Marshal.SizeOf(type);
+				}
+				else
+				{
+					var inst = Activator.CreateInstance(type);
+					size = Marshal.SizeOf(inst);
+				}
+
+				_typeToBlittableSize.Add(type, size);
+				return size;
+			}
+		}
+
 
 		public static Type FieldOrPropType(this MemberInfo memberInfo)
 		{

@@ -112,7 +112,7 @@ namespace Ceras.Test
 				new Vector3(float.Epsilon, rngFloat, float.NegativeInfinity),
 				new Vector3(-5, float.MaxValue, rngFloat),
 			});
-			
+
 			TestDeepEquality(new[]
 			{
 				ValueTuple.Create((byte)150, 5f, 3.0, "a"),
@@ -132,9 +132,9 @@ namespace Ceras.Test
 		public void ObjectArrays()
 		{
 			TestDeepEquality(new[] { new object(), new object(), new object() });
-			
+
 			TestDeepEquality(new[] { "asdfg", "asdfg", "asdfg", "", "", "1", "2", "3", ",.-üä#ß351293ß6!§`?=&=$&" });
-			
+
 			TestDeepEquality(new[] { (object)DateTime.Now, (object)DateTime.Now, (object)DateTime.Now, (object)DateTime.Now, });
 
 			TestDeepEquality(new[]
@@ -277,6 +277,22 @@ namespace Ceras.Test
 
 			var link = new LinkedList<string>(new[] { "abc", "123", "xyz", "!!!" });
 			TestDeepEquality(link);
+
+
+			TestDeepEquality(new Dictionary<int, int> { [1] = 1 });
+			TestDeepEquality(new Dictionary<string, int> { ["abc"] = 1 });
+			TestDeepEquality(new Dictionary<int, string> { [1] = "a" });
+			TestDeepEquality(new Dictionary<string, string> { ["abc"] = "abc" });
+
+			TestDeepEquality(new Dictionary<KeyValuePair<int, int>, KeyValuePair<int, int>> { [new KeyValuePair<int, int>(2, 3)] = new KeyValuePair<int, int>(5, 3) });
+
+			TestDeepEquality(new byte[] { 1, 2, 3 });
+			TestDeepEquality(new[] { 1, 2, 3 });
+			TestDeepEquality(new[] { "a", "b", "c" });
+
+			TestDeepEquality(new[] { new KeyValuePair<int, int>(1, 2) });
+			TestDeepEquality(new[] { new KeyValuePair<string, int>("a", 2) });
+			TestDeepEquality(new[] { new KeyValuePair<string, string>("a", "b") });
 		}
 
 
@@ -340,7 +356,7 @@ namespace Ceras.Test
 			};
 
 			TestDeepEquality(byteEnumAr);
-			
+
 			UInt64Enum[] longAr =
 			{
 				UInt64Enum.D,
@@ -355,7 +371,7 @@ namespace Ceras.Test
 			TestDeepEquality(longAr);
 		}
 
-		
+
 		static void AssertDateTimeEqual(DateTime t1, DateTime t2)
 		{
 			Assert.True(t1.Kind == t2.Kind);
@@ -372,7 +388,7 @@ namespace Ceras.Test
 		}
 
 	}
-	
+
 	enum ByteEnum : byte
 	{
 		A, B, C, D, E, F, G

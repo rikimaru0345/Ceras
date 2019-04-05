@@ -6,6 +6,7 @@ namespace Ceras.Formatters
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
 	using System.Runtime.InteropServices;
+	using Helpers;
 
 	/// <summary>
 	/// Extremely fast formatter that can be used with all unmanaged types. For example DateTime, int, Vector3, Point, ...
@@ -28,7 +29,9 @@ namespace Ceras.Formatters
 			if (type.IsEnum)
 				type = type.GetEnumUnderlyingType();
 
-			_size = Marshal.SizeOf(type);
+			_size = ReflectionHelper.GetSize(type);
+			if (_size < 0)
+				throw new InvalidOperationException("Type is not blittable");
 		}
 
 		public ReinterpretFormatter()
@@ -118,8 +121,20 @@ namespace Ceras.Formatters
 	/// </summary>
 	public sealed class ReinterpretArrayFormatter<T> : IFormatter<T[]> where T : unmanaged
 	{
+		static readonly int _size;
 		readonly uint _maxCount;
-		readonly int _size;
+
+		static ReinterpretArrayFormatter()
+		{
+			var type = typeof(T);
+
+			if (type.IsEnum)
+				type = type.GetEnumUnderlyingType();
+
+			_size = ReflectionHelper.GetSize(type);
+			if (_size < 0)
+				throw new InvalidOperationException("Type is not blittable");
+		}
 
 		public ReinterpretArrayFormatter() : this(uint.MaxValue)
 		{
@@ -128,15 +143,7 @@ namespace Ceras.Formatters
 		public ReinterpretArrayFormatter(uint maxCount)
 		{
 			ReinterpretFormatter<T>.ThrowIfNotSupported();
-
 			_maxCount = maxCount;
-
-			var type = typeof(T);
-
-			if (type.IsEnum)
-				type = type.GetEnumUnderlyingType();
-
-			_size = Marshal.SizeOf(type);
 		}
 
 		public unsafe void Serialize(ref byte[] buffer, ref int offset, T[] value)
