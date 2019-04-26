@@ -3,6 +3,7 @@
 
 namespace Ceras
 {
+	using System.Runtime.Serialization;
 	using Formatters;
 	using Helpers;
 
@@ -107,29 +108,21 @@ namespace Ceras
 	}
 
 	/// <summary>
-	/// Add this to a member if you have changed the type and you're using the VersionTolerance feature.
-	/// Ceras will use this to map old field names to the new one.
-	/// You can also use this to simply override what name is used to serialize the member, so as long as the attribute is around and does not change you can freely rename the member itself; this can be used to make the resulting serialized data smaller.
+	/// When using the 'VersionTolerance' feature you might sometimes rename a member.
+	/// In order to be able to still deserialize data created in the old format Ceras needs to know what member an old name should be mapped to.
+	/// Add this attribute to your renamed member to specify any old names this member had previously.
+	/// <para>
+	/// If you want to override the member-name that gets written during serialization, use <see cref="DataMemberAttribute"/>
+	/// </para>
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-	public class PreviousNameAttribute : Attribute
+	public class AlternativeNameAttribute : Attribute
 	{
-		public readonly string[] AlternativeNames = new string[0];
-		public readonly string Name;
+		public readonly string[] Names;
 
-		public PreviousNameAttribute()
+		public AlternativeNameAttribute(params string[] names)
 		{
-		}
-
-		public PreviousNameAttribute(string name)
-		{
-			Name = name;
-		}
-
-		public PreviousNameAttribute(string name, params string[] alternativeNames)
-		{
-			Name = name;
-			AlternativeNames = alternativeNames;
+			Names = names;
 		}
 	}
 
@@ -138,42 +131,6 @@ namespace Ceras
 	// at the moment the problem is that we never know in what format the data was written; we'd have to embed the data type (ewww! that would make the binary huge!), or add a version number that the user provides
 	// so we always know in what format we can expect the data. version number would be simply added to the binary data. 
 
-	class PreviousFormatter : PreviousNameAttribute
-	{
-		public Type FormatterType { get; } // formatter that can read this old version
-
-		public PreviousFormatter(Type formatterType) : base(null)
-		{
-			CheckType(formatterType);
-			FormatterType = formatterType;
-		}
-		public PreviousFormatter(string previousName, Type formatterType) : base(previousName)
-		{
-			CheckType(formatterType);
-			FormatterType = formatterType;
-		}
-
-		static void CheckType(Type formatterType)
-		{
-			if (!typeof(IFormatter).IsAssignableFrom(formatterType))
-				throw new Exception($"The provided type {formatterType.FriendlyName()} is not valid for 'PreviousFormatter', it needs to be a type that implements IFormatter<T>");
-		}
-	}
-
-	class PreviousType : PreviousNameAttribute
-	{
-		public Type MemberType { get; } // the old type of the field/property
-
-		public PreviousType(Type memberType) : base(null)
-		{
-			MemberType = memberType;
-		}
-
-		public PreviousType(string previousName, Type memberType) : base(previousName)
-		{
-			MemberType = memberType;
-		}
-	}
 
 
 	/// <summary>

@@ -11,6 +11,7 @@ namespace LiveTesting
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using System.Runtime.Serialization;
 	using Tutorial;
 	using Xunit;
 	using Encoding = System.Text.Encoding;
@@ -1339,7 +1340,7 @@ namespace LiveTesting
 		// B got removed
 		// --
 
-		[PreviousName("C", "C2")]
+		[AlternativeName("C", "C2")]
 		public int C2 = 52;
 
 		// D is new

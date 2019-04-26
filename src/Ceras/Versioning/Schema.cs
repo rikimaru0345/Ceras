@@ -6,6 +6,7 @@
 	using System.Linq;
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
+	using System.Runtime.Serialization;
 
 	/*
 	 * A schema just contains the
@@ -134,21 +135,20 @@
 			return null;
 		}
 
+		// Check if this member matches the given name we're looking for
 		static bool IsMatch(MemberInfo member, string name)
 		{
-			if (member.Name == name)
+			// 1. Direct match?
+			string memberName = member.GetCustomAttribute<DataMemberAttribute>()?.Name ?? member.Name;
+			
+			if(memberName == name)
 				return true;
 
-			var attrib = member.GetCustomAttribute<PreviousNameAttribute>();
-			if (attrib != null)
-			{
-				if (attrib.Name == name)
-					return true;
-
-				if (attrib.AlternativeNames.Any(n => n == name))
-					return true;
-			}
-
+			// 2. Alternative names
+			var alt = member.GetCustomAttribute<AlternativeNameAttribute>();
+			if (alt != null && alt.Names.Any(n => n == name))
+				return true;
+			
 			return false;
 		}
 	}

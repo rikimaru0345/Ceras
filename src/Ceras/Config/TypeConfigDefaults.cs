@@ -4,13 +4,13 @@ using System.Linq;
 namespace Ceras
 {
 	using Exceptions;
+	using Helpers;
+	using Resolvers;
 	using System.Collections.Generic;
 	using System.Collections.ObjectModel;
 	using System.Linq.Expressions;
 	using System.Reflection;
 	using System.Runtime.Serialization;
-	using Helpers;
-	using Resolvers;
 	using IFormatter = Formatters.IFormatter;
 
 	static class TypeConfigDefaults
@@ -44,7 +44,7 @@ namespace Ceras
 				return;
 
 
-			if(typeConfig.TypeConstruction == null)
+			if (typeConfig.TypeConstruction == null)
 				if (CerasSerializer.IsFormatterConstructed(typeConfig.Type) || (typeConfig.Type.IsStatic()))
 				{
 					typeConfig.TypeConstruction = TypeConstruction.Null();
@@ -74,7 +74,7 @@ namespace Ceras
 				// No match, try default ctor
 				ctor = type.GetConstructors(BindingFlagsCtor).FirstOrDefault(c => c.GetParameters().Length == 0);
 			}
-			
+
 			// Apply this ctor or factory
 			if (ctor != null)
 			{
@@ -97,10 +97,20 @@ namespace Ceras
 
 			var memberInfo = memberConfig.Member;
 
-			// Apply WriteBackOrder
+			// Apply [DataMember]
+			// Name -> PersistentName
+			// Order -> WriteBackOrder
 			var dataMemberAttribute = memberInfo.GetCustomAttribute<DataMemberAttribute>();
 			if (dataMemberAttribute != null)
 			{
+				if (dataMemberAttribute.Name != null)
+				{
+					if (string.IsNullOrWhiteSpace(dataMemberAttribute.Name))
+						throw new InvalidConfigException($"Member '{memberInfo.Name}' has a [DataMember] attribute with 'Name' set to empty/whitespace. Don't specify the name (or pass null) instead of providing an empty string!");
+
+					memberConfig.PersistentName = dataMemberAttribute.Name;
+				}
+
 				memberConfig.WriteBackOrder = dataMemberAttribute.Order;
 			}
 
@@ -113,11 +123,14 @@ namespace Ceras
 					return;
 				}
 
+
+			// ReadonlyFieldHandling
+			// IsComputedProperty
 			if (memberInfo is FieldInfo f)
 			{
 				var readOnlyConfig = f.GetCustomAttribute<ReadonlyConfigAttribute>(true);
-				if(readOnlyConfig != null)
-				memberConfig.ReadonlyFieldHandling = readOnlyConfig.ReadonlyFieldHandling;
+				if (readOnlyConfig != null)
+					memberConfig.ReadonlyFieldHandling = readOnlyConfig.ReadonlyFieldHandling;
 			}
 			else if (memberInfo is PropertyInfo p)
 			{
@@ -134,31 +147,22 @@ namespace Ceras
 			// [Include] / [Exclude] / [NonSerialized]
 			var hasExclude = memberInfo.GetCustomAttribute<ExcludeAttribute>(true) != null;
 			var hasInclude = memberInfo.GetCustomAttribute<IncludeAttribute>(true) != null;
-			var hasNonSerialized = memberInfo.GetCustomAttribute<NonSerializedAttribute>(true) != null;
-			
+			var hasNonSerialized = memberInfo.GetCustomAttribute<NonSerializedAttribute>(true) != null || memberInfo.GetCustomAttribute<IgnoreDataMemberAttribute>(true) != null;
+
 			if (hasInclude && (hasExclude || hasNonSerialized))
 				throw new Exception($"Member '{memberInfo.Name}' on type '{type.FriendlyName()}' has both [Include] and [Exclude] (or [NonSerialized]) !");
 
 			if (hasExclude)
 				memberConfig.ExcludeWithReason("[Exclude] attribute");
-			
-			if(hasNonSerialized)
+
+			if (hasNonSerialized)
 				memberConfig.HasNonSerialized = true;
 
 			if (hasInclude)
 				memberConfig.SetIncludeWithReason(SerializationOverride.ForceInclude, "[Include] attribute on member");
-
-			// Success: persistent name (from attribute or normal member name)
-			var prevName = memberInfo.GetCustomAttribute<PreviousNameAttribute>();
-			if (prevName != null)
-			{
-				memberConfig.PersistentName = prevName.Name;
-				//VerifyName(attrib.Name);
-				//foreach (var n in attrib.AlternativeNames)
-				//	VerifyName(n);
-			}
 		}
 
+		// Check if property is readonly
 		static bool ShouldSkipProperty(MemberConfig m)
 		{
 			var p = (PropertyInfo)m.Member;
@@ -178,7 +182,9 @@ namespace Ceras
 		}
 
 
-		// Built-in support for some specific types
+		// Built-in support for some specific types:
+		// - ReadOnlyCollection, TrueReadOnlyCollection
+		// - System.Linq.Expression
 		internal static void ApplySpecializedDefaults(TypeConfig typeConfig)
 		{
 			var type = typeConfig.Type;
@@ -186,7 +192,7 @@ namespace Ceras
 			// All structs
 			if (!type.IsPrimitive && type.IsValueType)
 			{
-				if(typeConfig.TypeConstruction == null)
+				if (typeConfig.TypeConstruction == null)
 					typeConfig.TypeConstruction = ConstructNull.Instance;
 
 				typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;

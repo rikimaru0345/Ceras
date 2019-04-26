@@ -701,6 +701,4 @@
 			return TypeConfig;
 		}
 	}
-
-	public struct TUnknown { }
 }
