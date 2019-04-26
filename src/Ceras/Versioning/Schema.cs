@@ -151,6 +151,7 @@
 			
 			return false;
 		}
+
 	}
 
 	class SchemaMember
@@ -201,52 +202,6 @@
 				str = "[SKIP] " + str;
 
 			return str;
-		}
-	}
-
-	class SchemaComplex
-	{
-		readonly List<Schema> _schemata;
-		readonly int _hash;
-
-		public SchemaComplex(List<Schema> schemata)
-		{
-			_schemata = schemata;
-			_hash = CalculateHash();
-		}
-
-		int CalculateHash()
-		{
-			int hash = 17;
-
-			for (int i = 0; i < _schemata.Count; i++)
-				hash = hash * 31 + _schemata[i].GetHashCode();
-
-			return hash;
-		}
-
-		public override int GetHashCode()
-		{
-			return _hash;
-		}
-
-		public override bool Equals(object obj)
-		{
-			var other = obj as SchemaComplex;
-			if (other == null)
-				return false;
-
-			if (_hash != other._hash)
-				return false;
-
-			if (_schemata.Count != other._schemata.Count)
-				return false;
-
-			for (int i = 0; i < _schemata.Count; i++)
-				if (!_schemata[i].Equals(other._schemata[i]))
-					return false;
-
-			return true;
 		}
 	}
 }
