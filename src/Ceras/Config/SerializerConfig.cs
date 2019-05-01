@@ -467,7 +467,7 @@
 		/// </para>
 		///
 		/// <para>
-		/// In order to find and map members again after their name has changed, you need to place the [PreviousName].
+		/// In order to find and map members again after their name has changed, you need to place the [AlternativeName] attribute.
 		/// </para>
 		///
 		/// <para>

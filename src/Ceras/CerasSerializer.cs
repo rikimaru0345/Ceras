@@ -295,7 +295,7 @@ namespace Ceras
 							foreach (var m in meta.PrimarySchema.Members)
 							{
 								ProtocolChecksum.Add(m.MemberType.FullName);
-								ProtocolChecksum.Add(m.MemberName);
+								ProtocolChecksum.Add(m.PersistentName);
 
 								foreach (var a in m.MemberInfo.GetCustomAttributes(true))
 									ProtocolChecksum.Add(a.ToString());

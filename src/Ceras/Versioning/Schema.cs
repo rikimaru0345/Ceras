@@ -156,7 +156,9 @@
 
 	class SchemaMember
 	{
-		public string PersistentName { get; } // If set, this gets written as type name
+		// Always set, this is the name that should be used to identify the member
+		public string PersistentName { get; }
+
 		public MemberInfo Member { get; }
 		public int WriteBackOrder { get; } // when to write the data back to the target (uses [DataMember.Order])
 
