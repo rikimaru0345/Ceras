@@ -6,12 +6,10 @@
 	using System.Reflection;
 	using Helpers;
 
-	// todo: at the moment we refer to the item formatter through an interface field. Would we get a performance improvement if we'd compile a dedicated formatter that has the itemFormatter built-in as a constant instead? (just like the DynamicFormatter already does)? Would we save performance if we'd cache the itemFormatter into a local variable before entering the loops?
+	// todo: Can we optimize the call to IFormater<TItem> ? We cache it into a local already, but but can we do better?
 
-	// Idea from a user: at the moment we obtain a generic formatter for the item and then write the entries one after another. But would it be possible somehow (if the type is sealed or value-type) to write the type only once at the start, establishing something like "now X objects of this exact type Y will follow".
-	// -> No! We'd still need a reference formatter to ensure references are maintained. And at that point we have saved absolutely nothing because that check already encodes type IF its needed!
-	// Which means that we'd not even save a single byte, because there are no bytes to save. We already do not waste any bytes on encoding "yup same type" because that information is packed into the reference-formatters "serialization mode id". We'd have to either write the ID of an existing object or use one byte for "new object" anyway. And the thing is: This unavoidable byte is already used to also encode that...
-
+	// Simple formatter for Arrays.
+	// Writes elements one by one, not very fast, but ReinterpretArrayFormatter gets used whenever possible.
 	public sealed class ArrayFormatter<TItem> : IFormatter<TItem[]>
 	{
 		readonly IFormatter<TItem> _itemFormatter;
@@ -63,6 +61,8 @@
 	}
 
 
+	// ICollection
+	// -> Takes advantage of capacity-constructors
 	public class CollectionFormatter<TCollection, TItem> : IFormatter<TCollection>
 		where TCollection : ICollection<TItem>
 	{
@@ -82,8 +82,10 @@
 				ConstructorInfo ctor = null;
 
 				if (collectionType.GetGenericTypeDefinition() == typeof(List<>))
+					// Special case: List<>
 					ctor = collectionType.GetConstructor(new Type[] { typeof(int) });
 				else if (collectionType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+					// Special case: Dictionary<,>
 					ctor = collectionType.GetConstructor(new Type[] { typeof(int) });
 
 				if (ctor != null && serializer.Config.Advanced.AotMode == AotMode.None)

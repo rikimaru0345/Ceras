@@ -36,9 +36,9 @@
 			{
 				var itemType = type.GetElementType();
 
-				if (_ceras.Config.Advanced.UseReinterpretFormatter && itemType.IsValueType && ReflectionHelper.IsBlittableType(itemType))
+				if (_ceras.Config.Advanced.UseReinterpretFormatter && ReflectionHelper.IsBlittableType(itemType))
 				{
-					// ...reinterpret if allowed
+					// ReinterpretArrayFormatter
 					var maxCount = itemType == typeof(byte)
 							? _ceras.Config.Advanced.SizeLimits.MaxByteArraySize
 							: _ceras.Config.Advanced.SizeLimits.MaxArraySize;
@@ -48,7 +48,7 @@
 				}
 				else
 				{
-					// ...or fall back to simple array formatter
+					// ArrayFormatter (fallback when elements are not blitable)
 					var formatterType = typeof(ArrayFormatter<>).MakeGenericType(itemType);
 					formatter = (IFormatter)Activator.CreateInstance(formatterType, _ceras);
 				}

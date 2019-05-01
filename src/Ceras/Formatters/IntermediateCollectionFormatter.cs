@@ -2,6 +2,11 @@
 
 namespace Ceras.Formatters
 {
+	/// <summary>
+	/// Helper base class for formatters.
+	/// Uses a temporary (proxy) collection for deserialization, and then creates the actual collection from the proxy.
+	/// Useful for example when dealing with readonly collections where you need to deserialize the elements into a plain old List first.
+	/// </summary>
 	public abstract class CollectionByProxyFormatter<TCollection, TItem, TProxyCollection> : IFormatter<TCollection>
 			where TCollection : ICollection<TItem>
 	{
@@ -59,6 +64,9 @@ namespace Ceras.Formatters
 		protected abstract void Finalize(TProxyCollection builder, ref TCollection collection);
 	}
 
+	/// <summary>
+	/// Pre-made formatter base that just uses a List as the proxy collection
+	/// </summary>
 	public abstract class CollectionByListProxyFormatter<TCollection, TItem> : CollectionByProxyFormatter<TCollection, TItem, List<TItem>>
 			where TCollection : ICollection<TItem>
 	{
