@@ -8,8 +8,10 @@ namespace Ceras.Test
 	using Resolvers;
 	using System.Runtime.InteropServices;
 	using Xunit;
+    using Ceras.Helpers;
+    using System.Runtime.CompilerServices;
 
-	public class Blitting : TestBase
+    public class Blitting : TestBase
 	{
 		// Types that the reinterpret formatter should be able to handle
 		// Arrays are handled by "ReinterpretArrayFormatter" of course
@@ -30,7 +32,7 @@ namespace Ceras.Test
 			typeof(float[]),
 			typeof(double[]),
 			typeof(decimal[]),
-
+			
 			typeof(Vector3),
 			typeof(Half2),
 			typeof(BigStruct),
@@ -39,19 +41,19 @@ namespace Ceras.Test
 			typeof(Vector3[]),
 
 			typeof(DayOfWeek), // The base type "Enum" can't be blitted, but an actual enum can!
-
 		};
 
 		// Types where neither ReinterpretFormatter nor ReinterpretArrayFormatter
 		// should be used!
 		static Type[] _nonBlittableTypes =
 		{
+			// Pointers and arrays
 			typeof(IntPtr),
 			typeof(UIntPtr),
-
 			typeof(IntPtr[]),
 			typeof(UIntPtr[]),
-
+			
+			// Reference types
 			typeof(TestBase),
 			typeof(List<int>),
 			typeof(List<object>),
@@ -79,13 +81,24 @@ namespace Ceras.Test
 			typeof(ValueTuple<byte[], uint>),
 			typeof(ValueTuple<byte, uint>[]),
 			typeof(ValueTuple<BigStruct, Vector3[], byte>),
+
+			
+			// Multi dimensional arrays can not be blitted because it would make the code extremely brittle (offset of the first element depends on the array-rank)
+			typeof(string[]),
+			typeof(string[,]),
+			typeof(string[,,]),
+			typeof(string[,,,]),
+			typeof(int[,]),
+			typeof(int[,,]),
+			typeof(Vector3[,,,,]),
+			typeof(byte[,,]),
 		};
 
 		// Formatters Ceras is allowed to use to handle "blittable types"
 		static Type[] _blitFormattersOpenTypes =
 		{
-			typeof(ReinterpretArrayFormatter<>),
 			typeof(ReinterpretFormatter<>),
+			typeof(ReinterpretArrayFormatter<>),
 
 			typeof(EnumFormatter<>),
 
@@ -288,6 +301,23 @@ namespace Ceras.Test
 
 			Assert.True(ceras.Serialize(TestEnumInt64.a).Length == 8);
 			Assert.True(ceras.Serialize(TestEnumUInt64.a).Length == 8);
+		}
+
+		[Fact]
+		public unsafe void CouldCopyValueTupleDirectly()
+		{
+			(int, decimal, Vector3, bool, long) t = ValueTuple.Create(5, 2.441M, new Vector3(1, 2, 3), false, (long)69419572);
+			var s1 = ReflectionHelper.GetSize(t.GetType());
+			var s2 = ReflectionHelper.UnsafeGetSize(t.GetType());
+
+			var target = new byte[s2];
+			Unsafe.Copy(Unsafe.AsPointer(ref target[0]), ref t);
+
+			(int, decimal, Vector3, bool, long) clone = default;
+			Unsafe.Copy(ref clone, Unsafe.AsPointer(ref target[0]));
+
+			Assert.True(clone.Item3.Y == 2);
+			Assert.Equal(t, clone);
 		}
 
 		enum TestEnumInt8 : sbyte { a = 123, b, c }

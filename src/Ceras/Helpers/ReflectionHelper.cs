@@ -11,6 +11,7 @@
 	static class ReflectionHelper
 	{
 		static readonly Dictionary<Type, int> _typeToBlittableSize = new Dictionary<Type, int>();
+		static readonly Dictionary<Type, int> _typeToUnsafeSize = new Dictionary<Type, int>();
 
 		public static Type FindClosedType(Type type, Type openGeneric)
 		{
@@ -283,9 +284,9 @@
 
 			lock (_typeToBlittableSize)
 			{
-				if(_typeToBlittableSize.TryGetValue(type, out int size))
+				if (_typeToBlittableSize.TryGetValue(type, out int size))
 					return size;
-				
+
 				//var computedSizeSuccess = ComputeExpectedSize(type, out int expectedSize);
 
 				if (!type.IsGenericType)
@@ -303,6 +304,21 @@
 			}
 		}
 
+
+		public static int UnsafeGetSize(Type type)
+		{
+			lock (_typeToUnsafeSize)
+			{
+				if (_typeToUnsafeSize.TryGetValue(type, out int size))
+					return size;
+
+				var m = typeof(Unsafe).GetMethod(nameof(Unsafe.SizeOf)).MakeGenericMethod(type);
+				size = (int)m.Invoke(null, null);
+
+				_typeToUnsafeSize.Add(type, size);
+				return size;
+			}
+		}
 
 		public static Type FieldOrPropType(this MemberInfo memberInfo)
 		{

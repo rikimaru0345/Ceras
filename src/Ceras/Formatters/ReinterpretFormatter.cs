@@ -19,18 +19,18 @@ namespace Ceras.Formatters
 		internal static readonly MethodInfo _writeMethod = new ReadWriteRawDelegate(Write_Raw).Method;
 		internal static readonly MethodInfo _readMethod = new ReadWriteRawDelegate(Read_Raw).Method;
 
-		internal static readonly int _size;
+		internal static readonly int _itemSize;
 
 
 		static ReinterpretFormatter()
 		{
 			var type = typeof(T);
-			
+
 			if (type.IsEnum)
 				type = type.GetEnumUnderlyingType();
 
-			_size = ReflectionHelper.GetSize(type);
-			if (_size < 0)
+			_itemSize = ReflectionHelper.GetSize(type);
+			if (_itemSize < 0)
 				throw new InvalidOperationException("Type is not blittable");
 		}
 
@@ -41,18 +41,18 @@ namespace Ceras.Formatters
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
-			SerializerBinary.EnsureCapacity(ref buffer, offset, _size);
+			SerializerBinary.EnsureCapacity(ref buffer, offset, _itemSize);
 
 			Write_Raw(buffer, offset, ref value);
 
-			offset += _size;
+			offset += _itemSize;
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
 			Read_Raw(buffer, offset, ref value);
 
-			offset += _size;
+			offset += _itemSize;
 		}
 
 
@@ -62,7 +62,7 @@ namespace Ceras.Formatters
 									   arg0: bufferExp,
 									   arg1: offsetExp,
 									   arg2: valueExp);
-			writtenSize = _size;
+			writtenSize = _itemSize;
 
 			return call;
 		}
@@ -73,7 +73,7 @@ namespace Ceras.Formatters
 									   arg0: bufferExp,
 									   arg1: offsetExp,
 									   arg2: valueExp);
-			readSize = _size;
+			readSize = _itemSize;
 
 			return call;
 		}
@@ -116,12 +116,12 @@ namespace Ceras.Formatters
 	}
 
 	/// <summary>
-	/// Extremely fast formatter that can be used with all unmanaged types. For example DateTime, int, Vector3, Point, ...
+	/// Extremely fast formatter that can be used with all blitable types. For example DateTime, int, Vector3, Point, ...
 	/// <para>This formatter always uses native endianness!</para>
 	/// </summary>
 	public sealed class ReinterpretArrayFormatter<T> : IFormatter<T[]> where T : unmanaged
 	{
-		static readonly int _size;
+		static readonly int _itemSize;
 		readonly uint _maxCount;
 
 		static ReinterpretArrayFormatter()
@@ -131,13 +131,9 @@ namespace Ceras.Formatters
 			if (type.IsEnum)
 				type = type.GetEnumUnderlyingType();
 
-			_size = ReflectionHelper.GetSize(type);
-			if (_size < 0)
+			_itemSize = ReflectionHelper.GetSize(type);
+			if (_itemSize < 0)
 				throw new InvalidOperationException("Type is not blittable");
-		}
-
-		public ReinterpretArrayFormatter() : this(uint.MaxValue)
-		{
 		}
 
 		public ReinterpretArrayFormatter(uint maxCount)
@@ -151,7 +147,7 @@ namespace Ceras.Formatters
 			int count = value.Length;
 
 			// Ensure capacity
-			int size = _size;
+			int size = _itemSize;
 			int neededSize = (count * size) + 5;
 			SerializerBinary.EnsureCapacity(ref buffer, offset, neededSize);
 
@@ -167,7 +163,7 @@ namespace Ceras.Formatters
 			fixed (T* srcAr = &value[0])
 			fixed (byte* dest = &buffer[offset])
 			{
-				byte* srcByteAr = (byte*) srcAr;
+				byte* srcByteAr = (byte*)srcAr;
 				Buffer.MemoryCopy(srcByteAr, dest, bytes, bytes);
 			}
 #else
@@ -190,7 +186,7 @@ namespace Ceras.Formatters
 			if (value == null || value.Length != count)
 				value = new T[count];
 
-			int bytes = count * _size;
+			int bytes = count * _itemSize;
 
 			if (bytes == 0)
 				return;
@@ -206,10 +202,228 @@ namespace Ceras.Formatters
 		}
 	}
 
-	// We can often write multiple unmanaged things in one batch
+
+	/*
+	 * I tried for days to get this working for all cases.
+	 * But it's too brittle.
+	 * Something like this will break it:
+	 * 
+	 * KeyValuePair<Vector3, bool>[,] ar6 = new[,]
+	 * {
+	 *   { new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128), new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128), },
+	 *	 { new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128), new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128), },
+	 * };
+	 * 
+	 * 
+	/// <summary>
+	/// Like <see cref="ReinterpretArrayFormatter{T}"/> but for multidimensional arrays.
+	/// Since the target type is 'Array' it can't be used directly (because Serialize/Deserialize must use the specific type)
+	/// </summary>
+	public class MultiDimensionalReinterpretArrayFormatter<TItem> :
+		IFormatter<Array>,
+		IFormatter<TItem[,]>, // 2D
+		IFormatter<TItem[,,]>, // 3D
+		IFormatter<TItem[,,,]>, // 4D
+		IFormatter<TItem[,,,,]>, // 5D
+		IFormatter<TItem[,,,,,]> // 6D
+	{
+		readonly Type _itemType;
+		readonly int _itemSize;
+		readonly uint _maxCount;
+
+		public MultiDimensionalReinterpretArrayFormatter(uint maxCount)
+		{
+			_itemType = typeof(TItem);
+			_itemSize = ReflectionHelper.GetSize(typeof(TItem));
+			_maxCount = maxCount;
+		}
+
+
+		public unsafe void Serialize(ref byte[] buffer, ref int offset, Array baseAr)
+		{
+			int count = baseAr.Length;
+
+			// Dimensions
+			int dimensions = baseAr.Rank;
+			SerializerBinary.WriteUInt32(ref buffer, ref offset, (uint)dimensions);
+
+			// Dimension sizes
+			for (int d = 0; d < dimensions; d++)
+			{
+				var size = baseAr.GetLength(d);
+				SerializerBinary.WriteUInt32(ref buffer, ref offset, (uint)size);
+			}
+
+			// Bytes
+			int bytes = count * _itemSize;
+			if (bytes == 0)
+				return;
+
+			// Ensure capacity for elements
+			SerializerBinary.EnsureCapacity(ref buffer, offset, bytes);
+
+			// Write
+
+			// BlockCopy will not work when the element type is a struct
+			// Buffer.BlockCopy(baseAr, 0, buffer, offset, bytes);
+
+			GCHandle arrayHandle = default;
+			GCHandle bufferHandle = default;
+			try
+			{
+				arrayHandle = GCHandle.Alloc(baseAr, GCHandleType.Pinned);
+				byte* arBytes = (byte*)arrayHandle.AddrOfPinnedObject();
+
+				bufferHandle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+				byte* bufferBytes = (byte*)bufferHandle.AddrOfPinnedObject();
+				bufferBytes += offset;
+
+				SerializerBinary.FastCopy(arBytes, bufferBytes, bytes);
+			}
+			finally
+			{
+				arrayHandle.Free();
+				bufferHandle.Free();
+			}
+			
+			offset += bytes;
+
+		}
+
+		public unsafe void Deserialize(byte[] buffer, ref int offset, ref Array baseAr)
+		{
+			// Dimensions
+			int dimensions = (int)SerializerBinary.ReadUInt32(buffer, ref offset);
+
+			// Dimension sizes
+			var dimensionSizes = new int[dimensions];
+			for (int d = 0; d < dimensions; d++)
+			{
+				var size = (int)SerializerBinary.ReadUInt32(buffer, ref offset);
+				dimensionSizes[d] = size;
+			}
+
+			// Count
+			int count = dimensionSizes[0];
+			for (int d = 1; d < dimensions; d++)
+				count *= dimensionSizes[d];
+
+			if (count > _maxCount)
+				throw new InvalidOperationException($"The data describes an array with '{count}' elements, which exceeds the allowed limit of '{_maxCount}'");
+
+
+			// Create array
+			baseAr = Array.CreateInstance(_itemType, dimensionSizes);
+
+			// Read
+			int bytes = count * _itemSize;
+			if (bytes == 0)
+				return;
+			
+			GCHandle bufferHandle = default;
+			GCHandle arrayHandle = default;
+			try
+			{
+				bufferHandle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+				byte* bufferBytes = (byte*)bufferHandle.AddrOfPinnedObject();
+				bufferBytes += offset;
+
+				arrayHandle = GCHandle.Alloc(baseAr, GCHandleType.Pinned);
+				byte* arBytes = (byte*)arrayHandle.AddrOfPinnedObject();
+
+				SerializerBinary.FastCopy(bufferBytes, arBytes, bytes);
+			}
+			finally
+			{
+				bufferHandle.Free();
+				arrayHandle.Free();
+			}
+
+			offset += bytes;
+		}
+	
+				
+	
+		// 2D
+		public void Serialize(ref byte[] buffer, ref int offset, TItem[,] ar)
+		{
+			Array array = ar;
+			Serialize(ref buffer, ref offset, array);
+		}
+		// 2D
+		public void Deserialize(byte[] buffer, ref int offset, ref TItem[,] ar)
+		{
+			Array array = ar;
+			Deserialize(buffer, ref offset, ref array);
+			ar = (TItem[,])array;
+		}
+
+
+		// 3D
+		public void Serialize(ref byte[] buffer, ref int offset, TItem[,,] ar)
+		{
+			Array array = ar;
+			Serialize(ref buffer, ref offset, array);
+		}
+		// 3D
+		public void Deserialize(byte[] buffer, ref int offset, ref TItem[,,] ar)
+		{
+			Array array = ar;
+			Deserialize(buffer, ref offset, ref array);
+			ar = (TItem[,,])array;
+		}
+
+
+		// 4D
+		public void Serialize(ref byte[] buffer, ref int offset, TItem[,,,] ar)
+		{
+			Array array = ar;
+			Serialize(ref buffer, ref offset, array);
+		}
+		// 4D
+		public void Deserialize(byte[] buffer, ref int offset, ref TItem[,,,] ar)
+		{
+			Array array = ar;
+			Deserialize(buffer, ref offset, ref array);
+			ar = (TItem[,,,])array;
+		}
+
+
+		// 5D
+		public void Serialize(ref byte[] buffer, ref int offset, TItem[,,,,] ar)
+		{
+			Array array = ar;
+			Serialize(ref buffer, ref offset, array);
+		}
+		// 5D
+		public void Deserialize(byte[] buffer, ref int offset, ref TItem[,,,,] ar)
+		{
+			Array array = ar;
+			Deserialize(buffer, ref offset, ref array);
+			ar = (TItem[,,,,])array;
+		}
+
+
+		// 6D
+		public void Serialize(ref byte[] buffer, ref int offset, TItem[,,,,,] ar)
+		{
+			Array array = ar;
+			Serialize(ref buffer, ref offset, array);
+		}
+		// 6D
+		public void Deserialize(byte[] buffer, ref int offset, ref TItem[,,,,,] ar)
+		{
+			Array array = ar;
+			Deserialize(buffer, ref offset, ref array);
+			ar = (TItem[,,,,,])array;
+		}
+	}
+
+	*/
+
+	// Our member sorting puts blitable types together; so we can merge repeated "EnsureCapacity" calls into one big call!
 	interface IInlineEmitter
 	{
-		// Implement a call 
 		Expression EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize);
 		Expression EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize);
 	}

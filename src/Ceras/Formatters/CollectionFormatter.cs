@@ -9,18 +9,17 @@
 	// todo: Can we optimize the call to IFormater<TItem> ? We cache it into a local already, but but can we do better?
 
 	// Simple formatter for Arrays.
-	// Writes elements one by one, not very fast, but ReinterpretArrayFormatter gets used whenever possible.
+	// Writes elements one by one. ReinterpretArrayFormatter is faster and gets used whenever possible.
 	public sealed class ArrayFormatter<TItem> : IFormatter<TItem[]>
 	{
 		readonly IFormatter<TItem> _itemFormatter;
-		readonly uint _maxSize;
+		readonly uint _maxCount;
 
-		public ArrayFormatter(CerasSerializer serializer)
+		public ArrayFormatter(CerasSerializer serializer, uint maxCount)
 		{
+			_maxCount = maxCount;
 			var itemType = typeof(TItem);
 			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
-
-			_maxSize = serializer.Config.Advanced.SizeLimits.MaxArraySize;
 		}
 
 		public void Serialize(ref byte[] buffer, ref int offset, TItem[] ar)
@@ -48,8 +47,8 @@
 				return;
 			}
 
-			if (length > _maxSize)
-				throw new InvalidOperationException($"The data contains a '{typeof(TItem)}'-array of size '{length}', which exceeds the allowed limit of '{_maxSize}'");
+			if (length > _maxCount)
+				throw new InvalidOperationException($"The data contains a '{typeof(TItem)}'-array of size '{length}', which exceeds the allowed limit of '{_maxCount}'");
 
 			if (ar == null || ar.Length != length)
 				ar = new TItem[length];
@@ -57,6 +56,206 @@
 			var f = _itemFormatter; // Cache into local to prevent ram fetches
 			for (int i = 0; i < length; i++)
 				f.Deserialize(buffer, ref offset, ref ar[i]);
+		}
+	}
+
+	public sealed class MultiDimensionalArrayFormatter<TItem> :
+		IFormatter<Array>,
+		IFormatter<TItem[,]>
+	{
+		readonly uint _maxCount;
+		readonly IFormatter<TItem> _itemFormatter;
+
+		public MultiDimensionalArrayFormatter(CerasSerializer serializer, uint maxCount)
+		{
+			_maxCount = maxCount;
+			var itemType = typeof(TItem);
+			_itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(itemType);
+		}
+
+
+
+		static void ReadLastDimension2D(byte[] buffer, ref int offset, IFormatter<TItem> formatter, TItem[,] array, int[] index, int max)
+		{
+			for (int i = 0; i < max; i++)
+				formatter.Deserialize(buffer, ref offset, ref array[index[0], i]);
+		}
+		static void ReadLastDimension3D(byte[] buffer, ref int offset, IFormatter<TItem> formatter, TItem[,,] array, int[] index, int max)
+		{
+			for (int i = 0; i < max; i++)
+				formatter.Deserialize(buffer, ref offset, ref array[index[0], index[1], i]);
+		}
+		static void ReadLastDimension4D(byte[] buffer, ref int offset, IFormatter<TItem> formatter, TItem[,,,] array, int[] index, int max)
+		{
+			for (int i = 0; i < max; i++)
+				formatter.Deserialize(buffer, ref offset, ref array[index[0], index[1], index[2], i]);
+		}
+		static void ReadLastDimension5D(byte[] buffer, ref int offset, IFormatter<TItem> formatter, TItem[,,,,] array, int[] index, int max)
+		{
+			for (int i = 0; i < max; i++)
+				formatter.Deserialize(buffer, ref offset, ref array[index[0], index[1], index[2], index[3], i]);
+		}
+		static void ReadLastDimension6D(byte[] buffer, ref int offset, IFormatter<TItem> formatter, TItem[,,,,,] array, int[] index, int max)
+		{
+			for (int i = 0; i < max; i++)
+				formatter.Deserialize(buffer, ref offset, ref array[index[0], index[1], index[2], index[2], index[4], i]);
+		}
+
+
+
+		public void Serialize(ref byte[] buffer, ref int offset, Array baseAr)
+		{
+			// Dimensions
+			int dimensions = baseAr.Rank;
+			SerializerBinary.WriteUInt32(ref buffer, ref offset, (uint)dimensions);
+
+			// Dimension sizes
+			for (int d = 0; d < dimensions; d++)
+			{
+				var size = baseAr.GetLength(d);
+				SerializerBinary.WriteUInt32(ref buffer, ref offset, (uint)size);
+			}
+
+			var f = _itemFormatter;
+			foreach (var item in baseAr)
+				f.Serialize(ref buffer, ref offset, (TItem)item);
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref Array baseAr)
+		{
+			// Dimensions
+			int dimensions = (int)SerializerBinary.ReadUInt32(buffer, ref offset);
+
+			// Dimension sizes
+			var dimensionSizes = new int[dimensions];
+			for (int d = 0; d < dimensions; d++)
+			{
+				var size = (int)SerializerBinary.ReadUInt32(buffer, ref offset);
+				dimensionSizes[d] = size;
+			}
+
+			// Count
+			int count = dimensionSizes[0];
+			for (int d = 1; d < dimensions; d++)
+				count *= dimensionSizes[d];
+
+			if (count > _maxCount)
+				throw new InvalidOperationException($"The data describes an array with '{count}' elements, which exceeds the allowed limit of '{_maxCount}'");
+
+			// Create array
+			baseAr = Array.CreateInstance(typeof(TItem), dimensionSizes);
+
+			// Read
+			var indices = new int[dimensions];
+			ReadArrayEntry(buffer, ref offset, _itemFormatter, baseAr, indices, dimensionSizes, 0);
+		}
+
+		static void ReadArrayEntry(byte[] buffer, ref int offset, IFormatter<TItem> formatter, Array array, int[] index, int[] dimensionSizes, int depth)
+		{
+			var max = dimensionSizes[depth];
+
+			if (depth == dimensionSizes.Length - 1)
+			{
+				// We're at the last dimension, here we actually set the values
+				// To minimize the overhead we have an optimized method that handles the last dimension in one go
+				switch (dimensionSizes.Length)
+				{
+				case 2:
+					ReadLastDimension2D(buffer, ref offset, formatter, (TItem[,])array, index, max);
+					break;
+				case 3:
+					ReadLastDimension3D(buffer, ref offset, formatter, (TItem[,,])array, index, max);
+					break;
+				case 4:
+					ReadLastDimension4D(buffer, ref offset, formatter, (TItem[,,,])array, index, max);
+					break;
+				case 5:
+					ReadLastDimension5D(buffer, ref offset, formatter, (TItem[,,,,])array, index, max);
+					break;
+				case 6:
+					ReadLastDimension6D(buffer, ref offset, formatter, (TItem[,,,,,])array, index, max);
+					break;
+
+				default:
+					throw new IndexOutOfRangeException("Array rank must be between 2 and 6");
+				}
+			}
+			else
+			{
+				// Iterate through the lower dimensions
+				index[depth] = 0;
+				for (int i = 0; i < max; i++)
+				{
+					ReadArrayEntry(buffer, ref offset, formatter, array, index, dimensionSizes, depth + 1);
+					index[depth]++;
+				}
+			}
+		}
+
+
+		// 2D
+		public void Serialize(ref byte[] buffer, ref int offset, TItem[,] ar)
+		{
+			Array array = ar;
+			Serialize(ref buffer, ref offset, array);
+		}
+		public void Deserialize(byte[] buffer, ref int offset, ref TItem[,] ar)
+		{
+			Array array = ar;
+			Deserialize(buffer, ref offset, ref array);
+			ar = (TItem[,])array;
+		}
+
+		// 3D
+		public void Serialize(ref byte[] buffer, ref int offset, TItem[,,] ar)
+		{
+			Array array = ar;
+			Serialize(ref buffer, ref offset, array);
+		}
+		public void Deserialize(byte[] buffer, ref int offset, ref TItem[,,] ar)
+		{
+			Array array = ar;
+			Deserialize(buffer, ref offset, ref array);
+			ar = (TItem[,,])array;
+		}
+
+		// 4D
+		public void Serialize(ref byte[] buffer, ref int offset, TItem[,,,] ar)
+		{
+			Array array = ar;
+			Serialize(ref buffer, ref offset, array);
+		}
+		public void Deserialize(byte[] buffer, ref int offset, ref TItem[,,,] ar)
+		{
+			Array array = ar;
+			Deserialize(buffer, ref offset, ref array);
+			ar = (TItem[,,,])array;
+		}
+		
+		// 5D
+		public void Serialize(ref byte[] buffer, ref int offset, TItem[,,,,] ar)
+		{
+			Array array = ar;
+			Serialize(ref buffer, ref offset, array);
+		}
+		public void Deserialize(byte[] buffer, ref int offset, ref TItem[,,,,] ar)
+		{
+			Array array = ar;
+			Deserialize(buffer, ref offset, ref array);
+			ar = (TItem[,,,,])array;
+		}
+
+		// 6D
+		public void Serialize(ref byte[] buffer, ref int offset, TItem[,,,,,] ar)
+		{
+			Array array = ar;
+			Serialize(ref buffer, ref offset, array);
+		}
+		public void Deserialize(byte[] buffer, ref int offset, ref TItem[,,,,,] ar)
+		{
+			Array array = ar;
+			Deserialize(buffer, ref offset, ref array);
+			ar = (TItem[,,,,,])array;
 		}
 	}
 
@@ -164,7 +363,7 @@
 				throw new InvalidOperationException("To serialize types from the 'System.Collections.Immutable' library, please install 'Ceras.ImmutableCollections' from NuGet. " +
 													$"The affect type is '{name}'");
 			}
-			
+
 			throw new InvalidOperationException($"To serialize readonly collections you must configure a construction mode for the type '{name}'. (It's pretty easy, take a look at the tutorial or open an issue on GitHub)");
 		}
 	}

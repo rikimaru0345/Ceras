@@ -16,13 +16,14 @@ namespace Ceras.Test
 	{
 		// ReSharper disable once InconsistentNaming
 		protected Random rng = new Random(12345);
-		
+
 		protected byte rngByte => (byte)(rng.Next(0, int.MaxValue) % 255);
 		protected double rngDouble => rng.NextDouble();
 		protected float rngFloat => (float)rng.NextDouble();
 		protected int rngInt => rng.Next(int.MinValue, int.MaxValue);
 		protected short rngShort => (short)rng.Next(int.MinValue, int.MaxValue);
 		protected long rngLong => ((long)rng.Next(int.MinValue, int.MaxValue) << 32) + (long)rng.Next(int.MinValue, int.MaxValue);
+		protected Vector3 rngVec => new Vector3(rngFloat, rngFloat, rngFloat);
 
 
 		protected SerializerConfig CreateConfig(Action<SerializerConfig> f)
@@ -31,7 +32,7 @@ namespace Ceras.Test
 			f(s);
 			return s;
 		}
-		
+
 		protected SerializerConfig Config_WithReinterpret => CreateConfig(x =>
 		{
 			x.Advanced.UseReinterpretFormatter = true;
@@ -68,11 +69,11 @@ namespace Ceras.Test
 					Assert.NotNull(obj);
 
 				var clone = Clone(obj, config);
-			
+
 				if (!testMode.HasFlag(TestMode.AllowNull))
 					Assert.NotNull(clone);
 
-				if(typeof(T) == typeof(object))
+				if (typeof(T) == typeof(object))
 					if (ReferenceEquals(obj, null) ^ ReferenceEquals(clone, null))
 						Assert.True(false, "objects must both have a value or both be null");
 
@@ -169,8 +170,20 @@ namespace Ceras.Test
 
 			if (x is IStructuralEquatable xEq)
 			{
-				var yEq = (IStructuralEquatable)y;
-				return (xEq.Equals(yEq, DeepComparer.Instance));
+				if (x is Array xAr && xAr.Rank > 1)
+				{
+					var yAr = (Array)y;
+					foreach (var (left, right) in ZipObj(xAr, yAr))
+						if (!AreEqual(left, right))
+							return false;
+
+					return true;
+				}
+				else
+				{
+					var yEq = (IStructuralEquatable)y;
+					return (xEq.Equals(yEq, DeepComparer.Instance));
+				}
 			}
 			else if (x is IEnumerable xEnum)
 			{
@@ -218,6 +231,36 @@ namespace Ceras.Test
 					throw new InvalidOperationException("Sequences differed in length");
 				}
 			}
+		}
+
+		static IEnumerable<(object, object)> ZipObj(
+				IEnumerable first,
+				IEnumerable second)
+		{
+			if (first == null)
+				throw new ArgumentNullException("first");
+			if (second == null)
+				throw new ArgumentNullException("second");
+
+			var e1 = first.GetEnumerator();
+			var e2 = second.GetEnumerator();
+
+			while (e1.MoveNext())
+			{
+				if (e2.MoveNext())
+				{
+					yield return (e1.Current, e2.Current);
+				}
+				else
+				{
+					throw new InvalidOperationException("Sequences differed in length");
+				}
+			}
+			if (e2.MoveNext())
+			{
+				throw new InvalidOperationException("Sequences differed in length");
+			}
+
 		}
 
 	}

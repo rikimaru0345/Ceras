@@ -450,132 +450,132 @@
 				throw new InvalidOperationException("n must be > 0");
 			if (n == 0 || sourceArray.Length == 0 || targetArray.Length == 0)
 				throw new InvalidOperationException("Copy 0 bytes *must* be optimized out higher up in the call hierarchy because FastCopy does not handle this case!");
-			if (sourceArray.Length < n || targetArray.Length < n)
-				throw new InvalidOperationException("target or source array have a size smaller than n");
+			if (sourceArray.GetType() == targetArray.GetType()) // will be false when we reinterpret array types			
+				if (sourceArray.Length < n || targetArray.Length < n)
+					throw new InvalidOperationException("target or source array have a size smaller than n");
 			if (sourceOffset < 0 || targetOffset < 0)
 				throw new ArgumentOutOfRangeException();
-			if (sourceOffset + n > sourceArray.Length || targetOffset + n > targetArray.Length)
-				throw new ArgumentOutOfRangeException();
+			if (sourceArray.GetType() == targetArray.GetType()) // will be false when we reinterpret array types	
+				if (sourceOffset + n > sourceArray.Length || targetOffset + n > targetArray.Length)
+					throw new ArgumentOutOfRangeException();
 #endif
 
 
-			if (n > 512)
-			{
-#if !NET45
-				fixed (byte* srcPtr = &sourceArray[0])
-				fixed (byte* destPtr = &targetArray[0])
-				{
-					byte* src = srcPtr + sourceOffset;
-					byte* dst = destPtr + targetOffset;
-					Buffer.MemoryCopy(src, dst, n, n);
-				}
-#else
-				Buffer.BlockCopy(sourceArray, sourceOffset, targetArray, targetOffset, n);
-#endif
-				return;
-			}
-
-			// Copy up to 512 bytes very quickly
 			fixed (byte* srcPtr = &sourceArray[0])
 			fixed (byte* destPtr = &targetArray[0])
 			{
 				byte* src = srcPtr + sourceOffset;
-				byte* dest = destPtr + targetOffset;
+				byte* dst = destPtr + targetOffset;
 
-				SMALLTABLE: // Handles 0 to 16 bytes
-				switch (n)
-				{
-				case 16:
-					*(long*)dest = *(long*)src;
-					*(long*)(dest + 8) = *(long*)(src + 8);
-					return;
-				case 15:
-					*(short*)(dest + 12) = *(short*)(src + 12);
-					*(dest + 14) = *(src + 14);
-					goto case 12;
-				case 14:
-					*(short*)(dest + 12) = *(short*)(src + 12);
-					goto case 12;
-				case 13:
-					*(dest + 12) = *(src + 12);
-					goto case 12;
-				case 12:
-					*(long*)dest = *(long*)src;
-					*(int*)(dest + 8) = *(int*)(src + 8);
-					return;
-				case 11:
-					*(short*)(dest + 8) = *(short*)(src + 8);
-					*(dest + 10) = *(src + 10);
-					goto case 8;
-				case 10:
-					*(short*)(dest + 8) = *(short*)(src + 8);
-					goto case 8;
-				case 9:
-					*(dest + 8) = *(src + 8);
-					goto case 8;
-				case 8:
-					*(long*)dest = *(long*)src;
-					return;
-				case 7:
-					*(short*)(dest + 4) = *(short*)(src + 4);
-					*(dest + 6) = *(src + 6);
-					goto case 4;
-				case 6:
-					*(short*)(dest + 4) = *(short*)(src + 4);
-					goto case 4;
-				case 5:
-					*(dest + 4) = *(src + 4);
-					goto case 4;
-				case 4:
-					*(int*)dest = *(int*)src;
-					return;
-				case 3:
-					*(dest + 2) = *(src + 2);
-					goto case 2;
-				case 2:
-					*(short*)dest = *(short*)src;
-					return;
-				case 1:
-					*dest = *src;
-					return;
-				case 0:
-					return;
-				default:
-					break;
-				}
-
-
-				// Manually copy large chunks, start with blocks of 32 bytes
-				int count = n / 32;
-				n -= (n / 32) * 32;
-
-				// Copy in blocks of 32 bytes
-				while (count > 0)
-				{
-					((long*)dest)[0] = ((long*)src)[0]; // 8
-					((long*)dest)[1] = ((long*)src)[1]; // 16
-					((long*)dest)[2] = ((long*)src)[2]; // 24
-					((long*)dest)[3] = ((long*)src)[3]; // 32
-
-					dest += 32;
-					src += 32;
-					count--;
-				}
-
-				// Copy 16 byte blocks
-				if (n > 16)
-				{
-					((long*)dest)[0] = ((long*)src)[0];
-					((long*)dest)[1] = ((long*)src)[1];
-
-					src += 16;
-					dest += 16;
-					n -= 16;
-				}
-
-				// The remaining bytes can be handled by the jump table optimized for small copies
-				goto SMALLTABLE;
+				FastCopy(src, dst, n);
 			}
+		}
+
+		internal static void FastCopy(byte* src, byte* dest, int n)
+		{
+			if (n > 512)
+			{
+				void* source = (void*)src;
+				void* destination = (void*)dest;
+				Unsafe.CopyBlock(destination, source, (uint)n);
+				return;
+			}
+
+			// Copy up to 512 bytes very quickly
+			SMALLTABLE: // Handles 0 to 16 bytes
+			switch (n)
+			{
+			case 16:
+				*(long*)dest = *(long*)src;
+				*(long*)(dest + 8) = *(long*)(src + 8);
+				return;
+			case 15:
+				*(short*)(dest + 12) = *(short*)(src + 12);
+				*(dest + 14) = *(src + 14);
+				goto case 12;
+			case 14:
+				*(short*)(dest + 12) = *(short*)(src + 12);
+				goto case 12;
+			case 13:
+				*(dest + 12) = *(src + 12);
+				goto case 12;
+			case 12:
+				*(long*)dest = *(long*)src;
+				*(int*)(dest + 8) = *(int*)(src + 8);
+				return;
+			case 11:
+				*(short*)(dest + 8) = *(short*)(src + 8);
+				*(dest + 10) = *(src + 10);
+				goto case 8;
+			case 10:
+				*(short*)(dest + 8) = *(short*)(src + 8);
+				goto case 8;
+			case 9:
+				*(dest + 8) = *(src + 8);
+				goto case 8;
+			case 8:
+				*(long*)dest = *(long*)src;
+				return;
+			case 7:
+				*(short*)(dest + 4) = *(short*)(src + 4);
+				*(dest + 6) = *(src + 6);
+				goto case 4;
+			case 6:
+				*(short*)(dest + 4) = *(short*)(src + 4);
+				goto case 4;
+			case 5:
+				*(dest + 4) = *(src + 4);
+				goto case 4;
+			case 4:
+				*(int*)dest = *(int*)src;
+				return;
+			case 3:
+				*(dest + 2) = *(src + 2);
+				goto case 2;
+			case 2:
+				*(short*)dest = *(short*)src;
+				return;
+			case 1:
+				*dest = *src;
+				return;
+			case 0:
+				return;
+			default:
+				break;
+			}
+
+
+			// Manually copy large chunks, start with blocks of 32 bytes
+			int count = n / 32;
+			n -= (n / 32) * 32;
+
+			// Copy in blocks of 32 bytes
+			while (count > 0)
+			{
+				((long*)dest)[0] = ((long*)src)[0]; // 8
+				((long*)dest)[1] = ((long*)src)[1]; // 16
+				((long*)dest)[2] = ((long*)src)[2]; // 24
+				((long*)dest)[3] = ((long*)src)[3]; // 32
+
+				dest += 32;
+				src += 32;
+				count--;
+			}
+
+			// Copy 16 byte blocks
+			if (n > 16)
+			{
+				((long*)dest)[0] = ((long*)src)[0];
+				((long*)dest)[1] = ((long*)src)[1];
+
+				src += 16;
+				dest += 16;
+				n -= 16;
+			}
+
+			// The remaining bytes can be handled by the jump table optimized for small copies
+			goto SMALLTABLE;
+
 		}
 
 

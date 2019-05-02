@@ -393,7 +393,7 @@
 			//    IFormatter<object> formatter = new ReferenceFormatter<Person>();
 			// The line of code above obviously does not work since the types do not match, which is what this method fixes.
 
-			var serializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
+			var serializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize), new Type[] { typeof(byte[]).MakeByRefType(), typeof(int).MakeByRefType(), type });
 			Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter");
 
 			// What we want to emulate:
@@ -438,7 +438,7 @@
 		// See the comment on GetSpecificSerializerDispatcher
 		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher(Type type, IFormatter specificFormatter)
 		{
-			var deserializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
+			var deserializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize), new Type[] { typeof(byte[]), typeof(int).MakeByRefType(), type.MakeByRefType() });
 			Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
 
 			// What we want to emulate:
@@ -508,15 +508,15 @@
 
 		static SerializeDelegate<T> CreateSpecificSerializerDispatcher_Aot(Type type, IFormatter specificFormatter)
 		{
-			var serializeMethod = specificFormatter.GetType().GetMethod("Serialize");
+			var serializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize), new Type[] { type });
 			if (type == typeof(T))
 			{
-				var f = (IFormatter<T>) specificFormatter;
+				var f = (IFormatter<T>)specificFormatter;
 
 				return (SerializeDelegate<T>)Delegate.CreateDelegate(typeof(SerializeDelegate<T>), f, serializeMethod);
 				// return (ref byte[] buffer, ref int offset, T value) => { f.Serialize(ref buffer, ref offset, value); };
 			}
-			
+
 			// Can't call directly, need to invoke through reflection so T gets casted up/down correctly.
 			var args = new object[3];
 			return (ref byte[] buffer, ref int offset, T value) =>
@@ -532,10 +532,10 @@
 
 		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher_Aot(Type type, IFormatter specificFormatter)
 		{
-			var deserializeMethod = specificFormatter.GetType().GetMethod("Deserialize");
+			var deserializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize), new Type[] { type });
 			if (type == typeof(T))
 			{
-				var f = (IFormatter<T>) specificFormatter;
+				var f = (IFormatter<T>)specificFormatter;
 
 				return (DeserializeDelegate<T>)Delegate.CreateDelegate(typeof(DeserializeDelegate<T>), f, deserializeMethod);
 				// return (ref byte[] buffer, ref int offset, T value) => { f.Serialize(ref buffer, ref offset, value); };
@@ -551,8 +551,8 @@
 
 				deserializeMethod.Invoke(specificFormatter, args);
 
-				offset = (int) args[1];
-				value = (T) args[2];
+				offset = (int)args[1];
+				value = (T)args[2];
 			});
 		}
 

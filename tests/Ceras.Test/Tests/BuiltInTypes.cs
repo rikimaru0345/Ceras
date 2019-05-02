@@ -2,11 +2,15 @@
 
 namespace Ceras.Test
 {
-	using System.Collections;
+    using Ceras.Helpers;
+    using System.Collections;
 	using System.Collections.Generic;
 	using System.Collections.Immutable;
 	using System.Collections.ObjectModel;
-	using System.Numerics;
+    using System.Linq;
+    using System.Numerics;
+	using System.Runtime.CompilerServices;
+	using System.Runtime.InteropServices;
 	using Xunit;
 
 	public class BuiltInTypes : TestBase
@@ -126,6 +130,7 @@ namespace Ceras.Test
 				decimalData[i] = (decimal)r.NextDouble();
 
 			TestDeepEquality(decimalData);
+
 		}
 
 		[Fact]
@@ -143,6 +148,67 @@ namespace Ceras.Test
 				new List<Tuple<int, string>> { Tuple.Create(6, "a"), Tuple.Create(33333, "v"), Tuple.Create(int.MinValue / 2, "y") },
 				new List<Tuple<int, string>> { Tuple.Create(7, "a"), Tuple.Create(23457, "w"), Tuple.Create(int.MaxValue, "z") },
 			});
+		}
+
+		[Fact]
+		public void MultidimensionalArrays()
+		{
+			TestDeepEquality(new int[,]
+			{
+				{ 1,2,3 },
+				{ 4,5,6 },
+				{ 7,8,9 },
+			});
+			
+			TestDeepEquality(new Vector3[,]
+			{
+				{ rngVec, rngVec },
+				{ rngVec, rngVec },
+				{ rngVec, rngVec },
+				{ rngVec, rngVec },
+			});
+
+
+
+			var ar3 = (bool[,,])Array.CreateInstance(typeof(bool), 2, 2, 2);
+			for (int x = 0; x < 2; x++)
+				for (int y = 0; y < 2; y++)
+					for (int z = 0; z < 2; z++)
+						ar3[x, y, z] = rngByte < 128;
+			TestDeepEquality(ar3);
+
+
+
+			TestDeepEquality(new string[,]
+			{
+				{ "a", "b" },
+				{ "c", "d" },
+				{ "e", "f" },
+				{ "g", "h" },
+			});
+
+			TestDeepEquality(new string[,]
+			{
+				{ "a", "b", "c" },
+				{ "d", "e", "f" },
+			});
+
+
+			KeyValuePair<Vector3, bool>[,] ar6 = new[,]
+			{
+				{ new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128), new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128), },
+				{ new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128), new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128), },
+			};
+			TestDeepEquality(ar6);
+
+			
+			KeyValuePair<Vector3, bool>[] ar7 = new[]
+			{
+				new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128),
+				new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128),
+				new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128),
+			};
+			TestDeepEquality(ar7);
 		}
 
 

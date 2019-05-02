@@ -35,22 +35,36 @@
 			if (type.IsArray)
 			{
 				var itemType = type.GetElementType();
+				int rank = type.GetArrayRank();
+				var maxCount = itemType == typeof(byte)
+						? _ceras.Config.Advanced.SizeLimits.MaxByteArraySize
+						: _ceras.Config.Advanced.SizeLimits.MaxArraySize;
 
-				if (_ceras.Config.Advanced.UseReinterpretFormatter && ReflectionHelper.IsBlittableType(itemType))
+
+				if (rank == 1 && _ceras.Config.Advanced.UseReinterpretFormatter && ReflectionHelper.IsBlittableType(itemType))
 				{
-					// ReinterpretArrayFormatter
-					var maxCount = itemType == typeof(byte)
-							? _ceras.Config.Advanced.SizeLimits.MaxByteArraySize
-							: _ceras.Config.Advanced.SizeLimits.MaxArraySize;
-
+					// ReinterpretArrayFormatter<> (reinterpret)
 					var formatterType = typeof(ReinterpretArrayFormatter<>).MakeGenericType(itemType);
 					formatter = (IFormatter)Activator.CreateInstance(formatterType, maxCount);
 				}
 				else
 				{
-					// ArrayFormatter (fallback when elements are not blitable)
-					var formatterType = typeof(ArrayFormatter<>).MakeGenericType(itemType);
-					formatter = (IFormatter)Activator.CreateInstance(formatterType, _ceras);
+					if (rank == 1)
+					{
+						// ArrayFormatter<>
+						var formatterType = typeof(ArrayFormatter<>).MakeGenericType(itemType);
+						formatter = (IFormatter)Activator.CreateInstance(formatterType, _ceras, maxCount);
+					}
+					else if (rank <= 6)
+					{
+						// MultiDimensionalArrayFormatter
+						var formatterType = typeof(MultiDimensionalArrayFormatter<>).MakeGenericType(itemType);
+						formatter = (IFormatter)Activator.CreateInstance(formatterType, _ceras, maxCount);
+					}
+					else
+					{
+						ArrayRankTooHigh(rank);
+					}
 				}
 
 				_formatterInstances[type] = formatter;
@@ -100,6 +114,11 @@
 			}
 
 			return null;
+		}
+
+		private static void ArrayRankTooHigh(int rank)
+		{
+			throw new InvalidOperationException("Multi-dimensional array of rank " + rank + " is not yet supported, please open an issue on github");
 		}
 	}
 }

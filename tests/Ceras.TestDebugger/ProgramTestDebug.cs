@@ -1,10 +1,13 @@
 ﻿namespace Ceras.TestDebugger
 {
+	using Ceras.Helpers;
+	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Drawing;
 	using System.IO;
-	using Test;
+    using System.Runtime.CompilerServices;
+    using Test;
 
 	class Program
 	{
@@ -30,7 +33,10 @@
 #error Unhandled framework version!
 #endif
 
+			new BuiltInTypes().PrimitiveArrays();
+			new Blitting().CouldCopyValueTupleDirectly();
 
+			new Blitting().BlittableTypesUseCorrectFormatter();
 
 
 
@@ -97,6 +103,7 @@
 			foreach (var img in imageArrayClone)
 				img.Dispose();
 
+			
 		}
 	}
 }

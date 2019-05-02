@@ -4,7 +4,7 @@
 
 	[StructLayout(LayoutKind.Sequential)]
 	// Size: 12
-	struct Vector3
+	public struct Vector3
 	{
 		public float X;
 		public float Y;
@@ -15,6 +15,11 @@
 			X = x;
 			Y = y;
 			Z = z;
+		}
+
+		public override string ToString()
+		{
+			return $"{X} {Y} {Z}";
 		}
 	}
 
