@@ -133,6 +133,15 @@ namespace Ceras
 			_formatterConstructedTypes.Add(typeof(string));
 		}
 
+		/// <summary>
+		/// Ceras caches and pools its internal objects to make serialization/deserialization as fast as possible and avoid GC-pressure. When you serialize/deserialize large object graphs those caches will grow in size but they won't shrink by themselves. When you know that you won't be serializing any more large objects (or just want to free some memory) you can call this method and Ceras will clear its caches.
+		/// <para>The internal memory is not referenced anymore so the garbage collector will reclaim it the next time it runs.</para>
+		/// <para>Might have a performance impact on any subsequent Serialize/Deserialize calls since the caches will have to be rebuilt/reallocated again.</para>
+		/// </summary>
+		public static void ClearGenericCaches()
+		{
+			ObjectCache.RefProxyPoolRegister.TrimAll();
+		}
 
 		internal readonly SerializerConfig Config;
 		/// <summary>
@@ -320,7 +329,7 @@ namespace Ceras
 
 			//
 			// Finally we need "instance data"
-			_instanceDataPool = new FactoryPool<InstanceData>(p =>
+			_instanceDataPool = new FactoryPool<InstanceData>(() =>
 			{
 				var d = new InstanceData();
 				d.CurrentRoot = null;

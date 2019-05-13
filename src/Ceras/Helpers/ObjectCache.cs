@@ -2,9 +2,10 @@
 {
 	using System;
 	using System.Collections.Generic;
+    using System.Runtime.CompilerServices;
 
-	// Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
-	class ObjectCache
+    // Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
+    class ObjectCache
 	{
 		// While serializing we add all encountered objects and give them an ID (their index), so when we encounter them again we can just write the index instead.
 		readonly Dictionary<object, int> _serializationCache = new Dictionary<object, int>(64);
@@ -27,7 +28,7 @@
 		internal int RegisterObject<T>(T value) where T : class
 		{
 			var id = _serializationCache.Count;
-			
+
 			_serializationCache.Add(value, id);
 
 			return id;
@@ -85,53 +86,87 @@
 		}
 
 
+
 		internal abstract class RefProxy
 		{
 			public abstract object ObjectValue { get; }
 			public abstract void ResetAndReturn();
 		}
 
-		internal class RefProxy<T> : RefProxy
+		internal sealed class RefProxy<T> : RefProxy where T : class
 		{
-			FactoryPool<RefProxy<T>> _sourcePool;
 			public T Value;
-
-			public override object ObjectValue
-			{
-				get => Value;
-			}
-
-			public RefProxy(FactoryPool<RefProxy<T>> sourcePool)
-			{
-				_sourcePool = sourcePool;
-			}
-
+			
+			public override object ObjectValue => Value;
+						
+			[MethodImpl(MethodImplOptions.AggressiveInlining)]
 			public override void ResetAndReturn()
 			{
 				// Make sure we don't hold any references!
 				Value = default;
 				// Go back to the pool
-				_sourcePool.ReturnObject(this);
+				RefProxyPool<T>.Return(this);
 			}
 
 			public override string ToString()
 			{
-				return $"RefProxy({typeof(T).Name}): {Value}";
+				return $"RefProxy({typeof(T).FriendlyName()}): {Value}";
 			}
 		}
 
-		static class RefProxyPool<T>
+		internal static class RefProxyPool<T> where T : class
 		{
-			static readonly FactoryPool<RefProxy<T>> _proxyPool = new FactoryPool<RefProxy<T>>(CreateRefProxy, 32);
+			static readonly FactoryPool<RefProxy<T>> _proxyPool;
+
+			static RefProxyPool()
+			{
+				 _proxyPool = new FactoryPool<RefProxy<T>>(CreateProxy, 8);
+
+				RefProxyPoolRegister.RegisterPool(_proxyPool);
+			}
 			
+			[MethodImpl(MethodImplOptions.AggressiveInlining)]
 			internal static RefProxy<T> Rent()
 			{
 				return _proxyPool.RentObject();
 			}
 
-			static RefProxy<T> CreateRefProxy(FactoryPool<RefProxy<T>> pool)
+			[MethodImpl(MethodImplOptions.AggressiveInlining)]
+			internal static void Return(RefProxy<T> refProxy)
 			{
-				return new RefProxy<T>(pool);
+				_proxyPool.ReturnObject(refProxy);
+			}
+
+			internal static int GetPoolCapacity() => _proxyPool.Capacity;
+
+			static RefProxy<T> CreateProxy()
+			{
+				return new RefProxy<T>();
+			}
+		}
+
+
+		// We want to be able to clear all the static pools, but since there's no way to enumerate all "generic instances" of generic static classes,
+		// we let the RefProxyPools register themselves here.
+		internal static class RefProxyPoolRegister
+		{
+			static List<IFactoryPool> _genericPools = new List<IFactoryPool>();
+
+			public static void RegisterPool(IFactoryPool pool)
+			{
+				lock(_genericPools)
+					_genericPools.Add(pool);
+			}
+
+			public static void TrimAll()
+			{
+				lock(_genericPools)
+				{
+					foreach(var p in _genericPools)
+					{
+						p.TrimPool();
+					}
+				}
 			}
 		}
 	}

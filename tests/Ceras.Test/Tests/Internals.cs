@@ -72,6 +72,27 @@ namespace Ceras.Test
 
 
 		[Fact]
+		public void ClearGenericCaches()
+		{
+			var ceras =  new CerasSerializer();
+
+			var list = new List<Cat>();
+			for (int i = 0; i < 1000; i++)
+				list.Add(new Cat());
+
+			var data = ceras.Serialize(list);
+			var clone = ceras.Deserialize<List<Cat>>(data);
+			
+			var capacityBefore = ObjectCache.RefProxyPool<Cat>.GetPoolCapacity();
+			Assert.True(capacityBefore > 500);
+			
+			CerasSerializer.ClearGenericCaches();
+			
+			var capacityAfter = ObjectCache.RefProxyPool<Cat>.GetPoolCapacity();
+			Assert.True(capacityAfter < capacityBefore);
+		}
+
+		[Fact]
 		public void IsBlittableChecks()
 		{
 			Assert.True(ReflectionHelper.IsBlittableType(typeof(bool)));
@@ -171,7 +192,7 @@ namespace Ceras.Test
 		}
 
 		[Fact]
-		void SchemaClonesAreEqual()
+		public void SchemaClonesAreEqual()
 		{
 			// Clone schema, check if equal
 
@@ -200,7 +221,7 @@ namespace Ceras.Test
 		}
 
 		[Fact]
-		void ShouldClearEncounteredSchemata()
+		public void ShouldClearEncounteredSchemata()
 		{
 			var plugin = new Plugin();
 			var plugin2 = new Plugin();
@@ -234,7 +255,7 @@ namespace Ceras.Test
 		}
 
 		[Fact]
-		void ShouldThrowOnExtendedVersionTolerance()
+		public void ShouldThrowOnExtendedVersionTolerance()
 		{
 			Assert.ThrowsAny<NotSupportedException>(() =>
 			{

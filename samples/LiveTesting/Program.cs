@@ -5,12 +5,17 @@ namespace LiveTesting
 	using BenchmarkDotNet.Running;
 	using Ceras;
 	using Ceras.Formatters;
+	using Ceras.Helpers;
 	using Ceras.Resolvers;
-	using System.Collections.Generic;
+    using Newtonsoft.Json;
+    using PlayerIOClient;
+    using System.Collections.Generic;
 	using System.Diagnostics;
+	using System.IO;
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using System.Runtime.CompilerServices;
 	using Tutorial;
 	using Xunit;
 	using Encoding = System.Text.Encoding;
@@ -19,8 +24,14 @@ namespace LiveTesting
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
 
-		static void Main(string[] args)
+
+
+		static unsafe void Main(string[] args)
 		{
+			ReinterpretMultiDimensionalArray1();
+			ReinterpretMultiDimensionalArray2();
+
+
 			// Benchmarks();
 
 
@@ -115,6 +126,62 @@ namespace LiveTesting
 			Environment.Exit(0);
 		}
 
+		static void ReinterpretMultiDimensionalArray1()
+		{
+			Array ar = new[,] // 2x2
+			{
+				{  new KeyValuePair<decimal, bool>(decimal.MaxValue, true), new KeyValuePair<decimal, bool>(decimal.MaxValue, true), },
+				{  new KeyValuePair<decimal, bool>(decimal.MaxValue, true), new KeyValuePair<decimal, bool>(decimal.MaxValue, true), },
+			};
+			var elementType = ar.GetType().GetElementType();
+			var elementSize = ReflectionHelper.UnsafeGetSize(elementType);
+			var byteCount = elementSize * ar.Length;
+			var buffer = new byte[byteCount];
+
+			// Does not work: array header is different for multi dimensional arrays!
+			/*
+			var sourceBytes = Unsafe.As<byte[]>(ar);
+			Unsafe.CopyBlock(ref buffer[0], ref sourceBytes[0], (uint)byteCount);
+
+			Array clone = Array.CreateInstance(elementType, 2, 2);
+			var targetBytes = Unsafe.As<byte[]>(clone);
+			Unsafe.CopyBlock(ref targetBytes[0], ref buffer[0], (uint)byteCount);
+			*/
+
+			var sourceBytes = Unsafe.As<byte[,]>(ar);
+			Unsafe.CopyBlock(ref buffer[0], ref sourceBytes[0, 0], (uint)byteCount);
+
+			Array clone = Array.CreateInstance(elementType, 2, 2);
+			var targetBytes = Unsafe.As<byte[,]>(clone);
+			Unsafe.CopyBlock(ref targetBytes[0, 0], ref buffer[0], (uint)byteCount);
+		}
+
+		static void ReinterpretMultiDimensionalArray2()
+		{
+			Array ar = new[,] // 3x3
+			{
+				{  new KeyValuePair<decimal, bool>(decimal.MaxValue, true), new KeyValuePair<decimal, bool>(decimal.MaxValue, true), new KeyValuePair<decimal, bool>(decimal.MaxValue, true), },
+				{  new KeyValuePair<decimal, bool>(decimal.MaxValue, true), new KeyValuePair<decimal, bool>(decimal.MaxValue, true), new KeyValuePair<decimal, bool>(decimal.MaxValue, true), },
+				{  new KeyValuePair<decimal, bool>(1, true), new KeyValuePair<decimal, bool>(2, true), new KeyValuePair<decimal, bool>(3, true), },
+			};
+			var elementType = ar.GetType().GetElementType();
+			var elementSize = ReflectionHelper.UnsafeGetSize(elementType);
+			var byteCount = elementSize * ar.Length;
+			var buffer = new byte[byteCount];
+
+
+			var sourceBytes = Unsafe.As<byte[,]>(ar);
+			Unsafe.CopyBlock(ref buffer[0], ref sourceBytes[0, 0], (uint)byteCount);
+
+			Array clone = Array.CreateInstance(elementType, 3, 3);
+			var targetBytes = Unsafe.As<byte[,]>(clone);
+			Unsafe.CopyBlock(ref targetBytes[0, 0], ref buffer[0], (uint)byteCount);
+
+			// Need to keep padding in mind
+			var sizeDecimal = ReflectionHelper.UnsafeGetSize(typeof(decimal)); // 16
+			var sizeBool = ReflectionHelper.UnsafeGetSize(typeof(bool)); // 1
+			var sizeKeyValuePair = ReflectionHelper.UnsafeGetSize(typeof(KeyValuePair<decimal, bool>)); // 20
+		}
 
 		static void CustomComparerFormatter()
 		{
