@@ -586,6 +586,16 @@ namespace Ceras
 
 				InstanceData.ObjectCache.ClearDeserializationCache();
 				InstanceData.EncounteredSchemaTypes.Clear();
+
+				
+				// Reading beyond the buffer is possible in many scenarios (when using unsafe pointers to read some stuff directly)
+				// Checking in front of every call would totally trash performance, so that's not a good option
+				// But checking once, after we're done reading, if we've read beyond the array bounds is cheap and offers the same amount of
+				// protection because we're still throwing an exception and not returning a value, so there's no danger of returning objects built from invalid data.
+				if(offset > buffer.Length)
+				{
+					throw new IndexOutOfRangeException($"The read cursor ended up beyond the array bounds, meaning that the given data is corrupted. Was the given data serialized using different settings? Did any of the classes/structs change?");
+				}
 			}
 			finally
 			{

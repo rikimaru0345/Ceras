@@ -191,6 +191,10 @@ namespace Ceras.Formatters
 			if (bytes == 0)
 				return;
 
+			int remainingBytes = buffer.Length - offset;
+			if(bytes > remainingBytes)
+				throw new IndexOutOfRangeException($"Trying to read an array of '{typeof(T).FriendlyName()}' ({count} elements, {bytes} bytes) but only {remainingBytes} bytes are left in the buffer (buffer length: {buffer.Length}, offset: {offset}).");
+
 			// Read
 			fixed (T* ar = &value[0])
 			{

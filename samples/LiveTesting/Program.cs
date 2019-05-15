@@ -8,7 +8,6 @@ namespace LiveTesting
 	using Ceras.Helpers;
 	using Ceras.Resolvers;
     using Newtonsoft.Json;
-    using PlayerIOClient;
     using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.IO;
