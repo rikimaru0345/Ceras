@@ -5,6 +5,7 @@
     <TargetFramework>net47</TargetFramework>
   <PlatformTarget>AnyCPU</PlatformTarget>
   <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
   </PropertyGroup>
 
   <ItemGroup>
