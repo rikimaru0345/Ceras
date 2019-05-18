@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace Ceras
 {
@@ -109,8 +109,8 @@ namespace Ceras
 	class AnimationCurveFormatter : IFormatter<AnimationCurve>
 	{
 		// Auto-injected by Ceras
-		IFormatter<Keyframe> _keyframeFormatter;
-		EnumFormatter<WrapMode> _wrapModeFormatter;
+		IFormatter<Keyframe> _keyframeFormatter = default;
+		EnumFormatter<WrapMode> _wrapModeFormatter = default;
 
 		public void Serialize(ref byte[] buffer, ref int offset, AnimationCurve value)
 		{
@@ -176,9 +176,9 @@ namespace Ceras
 	class GradientFormatter : IFormatter<Gradient>
 	{
 		// Auto-injected by Ceras
-		IFormatter<GradientAlphaKey[]> _alphaKeysFormatter;
-		IFormatter<GradientColorKey[]> _colorKeysFormatter;
-		EnumFormatter<GradientMode> _gradientModeFormatter;
+		IFormatter<GradientAlphaKey[]> _alphaKeysFormatter = default;
+		IFormatter<GradientColorKey[]> _colorKeysFormatter = default;
+		EnumFormatter<GradientMode> _gradientModeFormatter = default;
 
 		public void Serialize(ref byte[] buffer, ref int offset, Gradient value)
 		{
