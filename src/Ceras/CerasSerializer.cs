@@ -1060,7 +1060,7 @@ namespace Ceras
 		/// <summary>
 		/// If you're ever not sure why some member gets included (or doesn't) this method will help.
 		/// The report will explain for every member why exactly Ceras decided that it should get serialized (or why it should be excluded).
-		/// You can also look into each member individually by checking out <see cref="Members"/> if you don't need the full report.
+		/// You can also look into each member individually by checking out <see cref="TypeConfig.Members"/> if you don't need the full report.
 		/// </summary>
 		public string GenerateSerializationDebugReport(Type type)
 		{
