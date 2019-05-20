@@ -38,7 +38,7 @@
 		{
 			EnsureCapacity(ref buffer, offset, 4 + 1);
 
-			var zigZag = EncodeZigZag((long)value, 32);
+			var zigZag = EncodeZigZag32((long)value);
 			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
 		}
 
@@ -115,7 +115,7 @@
 		{
 			EnsureCapacity(ref buffer, offset, 8 + 1);
 
-			var zigZag = EncodeZigZag((long)value, 64);
+			var zigZag = EncodeZigZag64((long)value);
 			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
 		}
 
@@ -132,7 +132,7 @@
 		{
 			EnsureCapacity(ref buffer, offset, 8 + 1);
 
-			var zigZag = EncodeZigZag((long)value, 64);
+			var zigZag = EncodeZigZag64((long)value);
 			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
 		}
 
@@ -246,7 +246,10 @@
 		}
 
 
-
+		// todo: 
+		// 1. Test if unrolling (to max 9 bytes) is faster than our loop
+		// 2. I've read about some optimization that could be applied to the protobuf varint writer, maybe the same can be done here?
+		// 3. Would it make any sense to use unsafe code to address into the buffer directly (skipping bounds checks?)
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		static void WriteVarInt(ref byte[] buffer, ref int offset, ulong value)
 		{
@@ -422,6 +425,24 @@
 
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long EncodeZigZag32(long value) => (value << 1) ^ (value >> (32 - 1));
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long EncodeZigZag64(long value) => (value << 1) ^ (value >> (64 - 1));
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long DecodeZigZag(ulong value)
+		{
+			if ((value & 0x1) != 0)
+			{
+				return (-1 * ((long)(value >> 1) + 1));
+			}
+
+			return (long)(value >> 1);
+		}
+
+		/*
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static long EncodeZigZag(long value, int bitLength)
 		{
 			return (value << 1) ^ (value >> (bitLength - 1));
@@ -437,6 +458,7 @@
 
 			return (long)(value >> 1);
 		}
+		*/
 
 
 		/// <summary>
