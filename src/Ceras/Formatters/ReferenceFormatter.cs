@@ -638,23 +638,24 @@
 }
 
 /*
-	Serializing types as values.
+	Serializing an instance of 'Type':
+
 	Let's say someone has a field like this: `object obj = typeof(Bla);`
 	We don't know what's inside the field from just the field-type (which is just 'object').
-	So as always, we'd have to write the type.
-	Usually we would get the type of the value, so "obj.GetType()", but in this case that would not work at all, as the result
-	would of 'typeof(Type).GetType()' is actually 'System.RuntimeType'!
+	So as always, we'd have to write the type. To do that we would just call "obj.GetType()",
+	but in this case that won't work because the result of 'typeof(Type).GetType()' is 'System.RuntimeType'.
 
-	Resolving this would be possible with some special cases in the TypeFormatter.
-	But that would slow things down, and there is actually one
-	more (even more important) problem that is not immediately apparent: sharing!
+	In theory we could resolve this by having a special case in the TypeFormatter (catching RuntimeType...)
+	but that would complicate things a lot.
+	And there is another (and even more important) problem that is not immediately apparent: sharing!
 	The TypeFormatter has its own specialized cache for types, so not only could we not profit from its specialized code,
-	we would also write a huge unoptimized string for many types.
+	but we would also potentially write unoptimized strings for many types!
 	And if there are any actual instances of that type we'd waste even more space by encoding the type once with type-encoding
 	and once as a "value".
 
 	Solution:
 	We can resolve all of those problems by making 'Type' a special case (as it should be).
-	After implementing it we realize that this is actually "free" in performance terms.
+
+	According to benchmark tests, the new check for 'Type' is actually free (below noise)in performance terms!
 	So we didn't add any performance penalty AND fixed multiple problems at the same time.
 */
