@@ -452,6 +452,8 @@
 
 		/// <summary>
 		/// True for everything the compiler automatically generates: hidden async-state-machines, automatic enumerator implementations, cached dynamic method dispatchers, ...
+		/// <para>In short, all things you never want to serialize anyway.</para>
+		/// <para>Ceras ignores compiler generated members by default.</para>
 		/// </summary>
 		public bool IsCompilerGenerated { get; }
 		/// <summary>
@@ -459,16 +461,13 @@
 		/// </summary>
 		public bool IsReadonlyField { get; }
 		/// <summary>
-		/// True only for properties that literally have no setter:
+		/// A property that does not have a set-method is called a "computed property", which is different from properties where the setter is just hidden in a base type, or private, ...
 		/// <para>Example 1: int Time => Environment.TickCount;</para>
 		/// <para>Example 2: string Name { get; }</para>
-		/// <para>
-		/// Properties with a private setter are not "computed" (even if the setter is private, or hidden in a base-type)
-		/// </para>
 		/// </summary>
 		public bool IsComputedProperty { get; }
 
-		internal bool HasNonSerialized;
+		internal bool HasNonSerializedAttribute;
 
 		protected ReadonlyFieldHandling? _readonlyOverride;
 		public ReadonlyFieldHandling? ReadonlyFieldHandling
@@ -520,6 +519,19 @@
 		}
 
 
+
+		protected MemberConfig(TypeConfig typeConfig, MemberInfo member)
+		{
+			TypeConfig = typeConfig;
+			Member = member;
+
+			IsCompilerGenerated = member.GetCustomAttribute<CompilerGeneratedAttribute>() != null;
+			IsReadonlyField = member is FieldInfo f && f.IsInitOnly;
+			IsComputedProperty = member is PropertyInfo p && p.GetSetMethod(true) == null;
+		}
+
+
+
 		internal void ExcludeWithReason(string reason) => SetIncludeWithReason(SerializationOverride.ForceSkip, reason);
 
 		internal void SetIncludeWithReason(SerializationOverride serializationOverride, string reason)
@@ -534,20 +546,9 @@
 			_explicitInclusionReason = reason;
 		}
 
-		protected MemberConfig(TypeConfig typeConfig, MemberInfo member)
-		{
-			TypeConfig = typeConfig;
-			Member = member;
-
-			IsCompilerGenerated = member.GetCustomAttribute<CompilerGeneratedAttribute>() != null;
-			IsReadonlyField = member is FieldInfo f && f.IsInitOnly;
-			IsComputedProperty = member is PropertyInfo p && p.GetSetMethod(true) == null;
-		}
-
-
-
+		
 		/// <summary>
-		/// Determine wether or not this member is included for serialization
+		/// Determine whether or not this member is included when serializing/deserializing.
 		/// </summary>
 		/// <returns>true when the member will be serialized/deserialized</returns>
 		public InclusionExclusionResult ComputeFinalInclusion() => ComputeFinalInclusionResult(Member, true);
@@ -562,7 +563,7 @@
 				return new InclusionExclusionResult(_serializationOverride == SerializationOverride.ForceInclude, _explicitInclusionReason);
 
 			// [NonSerialized]
-			if (HasNonSerialized && TypeConfig.Config.Advanced.RespectNonSerializedAttribute)
+			if (HasNonSerializedAttribute && TypeConfig.Config.Advanced.RespectNonSerializedAttribute)
 				return new InclusionExclusionResult(false, $"Member has [NonSerializedAttribute] and 'RespectNonSerializedAttribute' is set in the config.");
 
 

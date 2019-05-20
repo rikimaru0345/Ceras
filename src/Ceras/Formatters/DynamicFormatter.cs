@@ -107,13 +107,13 @@ namespace Ceras.Formatters
 				var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
 				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter " + formatter.GetType().FullName);
 
-				// Access the field that we want to serialize
-				var fieldExp = MakeMemberAccess(valueArg, member.MemberInfo);
+				// Prepare the actual serialize call
+				var serializeCall = Call(formatterExp, serializeMethod, refBufferArg, refOffsetArg, MakeMemberAccess(valueArg, member.MemberInfo));
+
 
 				// Call "Serialize"
 				if (!isSchemaFormatter)
 				{
-					var serializeCall = Call(formatterExp, serializeMethod, refBufferArg, refOffsetArg, fieldExp);
 					body.Add(serializeCall);
 				}
 				else
@@ -127,13 +127,7 @@ namespace Ceras.Formatters
 					body.Add(AddAssign(refOffsetArg, Constant(FieldSizePrefixBytes)));
 
 					// Serialize(...) write the actual data
-					body.Add(Call(
-								   instance: formatterExp,
-								   method: serializeMethod,
-								   arg0: refBufferArg,
-								   arg1: refOffsetArg,
-								   arg2: MakeMemberAccess(valueArg, member.MemberInfo)
-								  ));
+					body.Add(serializeCall);
 
 					// calculate the size of what we just wrote
 					// size = (offset - startPos) - 4; 

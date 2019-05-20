@@ -143,7 +143,7 @@ namespace Ceras
 				memberConfig.ExcludeWithReason("[Exclude] attribute");
 			
 			if(hasNonSerialized)
-				memberConfig.HasNonSerialized = true;
+				memberConfig.HasNonSerializedAttribute = true;
 
 			if (hasInclude)
 				memberConfig.SetIncludeWithReason(SerializationOverride.ForceInclude, "[Include] attribute on member");

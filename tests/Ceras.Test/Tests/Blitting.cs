@@ -242,7 +242,7 @@ namespace Ceras.Test
 		[Fact]
 		public void BlittingEnums()
 		{
-			// We will not use the reinterpret-formatter for enums usually, only if the user forces it.
+			// Usually we don't use the reinterpret-formatter for enum members so we can minimize the size (varint encoding)
 
 			var stressTestValues = new[]
 			{
