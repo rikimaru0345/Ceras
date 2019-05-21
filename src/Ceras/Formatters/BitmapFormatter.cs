@@ -54,7 +54,7 @@ namespace Ceras.Formatters
 			if (size > 0)
 			{
 				SerializerBinary.EnsureCapacity(ref buffer, offset, size);
-				SerializerBinary.FastCopy(streamBuffer, 0, buffer, offset, size);
+				SerializerBinary.FastCopy(streamBuffer, 0, buffer, (uint)offset, (uint)size);
 			}
 
 			offset += size;
@@ -86,7 +86,7 @@ namespace Ceras.Formatters
 			stream.SetLength(size);
 			stream.Position = 0;
 			var streamBuffer = stream.GetBuffer();
-			SerializerBinary.FastCopy(buffer, offset, streamBuffer, 0, size);
+			SerializerBinary.FastCopy(buffer, (uint)offset, streamBuffer, 0, (uint)size);
 
 			stream.Position = 0;
 			img = new Bitmap(stream);

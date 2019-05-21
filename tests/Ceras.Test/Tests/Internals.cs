@@ -182,7 +182,7 @@ namespace Ceras.Test
 				var source = sourceArrays[arIndex];
 				var target = targetArrays[arIndex];
 
-				SerializerBinary.FastCopy(source, 0, target, 0, size);
+				SerializerBinary.FastCopy(source, 0, target, 0, (uint)size);
 
 				Assert.True(size == source.Length);
 				Assert.True(size == target.Length);
