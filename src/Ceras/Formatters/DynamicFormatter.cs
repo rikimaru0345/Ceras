@@ -500,6 +500,4 @@ namespace Ceras.Formatters
 			throw new InvalidOperationException($"The data being read is corrupted. The amount of data read did not match the expected block-size! BlockStart:{startOffset} BlockSize:{blockSize} CurrentOffset:{offset}");
 		}
 	}
-
-	public delegate void SerializeDelegate2<TFormatterContainer, TValue>(TFormatterContainer formatters, ref byte[] buffer, ref int offset, TValue value);
 }
