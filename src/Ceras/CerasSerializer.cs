@@ -190,7 +190,9 @@ namespace Ceras
 		public ProtocolChecksum ProtocolChecksum { get; } = new ProtocolChecksum();
 
 		/// <summary>
-		/// Creates a new CerasSerializer, be sure to check out the tutorial.
+		/// Creates a CerasSerializer. Using the default settings should be ok for most use-cases, but there are lots of settings you can use to optimize for all kinds of scenarios!
+		/// <para>Make sure to check out the wiki for lots of guides, tips, ...</para>
+		/// <para>https://github.com/rikimaru0345/Ceras/wiki </para>
 		/// </summary>
 		public CerasSerializer(SerializerConfig config = null)
 		{
@@ -365,7 +367,7 @@ namespace Ceras
 			var result = new byte[length];
 
 			if(length > 0) // FastCopy must not handle 0
-				SerializerBinary.FastCopy(buffer, 0, result, 0, length);
+				SerializerBinary.FastCopy(buffer, 0, result, 0, (uint)length);
 
 			// We created the temporary array, so now we need to free it again
 			pool.Return(buffer);

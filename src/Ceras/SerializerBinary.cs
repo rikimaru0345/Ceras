@@ -1,6 +1,7 @@
 ﻿namespace Ceras
 {
 	using System;
+	using System.Diagnostics;
 	using System.Runtime.CompilerServices;
 	using System.Text;
 
@@ -424,6 +425,8 @@
 		}
 
 
+		// public static long EncodeZigZag(long value, int bitLength) => (value << 1) ^ (value >> (bitLength - 1));
+
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static long EncodeZigZag32(long value) => (value << 1) ^ (value >> (32 - 1));
 
@@ -441,45 +444,30 @@
 			return (long)(value >> 1);
 		}
 
-		/*
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static long EncodeZigZag(long value, int bitLength)
-		{
-			return (value << 1) ^ (value >> (bitLength - 1));
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static long DecodeZigZag(ulong value)
-		{
-			if ((value & 0x1) == 0x1)
-			{
-				return (-1 * ((long)(value >> 1) + 1));
-			}
-
-			return (long)(value >> 1);
-		}
-		*/
 
 
 		/// <summary>
-		/// Copy up to 512 bytes in a fast path, fallback to BlockCopy/MemoryCopy for larger buffers
+		/// Copy up to 512 bytes in a fast path, else fallback to Unsafe.CopyBlock
+		/// <para>Important: Does not handle size==0 !</para>
 		/// </summary>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		internal static void FastCopy(byte[] sourceArray, int sourceOffset, byte[] targetArray, int targetOffset, int n)
+		internal static void FastCopy(byte[] sourceArray, uint sourceOffset, byte[] targetArray, uint targetOffset, uint size)
 		{
+			Debug.Assert(sourceArray != null, "sourceArray must not be null");
+			Debug.Assert(targetArray != null, "targetArray must not be null");
+
+			// Can't handle 0 because we use '&ar[0]' to bypass bounds check while pinning
+			Debug.Assert(size != 0, "FastCopy must not be called with size=0");
+
+
 #if DEBUG
-			if (n < 0)
-				throw new InvalidOperationException("n must be > 0");
-			if (n == 0 || sourceArray.Length == 0 || targetArray.Length == 0)
-				throw new InvalidOperationException("Copy 0 bytes *must* be optimized out higher up in the call hierarchy because FastCopy does not handle this case!");
-			if (sourceArray.GetType() == targetArray.GetType()) // will be false when we reinterpret array types			
-				if (sourceArray.Length < n || targetArray.Length < n)
-					throw new InvalidOperationException("target or source array have a size smaller than n");
-			if (sourceOffset < 0 || targetOffset < 0)
-				throw new ArgumentOutOfRangeException();
-			if (sourceArray.GetType() == targetArray.GetType()) // will be false when we reinterpret array types	
-				if (sourceOffset + n > sourceArray.Length || targetOffset + n > targetArray.Length)
-					throw new ArgumentOutOfRangeException();
+			// MultidimensionalReinterpretArrayFormatter will unsafe-cast its array to byte[], so the comparison will actually fail.
+			// We shouldn't compare (or even access) '.Length' of an multidimensional array.
+			bool canUseLength = sourceArray.GetType() == typeof(byte[]) && sourceArray.GetType() == targetArray.GetType();
+
+			if (canUseLength)
+				// Detect overflow (reading or writing beyond the end)
+				Debug.Assert(size <= (sourceArray.Length - sourceOffset) && size <= (targetArray.Length - targetOffset), $"FastCopy would overflow source or target! (sourceArray.Length={sourceArray.Length}, sourceOffset={sourceOffset}, targetArray.Length={targetArray.Length}, targetOffset={targetOffset}, size={size})");
 #endif
 
 
@@ -489,23 +477,16 @@
 				byte* src = srcPtr + sourceOffset;
 				byte* dst = destPtr + targetOffset;
 
-				FastCopy(src, dst, n);
+				FastCopy(src, dst, size);
 			}
 		}
 
-		internal static void FastCopy(byte* src, byte* dest, int n)
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		internal static void FastCopy(byte* src, byte* dest, uint size)
 		{
-			if (n > 512)
-			{
-				void* source = (void*)src;
-				void* destination = (void*)dest;
-				Unsafe.CopyBlock(destination, source, (uint)n);
-				return;
-			}
-
-			// Copy up to 512 bytes very quickly
-			SMALLTABLE: // Handles 0 to 16 bytes
-			switch (n)
+			// Check for the small case (<=16 bytes) first because that's where every nanosecond counts.
+			SMALLTABLE:
+			switch (size)
 			{
 			case 16:
 				*(long*)dest = *(long*)src;
@@ -566,13 +547,19 @@
 				break;
 			}
 
+			// For anything above 512 bytes the framework has really optimized code (using SIMD and whatnot)
+			if (size > 512)
+			{
+				Unsafe.CopyBlock((void*)dest, (void*)src, size);
+				return;
+			}
 
-			// Manually copy large chunks, start with blocks of 32 bytes
-			int count = n / 32;
-			n -= (n / 32) * 32;
+			// The 'medium' case is anything between 16 and 512 bytes
+			// Copy in 32byte blocks...
+			uint dwordCount = size / 32;
+			size -= (size / 32) * 32;
 
-			// Copy in blocks of 32 bytes
-			while (count > 0)
+			while (dwordCount > 0)
 			{
 				((long*)dest)[0] = ((long*)src)[0]; // 8
 				((long*)dest)[1] = ((long*)src)[1]; // 16
@@ -581,23 +568,22 @@
 
 				dest += 32;
 				src += 32;
-				count--;
+				dwordCount--;
 			}
 
-			// Copy 16 byte blocks
-			if (n > 16)
+			// Single 16 byte block...
+			if (size > 16)
 			{
 				((long*)dest)[0] = ((long*)src)[0];
 				((long*)dest)[1] = ((long*)src)[1];
 
 				src += 16;
 				dest += 16;
-				n -= 16;
+				size -= 16;
 			}
 
-			// The remaining bytes can be handled by the jump table optimized for small copies
+			// We'll have anything between 0 and 16 bytes left
 			goto SMALLTABLE;
-
 		}
 
 
