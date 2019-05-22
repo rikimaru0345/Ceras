@@ -11,7 +11,7 @@
 	{
 		public static StringBuilder Generate(Type type, CerasSerializer ceras, StringBuilder text)
 		{
-			text.AppendLine($"internal class {type.Name}Formatter : IFormatter<{type.FullName}>");
+			text.AppendLine($"internal class {type.ToVariableSafeName()}Formatter : IFormatter<{type.ToFriendlyName(true)}>");
 			text.AppendLine("{");
 			GenerateClassContent(text, ceras, type);
 			text.AppendLine("}");
@@ -38,14 +38,14 @@
 			{
 				var t = m.MemberType;
 				var fieldName = MakeFormatterFieldName(t);
-				text.AppendLine($" IFormatter<{t.FullName}> {fieldName};");
+				text.AppendLine($" IFormatter<{t.ToFriendlyName(true)}> {fieldName};");
 			}
 			text.AppendLine("");
 		}
 
 		static void GenerateSerializer(StringBuilder text, Schema schema)
 		{
-			text.AppendLine($"public void Serialize(ref byte[] buffer, ref int offset, {schema.Type.FullName} value)");
+			text.AppendLine($"public void Serialize(ref byte[] buffer, ref int offset, {schema.Type.ToFriendlyName(true)} value)");
 			text.AppendLine("{");
 
 			foreach (var m in schema.Members)
@@ -61,7 +61,7 @@
 
 		static void GenerateDeserializer(StringBuilder text, Schema schema)
 		{
-			text.AppendLine($"public void Deserialize(byte[] buffer, ref int offset, ref {schema.Type.FullName} value)");
+			text.AppendLine($"public void Deserialize(byte[] buffer, ref int offset, ref {schema.Type.ToFriendlyName(true)} value)");
 			text.AppendLine("{");
 
 			foreach (var m in schema.Members)
@@ -77,13 +77,12 @@
 
 		static string MakeFormatterFieldName(Type formattedType)
 		{
-			string typeName = formattedType.Name;
+			string typeName = formattedType.ToVariableSafeName();
 
+			// lowercase first char
 			typeName = char.ToLowerInvariant(typeName[0]) + typeName.Remove(0, 1);
 
-			typeName = "_" + typeName;
-
-			typeName = typeName + "Formatter";
+			typeName = "_" + typeName + "Formatter";
 
 			return typeName;
 		}
@@ -94,22 +93,22 @@
 	{
 		public static void Generate(Type enumType, StringBuilder text)
 		{
-			var n = enumType.FullName;
+			var enumBaseTypeName = enumType.ToFriendlyName(true);
 			var baseType = enumType.GetEnumUnderlyingType();
 			
 			text.AppendLine($@"
-class EnumFormatter : IFormatter<{n}>
+class EnumFormatter : IFormatter<{enumBaseTypeName}>
 {{
-		IFormatter<{baseType.FullName}> _valueFormatter;
+		IFormatter<{baseType.ToFriendlyName(true)}> _valueFormatter;
 
-		public void Serialize(ref byte[] buffer, ref int offset, {n} value)
+		public void Serialize(ref byte[] buffer, ref int offset, {enumBaseTypeName} value)
 		{{
-			_valueFormatter.Serialize(ref buffer, ref offset, ({baseType.FullName})value);
+			_valueFormatter.Serialize(ref buffer, ref offset, ({baseType.ToFriendlyName(true)})value);
 		}}
 
-		public void Deserialize(byte[] buffer, ref int offset, ref {n} value)
+		public void Deserialize(byte[] buffer, ref int offset, ref {enumBaseTypeName} value)
 		{{
-			{baseType.FullName} x = default({baseType.FullName});
+			{baseType.ToFriendlyName(true)} x = default({baseType.ToFriendlyName(true)});
 			_valueFormatter.Deserialize(buffer, ref offset, ref x);
 			value = x;
 		}}

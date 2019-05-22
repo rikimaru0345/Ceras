@@ -45,20 +45,20 @@ namespace CerasAotFormatterGenerator
 
 
 			AppDomain.CurrentDomain.AssemblyResolve += ResolveAssembly;
-			
+
 			var asms = inputAssemblies.Select(Assembly.LoadFrom);
 
 			var (ceras, targets) = CreateSerializerAndTargets(asms);
 
-			
-			
+
+
 			StringBuilder fullCode = new StringBuilder(25 * 1000);
 			fullCode.AppendLine("using Ceras;");
 			fullCode.AppendLine("using Ceras.Formatters;");
 			fullCode.AppendLine("namespace Ceras.GeneratedFormatters");
 			fullCode.AppendLine("{");
 
-			var setCustomFormatters = targets.Select(t => $"config.ConfigType<{t.FullName}>().CustomFormatter = new {t.Name}Formatter();");
+			var setCustomFormatters = targets.Select(t => $"config.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
 			fullCode.AppendLine($@"
 static class GeneratedFormatters
 {{
@@ -72,13 +72,13 @@ static class GeneratedFormatters
 			foreach (var t in targets)
 				SourceFormatterGenerator.Generate(t, ceras, fullCode);
 			fullCode.AppendLine("}");
-			
+
 			Console.WriteLine($"Parsing...");
 
 			var syntaxTree = CSharpSyntaxTree.ParseText(fullCode.ToString());
-			
+
 			Console.WriteLine($"Formatting...");
-			
+
 			var workspace = new AdhocWorkspace();
 			var options = workspace.Options
 								   .WithChangedOption(CSharpFormattingOptions.IndentBlock, true)
@@ -98,7 +98,7 @@ static class GeneratedFormatters
 				w.WriteLine(syntaxTree.ToString());
 			}
 
-			
+
 
 			// todo: maybe we'll generate an assembly instead of source code at some pointlater...
 			//GenerateFormattersAssembly(targets);
@@ -109,34 +109,31 @@ static class GeneratedFormatters
 
 		static (CerasSerializer, List<Type>) CreateSerializerAndTargets(IEnumerable<Assembly> asms)
 		{
-			// Set of types we've yet to explore
-			HashSet<Type> newTypes = new HashSet<Type>();
-
-
-			// Create Ceras instance first
 			// Find config method and create a SerializerConfig
 			SerializerConfig config = new SerializerConfig();
-			var configMethods = asms.SelectMany(a=>a.GetTypes())
+			var configMethods = asms.SelectMany(a => a.GetTypes())
 									.SelectMany(t => t.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
 									.Where(m => m.GetCustomAttribute<CerasAutoGenConfigAttribute>() != null)
 									.ToArray();
 			if (configMethods.Length > 1)
-				throw new Exception("Found more than one config method!");
+				throw new Exception("Found more than one method with the CerasAutoGenConfig attribute!");
 			if (configMethods.Length == 1)
 				config = (SerializerConfig)configMethods[0].Invoke(null, null);
 
-			newTypes.AddRange(config.KnownTypes);
-
+			config.VersionTolerance.Mode = VersionToleranceMode.Disabled; // ensure VersionTolerance is off so we don't accidentally get 'SchemaDynamicFormatter'
 			var ceras = new CerasSerializer(config);
 
 
-			//
-			// Also find all types that are marked by the attribute
+			// Start with KnownTypes...
+			HashSet<Type> newTypes = new HashSet<Type>();
+			newTypes.AddRange(config.KnownTypes);
+
+			// And also include all marked types
 			var marker = typeof(CerasAutoGenFormatterAttribute);
 
 			bool HasMarker(Type t) => t.GetCustomAttributes(true)
-			                           .Any(a => a.GetType().FullName == marker.FullName);
-			
+									   .Any(a => a.GetType().FullName == marker.FullName);
+
 			var markedTargets = asms.SelectMany(a => a.GetTypes())
 									.Where(t => !t.IsAbstract && HasMarker(t));
 
@@ -145,7 +142,7 @@ static class GeneratedFormatters
 
 			// Go through each type, add all the member-types it wants to serialize as well
 			HashSet<Type> allTypes = new HashSet<Type>();
-			
+
 			while (newTypes.Any())
 			{
 				// Get first, remove from "to explore" list, and add it to the "done" list.
@@ -165,7 +162,7 @@ static class GeneratedFormatters
 				// Explore the type, add all member types
 				var schema = ceras.GetTypeMetaData(t).PrimarySchema;
 
-				foreach(var member in schema.Members)
+				foreach (var member in schema.Members)
 					if (!allTypes.Contains(member.MemberType))
 						newTypes.Add(member.MemberType);
 			}
@@ -206,9 +203,16 @@ static class GeneratedFormatters
 		{
 			foreach (var dllPath in Directory.EnumerateFiles(path, "*.dll", SearchOption.AllDirectories))
 			{
-				var asmName = AssemblyName.GetAssemblyName(dllPath);
-				if (asmName.FullName == name)
-					return Assembly.LoadFrom(dllPath);
+				try
+				{
+					var asmName = AssemblyName.GetAssemblyName(dllPath);
+					if (asmName.FullName == name)
+						return Assembly.LoadFrom(dllPath);
+				}
+				catch (BadImageFormatException badImgEx)
+				{
+					Console.WriteLine($"Skipping module \"{dllPath}\" (BadImageFormat: probably not a .NET dll)");
+				}
 			}
 
 			return null;
