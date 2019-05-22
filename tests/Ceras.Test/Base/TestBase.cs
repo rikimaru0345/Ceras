@@ -73,7 +73,7 @@ namespace Ceras.Test
 				if (!testMode.HasFlag(TestMode.AllowNull))
 					Assert.NotNull(clone);
 
-				if (typeof(T) == typeof(object))
+				if (!typeof(T).IsValueType)
 					if (ReferenceEquals(obj, null) ^ ReferenceEquals(clone, null))
 						Assert.True(false, "objects must both have a value or both be null");
 

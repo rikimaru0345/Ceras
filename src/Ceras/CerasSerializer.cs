@@ -12,6 +12,7 @@ namespace Ceras
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using System.Linq.Expressions;
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
 	using System.Text;
@@ -154,7 +155,8 @@ namespace Ceras
 		/// </summary>
 		public ICerasAdvanced Advanced => this;
 
-		Type[] _knownTypes; // Copy of the list given by the user in Config; Array iteration is faster though
+
+		readonly Type[] _knownTypes; // Copy of the list given by the user in Config; Array iteration is faster
 
 		// A special resolver. It creates instances of the "dynamic formatter", the DynamicFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
 		// for a given object type.
@@ -234,7 +236,7 @@ namespace Ceras
 				stringFormatter = new MaxSizeStringFormatter(Config.Advanced.SizeLimits.MaxStringLength);
 			else
 				stringFormatter = new StringFormatter();
-			InjectDependencies(stringFormatter);
+			PrepareFormatter(stringFormatter);
 			SetFormatters(typeof(string), stringFormatter, stringFormatter);
 
 			//
@@ -346,6 +348,15 @@ namespace Ceras
 			if (Config.Advanced.SealTypesWhenUsingKnownTypes)
 				if (_knownTypes.Length > 0)
 					typeFormatter.Seal();
+
+
+			void SetFormatters(Type type, IFormatter specific, IFormatter reference)
+			{
+				var meta = GetTypeMetaData(type);
+
+				meta.SpecificFormatter = specific;
+				meta.ReferenceFormatter = reference;
+			}
 		}
 
 
@@ -357,20 +368,26 @@ namespace Ceras
 		/// </summary>
 		public byte[] Serialize<T>(T obj)
 		{
-			// This method is often used for testing / smaller objects, so we allocate a small buffer
-			var pool = CerasBufferPool.Pool ?? NullPool.Instance;
-			byte[] buffer = pool.RentBuffer(0x1000);
+			// This method is often used for testing / smaller objects, so we allocate a relatively small buffer
+			byte[] buffer = CerasBufferPool.Pool.RentBuffer(0x1000);
 
 			int length = Serialize(obj, ref buffer);
 
 			// Return the result in a perfectly sized buffer
 			var result = new byte[length];
 
-			if(length > 0) // FastCopy must not handle 0
-				SerializerBinary.FastCopy(buffer, 0, result, 0, (uint)length);
+			if (length > 0)
+			{
+				unsafe
+				{
+					fixed (byte* source = &buffer[0])
+					fixed (byte* target = &result[0])
+						Unsafe.CopyBlock(target, source, (uint)length);
+				}
+			}
 
-			// We created the temporary array, so now we need to free it again
-			pool.Return(buffer);
+			// Return the rented buffer
+			CerasBufferPool.Pool.Return(buffer);
 
 			return result;
 		}
@@ -387,10 +404,7 @@ namespace Ceras
 			EnterRecursive(RecursionMode.Serialization);
 
 			if (buffer == null)
-			{
-				var pool = CerasBufferPool.Pool ?? NullPool.Instance;
-				buffer = pool.RentBuffer(0x4000); // 16k
-			}
+				buffer = CerasBufferPool.Rent(0x4000); // 16k
 
 			try
 			{
@@ -440,65 +454,6 @@ namespace Ceras
 		}
 
 
-		byte[] ICerasAdvanced.SerializeStatic(Type type)
-		{
-			if (type.ContainsGenericParameters)
-				throw new InvalidOperationException();
-
-			var meta = GetStaticTypeMetaData(type);
-			IFormatter f = meta.SpecificFormatter;
-			if (f == null)
-			{
-				var ft = typeof(DynamicFormatter<>).MakeGenericType(type);
-				f = meta.SpecificFormatter = (IFormatter)Activator.CreateInstance(ft, new object[] { this, true });
-			}
-
-			var serialize = f.GetType().GetMethod("Serialize");
-
-
-			var buffer = new byte[0x1000];
-			var args = new object[]
-			{
-				buffer, // buffer
-				0, // offset
-				null // value: for static classes this is null
-			};
-			serialize.Invoke(f, args);
-
-			buffer = (byte[])args[0];
-			int offset = (int)args[1];
-
-			Array.Resize(ref buffer, offset);
-
-			return buffer;
-		}
-
-		void ICerasAdvanced.DeserializeStatic(Type type, byte[] buffer)
-		{
-			if (type.ContainsGenericParameters)
-				throw new InvalidOperationException();
-
-			var meta = GetStaticTypeMetaData(type);
-			IFormatter f = meta.SpecificFormatter;
-			if (f == null)
-			{
-				var ft = typeof(DynamicFormatter<>).MakeGenericType(type);
-				f = meta.SpecificFormatter = (IFormatter)Activator.CreateInstance(ft, new object[] { this, true });
-			}
-
-
-			var deserialize = f.GetType().GetMethod("Deserialize");
-
-			var args = new object[]
-			{
-				buffer, // buffer
-				0, // offset
-				null // value: for static classes this is null
-			};
-			deserialize.Invoke(f, args);
-		}
-
-
 		/// <summary>
 		/// Convenience method that will most likely allocate a T to return (using 'new T()'). Unless the data says the object really is null, in that case no instance of T is allocated.
 		/// It would be smart to not use this method and instead use another overload. 
@@ -512,7 +467,6 @@ namespace Ceras
 			Deserialize(ref value, buffer, ref offset);
 			return value;
 		}
-
 
 		/// <summary>
 		/// Deserializes an object from previously serialized data.
@@ -589,12 +543,12 @@ namespace Ceras
 				InstanceData.ObjectCache.ClearDeserializationCache();
 				InstanceData.EncounteredSchemaTypes.Clear();
 
-				
+
 				// Reading beyond the buffer is possible in many scenarios (when using unsafe pointers to read some stuff directly)
 				// Checking in front of every call would totally trash performance, so that's not a good option
 				// But checking once, after we're done reading, if we've read beyond the array bounds is cheap and offers the same amount of
 				// protection because we're still throwing an exception and not returning a value, so there's no danger of returning objects built from invalid data.
-				if(offset > buffer.Length)
+				if (offset > buffer.Length)
 				{
 					throw new IndexOutOfRangeException($"The read cursor ended up beyond the array bounds, meaning that the given data is corrupted. Was the given data serialized using different settings? Did any of the classes/structs change?");
 				}
@@ -604,6 +558,109 @@ namespace Ceras
 				LeaveRecursive(RecursionMode.Deserialization);
 			}
 		}
+
+
+
+		byte[] ICerasAdvanced.SerializeStatic(Type type)
+		{
+			var tempBuffer = CerasBufferPool.Rent(0x1000);
+
+			int offset = 0;
+			int length = ((ICerasAdvanced)this).SerializeStatic(type, ref tempBuffer, ref offset);
+
+			// Resize
+			var result = new byte[length];
+
+			if (length > 0)
+				unsafe
+				{
+					fixed (byte* source = &tempBuffer[0])
+					fixed (byte* target = &result[0])
+						Unsafe.CopyBlock(target, source, (uint)length);
+				}
+
+			CerasBufferPool.Return(tempBuffer);
+
+			return result;
+		}
+
+		int ICerasAdvanced.SerializeStatic(Type type, ref byte[] buffer, ref int offset)
+		{
+			if (type.ContainsGenericParameters)
+				throw new InvalidOperationException("Type must not have any unspecified generic arguments");
+
+			var meta = GetStaticTypeMetaData(type);
+			if (meta.StaticSerialize == null)
+				PrepareStaticSerializationDispatchers(meta);
+
+
+			int startOffset = offset;
+			meta.StaticSerialize(ref buffer, ref offset);
+
+			return offset - startOffset;
+		}
+
+		void ICerasAdvanced.DeserializeStatic(Type type, byte[] buffer)
+		{
+			int offset = 0;
+			((ICerasAdvanced)this).DeserializeStatic(type, buffer, ref offset);
+		}
+
+		int ICerasAdvanced.DeserializeStatic(Type type, byte[] buffer, ref int offset)
+		{
+			if (type.ContainsGenericParameters)
+				throw new InvalidOperationException("Type must not have any unspecified generic arguments");
+
+			var meta = GetStaticTypeMetaData(type);
+			if (meta.StaticDeserialize == null)
+				PrepareStaticSerializationDispatchers(meta);
+
+			int offsetBefore = offset;
+			meta.StaticDeserialize(buffer, ref offset);
+
+			return offset - offsetBefore;
+		}
+
+		void PrepareStaticSerializationDispatchers(TypeMetaData meta)
+		{
+			var formatterType = typeof(DynamicFormatter<>).MakeGenericType(meta.Type);
+			var f = (IFormatter)Activator.CreateInstance(formatterType, new object[] { this, true });
+			meta.SpecificFormatter = f;
+			((DynamicFormatter)f).Initialize();
+
+			/* (ref buffer, ref offset) => 
+			 * {
+			 *    f.Serialize(ref buffer, ref offset, null);
+			 * }
+			 */
+			var serialize = f.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
+			var refBufferArg = Expression.Parameter(typeof(byte[]).MakeByRefType(), "refBuffer");
+			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "refOffset");
+
+			meta.StaticSerialize = Expression.Lambda<StaticSerializeDelegate>(
+				Expression.Call(
+					instance: Expression.Constant(f),
+					method: serialize,
+					arguments: new Expression[] { refBufferArg, refOffsetArg, Expression.Constant(null, meta.Type) }),
+				new ParameterExpression[] { refBufferArg, refOffsetArg }).Compile();
+
+
+			/* (buffer, ref offset) =>
+			 * {
+			 *    f.Deserialize(buffer, ref offset, null);
+			 * }
+			 */
+			var deserialize = f.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
+			var bufferArg = Expression.Parameter(typeof(byte[]), "buffer");
+
+			meta.StaticDeserialize = Expression.Lambda<StaticDeserializeDelegate>(
+				Expression.Call(
+					instance: Expression.Constant(f),
+					method: deserialize,
+					arguments: new Expression[] { bufferArg, refOffsetArg, Expression.Constant(null, meta.Type) }),
+				new ParameterExpression[] { bufferArg, refOffsetArg }).Compile();
+		}
+
 
 
 		Type ICerasAdvanced.PeekType(byte[] buffer)
@@ -642,7 +699,7 @@ namespace Ceras
 		{
 			var meta = GetTypeMetaData(type);
 
-			if (meta.IsValueType)
+			if (meta.Type.IsValueType)
 			{
 				// Value types are not reference types, so they are not wrapped
 				return GetSpecificFormatter(type, meta);
@@ -654,15 +711,16 @@ namespace Ceras
 
 
 			// 2.) Create a reference formatter (which internally obtains the matching specific one)
+			Type refFormatterType;
+
 			bool isType = typeof(Type).IsAssignableFrom(type);
 			bool isExternalRootObj = typeof(IExternalRootObject).IsAssignableFrom(type);
-			
-			Type refFormatterType;
-			if(type.IsSealed && !isType && !isExternalRootObj)
+			bool isVersionTolerantMode = Config.VersionTolerance.Mode != VersionToleranceMode.Disabled;
+			if (type.IsSealed && !isType && !isExternalRootObj && !isVersionTolerantMode)
 				refFormatterType = typeof(ReferenceFormatter_KnownSealedType<>).MakeGenericType(type);
 			else
 				refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
-			
+
 			var referenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
 
 			meta.ReferenceFormatter = referenceFormatter;
@@ -697,7 +755,7 @@ namespace Ceras
 			{
 				meta.SpecificFormatter = meta.TypeConfig.CustomFormatter;
 				FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
-				InjectDependencies(meta.SpecificFormatter);
+				PrepareFormatter(meta.SpecificFormatter);
 				return meta.SpecificFormatter;
 			}
 			if (!meta.IsPrimitive && meta.TypeConfig.CustomResolver != null)
@@ -705,10 +763,10 @@ namespace Ceras
 				var formatter = meta.TypeConfig.CustomResolver(this, type);
 				meta.SpecificFormatter = formatter ?? throw new InvalidOperationException($"The custom formatter-resolver registered for Type '{type.FullName}' has returned 'null'.");
 				FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
-				InjectDependencies(meta.SpecificFormatter);
+				PrepareFormatter(meta.SpecificFormatter);
 				return meta.SpecificFormatter;
 			}
-			
+
 
 			// 3.) User
 			if (!meta.IsPrimitive)
@@ -719,7 +777,7 @@ namespace Ceras
 					{
 						meta.SpecificFormatter = formatter;
 						FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
-						InjectDependencies(formatter);
+						PrepareFormatter(formatter);
 						return formatter;
 					}
 				}
@@ -731,7 +789,7 @@ namespace Ceras
 				if (formatter != null)
 				{
 					meta.SpecificFormatter = formatter;
-					InjectDependencies(formatter);
+					PrepareFormatter(formatter);
 					return formatter;
 				}
 			}
@@ -742,11 +800,7 @@ namespace Ceras
 				if (formatter != null)
 				{
 					meta.SpecificFormatter = formatter;
-					InjectDependencies(formatter);
-
-					if(formatter is DynamicFormatter dynamicFormatter) // Might also be SchemaFormatter
-						dynamicFormatter.Initialize();
-
+					PrepareFormatter(formatter);
 					return formatter;
 				}
 			}
@@ -797,19 +851,12 @@ namespace Ceras
 
 
 
-		void SetFormatters(Type type, IFormatter specific, IFormatter reference)
+		void PrepareFormatter(IFormatter formatter)
 		{
-			var meta = GetTypeMetaData(type);
+			if(formatter is DynamicFormatter dyn)
+				dyn.Initialize();
 
-			meta.SpecificFormatter = specific;
-			meta.ReferenceFormatter = reference;
-		}
-
-
-		void InjectDependencies(IFormatter formatter)
-		{
-			// Straightforward DI system
-			// Injects:
+			// Simple DI system, injects:
 			// - IFormatter<> and types derived from it
 			// - CerasSerializer
 
@@ -1165,18 +1212,33 @@ namespace Ceras
 	public interface ICerasAdvanced
 	{
 		/// <summary>
-		/// Serialize the values of a static class or the static members of a normal class.
+		/// Serialize the static members of a type.
 		/// </summary>
 		byte[] SerializeStatic(Type type);
 
 		/// <summary>
-		/// Deserialize the values of a static class or the static members of a normal class.
+		/// Serialize the static members of a type.
+		/// </summary>
+		/// <returns>The number of bytes written</returns>
+		int SerializeStatic(Type type, ref byte[] buffer, ref int offset);
+
+		/// <summary>
+		/// Deserialize the static members of a type.
 		/// </summary>
 		void DeserializeStatic(Type type, byte[] buffer);
 
 		/// <summary>
-		/// Allows you to "peek" the object the data contains without having to fully deserialize the whole object.
-		/// <para>Only works for data that was saved without version tolerance (maybe that will be supported eventually, if someone requests it)</para>
+		/// Deserialize the static members of a type.
+		/// </summary>
+		/// <returns>The number of bytes read</returns>
+		int DeserializeStatic(Type type, byte[] buffer, ref int offset);
+
+		/// <summary>
+		/// Read the type of the serialized object without fully deserializing it.
+		/// <para>Only works if the type was actually written, which is not always the case. You can make sure the type-data is available by explicitly specifying 'object' while serializing:</para>
+		/// <c>ceras.Serialize&lt;object&gt;(...)</c>
+		/// <para/>
+		/// Also will not work if the data was saved with version tolerance (can be implemented when someone requests it)
 		/// </summary>
 		Type PeekType(byte[] buffer);
 
@@ -1290,7 +1352,6 @@ namespace Ceras
 		public readonly Type Type;
 		public readonly bool IsFrameworkType;
 		public readonly bool IsPrimitive; // serialization primitive is meant
-		public readonly bool IsValueType;
 		public bool HasSchema => !IsPrimitive && !IsFrameworkType;
 
 		public readonly TypeConfig TypeConfig;
@@ -1307,13 +1368,14 @@ namespace Ceras
 		// Anyone (any formatter) who is interested in schema changes for this type should enter themselves in this list
 		public readonly List<ISchemaTaintedFormatter> OnSchemaChangeTargets = new List<ISchemaTaintedFormatter>();
 
+		public StaticSerializeDelegate StaticSerialize;
+		public StaticDeserializeDelegate StaticDeserialize;
 
 		public TypeMetaData(Type type, TypeConfig typeConfig, bool isFrameworkType, bool isSerializationPrimitive)
 		{
 			Type = type;
 			IsFrameworkType = isFrameworkType;
 			IsPrimitive = isSerializationPrimitive;
-			IsValueType = type.IsValueType;
 			TypeConfig = typeConfig;
 		}
 	}

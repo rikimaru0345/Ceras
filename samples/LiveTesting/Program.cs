@@ -9,7 +9,8 @@ namespace LiveTesting
 	using Ceras.Helpers;
 	using Ceras.Resolvers;
 	using Newtonsoft.Json;
-	using System.Collections.Generic;
+    using System.Buffers;
+    using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.IO;
 	using System.Linq;
@@ -28,7 +29,7 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
-			Benchmarks();
+			//Benchmarks();
 
 
 
@@ -152,6 +153,9 @@ namespace LiveTesting
 			Console.ReadKey();
 		}
 
+		// todo 1: implement reinterpret for multidimensional arrays
+		// todo 2: If we end up with a setting like "config.AllowBlittingOfPaddedTypes", we need to ensure we
+		// calculate the size correctly (to include the padding), and also have different size-results for single elements vs arrays
 		static void ReinterpretMultiDimensionalArray1()
 		{
 			Array ar = new[,] // 2x2
@@ -164,15 +168,6 @@ namespace LiveTesting
 			var byteCount = elementSize * ar.Length;
 			var buffer = new byte[byteCount];
 
-			// Does not work: array header is different for multi dimensional arrays!
-			/*
-			var sourceBytes = Unsafe.As<byte[]>(ar);
-			Unsafe.CopyBlock(ref buffer[0], ref sourceBytes[0], (uint)byteCount);
-
-			Array clone = Array.CreateInstance(elementType, 2, 2);
-			var targetBytes = Unsafe.As<byte[]>(clone);
-			Unsafe.CopyBlock(ref targetBytes[0], ref buffer[0], (uint)byteCount);
-			*/
 
 			var sourceBytes = Unsafe.As<byte[,]>(ar);
 			Unsafe.CopyBlock(ref buffer[0], ref sourceBytes[0, 0], (uint)byteCount);
@@ -208,6 +203,8 @@ namespace LiveTesting
 			var sizeBool = ReflectionHelper.UnsafeGetSize(typeof(bool)); // 1
 			var sizeKeyValuePair = ReflectionHelper.UnsafeGetSize(typeof(KeyValuePair<decimal, bool>)); // 20
 		}
+
+
 
 		static void CustomComparerFormatter()
 		{

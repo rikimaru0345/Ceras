@@ -22,6 +22,7 @@ namespace Ceras.Helpers
 		}
 
 		
+		// Remove nonsense like 'm_' from variable names
 		public static string CleanMemberName(string name)
 		{
 			if (name.StartsWith("m_"))

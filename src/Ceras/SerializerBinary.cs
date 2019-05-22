@@ -400,7 +400,7 @@
 			// Data
 			var str = _utf8Encoding.GetString(buffer, offset, length);
 			offset += length;
-
+			
 			return str;
 		}
 
@@ -636,28 +636,24 @@
 
 		static void FastResize(ref byte[] buffer, int newSize)
 		{
+			var oldBuffer = buffer;
+
+			#if DEBUG
 			if (newSize <= 0)
 				throw new ArgumentOutOfRangeException(nameof(newSize));
-
-			var oldBuffer = buffer;
-			var pool = CerasBufferPool.Pool ?? NullPool.Instance;
-
 			if (newSize <= oldBuffer.Length)
 				throw new ArgumentOutOfRangeException(nameof(newSize) + " cannot be smaller than (or equal to) the old size");
+			#endif
+
 
 			// Get a new buffer
+			var pool = CerasBufferPool.Pool;
 			byte[] newBuffer = pool.RentBuffer(newSize);
 
 			// Copy what we've written so far into the new buffer
-#if !NET45
-			fixed (byte* pSrc = &oldBuffer[0])
-			fixed (byte* pDst = &newBuffer[0])
-			{
-				Buffer.MemoryCopy(pSrc, pDst, newBuffer.Length, buffer.Length);
-			}
-#else
-			Buffer.BlockCopy(buffer, 0, newBuffer, 0, buffer.Length);
-#endif
+			fixed (byte* source = &oldBuffer[0])
+			fixed (byte* target = &newBuffer[0])
+				Unsafe.CopyBlock(target, source, (uint)oldBuffer.Length);
 
 			// Return the old buffer
 			pool.Return(buffer);

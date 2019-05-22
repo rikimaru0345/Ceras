@@ -766,6 +766,9 @@
 			}
 
 
+			Debug.Assert(objId == NewValueSameType, "Unhandled case in ReferenceFormatter_KnownSealedType: " + objId);
+
+
 			// At this point we know that the 'value' will not be 'null', so if 'value' (the variable) is null we need to create an instance
 			if (value == null)
 			{
@@ -788,7 +791,7 @@
 			objectProxy.Value = value;
 
 			// 3. Actually read the object
-			_formatter.Deserialize(buffer, ref offset, ref value);
+			_formatter.Deserialize(buffer, ref offset, ref objectProxy.Value);
 
 			// 4. Write back the actual value, which instantly resolves all references
 			value = objectProxy.Value;

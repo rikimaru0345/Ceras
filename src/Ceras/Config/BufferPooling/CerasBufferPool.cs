@@ -18,14 +18,16 @@ namespace Ceras
 	}
 
 	/// <summary>
-	/// <para>
-	/// By default, Ceras does *not* use a buffer pool because the user might not be an experienced programmer and can't be expected to know that buffers from a pool must not be kept/stored.
-	/// </para>
-	/// Check out <see cref="CerasDefaultBufferPool"/> for a really good default implementation.
+	/// By default, Ceras does not use a buffer pool (using an instance of 'NullPool' which just ) because the user might not be an experienced programmer and can't be expected to know that buffers from a pool must not be kept/stored.
+	/// <para>Most of the time simply having a 'byte[] buffer' field that you pass by ref </para>
+	/// <para>Check out <see cref="CerasDefaultBufferPool"/> for a really good default implementation</para>
 	/// </summary>
 	public static class CerasBufferPool
 	{
-		public static ICerasBufferPool Pool = null; // No pooling by default, will fallback to 'NullPool'
+		public static ICerasBufferPool Pool = NullPool.Instance;
+
+		internal static byte[] Rent(int minimumSize) => Pool.RentBuffer(minimumSize);
+		internal static void Return(byte[] buffer) => Pool.Return(buffer);
 	}
 
 	// Default / Fallback pool that only allocates and lets the GC clean-up (assuming the user just throws the buffers they receive away)
@@ -51,7 +53,7 @@ namespace Ceras
 	/// <para>Ceras comes with this pre-made pool because <see cref="System.Buffers.ArrayPool{T}"/> is very good pool to use that leaves pretty much nothing to be desired. Consider using this instead of going through the effort of creating your own <see cref="ICerasBufferPool"/> implementation.</para>
 	/// <para>Ceras does *not* use any sort of pool by default (<see cref="CerasBufferPool"/>.Pool is null be default!) since we can't assume that the user will definitely not re-use any buffers returned from Ceras' <c>Serialize</c> methods.</para>
 	/// </summary>
-	public class CerasDefaultBufferPool : ICerasBufferPool
+	public sealed class CerasDefaultBufferPool : ICerasBufferPool
 	{
 		public byte[] RentBuffer(int minimumSize)
 		{

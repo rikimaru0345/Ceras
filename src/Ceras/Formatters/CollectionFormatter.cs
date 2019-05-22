@@ -61,7 +61,11 @@
 
 	public sealed class MultiDimensionalArrayFormatter<TItem> :
 		IFormatter<Array>,
-		IFormatter<TItem[,]>
+		IFormatter<TItem[,]>, // 2D
+		IFormatter<TItem[,,]>, // 3D
+		IFormatter<TItem[,,,]>, // 4D
+		IFormatter<TItem[,,,,]>, // 5D
+		IFormatter<TItem[,,,,,]> // 6D
 	{
 		readonly uint _maxCount;
 		readonly IFormatter<TItem> _itemFormatter;

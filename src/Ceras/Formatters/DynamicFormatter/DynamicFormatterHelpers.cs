@@ -17,33 +17,6 @@
 																		   types: new Type[] { typeof(object), typeof(object) },
 																		   modifiers: new ParameterModifier[2]);
 
-		// A very simple implementation of a dynamic serializer.
-		// Uses reflection, so its very slow. Only used as a fallback for AOT compiled scenarios,
-		// and only while the source code generator is not done yet.
-		/*
-		internal static SerializeDelegate<T> CreateSimpleSerializer<T>(CerasSerializer ceras, Schema schema)
-		{
-			object[] args = new object[3];
-			return (ref byte[] buffer, ref int offset, T value) =>
-			{
-				for (var memberIndex = 0; memberIndex < schema.Members.Count; memberIndex++)
-				{
-					var member = schema.Members[memberIndex];
-
-					var formatter = ceras.GetReferenceFormatter(member.MemberType);
-					var method = formatter.GetType().GetMethod("Serialize");
-
-					args[0] = buffer;
-					args[1] = offset;
-					args[2] = new SerializedMember()
-
-
-				}
-			};
-		}
-		*/
-
-
 		// A member has been deserialized into a local variable, and now it has to be written back to its actual field (which is readonly)
 		// Depending on the setting we'll do different things here.
 		internal static void EmitReadonlyWriteBack(Type type, ReadonlyFieldHandling readonlyFieldHandling, FieldInfo fieldInfo, ParameterExpression refValueArg, ParameterExpression tempStore, List<Expression> block)

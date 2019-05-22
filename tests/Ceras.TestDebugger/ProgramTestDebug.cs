@@ -32,33 +32,33 @@
 #else
 #error Unhandled framework version!
 #endif
-
-			new BuiltInTypes().PrimitiveArrays();
-			new Blitting().CouldCopyValueTupleDirectly();
+			
+			new BuiltInTypes().MultidimensionalArrays();
+			new BuiltInTypes().ImmutableCollections();
+			new BuiltInTypes().Collections();
 
 			new Blitting().BlittableTypesUseCorrectFormatter();
-
-
-
+			new Blitting().CouldCopyValueTupleDirectly();
 			new Internals().FastCopy();
-
 			new BuiltInTypes().Bitmap();
 
+			
+			
+		}
+
+		static void TestBitmapFormatter()
+		{
 			var config = new SerializerConfig();
 			config.Advanced.BitmapMode = BitmapMode.SaveAsBmp;
 			var ceras = new CerasSerializer(config);
 
-			var home = System.Environment.ExpandEnvironmentVariables("%HOMEDRIVE%%HOMEPATH%");
+			var home = Environment.ExpandEnvironmentVariables("%HOMEDRIVE%%HOMEPATH%");
 			var downloads = Path.Combine(home, "Downloads");
 
 			var images = new Image[]
 			{
-				Image.FromFile(Path.Combine(downloads, @"68747470733a2f2f692e696d6775722e636f6d2f513839365567562e706e67.png")),
-				Image.FromFile(Path.Combine(downloads, @"7plX.gif")),
-				Image.FromFile(Path.Combine(downloads, @"TexturesCom_BrickOldMixedSize0012_1_seamless_S.jpg")),
-				Image.FromFile(Path.Combine(downloads, @"New Drawing.png")),
-				Image.FromFile(Path.Combine(downloads, @"smoke_1_40_128_corrected.png")),
-				Image.FromFile(Path.Combine(downloads, @"Spheres_thumb9.png")),
+				// todo: add test images
+				Image.FromFile(Path.Combine(downloads, @".png")),
 			};
 
 			for (int iteration = 0; iteration < 5; iteration++)
@@ -103,7 +103,6 @@
 			foreach (var img in imageArrayClone)
 				img.Dispose();
 
-			
 		}
 	}
 }

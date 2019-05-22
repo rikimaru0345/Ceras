@@ -65,13 +65,19 @@ namespace Ceras.Formatters
 				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
 				return;
 			}
-		
+
 			_isStatic = isStatic;
 			_schema = schema;
 		}
 
 		internal override void Initialize()
 		{
+			if (_serializer != null)
+				return;
+
+			// If we are getting constructed by a ReferenceFormatter, and one of our members
+			// depends on that same ReferenceFormatter we'll end up with a StackOverflowException.
+			// To solve this we just delay the compile step until after the constructor is done.
 			_serializer = GenerateSerializer(_ceras, _schema, false, _isStatic).Compile();
 			_deserializer = GenerateDeserializer(_ceras, _schema, false, _isStatic).Compile();
 		}

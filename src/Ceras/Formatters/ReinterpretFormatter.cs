@@ -56,29 +56,6 @@ namespace Ceras.Formatters
 		}
 
 
-		Expression IInlineEmitter.EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize)
-		{
-			var call = Expression.Call(method: _writeMethod,
-									   arg0: bufferExp,
-									   arg1: offsetExp,
-									   arg2: valueExp);
-			writtenSize = _itemSize;
-
-			return call;
-		}
-
-		Expression IInlineEmitter.EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize)
-		{
-			var call = Expression.Call(method: _readMethod,
-									   arg0: bufferExp,
-									   arg1: offsetExp,
-									   arg2: valueExp);
-			readSize = _itemSize;
-
-			return call;
-		}
-
-
 		// Write value type, don't check if it fits, don't modify offset
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		static void Write_Raw(byte[] buffer, int offset, ref T value)
@@ -99,6 +76,29 @@ namespace Ceras.Formatters
 				var ptr = (T*)(pBuffer + offset);
 				value = *ptr;
 			}
+		}
+
+
+		Expression IInlineEmitter.EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize)
+		{
+			var call = Expression.Call(method: _writeMethod,
+									   arg0: bufferExp,
+									   arg1: offsetExp,
+									   arg2: valueExp);
+			writtenSize = _itemSize;
+
+			return call;
+		}
+
+		Expression IInlineEmitter.EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize)
+		{
+			var call = Expression.Call(method: _readMethod,
+									   arg0: bufferExp,
+									   arg1: offsetExp,
+									   arg2: valueExp);
+			readSize = _itemSize;
+
+			return call;
 		}
 
 
@@ -159,17 +159,14 @@ namespace Ceras.Formatters
 				return;
 
 			// Write
-#if NETSTANDARD2_0 || NET47
 			fixed (T* srcAr = &value[0])
-			fixed (byte* dest = &buffer[offset])
+			fixed (byte* destAr = &buffer[0])
 			{
-				byte* srcByteAr = (byte*)srcAr;
-				Buffer.MemoryCopy(srcByteAr, dest, bytes, bytes);
+				byte* src = (byte*)srcAr;
+				byte* dest = destAr + offset;
+				SerializerBinary.FastCopy(src, dest, (uint)bytes);
 			}
-#else
-			fixed (T* p = &value[0])
-				Marshal.Copy(new IntPtr(p), buffer, offset, bytes);
-#endif
+
 
 			offset += bytes;
 		}
@@ -186,8 +183,8 @@ namespace Ceras.Formatters
 			if (value == null || value.Length != count)
 				value = new T[count];
 
-			int bytes = count * _itemSize;
 
+			int bytes = count * _itemSize;
 			if (bytes == 0)
 				return;
 
@@ -196,10 +193,12 @@ namespace Ceras.Formatters
 				throw new IndexOutOfRangeException($"Trying to read an array of '{typeof(T).FriendlyName()}' ({count} elements, {bytes} bytes) but only {remainingBytes} bytes are left in the buffer (buffer length: {buffer.Length}, offset: {offset}).");
 
 			// Read
-			fixed (T* ar = &value[0])
+			fixed (byte* srcAr = &buffer[0])
+			fixed (T* destAr = &value[0])
 			{
-				byte* byteAr = (byte*)ar;
-				Marshal.Copy(buffer, offset, new IntPtr(byteAr), bytes);
+				byte* src = srcAr + offset;
+				byte* dest = (byte*)destAr;
+				SerializerBinary.FastCopy(src, dest, (uint)bytes);
 			}
 
 			offset += bytes;

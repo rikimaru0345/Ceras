@@ -14,6 +14,9 @@ namespace Ceras.Formatters
 	
 	delegate void SerializeDelegate<T>(ref byte[] buffer, ref int offset, T value);
 	delegate void DeserializeDelegate<T>(byte[] buffer, ref int offset, ref T value);
+	
+	delegate void StaticSerializeDelegate(ref byte[] buffer, ref int offset);
+	delegate void StaticDeserializeDelegate(byte[] buffer, ref int offset);
 
 
 	interface ISchemaTaintedFormatter

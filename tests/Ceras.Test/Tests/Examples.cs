@@ -13,21 +13,48 @@ namespace Ceras.Test
 		[Fact]
 		void ExcludeByType()
 		{
-			// Let's say we have a huge graph of objects and we want to make sure that some specific type will never be serialized
-			SerializerConfig config = new SerializerConfig();
-			config.OnConfigNewType = t =>
-			{
-				// We have got a 'TypeConfig', we could check 't.Type' to see what kind of "container" it is.
-				// In this example 't.Type' would be 'AnotherClass', but we don't check for that,
-				// we just want to remove 'SecretData' from every type everywhere.
+			// Let's say we want to make sure that some type (in this example 'SecretData')
+			// will never be serialized. There are various ways to do this.
 
-				foreach(var m in t.Members)
+			SerializerConfig config = new SerializerConfig();
+			config.OnConfigNewType = (Ceras.TypeConfig t) =>
+			{
+				// 'OnConfigNewType' will be called once for every type Ceras encounters.
+				// The 'TypeConfig' we get as a parameter is a powerful tool to customize how something should be serialized.
+
+				// 1. Members
+				// We check every member (field or property) for its type, and if it
+				// is 'SecretData' we let Ceras skip over it (ignoring it).
+				foreach (var m in t.Members)
 				{
 					// If the field-Type or property-Type is 'SecretData' we'll exclude it
 					if (m.MemberType == typeof(SecretData))
 					{
 						m.SerializationOverride = SerializationOverride.ForceSkip;
 					}
+				}
+
+				// 2. Other locations
+				if (t.Type == typeof(SecretData))
+				{
+					// It is also possible for the type to be referenced in an indirect way
+					// - 'SecretData[] array = ...' 
+					// - 'List<SecretData> list = ...'
+					// Or a sneaky 'SecretData' instance might even try to hide inside an 'object'-type variable!
+					// - 'object anything = secretData;'
+
+					// Fortunately 'OnConfigNewType' will still be called in all of those cases.
+					// When that happens we have two options:
+
+					// a) Skip all members of 'SecretData' itself
+					foreach(var m in t.Members)
+						m.SerializationOverride = SerializationOverride.ForceSkip;
+
+					// b) Throw an exception
+					// In case Ceras finds a type we never want it to see, aborting the
+					// serialization and drawing the programmers attention is probably 
+					// the safest bet in any case.
+					throw new Exception("Ceras has encountered the 'SecretData' type somewhere");
 				}
 			};
 
@@ -47,7 +74,7 @@ namespace Ceras.Test
 
 			var data = ceras.Serialize(x);
 			var clone = ceras.Deserialize<NormalClass>(data);
-			
+
 			Assert.True(x.Objects[0].SecretData != null);
 			Assert.True(clone.Objects[0].SecretData == null);
 			Assert.True(clone.Objects[0].Name == "abc");
@@ -71,7 +98,7 @@ namespace Ceras.Test
 			{
 				var obj1 = list[i];
 				var obj2 = clone[i];
-				
+
 				Assert.True(obj1.x == obj2.x);
 				Assert.True(obj1.y == obj2.y);
 				Assert.True(obj1.z == obj2.z);
