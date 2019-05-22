@@ -158,7 +158,7 @@ namespace Ceras
 
 		// A special resolver. It creates instances of the "dynamic formatter", the DynamicFormatter<> is a type that uses dynamic code generation to create efficient read/write methods
 		// for a given object type.
-		readonly IFormatterResolver _dynamicResolver;
+		readonly DynamicObjectFormatterResolver _dynamicResolver;
 
 		// The user provided resolver, will always be queried first
 		readonly FormatterResolverCallback[] _userResolvers;
@@ -654,7 +654,15 @@ namespace Ceras
 
 
 			// 2.) Create a reference formatter (which internally obtains the matching specific one)
-			Type refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
+			bool isType = typeof(Type).IsAssignableFrom(type);
+			bool isExternalRootObj = typeof(IExternalRootObject).IsAssignableFrom(type);
+			
+			Type refFormatterType;
+			if(type.IsSealed && !isType && !isExternalRootObj)
+				refFormatterType = typeof(ReferenceFormatter_KnownSealedType<>).MakeGenericType(type);
+			else
+				refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
+			
 			var referenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
 
 			meta.ReferenceFormatter = referenceFormatter;
@@ -700,8 +708,7 @@ namespace Ceras
 				InjectDependencies(meta.SpecificFormatter);
 				return meta.SpecificFormatter;
 			}
-
-
+			
 
 			// 3.) User
 			if (!meta.IsPrimitive)
@@ -736,6 +743,10 @@ namespace Ceras
 				{
 					meta.SpecificFormatter = formatter;
 					InjectDependencies(formatter);
+
+					if(formatter is DynamicFormatter dynamicFormatter) // Might also be SchemaFormatter
+						dynamicFormatter.Initialize();
+
 					return formatter;
 				}
 			}
@@ -894,6 +905,7 @@ namespace Ceras
 					throw new InvalidOperationException($"The formatter '{formatter.GetType().FriendlyName(true)}' has a dependency on '{fieldType.GetType().FriendlyName()}' (via the field '{f.Name}') to format '{formattedType.FriendlyName(true)}', but this Ceras instance is already using '{anyExisting.GetType().FriendlyName(true)}' to handle this type.");
 				}
 			}
+
 
 			void SafeInject(object f, FieldInfo field, object value)
 			{

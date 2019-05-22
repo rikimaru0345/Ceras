@@ -6,6 +6,8 @@
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Linq.Expressions;
+	using System.Runtime.CompilerServices;
+	using System.Threading;
 
 #if FAST_EXP
 	using FastExpressionCompiler;
@@ -396,6 +398,12 @@
 			var serializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize), new Type[] { typeof(byte[]).MakeByRefType(), typeof(int).MakeByRefType(), type });
 			Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter");
 
+			// When we have an exact type match, we can just use the method directly
+			if (type == typeof(T))
+				return (SerializeDelegate<T>)Delegate.CreateDelegate(typeof(SerializeDelegate<T>), (IFormatter<T>)specificFormatter, serializeMethod);
+
+
+
 			// What we want to emulate:
 			/*
 			 * (buffer, offset, T value) => {
@@ -440,6 +448,12 @@
 		{
 			var deserializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize), new Type[] { typeof(byte[]), typeof(int).MakeByRefType(), type.MakeByRefType() });
 			Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
+
+			// When we have an exact type match, we can just use the method directly
+			if (type == typeof(T))
+				return (DeserializeDelegate<T>)Delegate.CreateDelegate(typeof(DeserializeDelegate<T>), (IFormatter<T>)specificFormatter, deserializeMethod);
+
+
 
 			// What we want to emulate:
 			/*
@@ -506,6 +520,12 @@
 		}
 
 
+
+		/*
+		 * Dispatching to the concrete formatter in an Aot-Runtime is pretty hard since we can't generate any code.
+		 * For the polymorphic case using 'Invoke' is unavoidable.
+		 * Fortunately exact type matches are much more likely! In which case we can completely avoid the invocation cost!
+		*/
 		static SerializeDelegate<T> CreateSpecificSerializerDispatcher_Aot(Type type, IFormatter specificFormatter)
 		{
 			var serializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize), new Type[] { type });
@@ -625,6 +645,193 @@
 		}
 	}
 
+	// When T is sealed and statically known we can remove a lot of checks!
+	// No derived types, no inline type, no external object
+	public sealed class ReferenceFormatter_KnownSealedType<T> : IFormatter<T>
+	where T : class
+	{
+		// -5: To support stuff like 'object obj = typeof(Bla);'. The story is more complicated and explained at the end of the file.
+		// -4: For external objects that the user has to resolve
+		// -3: A new value, the type is exactly the same as the target field/prop
+		// -2: A new value, which has a type different than the target. Example: field type is ICollection<T> and the actual value is LinkedList<T> 
+		// -1: Actually <null> or default value
+		//  0: Previously seen item with index 0
+		//  1: Previously seen item with index 1
+		//  2: Previously seen item with index 2
+		// ...
+		const int Null = -1;
+		const int NewValue = -2;
+		const int NewValueSameType = -3;
+		const int ExternalObject = -4;
+		const int InlineType = -5;
+
+		const int Bias = 5; // Using WriteUInt32Bias is more efficient than WriteInt32(), but it requires a known bias
+
+
+		static readonly Func<object> _nullResultDelegate = () => null;
+
+		readonly CerasSerializer _ceras;
+
+		readonly bool _allowReferences;
+
+		readonly IFormatter<T> _formatter;
+		readonly Func<T> _constructor;
+
+
+		public ReferenceFormatter_KnownSealedType(CerasSerializer ceras)
+		{
+			_ceras = ceras;
+
+			if (typeof(T).IsStatic())
+				throw new InvalidOperationException("static");
+
+			if (!typeof(T).IsSealed)
+				throw new InvalidOperationException($"Type '{typeof(T).FriendlyName()}' can not be handled with this formatter because it is not sealed.");
+
+			if (ceras.Config.VersionTolerance.Mode != VersionToleranceMode.Disabled)
+				// We can't ever switch our schema, because _formatter must be readonly, because the JIT can then optimize the call to it.
+				throw new InvalidOperationException($"Sealed-Type optimized ReferenceFormatter cannot be used with VersionTolerance.");
+
+			_allowReferences = _ceras.Config.PreserveReferences;
+
+
+			_formatter = (IFormatter<T>)ceras.GetSpecificFormatter(typeof(T));
+
+			_constructor = Unsafe.As<Func<T>>(CreateObjectConstructor(typeof(T)));
+		}
+
+
+		public void Serialize(ref byte[] buffer, ref int offset, T value)
+		{
+			// Null?
+			if (ReferenceEquals(value, null))
+			{
+				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, Null, Bias);
+				return;
+			}
+
+			if (_allowReferences)
+			{
+				if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id))
+				{
+					// Existing value
+					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, id, Bias);
+				}
+				else
+				{
+					// Register new object
+					_ceras.InstanceData.ObjectCache.RegisterObject(value);
+
+					// New value (same type)
+					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewValueSameType, Bias);
+
+					// Write object
+					_formatter.Serialize(ref buffer, ref offset, value);
+				}
+			}
+			else
+			{
+				// New value (same type)
+				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewValueSameType, Bias);
+
+				// Write object
+				_formatter.Serialize(ref buffer, ref offset, value);
+			}
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref T value)
+		{
+			var objId = SerializerBinary.ReadUInt32Bias(buffer, ref offset, Bias);
+
+			// Null
+			if (objId == Null)
+			{
+				// Ok the data tells us that value should be null.
+				// But maybe we're recycling an object and it still contains an instance.
+				// Lets return it to the user
+				if (value != null)
+				{
+					_ceras.DiscardObjectMethod?.Invoke(value);
+				}
+
+				value = default;
+				return;
+			}
+
+			// Known object
+			if (objId >= 0)
+			{
+				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId);
+				return;
+			}
+
+
+			// At this point we know that the 'value' will not be 'null', so if 'value' (the variable) is null we need to create an instance
+			if (value == null)
+			{
+				// Instance is null, create one
+				value = _constructor();
+			}
+
+			if (!_allowReferences)
+			{
+				_formatter.Deserialize(buffer, ref offset, ref value);
+				return;
+			}
+
+
+			// Deserialize the object
+			// 1. First generate a proxy so we can do lookups
+			var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
+
+			// 2. Make sure that the deserializer can make use of an already existing object (if there is one)
+			objectProxy.Value = value;
+
+			// 3. Actually read the object
+			_formatter.Deserialize(buffer, ref offset, ref value);
+
+			// 4. Write back the actual value, which instantly resolves all references
+			value = objectProxy.Value;
+		}
+
+
+		Func<object> CreateObjectConstructor(Type type)
+		{
+			if (type.IsArray)
+			{
+				// ArrayFormatter will create a new array
+				return _nullResultDelegate;
+			}
+			else if (CerasSerializer.IsFormatterConstructed(type) || type.IsValueType)
+			{
+				// The formatter that handles this type also handles its creation, so we return null
+				return _nullResultDelegate;
+			}
+
+			// Create a custom factory method, but also respect the userFactory if there is one
+			var typeConfig = _ceras.Config.GetTypeConfig(type, false);
+
+			var tc = typeConfig.TypeConstruction;
+
+			if (tc == null)
+			{
+				throw new InvalidOperationException($"Ceras can not serialize/deserialize the type '{type.FullName}' because it has no 'default constructor'. " +
+													$"You can either set a default setting for all types (config.DefaultTypeConstructionMode) or configure it for individual types in config.ConfigType<YourType>()... For more examples take a look at the tutorial.");
+			}
+
+			if (tc.HasDataArguments || tc is ConstructNull)
+			{
+				return _nullResultDelegate;
+			}
+			else
+			{
+				bool allowDynCode = _ceras.Config.Advanced.AotMode == AotMode.None;
+				return tc.GetRefFormatterConstructor(allowDynCode);
+			}
+		}
+	}
+
+
 	// This is here so we are able to get specific internal framework types.
 	// Such as "System.RtFieldInfo" or "System.RuntimeTypeInfo", ...
 	static class MemberHelper
@@ -634,7 +841,6 @@
 		internal static byte _prop { get; set; }
 		internal static void _method() { }
 	}
-
 }
 
 /*

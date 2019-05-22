@@ -20,7 +20,12 @@ namespace Ceras.Formatters
 	// todo: override formatters?
 	// todo: merge-blitting ReinterpretFormatter<T>.Write_NoCheckNoAdvance()
 
-	sealed class DynamicFormatter<T> : IFormatter<T>
+	abstract class DynamicFormatter
+	{
+		internal abstract void Initialize();
+	}
+
+	sealed class DynamicFormatter<T> : DynamicFormatter, IFormatter<T>
 	{
 		// Schema field prefix
 		const int FieldSizePrefixBytes = 4;
@@ -34,6 +39,8 @@ namespace Ceras.Formatters
 		SerializeDelegate<T> _serializer;
 		DeserializeDelegate<T> _deserializer;
 
+		readonly bool _isStatic;
+		readonly Schema _schema;
 
 		public DynamicFormatter(CerasSerializer serializer, bool isStatic)
 		{
@@ -58,9 +65,15 @@ namespace Ceras.Formatters
 				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
 				return;
 			}
+		
+			_isStatic = isStatic;
+			_schema = schema;
+		}
 
-			_serializer = GenerateSerializer(_ceras, schema, false, isStatic).Compile();
-			_deserializer = GenerateDeserializer(_ceras, schema, false, isStatic).Compile();
+		internal override void Initialize()
+		{
+			_serializer = GenerateSerializer(_ceras, _schema, false, _isStatic).Compile();
+			_deserializer = GenerateDeserializer(_ceras, _schema, false, _isStatic).Compile();
 		}
 
 
@@ -150,7 +163,7 @@ namespace Ceras.Formatters
 					body.Add(Assign(refOffsetArg, Add(Add(startPos, size), Constant(FieldSizePrefixBytes))));
 				}
 			}
-			
+
 			var serializeBlock = Block(variables: locals, expressions: body);
 
 			if (isStatic)
@@ -301,7 +314,7 @@ namespace Ceras.Formatters
 
 			var body = new List<Expression>();
 			var locals = new List<ParameterExpression>(schema.Members.Count);
-			
+
 			var onAfterDeserialize = GetOnAfterDeserialize(schema.Type);
 
 			ParameterExpression blockSize = null, offsetStart = null;
@@ -455,7 +468,7 @@ namespace Ceras.Formatters
 				}
 			}
 
-			
+
 			// Call "OnAfterDeserialize"
 			if (onAfterDeserialize != null)
 				body.Add(Call(refValueArg, onAfterDeserialize));

@@ -2,13 +2,14 @@
 
 namespace LiveTesting
 {
+	using BenchmarkDotNet.Jobs;
 	using BenchmarkDotNet.Running;
 	using Ceras;
 	using Ceras.Formatters;
 	using Ceras.Helpers;
 	using Ceras.Resolvers;
-    using Newtonsoft.Json;
-    using System.Collections.Generic;
+	using Newtonsoft.Json;
+	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.IO;
 	using System.Linq;
@@ -27,11 +28,12 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
+			Benchmarks();
+
+
+
 			ReinterpretMultiDimensionalArray1();
 			ReinterpretMultiDimensionalArray2();
-
-
-			// Benchmarks();
 
 
 			CustomComparerFormatter();
@@ -104,25 +106,50 @@ namespace LiveTesting
 
 		static void Benchmarks()
 		{
-			var config = new CerasGlobalBenchmarkConfig();
+			// Benchmark_SealedTypeOptimization();
 
-			var b = new ConstantsInGenericContainerBenchmarks();
-			b.Setup();
+			var config = CerasGlobalBenchmarkConfig.Medium;
+			BenchmarkRunner.Run<Benchmark_SealedTypeOptimization>(config);
 
-			for (int i = 0; i < 500; i++)
-			{
-				b.Method1();
-				b.Method2();
-			}
+
+			//Benchmark_ReferenceFormatter_UsingCreateDelegateDispatcher bench = new Benchmark_ReferenceFormatter_UsingCreateDelegateDispatcher();
+			//bench.Setup();
+			//bench.SetupNew();
+			//bench.MethodNew();
+			//bench.MethodNew();
+			//bench.MethodNew();
+
+
 
 			//BenchmarkRunner.Run<MergeBlittingBenchmarks>(config);
 			//BenchmarkRunner.Run<Feature_MreRefs_Benchmarks>(config);
 			//BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
-			BenchmarkRunner.Run<ConstantsInGenericContainerBenchmarks>(config);
+			//BenchmarkRunner.Run<ConstantsInGenericContainerBenchmarks>(config);
 
 
 
 			Environment.Exit(0);
+		}
+
+		static void Benchmark_SealedTypeOptimization()
+		{
+			var x = new Benchmark_SealedTypeOptimization();
+			x.Setup();
+			
+			var iterations = MicroBenchmark.EstimateIterations(TimeSpan.FromSeconds(10), () => x.Normal());
+
+			int max = 5;
+			for (int i = 0; i < max; i++)
+			{
+				Console.WriteLine($"Test {i+1}/{max} ...");
+				MicroBenchmark.Run(iterations,
+					("normal", () => x.Normal()),
+					("sealed", () => x.Sealed()));
+				Console.WriteLine();
+			}
+
+			Console.WriteLine("done.");
+			Console.ReadKey();
 		}
 
 		static void ReinterpretMultiDimensionalArray1()

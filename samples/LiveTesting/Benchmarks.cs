@@ -18,6 +18,7 @@ namespace LiveTesting
 	using Newtonsoft.Json;
 	using ProtoBuf;
 	using System.Collections.Generic;
+	using System.Diagnostics;
 	using System.IO;
 	using System.Linq;
 	using System.Linq.Expressions;
@@ -32,24 +33,29 @@ namespace LiveTesting
 
 	class CerasGlobalBenchmarkConfig : ManualConfig
 	{
-		public CerasGlobalBenchmarkConfig()
+		// .With(CsProjClassicNetToolchain.Net472).With(new MonoRuntime("Mono x64", @"C:\Program Files\Mono\bin\mono.exe"))
+
+		// .With(CsProjCoreToolchain.NetCoreApp22).With(Runtime.Core));
+		// .With(CsProjCoreToolchain.NetCoreApp30).With(Runtime.Core));
+
+
+		public static CerasGlobalBenchmarkConfig Short => new CerasGlobalBenchmarkConfig(Job.ShortRun
+			.With(CsProjCoreToolchain.NetCoreApp22).With(Runtime.Core));
+
+		public static CerasGlobalBenchmarkConfig Medium => new CerasGlobalBenchmarkConfig(Job.MediumRun
+			.With(CsProjCoreToolchain.NetCoreApp22).With(Runtime.Core));
+
+		public CerasGlobalBenchmarkConfig(Job baseJob)
 		{
-			Set(new DefaultOrderer(SummaryOrderPolicy.FastestToSlowest));
+			Orderer = new DefaultOrderer(SummaryOrderPolicy.FastestToSlowest);
 
-			Add(Job.ShortRun
-				   //Add(Job.MediumRun
-				   .WithOutlierMode(OutlierMode.OnlyUpper)
+			baseJob = baseJob
+				.WithOutlierMode(OutlierMode.OnlyUpper)
+				.With(Platform.X64)
+				.WithLaunchCount(1);
 
-				   .With(CsProjCoreToolchain.NetCoreApp22)
-				   .With(Runtime.Core)
-				   //.With(CsProjClassicNetToolchain.Net472)
-				   //.With(new MonoRuntime("Mono x64", @"C:\Program Files\Mono\bin\mono.exe"))
+			Add(baseJob);
 
-				   .With(Platform.X64)
-				   .WithLaunchCount(1));
-
-
-			Add(MarkdownExporter.GitHub);
 			Add(HtmlExporter.Default);
 
 			Add(BenchmarkLogicalGroupRule.ByCategory);
@@ -62,6 +68,149 @@ namespace LiveTesting
 			Add(DefaultColumnProviders.Params);
 
 			Add(new ConsoleLogger());
+		}
+	}
+
+
+	public class Benchmark_SealedTypeOptimization
+	{
+		Person1 _personNormal;
+		Person2 _personSealed;
+
+		byte[] _buffer = new byte[0x1000];
+		CerasSerializer _ceras = new CerasSerializer();
+
+		[GlobalSetup]
+		public void Setup()
+		{
+			_personNormal = new Person1 { Age = 5, FirstName = "abc", Reference1 = new Person1(), Reference2 = new Person1() };
+			_personSealed = new Person2 { Age = 5, FirstName = "abc", Reference1 = new Person2(), Reference2 = new Person2() };
+		}
+
+		[Benchmark(Baseline = true)]
+		public void Normal()
+		{
+			_ceras.Serialize(_personNormal, ref _buffer);
+
+			Person1 clone = null;
+			int offset = 0;
+			_ceras.Deserialize(ref clone, _buffer, ref offset);
+		}
+
+		[Benchmark()]
+		public void Sealed()
+		{
+			_ceras.Serialize(_personSealed, ref _buffer);
+
+			Person2 clone = null;
+			int offset = 0;
+			_ceras.Deserialize(ref clone, _buffer, ref offset);
+		}
+
+
+		public class Person1
+		{
+			public int Age { get; set; }
+			public string FirstName { get; set; }
+			public Person1 Reference1 { get; set; }
+			public Person1 Reference2 { get; set; }
+		}
+
+		public sealed class Person2
+		{
+			public int Age { get; set; }
+			public string FirstName { get; set; }
+			public Person2 Reference1 { get; set; }
+			public Person2 Reference2 { get; set; }
+		}
+	}
+
+
+	// Result: all variations are within the stddev
+	public class Benchmark_UnsafeCastFuncConstructor
+	{
+		Person _person;
+		Person[] _targetArray;
+
+		Func<object> _returnPersonAsObject;
+		Func<Person> _returnPersonDirectly;
+		Func<Person> _castedConstructor;
+
+		[GlobalSetup]
+		public void Setup()
+		{
+			_returnPersonAsObject = () =>
+			{
+				var p = new Person() { FirstName = "a" };
+				return (object)p;
+			};
+
+			_returnPersonDirectly = () =>
+			{
+				var p = new Person() { FirstName = "a" };
+				return p;
+			};
+
+			_castedConstructor = Unsafe.As<Func<Person>>(_returnPersonAsObject);
+
+			_targetArray = new Person[200];
+		}
+
+
+		[Benchmark(Baseline = true)]
+		public void MethodDirect()
+		{
+			for (int i = 0; i < _targetArray.Length; i++)
+				_targetArray[i] = _returnPersonDirectly();
+		}
+
+		[Benchmark()]
+		public void MethodHardCast()
+		{
+			for (int i = 0; i < _targetArray.Length; i++)
+				_targetArray[i] = (Person)_returnPersonAsObject();
+		}
+
+		[Benchmark()]
+		public void MethodAsCast()
+		{
+			for (int i = 0; i < _targetArray.Length; i++)
+				_targetArray[i] = _returnPersonAsObject() as Person;
+		}
+
+		[Benchmark()]
+		public void MethodPreCastedDelegate()
+		{
+			for (int i = 0; i < _targetArray.Length; i++)
+				_targetArray[i] = _castedConstructor();
+		}
+
+		[Benchmark()]
+		public void MethodCastAndCallDelegate()
+		{
+			for (int i = 0; i < _targetArray.Length; i++)
+				_targetArray[i] = Unsafe.As<Func<Person>>(_returnPersonAsObject)();
+		}
+
+
+		public class Person
+		{
+			public int Age { get; set; }
+			public string FirstName { get; set; }
+			public string LastName { get; set; }
+			public SomeEnum SomeEnum { get; set; }
+			public Person Reference1 { get; set; }
+			public Person Reference2 { get; set; }
+			public Person Reference3 { get; set; }
+			public int[] Numbers { get; set; } = new int[0];
+		}
+		public enum SomeEnum : byte
+		{
+			Triangle, Cube,
+			Red, Green, Orange,
+			SixtyFive,
+			Cat, Bird, Fish,
+			Apple, Lemon,
 		}
 	}
 
@@ -78,7 +227,7 @@ namespace LiveTesting
 		public void Setup()
 		{
 			var ceras = new CerasSerializer();
-			
+
 			var parent1 = new Person
 			{
 				Age = -901,
@@ -118,7 +267,7 @@ namespace LiveTesting
 
 			var b = _buffer;
 			var p = _person;
-			
+
 			_serializer1(ref b, ref offset, p);
 			_serializer1(ref b, ref offset, p);
 			_serializer1(ref b, ref offset, p);
@@ -132,14 +281,14 @@ namespace LiveTesting
 
 			var b = _buffer;
 			var p = _person;
-			
+
 			_serializer2(ref b, ref offset, p);
 			_serializer2(ref b, ref offset, p);
 			_serializer2(ref b, ref offset, p);
 			_serializer2(ref b, ref offset, p);
 		}
 
-		
+
 		public class Person
 		{
 			public int Age { get; set; }
@@ -156,7 +305,6 @@ namespace LiveTesting
 			Unknown, Male, Female,
 		}
 	}
-
 
 	public class MergeBlittingBenchmarks
 	{
@@ -1389,4 +1537,67 @@ namespace LiveTesting
 
 	// todo: add Jil, and msgpack-cli 
 
+
+	static class MicroBenchmark
+	{
+		public static ulong EstimateIterations(TimeSpan targetTime, Action action)
+		{
+			// Jit and warmup
+			for (int i = 0; i < 300; i++)
+				action();
+
+			// Find iteration count
+			int miniBatchSize = 1000;
+			long pilotIterations = 0;
+
+			Stopwatch pilotWatch = Stopwatch.StartNew();
+			while (pilotWatch.ElapsedMilliseconds < 500)
+			{
+				for (int i = 0; i < miniBatchSize; i++)
+					action();
+				pilotIterations += miniBatchSize;
+			}
+			pilotWatch.Stop();
+			double msPerInvoke = pilotWatch.Elapsed.TotalMilliseconds / pilotIterations;
+
+			return (ulong)(targetTime.TotalMilliseconds / msPerInvoke);
+		}
+
+		public static void Run(ulong iterationCount, params (string name, Action action)[] actions)
+		{
+			// Warmup
+			foreach (var p in actions)
+				for (int i = 0; i < 200; i++)
+					p.action();
+
+			double[] elapsedMs = new double[actions.Length];
+
+			for (int actionIndex = 0; actionIndex < actions.Length; actionIndex++)
+			{
+				var (name, action) = actions[actionIndex];
+
+				GC.Collect();
+				GC.WaitForPendingFinalizers();
+
+				Stopwatch watch = Stopwatch.StartNew();
+
+				for (ulong i = 0; i < iterationCount; i++)
+					action();
+
+				watch.Stop();
+
+				elapsedMs[actionIndex] = watch.Elapsed.TotalMilliseconds;
+			}
+
+			for (int i = 0; i < actions.Length; i++)
+			{
+				double factor = i == 0
+					? 1.0
+					: elapsedMs[i] / elapsedMs[0];
+
+				Console.WriteLine($"\"{actions[i].name}\": {elapsedMs[i]:0} ms ({factor:0.00}x)");
+			}
+
+		}
+	}
 }
