@@ -13,10 +13,10 @@ namespace Ceras.Formatters
 	using static System.Linq.Expressions.Expression;
 
 	/*
-	 * This formatter is used for every object-type that Ceras cannot deal with.
-	 * It analyzes the members of the class or struct and compiles an optimized formatter for it.
-	 * Polymorphism is handled in ReferenceFormatter.
+	 * This is Ceras' "main" formatter, used for every complex type.
+	 * Given a "Schema" it compiles an optimized formatter for it.
 	 */
+
 	// todo: override formatters?
 	// todo: merge-blitting ReinterpretFormatter<T>.Write_NoCheckNoAdvance()
 
@@ -123,8 +123,7 @@ namespace Ceras.Formatters
 				// Get the formatter and its Serialize method
 				var formatterExp = typeToFormatter[member.MemberType];
 				var formatter = formatterExp.Value;
-				var serializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
-				Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter " + formatter.GetType().FullName);
+				var serializeMethod = formatter.GetType().ResolveSerializeMethod(member.MemberType);
 
 				// Prepare the actual serialize call
 				var serializeCall = Call(formatterExp, serializeMethod, refBufferArg, refOffsetArg, MakeMemberAccess(valueArg, member.MemberInfo));
@@ -273,8 +272,7 @@ namespace Ceras.Formatters
 
 				var formatterExp = typeToFormatter[m.MemberType];
 				var formatter = formatterExp.Value;
-				var deserializeMethod = formatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
-				Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter " + formatter.GetType().FullName);
+				var deserializeMethod = formatter.GetType().ResolveDeserializeMethod(m.MemberType);
 
 				var local = memberInfoToLocal[m.MemberInfo];
 				body.Add(Call(formatterExp, deserializeMethod, bufferArg, refOffsetArg, local));
