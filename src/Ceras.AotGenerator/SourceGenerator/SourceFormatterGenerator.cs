@@ -34,7 +34,7 @@
 
 		static void GenerateFormatterFields(StringBuilder text, Schema schema)
 		{
-			foreach (var m in schema.Members)
+			foreach (var m in schema.Members.DistinctBy(m => m.MemberType))
 			{
 				var t = m.MemberType;
 				var fieldName = MakeFormatterFieldName(t);
