@@ -633,7 +633,7 @@ namespace Ceras
 			 *    f.Serialize(ref buffer, ref offset, null);
 			 * }
 			 */
-			var serialize = f.GetType().GetMethod(nameof(IFormatter<int>.Serialize));
+			var serialize = f.GetType().ResolveSerializeMethod(meta.Type);
 			var refBufferArg = Expression.Parameter(typeof(byte[]).MakeByRefType(), "refBuffer");
 			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "refOffset");
 
@@ -650,7 +650,7 @@ namespace Ceras
 			 *    f.Deserialize(buffer, ref offset, null);
 			 * }
 			 */
-			var deserialize = f.GetType().GetMethod(nameof(IFormatter<int>.Deserialize));
+			var deserialize = f.GetType().ResolveDeserializeMethod(meta.Type);
 			var bufferArg = Expression.Parameter(typeof(byte[]), "buffer");
 
 			meta.StaticDeserialize = Expression.Lambda<StaticDeserializeDelegate>(

@@ -78,14 +78,40 @@
 									));
 			}
 		}
-
-
-		internal static void EmitBatchReadWrite()
+	
+		
+		public static MethodInfo ResolveSerializeMethod(this Type formatterType, Type exactTypeGettingFormatted)
+			=> ResolveSerializeMethod(formatterType, exactTypeGettingFormatted, true);
+		
+		public static MethodInfo ResolveDeserializeMethod(this Type formatterType, Type exactTypeGettingFormatted)
+			=> ResolveSerializeMethod(formatterType, exactTypeGettingFormatted, false);
+		
+		static MethodInfo ResolveSerializeMethod(Type formatterType, Type exactTypeGettingFormatted, bool serialize)
 		{
-			// todo: sort structs that contain references to the end
-			// todo: sort arrays to the end
+			var methods = formatterType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
-			// Take all blittable things and emit a read/write to them directly
+			var name = serialize ? nameof(IFormatter<int>.Serialize) : nameof(IFormatter<int>.Deserialize);
+
+			for (int i = 0; i < methods.Length; i++)
+			{
+				var method = methods[i];
+
+				if(method.Name != name) continue;
+
+				var args = method.GetParameters();
+				if(args.Length != 3) continue;
+
+				var paramType = args[2].ParameterType;
+				if(paramType.IsByRef)
+					paramType = paramType.GetElementType();
+
+				if(paramType == exactTypeGettingFormatted)
+				{
+					return method;
+				}
+			}
+
+			throw new CerasException($"Can't find Serialize/Deserialize for ''{exactTypeGettingFormatted?.FriendlyName(true)}'' on formatter type '{formatterType?.FriendlyName(true)}'");
 		}
 	}
 

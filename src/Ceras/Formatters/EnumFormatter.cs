@@ -31,7 +31,7 @@
 			var enumBaseType = typeof(T).GetEnumUnderlyingType();
 			var formatter = serializer.GetSpecificFormatter(enumBaseType);
 
-			var writeMethod = formatter.GetType().GetMethod("Serialize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+			var writeMethod = formatter.GetType().ResolveSerializeMethod(enumBaseType);
 
 			var converted = Expression.Convert(value, enumBaseType);
 			var writeCall = Expression.Call(instance: Expression.Constant(formatter), method: writeMethod, arg0: refBuffer, arg1: refOffset, arg2: converted);
@@ -47,7 +47,7 @@
 			var refValue = Expression.Parameter(typeof(T).MakeByRefType(), "value");
 
 			// Deserialize(byte[] buffer, ref int offset, ref T value)
-			var readMethod = formatter.GetType().GetMethod("Deserialize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+			var readMethod = formatter.GetType().ResolveDeserializeMethod(enumBaseType);
 
 			// We write/read different types. The 'T' we're serializing is (for example) "MyCoolEnum", but we actually write the base type, which is (in this example) "System.Int32"
 			// That's why we need a local variable, into which we deserialize, and then we convert and write-back the deserialized value to the refValue parameter

@@ -395,8 +395,7 @@
 			//    IFormatter<object> formatter = new ReferenceFormatter<Person>();
 			// The line of code above obviously does not work since the types do not match, which is what this method fixes.
 
-			var serializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize), new Type[] { typeof(byte[]).MakeByRefType(), typeof(int).MakeByRefType(), type });
-			Debug.Assert(serializeMethod != null, "Can't find serialize method on formatter");
+			var serializeMethod = specificFormatter.GetType().ResolveSerializeMethod(type);
 
 			// When we have an exact type match, we can just use the method directly
 			if (type == typeof(T))
@@ -446,8 +445,7 @@
 		// See the comment on GetSpecificSerializerDispatcher
 		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher(Type type, IFormatter specificFormatter)
 		{
-			var deserializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize), new Type[] { typeof(byte[]), typeof(int).MakeByRefType(), type.MakeByRefType() });
-			Debug.Assert(deserializeMethod != null, "Can't find deserialize method on formatter");
+			var deserializeMethod = specificFormatter.GetType().ResolveDeserializeMethod(type);
 
 			// When we have an exact type match, we can just use the method directly
 			if (type == typeof(T))
@@ -528,7 +526,7 @@
 		*/
 		static SerializeDelegate<T> CreateSpecificSerializerDispatcher_Aot(Type type, IFormatter specificFormatter)
 		{
-			var serializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Serialize), new Type[] { type });
+			var serializeMethod = specificFormatter.GetType().ResolveSerializeMethod(type);
 			if (type == typeof(T))
 			{
 				var f = (IFormatter<T>)specificFormatter;
@@ -552,7 +550,7 @@
 
 		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher_Aot(Type type, IFormatter specificFormatter)
 		{
-			var deserializeMethod = specificFormatter.GetType().GetMethod(nameof(IFormatter<int>.Deserialize), new Type[] { type });
+			var deserializeMethod = specificFormatter.GetType().ResolveDeserializeMethod(type);
 			if (type == typeof(T))
 			{
 				var f = (IFormatter<T>)specificFormatter;
