@@ -6,8 +6,10 @@
 	using System.Collections.Generic;
 	using System.Text;
 	using Ceras.Formatters;
+    using System.Reflection;
+    using System.Linq;
 
-	static class SourceFormatterGenerator
+    static class SourceFormatterGenerator
 	{
 		public static StringBuilder Generate(Type type, CerasSerializer ceras, StringBuilder text)
 		{
@@ -64,11 +66,29 @@
 			text.AppendLine($"public void Deserialize(byte[] buffer, ref int offset, ref {schema.Type.ToFriendlyName(true)} value)");
 			text.AppendLine("{");
 
+			// If there are any properties, we use temp local vars. And then the code gets a bit hard to read.
+			bool addEmptyLines = schema.Members.Any(sm => sm.MemberInfo is PropertyInfo);
+
 			foreach (var m in schema.Members)
 			{
 				var t = m.MemberType;
 				var fieldName = MakeFormatterFieldName(t);
-				text.AppendLine($"{fieldName}.Deserialize(buffer, ref offset, ref value.{m.MemberName});");
+
+				if(m.MemberInfo is FieldInfo)
+				{
+					// Field
+					text.AppendLine($"{fieldName}.Deserialize(buffer, ref offset, ref value.{m.MemberName});");
+				}
+				else
+				{
+					// Prop
+					text.AppendLine($"_temp{m.MemberName} = value.{m.MemberName};");
+					text.AppendLine($"{fieldName}.Deserialize(buffer, ref offset, ref _temp{m.MemberName});");
+					text.AppendLine($"value.{m.MemberName} = _temp{m.MemberName};");
+				}
+
+				if(addEmptyLines)
+					text.AppendLine("");
 			}
 
 			text.AppendLine("}");
