@@ -5,7 +5,7 @@
 	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Drawing;
-	using System.IO;
+    using System.IO;
     using System.Runtime.CompilerServices;
     using Test;
 
@@ -33,6 +33,7 @@
 #error Unhandled framework version!
 #endif
 			
+			
 			new BuiltInTypes().MultidimensionalArrays();
 			new BuiltInTypes().ImmutableCollections();
 			new BuiltInTypes().Collections();
@@ -45,6 +46,23 @@
 			
 			
 		}
+
+		/*
+		#if NETFRAMEWORK
+		static void TestDynamic()
+		{
+			dynamic dyn = new ExpandoObject();
+			dyn.number = 5;
+			dyn.list = new List<string> { "a", "b"};
+			dyn.c = "c";
+			dyn.func = new Func<string>(((object)dyn).ToString);
+			
+			var ceras = new CerasSerializer();
+			var data = ceras.Serialize(dyn);
+			var dyn2 = ceras.Deserialize<dynamic>(data);
+		}
+		#endif
+		*/
 
 		static void TestBitmapFormatter()
 		{
