@@ -10,9 +10,6 @@ namespace CerasAotFormatterGenerator
 
 	class Program
 	{
-		static string[] inputAssemblies;
-		static string outputCsFileName;
-
 		static void Main(string[] args)
 		{
 			if (args.Length < 2)
@@ -23,8 +20,8 @@ namespace CerasAotFormatterGenerator
 				throw new ArgumentException(error);
 			}
 
-			inputAssemblies = args.Reverse().Skip(1).Reverse().ToArray();
-			outputCsFileName = args.Reverse().First();
+			var inputAssemblies = args.Reverse().Skip(1).Reverse().ToArray();
+			var outputCsFileName = args.Reverse().First();
 
 
 			var asms = inputAssemblies.Select(Assembly.LoadFrom);
