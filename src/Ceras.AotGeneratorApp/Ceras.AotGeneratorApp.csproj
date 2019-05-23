@@ -1,7 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Library</OutputType>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net47</TargetFramework>
   <PlatformTarget>AnyCPU</PlatformTarget>
   <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Ceras\Ceras.csproj" />
+    <ProjectReference Include="..\Ceras.AotGenerator\Ceras.AotGenerator.csproj" />
   </ItemGroup>
 
 </Project>
