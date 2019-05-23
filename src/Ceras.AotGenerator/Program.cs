@@ -25,6 +25,44 @@ namespace CerasAotFormatterGenerator
 	using Microsoft.CodeAnalysis.MSBuild;
 	using Microsoft.CodeAnalysis.Options;
 
+
+	/*
+	 * Ideas for improvement:
+	 * 
+	 * 1. Remove roslyn, ignore code formatting, that way we can drop a huge dependency which enables the next steps
+	 * 
+	 * 2. Turn this into a single .dll or so that can be dropped right into Unity. It would listen to compile events, 
+	 *    and then re-generate the formatters automatically! (just need to take care that it doesn't trigger itself by doing that).
+	 *    That would be much more comfortable, and that's very important! Comfort is one of the core ideals Ceras is built with.
+	 *    
+	 * 3. Allow specifying some settings, like:
+	 *    - GeneratedOutputFilePath
+	 *    - ClassVisibility = public/internal
+	 *    - maybe even List<string> TargetTypeNames;
+	 *    - ...
+	 */
+
+	/*
+	 * Issues:
+	 * - At the moment AotMode does not support version tolerance at all.
+	 *   There are two problems with this:
+	 *   
+	 *   Doing that is (right now) infeasible, because it is already a little troublesome to keep in sync with what DynamicFormatter does internally.
+	 *   Also adding the non-trivial complexity of the much more heavy SchemaFormatter into this tool would be too much.
+	 *   However, since both DynamicFormatter and SchemaFormatter use Expressions to generate their code, it is entirely possible to deconstruct that into actual C# source code.
+	 *   
+	 *   Another thing is different Schemata. Lets say we're on Aot and the user wants us to read data of some old schema.
+	 *   That old schema does describe how to read it, but how does that help us? Even if we now know how to read it, once the member-order has changed,
+	 *   there is no way for us to compile code that reacts to this. All we can do with static code is skipping fields...
+	 *   
+	 *   The only solution for that I can think of would be to make a sort of "emergency" SchemaFormatter that uses reflection for everything.
+	 *   It would be pretty slow, but then again we'd only be forced to actually use it when all those conditions
+	 *   are met at the *same time* (which is VERY rare):
+	 *   - we need to read version-tolerant-data
+	 *   - that data is from an older version
+	 *   - the changes to the schem / data-format happen to change the member-order in a specific way
+	 */
+
 	class Program
 	{
 		static string[] inputAssemblies;
