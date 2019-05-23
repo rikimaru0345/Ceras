@@ -11,10 +11,10 @@
 	{
 		public static StringBuilder Generate(Type type, CerasSerializer ceras, StringBuilder text)
 		{
-			text.AppendLine($"internal class {type.ToVariableSafeName()}Formatter : IFormatter<{type.ToFriendlyName(true)}>");
-			text.AppendLine("{");
+			text.AppendLine($"\tinternal class {type.ToVariableSafeName()}Formatter : IFormatter<{type.ToFriendlyName(true)}>");
+			text.AppendLine("\t{");
 			GenerateClassContent(text, ceras, type);
-			text.AppendLine("}");
+			text.AppendLine("\t}");
 			text.AppendLine("");
 
 			return text;
@@ -38,40 +38,40 @@
 			{
 				var t = m.MemberType;
 				var fieldName = MakeFormatterFieldName(t);
-				text.AppendLine($" IFormatter<{t.ToFriendlyName(true)}> {fieldName};");
+				text.AppendLine($"\t\tIFormatter<{t.ToFriendlyName(true)}> {fieldName};");
 			}
 			text.AppendLine("");
 		}
 
 		static void GenerateSerializer(StringBuilder text, Schema schema)
 		{
-			text.AppendLine($"public void Serialize(ref byte[] buffer, ref int offset, {schema.Type.ToFriendlyName(true)} value)");
-			text.AppendLine("{");
+			text.AppendLine($"\t\tpublic void Serialize(ref byte[] buffer, ref int offset, {schema.Type.ToFriendlyName(true)} value)");
+			text.AppendLine("\t\t{");
 
 			foreach (var m in schema.Members)
 			{
 				var t = m.MemberType;
 				var fieldName = MakeFormatterFieldName(t);
-				text.AppendLine($"{fieldName}.Serialize(ref buffer, ref offset, value.{m.MemberName});");
+				text.AppendLine($"\t\t\t{fieldName}.Serialize(ref buffer, ref offset, value.{m.MemberName});");
 			}
 
-			text.AppendLine("}");
+			text.AppendLine("\t\t}");
 			text.AppendLine("");
 		}
 
 		static void GenerateDeserializer(StringBuilder text, Schema schema)
 		{
-			text.AppendLine($"public void Deserialize(byte[] buffer, ref int offset, ref {schema.Type.ToFriendlyName(true)} value)");
-			text.AppendLine("{");
+			text.AppendLine($"\t\tpublic void Deserialize(byte[] buffer, ref int offset, ref {schema.Type.ToFriendlyName(true)} value)");
+			text.AppendLine("\t\t{");
 
 			foreach (var m in schema.Members)
 			{
 				var t = m.MemberType;
 				var fieldName = MakeFormatterFieldName(t);
-				text.AppendLine($"{fieldName}.Deserialize(buffer, ref offset, ref value.{m.MemberName});");
+				text.AppendLine($"\t\t\t{fieldName}.Deserialize(buffer, ref offset, ref value.{m.MemberName});");
 			}
 
-			text.AppendLine("}");
+			text.AppendLine("\t\t}");
 		}
 
 

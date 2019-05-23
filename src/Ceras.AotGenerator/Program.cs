@@ -15,15 +15,6 @@ namespace CerasAotFormatterGenerator
 	using System.Threading;
 	using Ceras.Formatters;
 	using Ceras.Formatters.AotGenerator;
-	using Microsoft.CodeAnalysis.CSharp;
-	using Microsoft.CodeAnalysis.Text;
-	using Microsoft.CodeAnalysis;
-	using Microsoft.CodeAnalysis.CodeFixes;
-	using Microsoft.CodeAnalysis.CSharp.Formatting;
-	using Microsoft.CodeAnalysis.Diagnostics;
-	using Microsoft.CodeAnalysis.Formatting;
-	using Microsoft.CodeAnalysis.MSBuild;
-	using Microsoft.CodeAnalysis.Options;
 
 	class Program
 	{
@@ -58,36 +49,22 @@ namespace CerasAotFormatterGenerator
 			fullCode.AppendLine("namespace Ceras.GeneratedFormatters");
 			fullCode.AppendLine("{");
 
-			var setCustomFormatters = targets.Select(t => $"config.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
-			fullCode.AppendLine($@"
-static class GeneratedFormatters
-{{
-	internal static void UseFormatters(SerializerConfig config)
+			var setCustomFormatters = targets.Select(t => $"\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
+			fullCode.AppendLine(
+$@"	static class GeneratedFormatters
 	{{
-		{string.Join("\n", setCustomFormatters)}
+		internal static void UseFormatters(SerializerConfig config)
+		{{
+{string.Join(Environment.NewLine, setCustomFormatters)}
+		}}
 	}}
-}}
 ");
 
 			foreach (var t in targets)
 				SourceFormatterGenerator.Generate(t, ceras, fullCode);
+
+			fullCode.Length -= Environment.NewLine.Length;
 			fullCode.AppendLine("}");
-
-			Console.WriteLine($"Parsing...");
-
-			var syntaxTree = CSharpSyntaxTree.ParseText(fullCode.ToString());
-
-			Console.WriteLine($"Formatting...");
-
-			var workspace = new AdhocWorkspace();
-			var options = workspace.Options
-								   .WithChangedOption(CSharpFormattingOptions.IndentBlock, true)
-								   .WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInAccessors, true)
-								   .WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInControlBlocks, true)
-								   .WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInTypes, true)
-								   .WithChangedOption(CSharpFormattingOptions.IndentBraces, false);
-
-			syntaxTree = Formatter.Format(syntaxTree.GetRoot(), workspace, options).SyntaxTree;
 
 			Console.WriteLine($"Saving...");
 
@@ -95,7 +72,7 @@ static class GeneratedFormatters
 			using (var w = new StreamWriter(fs))
 			{
 				fs.SetLength(0);
-				w.WriteLine(syntaxTree.ToString());
+				w.Write(fullCode.ToString());
 			}
 
 
