@@ -9,8 +9,8 @@ namespace LiveTesting
 	using Ceras.Helpers;
 	using Ceras.Resolvers;
 	using Newtonsoft.Json;
-    using System.Buffers;
-    using System.Collections.Generic;
+	using System.Buffers;
+	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.IO;
 	using System.Linq;
@@ -21,16 +21,43 @@ namespace LiveTesting
 	using Xunit;
 	using Encoding = System.Text.Encoding;
 
+	public class TestAot
+	{
+		public int anInt;
+	}
+
+	class TestAotFormatter : IFormatter<TestAot>
+    {
+        IFormatter<int> _intFormatter;
+
+        public void Serialize(ref byte[] buffer, ref int offset, TestAot value)
+        {
+            _intFormatter.Serialize(ref buffer, ref offset, value.anInt);
+        }
+
+        public void Deserialize(byte[] buffer, ref int offset, ref TestAot value)
+        {
+            _intFormatter.Deserialize(buffer, ref offset, ref value.anInt);
+        }
+    }
+
 	class Program
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
 
-
-
 		static unsafe void Main(string[] args)
 		{
 			//Benchmarks();
-			new Tutorial().Step1_SimpleUsage();
+
+			var config = new SerializerConfig();
+			config.Advanced.AotMode = AotMode.Enabled;
+			config.ConfigType<TestAot>().CustomFormatter = new TestAotFormatter();
+			CerasSerializer ceras = new CerasSerializer(config);
+
+			var obj = new TestAot { anInt = 5 };
+			var bytes = ceras.Serialize(obj);
+
+			var clone = ceras.Deserialize<TestAot>(bytes);
 
 
 			ReinterpretMultiDimensionalArray1();
@@ -136,13 +163,13 @@ namespace LiveTesting
 		{
 			var x = new Benchmark_SealedTypeOptimization();
 			x.Setup();
-			
+
 			var iterations = MicroBenchmark.EstimateIterations(TimeSpan.FromSeconds(10), () => x.Normal());
 
 			int max = 5;
 			for (int i = 0; i < max; i++)
 			{
-				Console.WriteLine($"Test {i+1}/{max} ...");
+				Console.WriteLine($"Test {i + 1}/{max} ...");
 				MicroBenchmark.Run(iterations,
 					("normal", () => x.Normal()),
 					("sealed", () => x.Sealed()));
