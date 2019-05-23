@@ -101,14 +101,14 @@ $@"	static class GeneratedFormatters
 				if(m.MemberInfo is FieldInfo)
 				{
 					// Field
-					text.AppendLine($"{fieldName}.Deserialize(buffer, ref offset, ref value.{m.MemberName});");
+					text.AppendLine($"\t\t\t{fieldName}.Deserialize(buffer, ref offset, ref value.{m.MemberName});");
 				}
 				else
 				{
 					// Prop
-					text.AppendLine($"_temp{m.MemberName} = value.{m.MemberName};");
-					text.AppendLine($"{fieldName}.Deserialize(buffer, ref offset, ref _temp{m.MemberName});");
-					text.AppendLine($"value.{m.MemberName} = _temp{m.MemberName};");
+					text.AppendLine($"\t\t\t_temp{m.MemberName} = value.{m.MemberName};");
+					text.AppendLine($"\t\t\t{fieldName}.Deserialize(buffer, ref offset, ref _temp{m.MemberName});");
+					text.AppendLine($"\t\t\tvalue.{m.MemberName} = _temp{m.MemberName};");
 				}
 
 				if(addEmptyLines)
