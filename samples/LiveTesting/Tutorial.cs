@@ -13,7 +13,7 @@ namespace Tutorial
 	class Person
 	{
 		public string Name;
-		public int Health;
+		public int Health { get; set; } // This is a property just to show that Ceras handles properties as well.
 		public Person BestFriend;
 	}
 
@@ -26,12 +26,12 @@ namespace Tutorial
 			// aka. "I'm here for the cool features! I want to optimize for max-performance later"
 			var person = new Person { Name = "riki", Health = 100 };
 
-			var serializer = new CerasSerializer();
+			var ceras = new CerasSerializer();
 
-			var data = serializer.Serialize(person);
+			var data = ceras.Serialize(person);
 			data.VisualizePrint("Simple Person");
 
-			var clone1 = serializer.Deserialize<Person>(data);
+			var clone1 = ceras.Deserialize<Person>(data);
 			Console.WriteLine($"Clone: Name={clone1.Name}, Health={clone1.Health}");
 
 
@@ -41,9 +41,9 @@ namespace Tutorial
 			// In that case the type information will be included. 
 			// If a type is written it will only be written ONCE, so a List<Person> will not suddenly waste a
 			// ton of space by continously writing the type-names
-			var objectData = serializer.Serialize<object>(person);
+			var objectData = ceras.Serialize<object>(person);
 			objectData.VisualizePrint("Person as <object>");
-			var objectClone = serializer.Deserialize<object>(objectData);
+			var objectClone = ceras.Deserialize<object>(objectData);
 
 
 
@@ -53,11 +53,11 @@ namespace Tutorial
 			// Recycle the serialization buffer by keeping the reference to it around.
 			// Optionally we can even let Ceras create (or resize) the buffer for us.
 			byte[] buffer = null;
-			int writtenBytes = serializer.Serialize(person, ref buffer);
+			int writtenBytes = ceras.Serialize(person, ref buffer);
 
 			// Now we could send this over the network, for example:
 			//   socket.Send(buffer, writtenBytes, SocketFlags.None);
-			var clone2 = serializer.Deserialize<Person>(buffer);
+			var clone2 = ceras.Deserialize<Person>(buffer);
 
 
 
@@ -84,7 +84,7 @@ namespace Tutorial
 			config.ConfigType<Person>()
 				  .ConfigMember(p => p.Name).Include()
 				  .ConfigMember(p => p.BestFriend).Include();
-			
+
 
 
 
@@ -101,15 +101,38 @@ namespace Tutorial
 			personA.BestFriend = personB;
 			personB.BestFriend = personA;
 
-			var dataWithCircularReferences = serializer.Serialize(personA);
+			var dataWithCircularReferences = ceras.Serialize(personA);
 			dataWithCircularReferences.VisualizePrint("Circular references data");
 
-			var cloneA = serializer.Deserialize<Person>(dataWithCircularReferences);
+			var cloneA = ceras.Deserialize<Person>(dataWithCircularReferences);
 
 			if (cloneA.BestFriend.BestFriend.BestFriend.BestFriend.BestFriend.BestFriend == cloneA)
 				Console.WriteLine("Circular reference serialization working as intended!");
 			else
 				throw new Exception("There was some problem!");
+
+
+			// Works with self-references!
+			// Ceras maintains object references while deserializing, even if the object a field/prop points to doesn't exist yet
+			var personC = new Person { Name = "abc" };
+			personC.BestFriend = personC;
+			var cloneC = ceras.Deserialize<Person>(ceras.Serialize(personC));
+			Debug.Assert(cloneC.BestFriend.BestFriend.BestFriend.BestFriend == cloneC);
+
+
+			// Fully maintains identity of objects!
+			// There is only one actual object instance here (personC). The array refers to the same object two times.
+			// While Ceras deserializes the array it only creates a single instance of 'Person', exactly as intended.
+			Person[] personArray = new Person[2];
+			personArray[0] = personC;
+			personArray[1] = personC;
+			var personArrayClone = ceras.Deserialize<Person[]>(ceras.Serialize(personArray));
+			
+			Debug.Assert(personArray[0] == personArray[1]);
+			Debug.Assert(ReferenceEquals(personArray[0], personArray[1]));
+			Debug.Assert(personArray[0].BestFriend == personArray[1].BestFriend);
+			Debug.Assert(personArray[0].BestFriend.BestFriend == personArray[1]);
+
 		}
 
 		public void Step2_Attributes()
@@ -575,8 +598,8 @@ namespace Tutorial
 
 
 			{
-				
-				
+
+
 			}
 
 
@@ -646,7 +669,7 @@ namespace Tutorial
 			// So, even though it may look like that the object injected into "PersonFormatter" is just 'MyCustomPersonFormatter' itself again, that's not the case!
 			//
 			// In case you are interested in what's going on behind the scenes:
-			// Ceras actually injects a 'ReferenceFormatter<Person>' into our 'PersonFormatter' field, which deals with reference loops.
+			// The actual object Ceras injects into our 'PersonFormatter' field is 'ReferenceFormatter<Person>', which does all the magic to make references and object identity (and many other things) work.
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref Person value)
@@ -655,6 +678,14 @@ namespace Tutorial
 			value.Name = SerializerBinary.ReadString(buffer, ref offset);
 			value.Health = SerializerBinary.ReadInt32(buffer, ref offset);
 			PersonFormatter.Deserialize(buffer, ref offset, ref value.BestFriend);
+
+			// You can try changing 'BestFriend' into a property.
+			// If you do, you have to modify this last line a bit:
+			/*
+			var f = value.BestFriend;
+			PersonFormatter.Deserialize(buffer, ref offset, ref f);
+			value.BestFriend = f;
+			*/
 		}
 	}
 

@@ -7,8 +7,10 @@
 	using System.Linq;
 	using System.Text;
 	using Ceras.Formatters;
+    using System.Reflection;
+    using System.Linq;
 
-	static class SourceFormatterGenerator
+    static class SourceFormatterGenerator
 	{
 		public static void GenerateAll(List<Type> targets, CerasSerializer ceras, StringBuilder text)
 		{
@@ -58,7 +60,7 @@ $@"	static class GeneratedFormatters
 
 		static void GenerateFormatterFields(StringBuilder text, Schema schema)
 		{
-			foreach (var m in schema.Members)
+			foreach (var m in schema.Members.DistinctBy(m => m.MemberType))
 			{
 				var t = m.MemberType;
 				var fieldName = MakeFormatterFieldName(t);
@@ -88,11 +90,29 @@ $@"	static class GeneratedFormatters
 			text.AppendLine($"\t\tpublic void Deserialize(byte[] buffer, ref int offset, ref {schema.Type.ToFriendlyName(true)} value)");
 			text.AppendLine("\t\t{");
 
+			// If there are any properties, we use temp local vars. And then the code gets a bit hard to read.
+			bool addEmptyLines = schema.Members.Any(sm => sm.MemberInfo is PropertyInfo);
+
 			foreach (var m in schema.Members)
 			{
 				var t = m.MemberType;
 				var fieldName = MakeFormatterFieldName(t);
-				text.AppendLine($"\t\t\t{fieldName}.Deserialize(buffer, ref offset, ref value.{m.MemberName});");
+
+				if(m.MemberInfo is FieldInfo)
+				{
+					// Field
+					text.AppendLine($"{fieldName}.Deserialize(buffer, ref offset, ref value.{m.MemberName});");
+				}
+				else
+				{
+					// Prop
+					text.AppendLine($"_temp{m.MemberName} = value.{m.MemberName};");
+					text.AppendLine($"{fieldName}.Deserialize(buffer, ref offset, ref _temp{m.MemberName});");
+					text.AppendLine($"value.{m.MemberName} = _temp{m.MemberName};");
+				}
+
+				if(addEmptyLines)
+					text.AppendLine("");
 			}
 
 			text.AppendLine("\t\t}");
