@@ -4,20 +4,44 @@
 	using Ceras.Helpers;
 	using System;
 	using System.Collections.Generic;
+	using System.Linq;
 	using System.Text;
 	using Ceras.Formatters;
 
 	static class SourceFormatterGenerator
 	{
-		public static StringBuilder Generate(Type type, CerasSerializer ceras, StringBuilder text)
+		public static void GenerateAll(List<Type> targets, CerasSerializer ceras, StringBuilder text)
+		{
+			text.AppendLine("using Ceras;");
+			text.AppendLine("using Ceras.Formatters;");
+			text.AppendLine("namespace Ceras.GeneratedFormatters");
+			text.AppendLine("{");
+
+			var setCustomFormatters = targets.Select(t => $"\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
+			text.AppendLine(
+$@"	static class GeneratedFormatters
+	{{
+		internal static void UseFormatters(SerializerConfig config)
+		{{
+{string.Join(Environment.NewLine, setCustomFormatters)}
+		}}
+	}}
+");
+
+			foreach (var t in targets)
+				Generate(t, ceras, text);
+
+			text.Length -= Environment.NewLine.Length;
+			text.AppendLine("}");
+		}
+
+		static void Generate(Type type, CerasSerializer ceras, StringBuilder text)
 		{
 			text.AppendLine($"\tinternal class {type.ToVariableSafeName()}Formatter : IFormatter<{type.ToFriendlyName(true)}>");
 			text.AppendLine("\t{");
 			GenerateClassContent(text, ceras, type);
 			text.AppendLine("\t}");
 			text.AppendLine("");
-
-			return text;
 		}
 
 		static void GenerateClassContent(StringBuilder text, CerasSerializer ceras, Type type)

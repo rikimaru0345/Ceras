@@ -41,31 +41,8 @@ namespace CerasAotFormatterGenerator
 
 			var (ceras, targets) = CreateSerializerAndTargets(asms);
 
-
-
 			StringBuilder fullCode = new StringBuilder(25 * 1000);
-			fullCode.AppendLine("using Ceras;");
-			fullCode.AppendLine("using Ceras.Formatters;");
-			fullCode.AppendLine("namespace Ceras.GeneratedFormatters");
-			fullCode.AppendLine("{");
-
-			var setCustomFormatters = targets.Select(t => $"\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
-			fullCode.AppendLine(
-$@"	static class GeneratedFormatters
-	{{
-		internal static void UseFormatters(SerializerConfig config)
-		{{
-{string.Join(Environment.NewLine, setCustomFormatters)}
-		}}
-	}}
-");
-
-			foreach (var t in targets)
-				SourceFormatterGenerator.Generate(t, ceras, fullCode);
-
-			fullCode.Length -= Environment.NewLine.Length;
-			fullCode.AppendLine("}");
-
+			SourceFormatterGenerator.GenerateAll(targets, ceras, fullCode);
 			Console.WriteLine($"Saving...");
 
 			using (var fs = File.OpenWrite(outputCsFileName))
