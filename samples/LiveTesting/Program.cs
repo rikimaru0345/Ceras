@@ -30,7 +30,7 @@ namespace LiveTesting
 		static unsafe void Main(string[] args)
 		{
 			//Benchmarks();
-
+			new Tutorial().Step1_SimpleUsage();
 
 
 			ReinterpretMultiDimensionalArray1();
