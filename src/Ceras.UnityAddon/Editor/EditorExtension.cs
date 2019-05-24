@@ -16,7 +16,7 @@ namespace Ceras.Editor
 		{
 			var executingAssembly = Assembly.GetExecutingAssembly();
 			var asms = executingAssembly.GetReferencedAssemblies().Select(Assembly.Load).Append(executingAssembly);
-			var sb = new StringBuilder();
+			var sb = new StringBuilder(25 * 1000);
 			Generator.Generate(asms, sb);
 			File.WriteAllText(outputCsFileName, sb.ToString());
 			AssetDatabase.ImportAsset(outputCsFileName);
