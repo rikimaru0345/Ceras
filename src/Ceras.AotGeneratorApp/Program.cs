@@ -26,7 +26,7 @@ namespace CerasAotFormatterGenerator
 
 			var asms = inputAssemblies.Select(Assembly.LoadFrom);
 			StringBuilder fullCode = new StringBuilder(25 * 1000);
-			Lib.Generate(asms, fullCode);
+			Generator.Generate(asms, fullCode);
 
 			Console.WriteLine($"Saving...");
 

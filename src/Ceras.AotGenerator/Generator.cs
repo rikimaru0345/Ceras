@@ -13,7 +13,7 @@ namespace CerasAotFormatterGenerator
 	/*
 	 * Ideas for improvement:
 	 * 
-	 * 1. Remove roslyn, ignore code formatting, that way we can drop a huge dependency which enables the next steps
+	 * 1. (Done) Remove roslyn, ignore code formatting, that way we can drop a huge dependency which enables the next steps
 	 * 
 	 * 2. Turn this into a single .dll or so that can be dropped right into Unity. It would listen to compile events, 
 	 *    and then re-generate the formatters automatically! (just need to take care that it doesn't trigger itself by doing that).
@@ -47,7 +47,7 @@ namespace CerasAotFormatterGenerator
 	 *   - the changes to the schem / data-format happen to change the member-order in a specific way
 	 */
 
-	public class Lib
+	public class Generator
 	{
 		public static void Generate(IEnumerable<Assembly> asms, StringBuilder output)
 		{
