@@ -21,9 +21,9 @@
 
 			var setCustomFormatters = targets.Select(t => $"\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
 			text.AppendLine(
-$@"	static class GeneratedFormatters
+$@"	public static class GeneratedFormatters
 	{{
-		internal static void UseFormatters(SerializerConfig config)
+		public static void UseFormatters(SerializerConfig config)
 		{{
 {string.Join(Environment.NewLine, setCustomFormatters)}
 		}}
