@@ -31,6 +31,7 @@ namespace LiveTesting
 		static unsafe void Main(string[] args)
 		{
 			// Benchmarks();
+			NewRefProxyTest.CompareCalls();
 
 			NewRefProxyTest.ReinterpretRefProxyTest();
 
@@ -576,7 +577,7 @@ namespace LiveTesting
 		class DependencyInjectionTestFormatter : IFormatter<Person>
 		{
 			public CerasSerializer Ceras;
-			public EnumFormatter<ByteEnum> EnumFormatter;
+			public ReinterpretFormatter<ByteEnum> EnumFormatter;
 			public DependencyInjectionTestFormatter Self;
 
 			public void Serialize(ref byte[] buffer, ref int offset, Person value) => throw new NotImplementedException();
