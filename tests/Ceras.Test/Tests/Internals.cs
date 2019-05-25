@@ -70,11 +70,43 @@ namespace Ceras.Test
 		class Cat : ICat { }
 		class Dog : IDog { }
 
+		// Boxed value references being de-duplicated (cached) doesn't hurt, but it shouldn't happen just out of principle.
+		// Fixing this would probably be very complicated.
+		// I guess we'd have to essentially completely remove ReferenceFormatter; moving all its functionality into each actual formatter or something?
+		// But that would make writing custom formatters much harder... 
+		// Maybe that could be combined with the 'ref writer' idea to alleviate this somewhat?
+		// But then again, this "bug" causes absolutely no harm, it doesn't even really affect performance, so why bother?
+		[Fact(Skip = "Not implemented yet; causes no problems though. See comment for more details.")]
+		public void BoxedReferencesAreNotCached()
+		{
+			var ceras = new CerasSerializer();
+
+			object[] ar = new object[]
+			{
+				1L, 2L, 3L,
+				1L, 2L, 3L,
+				1L, 2L, 3L,
+			};
+
+
+			Assert.True(Equals(ar[0], ar[3]));
+			Assert.False(ReferenceEquals(ar[0], ar[3]));
+			Assert.True(Equals(ar[3], ar[6]));
+			Assert.False(ReferenceEquals(ar[3], ar[6]));
+
+			var arClone = ceras.Advanced.Clone(ar);
+
+			Assert.True(Equals(arClone[0], arClone[3]));
+			Assert.False(ReferenceEquals(arClone[0], arClone[3]));
+			Assert.True(Equals(arClone[3], arClone[6]));
+			Assert.False(ReferenceEquals(arClone[3], arClone[6]));
+		}
+
 
 		[Fact]
 		public void ClearGenericCaches()
 		{
-			var ceras =  new CerasSerializer();
+			var ceras = new CerasSerializer();
 
 			var list = new List<Cat>();
 			for (int i = 0; i < 1000; i++)
@@ -82,12 +114,12 @@ namespace Ceras.Test
 
 			var data = ceras.Serialize(list);
 			var clone = ceras.Deserialize<List<Cat>>(data);
-			
+
 			var capacityBefore = ObjectCache.RefProxyPool<Cat>.GetPoolCapacity();
 			Assert.True(capacityBefore > 500);
-			
+
 			CerasSerializer.ClearGenericCaches();
-			
+
 			var capacityAfter = ObjectCache.RefProxyPool<Cat>.GetPoolCapacity();
 			Assert.True(capacityAfter < capacityBefore);
 		}
@@ -271,7 +303,7 @@ namespace Ceras.Test
 			var sc = new SerializerConfig();
 			sc.DefaultTargets = TargetMember.AllFields;
 			sc.VersionTolerance.Mode = VersionToleranceMode.Standard;
-    
+
 			var ceras = new CerasSerializer(sc);
 			TestCls tc = new TestCls()
 			{
@@ -281,7 +313,7 @@ namespace Ceras.Test
 				PrivateText2 = "derivedP" + Environment.TickCount,
 			};
 			TestCls tcClone = ceras.Deserialize<TestCls>(ceras.Serialize(tc));
-			
+
 			Assert.True(tc.Field1 == tcClone.Field1);
 			Assert.True(tc.PrivateText1 == tcClone.PrivateText1);
 			Assert.True(tc.Field2 == tcClone.Field2);
