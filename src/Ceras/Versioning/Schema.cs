@@ -8,13 +8,13 @@
 	using System.Runtime.CompilerServices;
 
 	/*
-	 * A schema just contains the
-	 * - The Type the Schema is for
-	 * - All serialized members (ordered!)
-	 * - For each member it contains:
-	 *		- The persistent name (normally that's just the member-name, but can overriden by the user)
-	 *		- Whether or not to skip the entry (when reading an old object some members might not be present anymore)
-	 *		
+	 * A 'Schema' is really simple, all it contains is:
+	 * - the Type the Schema is for
+	 * - the serialized members (ordered!)
+	 * - and for each member:
+	 *		- its persistent name (normally that's just the member-name, but can overriden by the user)
+	 *		- whether or not to skip it (when reading an old object some members might not be present anymore)
+	 *
 	 * The persistent name is only used when writing the Schema; and while reading the persistent name is just recorded but never used,
 	 * because it only serves to lookup the target member.
 	 * 
