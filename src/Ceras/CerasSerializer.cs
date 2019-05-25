@@ -560,6 +560,20 @@ namespace Ceras
 		}
 
 
+		T ICerasAdvanced.Clone<T>(T obj)
+		{
+			var buffer = CerasBufferPool.Rent(0x4000);
+
+			Serialize(obj, ref buffer);
+
+			T clone = default;
+			Deserialize(ref clone, buffer);
+
+			CerasBufferPool.Return(buffer);
+
+			return clone;
+		}
+
 
 		byte[] ICerasAdvanced.SerializeStatic(Type type)
 		{
@@ -1241,6 +1255,11 @@ namespace Ceras
 		/// Also will not work if the data was saved with version tolerance (can be implemented when someone requests it)
 		/// </summary>
 		Type PeekType(byte[] buffer);
+
+		/// <summary>
+		/// Clones the given object. Simple helper method that just calls Serialize and Deserialize with a temporary (reused) buffer.
+		/// </summary>
+		T Clone<T>(T obj);
 
 		/// <summary>
 		/// Get all resolvers that this <see cref="CerasSerializer"/> has available. Does not include any user-registered callbacks in <see cref="SerializerConfig.OnResolveFormatter"/>.

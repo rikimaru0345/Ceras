@@ -34,6 +34,7 @@
 			return id;
 		}
 
+
 		// Deserialization:
 		// When encountering a new object
 		internal RefProxy<T> CreateDeserializationProxy<T>() where T : class
@@ -44,8 +45,7 @@
 			return p;
 		}
 
-
-		// For deserialization:
+		// Deserialization:
 		// Returns an object that was deserialized previously (seen already, and created by CreateDeserializationProxy)
 		internal T GetExistingObject<T>(int id) where T : class
 		{
@@ -62,8 +62,8 @@
 				throw new InvalidOperationException("Object cache does not contain an object with the ID: " + id);
 #endif
 
-			var reference = _deserializationCache[id];
-			return (T)reference.ObjectValue;
+			var proxy = _deserializationCache[id];
+			return (T)proxy.ObjectValue;
 		}
 
 
