@@ -18,12 +18,11 @@ namespace Ceras.Formatters
 
 		internal static readonly MethodInfo _writeMethod = new ReadWriteRawDelegate(Write_Raw).Method;
 		internal static readonly MethodInfo _readMethod = new ReadWriteRawDelegate(Read_Raw).Method;
-
-		internal static readonly int _itemSize;
-
+		
 
 		static ReinterpretFormatter()
 		{
+			/*
 			var type = typeof(T);
 
 			if (type.IsEnum)
@@ -32,6 +31,7 @@ namespace Ceras.Formatters
 			_itemSize = ReflectionHelper.GetSize(type);
 			if (_itemSize < 0)
 				throw new InvalidOperationException("Type is not blittable");
+			*/
 		}
 
 		public ReinterpretFormatter()
@@ -41,24 +41,24 @@ namespace Ceras.Formatters
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
-			SerializerBinary.EnsureCapacity(ref buffer, offset, _itemSize);
+			SerializerBinary.EnsureCapacity(ref buffer, offset, Unsafe.SizeOf<T>());
 
 			Write_Raw(buffer, offset, ref value);
 
-			offset += _itemSize;
+			offset += Unsafe.SizeOf<T>();
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
 			Read_Raw(buffer, offset, ref value);
 
-			offset += _itemSize;
+			offset += Unsafe.SizeOf<T>();
 		}
 
 
 		// Write value type, don't check if it fits, don't modify offset
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		static void Write_Raw(byte[] buffer, int offset, ref T value)
+		public static void Write_Raw(byte[] buffer, int offset, ref T value)
 		{
 			fixed (byte* pBuffer = &buffer[0])
 			{
@@ -69,7 +69,7 @@ namespace Ceras.Formatters
 
 		// Read value type, don't modify offset
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		static void Read_Raw(byte[] buffer, int offset, ref T value)
+		public static void Read_Raw(byte[] buffer, int offset, ref T value)
 		{
 			fixed (byte* pBuffer = &buffer[0])
 			{
@@ -85,8 +85,8 @@ namespace Ceras.Formatters
 									   arg0: bufferExp,
 									   arg1: offsetExp,
 									   arg2: valueExp);
-			writtenSize = _itemSize;
 
+			writtenSize = Unsafe.SizeOf<T>();
 			return call;
 		}
 
@@ -96,8 +96,8 @@ namespace Ceras.Formatters
 									   arg0: bufferExp,
 									   arg1: offsetExp,
 									   arg2: valueExp);
-			readSize = _itemSize;
 
+			readSize = Unsafe.SizeOf<T>();
 			return call;
 		}
 
@@ -110,7 +110,7 @@ namespace Ceras.Formatters
 			// todo: must have the same size as we've expected
 
 			if (!BitConverter.IsLittleEndian)
-				throw new Exception("The reinterpret formatters require a little endian environment (CPU/OS). Please turn off " + nameof(SerializerConfig.Advanced.UseReinterpretFormatter));
+				throw new Exception("ReinterpretFormatter requires little endian environment. Please turn off " + nameof(SerializerConfig.Advanced.UseReinterpretFormatter));
 		}
 
 	}

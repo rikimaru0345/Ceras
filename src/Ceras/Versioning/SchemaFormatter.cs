@@ -10,15 +10,17 @@ namespace Ceras.Helpers
 	using System.Reflection;
 	using static System.Linq.Expressions.Expression;
 
-	// Ask community what they prefer:
-	// - fixed 4 byte length (best performance)
-	// - varInt encoding (slower but most compact)
-	// - maybe even fixed 2 byte encoding? (with exception for elements that are too large)
-	// What about a setting? But people would have to be very careful that they use the same settings for reading as they did while serializing.
+	// Idea #1:
+	// Currently every field has a UInt32 size prefix.
+	// But for some types the size can be inferred! 
+	// - Primitives (int, ...) can have a fixed size (only when using block-encoding, so actually very rarely...)
+	// - String's size is actually known because we currently encode it by prefixing the length as a varint.
+	// Maybe this can be exploited somehow? (currently there are too many edge cases, but maybe in the future?) 
+	//
+	// Idea #2:
+	// Maybe the user wants to be able to customize the size-prefix? (but for what?)
+	// It could be nice to be able to switch between UInt32 and varint, maybe for networking purposes.
 
-	// todo: when we're adding support for serialization constructors here as well, then it would be a good feature if the user can provide default-values, and maybe even delegate callbacks to create values when they are missing from the data (so the user-factory can still be used!). Or maybe we could have a callback in this scenario: UninitializedObj->Callback->DirectCtor to handle all cases?
-
-	// todo: readjust context for properties
 
 	class SchemaDynamicFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
 	{
