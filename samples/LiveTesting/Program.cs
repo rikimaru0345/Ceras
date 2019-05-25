@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Security;
+
 
 namespace LiveTesting
 {
@@ -16,49 +18,21 @@ namespace LiveTesting
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
+	using System.Reflection.Emit;
 	using System.Runtime.CompilerServices;
 	using Tutorial;
 	using Xunit;
 	using Encoding = System.Text.Encoding;
 
-	public class TestAot
-	{
-		public int anInt;
-	}
-
-	class TestAotFormatter : IFormatter<TestAot>
-    {
-        IFormatter<int> _intFormatter;
-
-        public void Serialize(ref byte[] buffer, ref int offset, TestAot value)
-        {
-            _intFormatter.Serialize(ref buffer, ref offset, value.anInt);
-        }
-
-        public void Deserialize(byte[] buffer, ref int offset, ref TestAot value)
-        {
-            _intFormatter.Deserialize(buffer, ref offset, ref value.anInt);
-        }
-    }
-
 	class Program
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
-
+		
 		static unsafe void Main(string[] args)
 		{
-			//Benchmarks();
+			// Benchmarks();
 
-			var config = new SerializerConfig();
-			config.Advanced.AotMode = AotMode.Enabled;
-			config.ConfigType<TestAot>().CustomFormatter = new TestAotFormatter();
-			CerasSerializer ceras = new CerasSerializer(config);
-
-			var obj = new TestAot { anInt = 5 };
-			var bytes = ceras.Serialize(obj);
-
-			var clone = ceras.Deserialize<TestAot>(bytes);
-
+			NewRefProxyTest.ReinterpretRefProxyTest();
 
 			ReinterpretMultiDimensionalArray1();
 			ReinterpretMultiDimensionalArray2();
@@ -132,8 +106,10 @@ namespace LiveTesting
 		}
 
 
+
 		static void Benchmarks()
 		{
+			// Benchmark_DynamicMethod();
 			// Benchmark_SealedTypeOptimization();
 
 			var config = CerasGlobalBenchmarkConfig.Medium;
@@ -157,6 +133,42 @@ namespace LiveTesting
 
 
 			Environment.Exit(0);
+		}
+
+		static void Benchmark_DynamicMethod()
+		{
+			Func<float, float, float> avgFunc = (a, b) => (a + b) / 2;
+
+
+			var argA = Expression.Parameter(typeof(float), "a");
+			var argB = Expression.Parameter(typeof(float), "b");
+
+			var avgExpr = Expression.Lambda<Func<float, float, float>>(
+				Expression.Divide(
+					Expression.Add(argA, argB),
+					Expression.Constant(2f, typeof(float))),
+				new ParameterExpression[] { argA, argB })
+				.Compile();
+
+
+			var dynMethod = new DynamicMethod("avgDyn", typeof(float), new Type[] { typeof(float), typeof(float) }, true);
+			var ilGen = dynMethod.GetILGenerator();
+			ilGen.Emit(OpCodes.Ldarg_0);
+			ilGen.Emit(OpCodes.Ldarg_1);
+			ilGen.Emit(OpCodes.Add);
+			ilGen.Emit(OpCodes.Ldc_R4, 2);
+			ilGen.Emit(OpCodes.Div);
+			ilGen.Emit(OpCodes.Ret);
+
+			var avgDyn = (Func<float, float, float>)dynMethod.CreateDelegate(typeof(Func<float, float, float>));
+
+			var iterations = MicroBenchmark.EstimateIterations(TimeSpan.FromSeconds(0.5), () => avgFunc(1, 2));
+			MicroBenchmark.Run(iterations,
+				("avgFunc", () => avgFunc(1, 2)),
+				("avgExpr", () => avgExpr(1, 2)),
+				("avgDyn", () => avgDyn(1, 2)));
+
+			Console.ReadKey();
 		}
 
 		static void Benchmark_SealedTypeOptimization()

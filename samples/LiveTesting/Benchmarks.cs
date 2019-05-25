@@ -1563,8 +1563,24 @@ namespace LiveTesting
 			return (ulong)(targetTime.TotalMilliseconds / msPerInvoke);
 		}
 
-		public static void Run(ulong iterationCount, params (string name, Action action)[] actions)
+		public static void Run(double runTimeSeconds, params (string name, Action action)[] actions)
 		{
+			var iterations = EstimateIterations(TimeSpan.FromSeconds(runTimeSeconds), actions[0].action);
+
+			Console.WriteLine($"[MicroBenchmark] Runtime={runTimeSeconds:0.0}sec  Actions:{actions.Length}  Iterations:{iterations}");
+
+			Stopwatch totalTime = Stopwatch.StartNew();
+			RunManual(iterations, actions);
+			totalTime.Stop();
+
+			Console.WriteLine($"[MicroBenchmark] Done in {totalTime.Elapsed.TotalSeconds:0.0} sec");
+			Console.WriteLine();
+		}
+
+		public static void RunManual(ulong iterationCount, params (string name, Action action)[] actions)
+		{
+			int padLeft = actions.Max(a => a.name.Length) + 3;
+
 			// Warmup
 			foreach (var p in actions)
 				for (int i = 0; i < 200; i++)
@@ -1576,8 +1592,9 @@ namespace LiveTesting
 			{
 				var (name, action) = actions[actionIndex];
 
-				GC.Collect();
+				GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
 				GC.WaitForPendingFinalizers();
+				GC.Collect();
 
 				Stopwatch watch = Stopwatch.StartNew();
 
@@ -1587,17 +1604,28 @@ namespace LiveTesting
 				watch.Stop();
 
 				elapsedMs[actionIndex] = watch.Elapsed.TotalMilliseconds;
+
+				Report(actionIndex);
 			}
 
-			for (int i = 0; i < actions.Length; i++)
+			// for (int i = 0; i < actions.Length; i++)
+			//	Report(i);
+
+			void Report(int i)
 			{
 				double factor = i == 0
 					? 1.0
 					: elapsedMs[i] / elapsedMs[0];
 
-				Console.WriteLine($"\"{actions[i].name}\": {elapsedMs[i]:0} ms ({factor:0.00}x)");
-			}
+				string fasterSlower = i == 0
+					? ""
+					: factor < 1
+						? $"{(1 / factor * 100)-100:0}% faster!"
+						: $"{((1 - factor) * 100):0}% SLOWER!!";
 
+				var name = actions[i].name.PadLeft(padLeft);
+				Console.WriteLine($"{name}: {elapsedMs[i],5:0} ms ({factor:0.00}x) {fasterSlower}");
+			}
 		}
 	}
 }
