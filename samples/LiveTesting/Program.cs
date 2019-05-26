@@ -4,6 +4,7 @@ using System.Security;
 
 namespace LiveTesting
 {
+	using AgileObjects.ReadableExpressions;
 	using BenchmarkDotNet.Jobs;
 	using BenchmarkDotNet.Running;
 	using Ceras;
@@ -27,12 +28,14 @@ namespace LiveTesting
 	class Program
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
-		
+
 		static unsafe void Main(string[] args)
 		{
 			// Benchmarks();
-			NewRefProxyTest.CompareCalls();
 
+			ConvertDynamicFormatterToString();
+
+			NewRefProxyTest.CompareCalls();
 			NewRefProxyTest.ReinterpretRefProxyTest();
 
 			ReinterpretMultiDimensionalArray1();
@@ -106,7 +109,36 @@ namespace LiveTesting
 			Console.ReadKey();
 		}
 
+		static void ConvertDynamicFormatterToString()
+		{
+			var ceras = new CerasSerializer();
+			var personFormatter = (DynamicFormatter<Person>)ceras.GetSpecificFormatter(typeof(Person));
 
+			var schema = ceras.GetTypeMetaData(typeof(Person)).PrimarySchema;
+
+			var normalDeserializer = DynamicFormatter<Person>.GenerateDeserializer(ceras, schema, false, false);
+			var schemaDeserializer = DynamicFormatter<Person>.GenerateDeserializer(ceras, schema, true, false);
+
+			// wtf:
+			// ReferenceFormatter<Person>.Deserialize 
+			// value.set_Health(...);
+
+			/*
+			Func<TranslationSettings, TranslationSettings> configuration = s
+				=> s.ConvertPropertyMethods
+				.NameConstantsUsing(constant =>
+				{
+					var formattedType = constant.Type.FindClosedArg(typeof(IFormatter<>));
+					if(formattedType == null) return null;
+
+					return "_" + formattedType.FriendlyName(false) + "Formatter";
+				});
+
+
+			var normalCode = normalDeserializer.ToReadableString(configuration);
+			var schemaCode = schemaDeserializer.ToReadableString(configuration);
+			*/
+		}
 
 		static void Benchmarks()
 		{

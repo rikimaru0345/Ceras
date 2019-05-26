@@ -16,6 +16,8 @@ namespace LiveTesting
 	{
 		const int ConstCacheSize = 2000;
 
+		// Serialization: array search
+		// Deserialization: array
 		struct BetterCache
 		{
 			int _nextSlot;
@@ -90,6 +92,8 @@ namespace LiveTesting
 			}
 		}
 
+		// Serialization: dictionary
+		// Deserialization: array
 		struct BetterCache2
 		{
 			Dictionary<object, int> _serializationCache;
@@ -518,9 +522,9 @@ namespace LiveTesting
 
 			for (int i = 0; i < 5; i++)
 				MicroBenchmark.Run(2,
-					("ObjectCache", () => Clone(p1, refPersonFormatterOld)),
-					("NewCache", () => Clone(p1, refPersonFormatter)),
-					("NewCache2", () => Clone(p1, refPersonFormatterNewCache2)), // 4-14%
+					("Using old ObjectCache", () => Clone(p1, refPersonFormatterOld)),
+					("NewCache(ar,ar)", () => Clone(p1, refPersonFormatter)),
+					("NewCache2(dict,ar)", () => Clone(p1, refPersonFormatterNewCache2)), // 4-14%
 
 					("empty", () => { }
 				));
@@ -530,6 +534,103 @@ namespace LiveTesting
 
 			new Ceras.Test.Internals().BoxedReferencesAreNotCached();
 		}
+
+
+		internal static void CompareCalls()
+		{
+			var comp = new CompareCallsTest();
+			comp.Prepare();
+
+			for (int i = 0; i < 10; i++)
+				comp.Test();
+
+			Console.WriteLine("done");
+			Console.ReadKey();
+		}
+
+		// Results:
+		// - Anything other than simple takes 1.3x ~ 1.8x longer.
+		// - readonly doesn't help at all.
+		class CompareCallsTest
+		{
+			public Adder addSimple;
+			public IAdder addImplicit;
+			public IAdder addExplicit;
+			public AdderBase addBase;
+
+			public readonly Adder addSimpleR;
+			public readonly IAdder addImplicitR;
+			public readonly IAdder addExplicitR;
+			public readonly AdderBase addBaseR;
+
+			[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]
+			public CompareCallsTest()
+			{
+				addSimpleR = new Adder();
+				addImplicitR = new AdderImplicitInterface();
+				addExplicitR = new AdderExplicitInterface();
+				addBaseR = new AdderImpl();
+			}
+
+			[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]
+			public void Prepare()
+			{
+				addSimple = new Adder();
+				addImplicit = new AdderImplicitInterface();
+				addExplicit = new AdderExplicitInterface();
+				addBase = new AdderImpl();
+			}
+
+			public void Test()
+			{
+				int counter = 0;
+
+				MicroBenchmark.Run(5, new (string, Action)[]
+				{
+					("addSimple", () => counter = addSimple.Add(counter, 1)),
+					("addImplicit", () => counter = addImplicit.Add(counter, 1)),
+					("addExplicit", () => counter = addExplicit.Add(counter, 1)),
+					("addBase", () => counter = addBase.Add(counter, 1)),
+
+					("addSimpleR", () => counter = addSimpleR.Add(counter, 1)),
+					("addImplicitR", () => counter = addImplicitR.Add(counter, 1)),
+					("addExplicitR", () => counter = addExplicitR.Add(counter, 1)),
+					("addBaseR", () => counter = addBaseR.Add(counter, 1)),
+				});
+			}
+		}
+
+
+		class Adder
+		{
+			public int Add(int a, int b) => a + b;
+		}
+
+		interface IAdder
+		{
+			int Add(int a, int b);
+		}
+
+		class AdderImplicitInterface : IAdder
+		{
+			public int Add(int a, int b) => a + b;
+		}
+
+		class AdderExplicitInterface : IAdder
+		{
+			int IAdder.Add(int a, int b) => a + b;
+		}
+
+		abstract class AdderBase
+		{
+			public abstract int Add(int a, int b);
+		}
+
+		class AdderImpl : AdderBase
+		{
+			public override int Add(int a, int b) => a + b;
+		}
+
 
 
 		ref struct Writer
