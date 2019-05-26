@@ -1,35 +1,19 @@
-﻿using System;
+using System;
 
 namespace CerasAotFormatterGenerator
 {
 	using System.Collections.Generic;
-	using System.Collections.Immutable;
 	using Ceras;
-	using System.IO;
 	using System.Linq;
-	using System.Linq.Expressions;
 	using System.Reflection;
-	using System.Reflection.Emit;
-	using System.Security.Permissions;
 	using System.Text;
-	using System.Threading;
 	using Ceras.Formatters;
 	using Ceras.Formatters.AotGenerator;
-	using Microsoft.CodeAnalysis.CSharp;
-	using Microsoft.CodeAnalysis.Text;
-	using Microsoft.CodeAnalysis;
-	using Microsoft.CodeAnalysis.CodeFixes;
-	using Microsoft.CodeAnalysis.CSharp.Formatting;
-	using Microsoft.CodeAnalysis.Diagnostics;
-	using Microsoft.CodeAnalysis.Formatting;
-	using Microsoft.CodeAnalysis.MSBuild;
-	using Microsoft.CodeAnalysis.Options;
-
 
 	/*
 	 * Ideas for improvement:
 	 * 
-	 * 1. Remove roslyn, ignore code formatting, that way we can drop a huge dependency which enables the next steps
+	 * 1. (Done) Remove roslyn, ignore code formatting, that way we can drop a huge dependency which enables the next steps
 	 * 
 	 * 2. Turn this into a single .dll or so that can be dropped right into Unity. It would listen to compile events, 
 	 *    and then re-generate the formatters automatically! (just need to take care that it doesn't trigger itself by doing that).
@@ -63,86 +47,12 @@ namespace CerasAotFormatterGenerator
 	 *   - the changes to the schem / data-format happen to change the member-order in a specific way
 	 */
 
-	class Program
+	public class Generator
 	{
-		static string[] inputAssemblies;
-		static string outputCsFileName;
-
-		static void Main(string[] args)
+		public static void Generate(IEnumerable<Assembly> asms, StringBuilder output)
 		{
-			if (args.Length < 2)
-			{
-				var error = "Not enough arguments. The last argument is always the .cs file output path, all arguments before that are the input assemblies (.dll files) of your unity project. Example: \"C:\\MyUnityProject\\Temp\\bin\\Debug\\Assembly-CSharp.dll C:\\MyUnityProject\\Assets\\Scripts\\GeneratedFormatters.cs\"";
-
-				Console.WriteLine(error);
-				throw new ArgumentException(error);
-			}
-
-			inputAssemblies = args.Reverse().Skip(1).Reverse().ToArray();
-			outputCsFileName = args.Reverse().First();
-
-
-			AppDomain.CurrentDomain.AssemblyResolve += ResolveAssembly;
-
-			var asms = inputAssemblies.Select(Assembly.LoadFrom);
-
 			var (ceras, targets) = CreateSerializerAndTargets(asms);
-
-
-
-			StringBuilder fullCode = new StringBuilder(25 * 1000);
-			fullCode.AppendLine("using Ceras;");
-			fullCode.AppendLine("using Ceras.Formatters;");
-			fullCode.AppendLine("namespace Ceras.GeneratedFormatters");
-			fullCode.AppendLine("{");
-
-			var setCustomFormatters = targets.Select(t => $"config.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
-			fullCode.AppendLine($@"
-static class GeneratedFormatters
-{{
-	internal static void UseFormatters(SerializerConfig config)
-	{{
-		{string.Join("\n", setCustomFormatters)}
-	}}
-}}
-");
-
-			foreach (var t in targets)
-				SourceFormatterGenerator.Generate(t, ceras, fullCode);
-			fullCode.AppendLine("}");
-
-			Console.WriteLine($"Parsing...");
-
-			var syntaxTree = CSharpSyntaxTree.ParseText(fullCode.ToString());
-
-			Console.WriteLine($"Formatting...");
-
-			var workspace = new AdhocWorkspace();
-			var options = workspace.Options
-								   .WithChangedOption(CSharpFormattingOptions.IndentBlock, true)
-								   .WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInAccessors, true)
-								   .WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInControlBlocks, true)
-								   .WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInTypes, true)
-								   .WithChangedOption(CSharpFormattingOptions.IndentBraces, false);
-
-			syntaxTree = Formatter.Format(syntaxTree.GetRoot(), workspace, options).SyntaxTree;
-
-			Console.WriteLine($"Saving...");
-
-			using (var fs = File.OpenWrite(outputCsFileName))
-			using (var w = new StreamWriter(fs))
-			{
-				fs.SetLength(0);
-				w.WriteLine(syntaxTree.ToString());
-			}
-
-
-
-			// todo: maybe we'll generate an assembly instead of source code at some pointlater...
-			//GenerateFormattersAssembly(targets);
-
-			Thread.Sleep(300);
-			Console.WriteLine($"> Done!");
+			SourceFormatterGenerator.GenerateAll(targets, ceras, output);
 		}
 
 		static (CerasSerializer, List<Type>) CreateSerializerAndTargets(IEnumerable<Assembly> asms)
@@ -222,39 +132,5 @@ static class GeneratedFormatters
 
 			return (ceras, targets);
 		}
-
-
-		static Assembly ResolveAssembly(object sender, ResolveEventArgs args)
-		{
-			var unityHubDir = @"C:\Program Files\Unity\Hub\Editor";
-			if (Directory.Exists(unityHubDir))
-			{
-				var r = SearchAssembly(unityHubDir, args.Name);
-				if (r != null)
-					return r;
-			}
-
-			return null;
-		}
-
-		static Assembly SearchAssembly(string path, string name)
-		{
-			foreach (var dllPath in Directory.EnumerateFiles(path, "*.dll", SearchOption.AllDirectories))
-			{
-				try
-				{
-					var asmName = AssemblyName.GetAssemblyName(dllPath);
-					if (asmName.FullName == name)
-						return Assembly.LoadFrom(dllPath);
-				}
-				catch (BadImageFormatException badImgEx)
-				{
-					Console.WriteLine($"Skipping module \"{dllPath}\" (BadImageFormat: probably not a .NET dll)");
-				}
-			}
-
-			return null;
-		}
-
 	}
 }

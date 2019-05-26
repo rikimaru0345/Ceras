@@ -4,6 +4,7 @@
 	using Ceras.Helpers;
 	using System;
 	using System.Collections.Generic;
+	using System.Linq;
 	using System.Text;
 	using Ceras.Formatters;
     using System.Reflection;
@@ -11,15 +12,38 @@
 
     static class SourceFormatterGenerator
 	{
-		public static StringBuilder Generate(Type type, CerasSerializer ceras, StringBuilder text)
+		public static void GenerateAll(List<Type> targets, CerasSerializer ceras, StringBuilder text)
 		{
-			text.AppendLine($"internal class {type.ToVariableSafeName()}Formatter : IFormatter<{type.ToFriendlyName(true)}>");
+			text.AppendLine("using Ceras;");
+			text.AppendLine("using Ceras.Formatters;");
+			text.AppendLine("namespace Ceras.GeneratedFormatters");
 			text.AppendLine("{");
-			GenerateClassContent(text, ceras, type);
-			text.AppendLine("}");
-			text.AppendLine("");
 
-			return text;
+			var setCustomFormatters = targets.Select(t => $"\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
+			text.AppendLine(
+$@"	public static class GeneratedFormatters
+	{{
+		public static void UseFormatters(SerializerConfig config)
+		{{
+{string.Join(Environment.NewLine, setCustomFormatters)}
+		}}
+	}}
+");
+
+			foreach (var t in targets)
+				Generate(t, ceras, text);
+
+			text.Length -= Environment.NewLine.Length;
+			text.AppendLine("}");
+		}
+
+		static void Generate(Type type, CerasSerializer ceras, StringBuilder text)
+		{
+			text.AppendLine($"\tinternal class {type.ToVariableSafeName()}Formatter : IFormatter<{type.ToFriendlyName(true)}>");
+			text.AppendLine("\t{");
+			GenerateClassContent(text, ceras, type);
+			text.AppendLine("\t}");
+			text.AppendLine("");
 		}
 
 		static void GenerateClassContent(StringBuilder text, CerasSerializer ceras, Type type)
@@ -40,31 +64,31 @@
 			{
 				var t = m.MemberType;
 				var fieldName = MakeFormatterFieldName(t);
-				text.AppendLine($" IFormatter<{t.ToFriendlyName(true)}> {fieldName};");
+				text.AppendLine($"\t\tIFormatter<{t.ToFriendlyName(true)}> {fieldName};");
 			}
 			text.AppendLine("");
 		}
 
 		static void GenerateSerializer(StringBuilder text, Schema schema)
 		{
-			text.AppendLine($"public void Serialize(ref byte[] buffer, ref int offset, {schema.Type.ToFriendlyName(true)} value)");
-			text.AppendLine("{");
+			text.AppendLine($"\t\tpublic void Serialize(ref byte[] buffer, ref int offset, {schema.Type.ToFriendlyName(true)} value)");
+			text.AppendLine("\t\t{");
 
 			foreach (var m in schema.Members)
 			{
 				var t = m.MemberType;
 				var fieldName = MakeFormatterFieldName(t);
-				text.AppendLine($"{fieldName}.Serialize(ref buffer, ref offset, value.{m.MemberName});");
+				text.AppendLine($"\t\t\t{fieldName}.Serialize(ref buffer, ref offset, value.{m.MemberName});");
 			}
 
-			text.AppendLine("}");
+			text.AppendLine("\t\t}");
 			text.AppendLine("");
 		}
 
 		static void GenerateDeserializer(StringBuilder text, Schema schema)
 		{
-			text.AppendLine($"public void Deserialize(byte[] buffer, ref int offset, ref {schema.Type.ToFriendlyName(true)} value)");
-			text.AppendLine("{");
+			text.AppendLine($"\t\tpublic void Deserialize(byte[] buffer, ref int offset, ref {schema.Type.ToFriendlyName(true)} value)");
+			text.AppendLine("\t\t{");
 
 			// If there are any properties, we use temp local vars. And then the code gets a bit hard to read.
 			bool addEmptyLines = schema.Members.Any(sm => sm.MemberInfo is PropertyInfo);
@@ -77,21 +101,21 @@
 				if(m.MemberInfo is FieldInfo)
 				{
 					// Field
-					text.AppendLine($"{fieldName}.Deserialize(buffer, ref offset, ref value.{m.MemberName});");
+					text.AppendLine($"\t\t\t{fieldName}.Deserialize(buffer, ref offset, ref value.{m.MemberName});");
 				}
 				else
 				{
 					// Prop
-					text.AppendLine($"_temp{m.MemberName} = value.{m.MemberName};");
-					text.AppendLine($"{fieldName}.Deserialize(buffer, ref offset, ref _temp{m.MemberName});");
-					text.AppendLine($"value.{m.MemberName} = _temp{m.MemberName};");
+					text.AppendLine($"\t\t\t_temp{m.MemberName} = value.{m.MemberName};");
+					text.AppendLine($"\t\t\t{fieldName}.Deserialize(buffer, ref offset, ref _temp{m.MemberName});");
+					text.AppendLine($"\t\t\tvalue.{m.MemberName} = _temp{m.MemberName};");
 				}
 
 				if(addEmptyLines)
 					text.AppendLine("");
 			}
 
-			text.AppendLine("}");
+			text.AppendLine("\t\t}");
 		}
 
 
