@@ -67,6 +67,16 @@ namespace Ceras.Formatters
 			}
 		}
 
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void Write_Raw(byte[] buffer, int offset, T value)
+		{
+			fixed (byte* pBuffer = &buffer[0])
+			{
+				var ptr = (T*)(pBuffer + offset);
+				*ptr = value;
+			}
+		}
+
 		// Read value type, don't modify offset
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void Read_Raw(byte[] buffer, int offset, ref T value)

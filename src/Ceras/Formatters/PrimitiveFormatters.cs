@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq.Expressions;
 
 namespace Ceras.Formatters
 {
@@ -80,7 +81,7 @@ namespace Ceras.Formatters
 		}
 	}
 
-	sealed class Int32Formatter : IFormatter<int>
+	sealed class Int32Formatter : IFormatter<int>, IInlineEmitter
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, int value)
 		{
@@ -90,6 +91,20 @@ namespace Ceras.Formatters
 		public void Deserialize(byte[] buffer, ref int offset, ref int value)
 		{
 			value = SerializerBinary.ReadInt32(buffer, ref offset);
+		}
+
+
+		public Expression EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize)
+		{
+			writtenSize = 4;
+			return null;
+		}
+
+		public Expression EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize)
+		{
+			readSize = 4;
+
+			return null;
 		}
 	}
 

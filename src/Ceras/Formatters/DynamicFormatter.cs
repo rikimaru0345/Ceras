@@ -113,6 +113,10 @@ namespace Ceras.Formatters
 			foreach (var m in members.Where(m => !m.IsSkip).DistinctBy(m => m.MemberType))
 				typeToFormatter.Add(m.MemberType, Constant(ceras.GetReferenceFormatter(m.MemberType)));
 
+			// Merge Blitting Step
+			if(!isSchemaFormatter)
+				MergeBlittableSerializeCalls(members, typeToFormatter);
+
 
 			// Serialize all members
 			foreach (var member in members)
@@ -175,6 +179,34 @@ namespace Ceras.Formatters
 				valueArg = Parameter(typeof(T), "value");
 
 			return Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg);
+		}
+
+		static void MergeBlittableSerializeCalls(List<SchemaMember> members, Dictionary<Type, ConstantExpression> typeToFormatter)
+		{
+			List<SchemaMember> mergeBlitMembers = new List<SchemaMember>();
+
+			for (int i = 0; i < members.Count; i++)
+			{
+				var m = members[i];
+				if(!ReflectionHelper.IsBlittableType(m.MemberType))
+					break;
+
+				mergeBlitMembers.Add(m);
+			}
+
+			#if DEBUG
+			if(members.Count(m => ReflectionHelper.IsBlittableType(m.MemberType)) != mergeBlitMembers.Count)
+				throw new Exception("Found a second group of blittable members, but all blittable members should have been sorted together into one big group!");
+#endif
+
+
+			for (int i = 0; i < mergeBlitMembers.Count; i++)
+			{
+				var m = mergeBlitMembers[i];
+				var formatter = (IInlineEmitter)typeToFormatter[m.MemberType].Value;
+
+			}
+
 		}
 
 		internal static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)

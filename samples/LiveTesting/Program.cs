@@ -33,6 +33,8 @@ namespace LiveTesting
 		{
 			// Benchmarks();
 
+			MergeBlittingTest.Test();
+
 			ConvertDynamicFormatterToString();
 
 			NewRefProxyTest.CompareCalls();
