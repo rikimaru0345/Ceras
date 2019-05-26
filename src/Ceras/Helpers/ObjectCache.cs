@@ -2,17 +2,29 @@
 {
 	using System;
 	using System.Collections.Generic;
-    using System.Runtime.CompilerServices;
+	using System.Runtime.CompilerServices;
 
-    // Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
-    class ObjectCache
+	// todo:
+	// - currently we have a List<RefProxy>, with each RefProxy being an object, so the list can be resized if it runs out of space
+	// - it would be faster to just use a object[] (and unsafe casting references into it).
+	//   But can we still expand it then? What if we want to get a value that was written to the old array?
+	//   Assuming no corrupted data, any GetExistingObject call will only want to get a reference of an object, not a reference to the actual proxy-slot.
+	//   And by the time GetExistingObject gets called, the reference will have been assigned already anyway.
+	// - But what if we get 1 proxy (A), and then another one (B), but requesting proxy B triggers an expansion of the buffer?
+	//   So now proxy A is invalid because it is a slot in the old array.
+	//   And anything written to it doesn't matter, because lookups will happen on the new array.
+
+	// todo: need a test to ensure this can never happen
+
+	// Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
+	class ObjectCache
 	{
 		// While serializing we add all encountered objects and give them an ID (their index), so when we encounter them again we can just write the index instead.
 		readonly Dictionary<object, int> _serializationCache = new Dictionary<object, int>(64);
 
 		// At deserialization-time we keep adding all new objects to this list, so when we find a back-reference we can take it from here.
-		// RefProxy enables us to deserialize even the most complex scenarios (For example: Objects that directly reference themselves, while they're not even fully constructed yet)
-		readonly List<RefProxy> _deserializationCache = new List<RefProxy>(64);
+		object[] _deserializationCache = new object[1024];
+		int _nextDeserializationSlot = 0;
 
 
 		// Serialization:
@@ -35,139 +47,52 @@
 		}
 
 
-		// Deserialization:
-		// When encountering a new object
-		internal RefProxy<T> CreateDeserializationProxy<T>() where T : class
-		{
-			var p = RefProxyPool<T>.Rent();
-			_deserializationCache.Add(p);
-
-			return p;
-		}
-
-		// Deserialization:
-		// Returns an object that was deserialized previously (seen already, and created by CreateDeserializationProxy)
-		internal T GetExistingObject<T>(int id) where T : class
-		{
-			// In case you're wondering what's up here:
-			// Why are we not directly casting to RefProxy<T> and then return .Value ??
-			// Answer:
-			// What if a specific object (MySpecificType) was entered into the deserializer as <object>
-			// because the field type was not known at the time?
-			// In that case we'd try to do this conversion:  (RefProxy<MySpecificType>)((object)((RefProxy<object>)reference))
-			// which of course doesn't work...
-
-#if DEBUG
-			if (id < 0 || id >= _deserializationCache.Count)
-				throw new InvalidOperationException("Object cache does not contain an object with the ID: " + id);
-#endif
-
-			var proxy = _deserializationCache[id];
-			return (T)proxy.ObjectValue;
-		}
-
-
 		internal void ClearSerializationCache()
 		{
 			_serializationCache.Clear();
 		}
 
+
+
+		// Deserialization:
+		// When encountering a new object
+		internal ref T CreateDeserializationProxy<T>() where T : class
+		{
+			var index = _nextDeserializationSlot++;
+
+			ref T slot = ref Unsafe.As<object, T>(ref _deserializationCache[index]);
+
+			if (index + 1 >= _deserializationCache.Length)
+				ExpandDeserializationCache();
+
+			return ref slot;
+		}
+
+		// For deserialization:
+		// Returns an object that was deserialized previously (seen already, and created by CreateDeserializationProxy)
+		internal T GetExistingObject<T>(int id) where T : class
+		{
+#if DEBUG
+			if (id < 0 || id >= _deserializationCache.Length)
+				throw new InvalidOperationException("Object cache does not contain an object with the ID: " + id);
+#endif
+
+			return Unsafe.As<object, T>(ref _deserializationCache[id]);
+		}
+
+		[MethodImpl(MethodImplOptions.NoInlining)]
+		void ExpandDeserializationCache()
+		{
+			var newSize = _deserializationCache.Length * 2;
+			if (newSize < 0x4000)
+				newSize = 0x4000;
+
+			Array.Resize(ref _deserializationCache, newSize);
+		}
+
 		internal void ClearDeserializationCache()
 		{
-			for (int i = 0; i < _deserializationCache.Count; i++)
-			{
-				var proxy = _deserializationCache[i];
-				// The pool will keep the ref proxy alive, so we absolutely have to make sure
-				// that we're not keeping any outside objects alive (they're potentially really large!)
-				proxy.ResetAndReturn();
-			}
-
-			_deserializationCache.Clear();
-		}
-
-
-
-		internal abstract class RefProxy
-		{
-			public abstract object ObjectValue { get; }
-			public abstract void ResetAndReturn();
-		}
-
-		internal sealed class RefProxy<T> : RefProxy where T : class
-		{
-			public T Value;
-			
-			public override object ObjectValue => Value;
-						
-			[MethodImpl(MethodImplOptions.AggressiveInlining)]
-			public override void ResetAndReturn()
-			{
-				// Make sure we don't hold any references!
-				Value = default;
-				// Go back to the pool
-				RefProxyPool<T>.Return(this);
-			}
-
-			public override string ToString()
-			{
-				return $"RefProxy({typeof(T).FriendlyName()}): {Value}";
-			}
-		}
-
-		internal static class RefProxyPool<T> where T : class
-		{
-			static readonly FactoryPool<RefProxy<T>> _proxyPool;
-
-			static RefProxyPool()
-			{
-				 _proxyPool = new FactoryPool<RefProxy<T>>(CreateProxy, 8);
-
-				RefProxyPoolRegister.RegisterPool(_proxyPool);
-			}
-			
-			[MethodImpl(MethodImplOptions.AggressiveInlining)]
-			internal static RefProxy<T> Rent()
-			{
-				return _proxyPool.RentObject();
-			}
-
-			[MethodImpl(MethodImplOptions.AggressiveInlining)]
-			internal static void Return(RefProxy<T> refProxy)
-			{
-				_proxyPool.ReturnObject(refProxy);
-			}
-
-			internal static int GetPoolCapacity() => _proxyPool.Capacity;
-
-			static RefProxy<T> CreateProxy()
-			{
-				return new RefProxy<T>();
-			}
-		}
-
-
-		// We want to be able to clear all the static pools, but since there's no way to enumerate all "generic instances" of generic static classes,
-		// we let the RefProxyPools register themselves here.
-		internal static class RefProxyPoolRegister
-		{
-			static List<IFactoryPool> _genericPools = new List<IFactoryPool>();
-
-			public static void RegisterPool(IFactoryPool pool)
-			{
-				lock(_genericPools)
-					_genericPools.Add(pool);
-			}
-
-			public static void TrimAll()
-			{
-				lock(_genericPools)
-				{
-					foreach(var p in _genericPools)
-					{
-						p.TrimPool();
-					}
-				}
-			}
+			Array.Clear(_deserializationCache, 0, _nextDeserializationSlot);
 		}
 	}
 }
