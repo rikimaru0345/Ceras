@@ -5,34 +5,11 @@
 	using System.Runtime.CompilerServices;
 	using System.Text;
 
+
+
 	public static unsafe class SerializerBinary
 	{
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteInt16Fixed(ref byte[] buffer, ref int offset, short value)
-		{
-			EnsureCapacity(ref buffer, offset, 2);
-
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				*((short*)(pBuffer + offset)) = value;
-			}
-
-			offset += 2;
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static short ReadInt16Fixed(byte[] buffer, ref int offset)
-		{
-			short value;
-
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				value = *((short*)(pBuffer + offset));
-			}
-
-			offset += 2;
-			return value;
-		}
+		#region Variable Length Encoding (Int32, UInt32, Int64, UInt64)
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteInt32(ref byte[] buffer, ref int offset, int value)
@@ -65,7 +42,110 @@
 		}
 
 
-		#region Specialized
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteInt64(ref byte[] buffer, ref int offset, long value)
+		{
+			EnsureCapacity(ref buffer, offset, 8 + 1);
+
+			var zigZag = EncodeZigZag64((long)value);
+			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long ReadInt64(byte[] buffer, ref int offset)
+		{
+			var zigZag = ReadVarInt(buffer, ref offset, 64);
+			return (int)DecodeZigZag(zigZag);
+		}
+
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteUInt64(ref byte[] buffer, ref int offset, ulong value)
+		{
+			EnsureCapacity(ref buffer, offset, 8 + 1);
+
+			var zigZag = EncodeZigZag64((long)value);
+			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static ulong ReadUInt64(byte[] buffer, ref int offset)
+		{
+			var zigZag = ReadVarInt(buffer, ref offset, 64);
+			return (ulong)DecodeZigZag(zigZag);
+		}
+
+		
+
+		// public static long EncodeZigZag(long value, int bitLength) => (value << 1) ^ (value >> (bitLength - 1));
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long EncodeZigZag32(long value) => (value << 1) ^ (value >> (32 - 1));
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long EncodeZigZag64(long value) => (value << 1) ^ (value >> (64 - 1));
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long DecodeZigZag(ulong value)
+		{
+			if ((value & 0x1) != 0)
+			{
+				return (-1 * ((long)(value >> 1) + 1));
+			}
+
+			return (long)(value >> 1);
+		}
+
+
+		
+		// todo: 
+		// 1. Test if unrolling (to max 9 bytes) is faster than our loop
+		// 2. I've read about some optimization that could be applied to the protobuf varint writer, maybe the same can be done here?
+		// 3. Would it make any sense to use unsafe code to address into the buffer directly (skipping bounds checks?)
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		static void WriteVarInt(ref byte[] buffer, ref int offset, ulong value)
+		{
+			do
+			{
+				var byteVal = value & 0x7f;
+				value >>= 7;
+
+				if (value != 0)
+					byteVal |= 0x80;
+
+				buffer[offset++] = (byte)byteVal;
+
+			} while (value != 0);
+		}
+
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		static ulong ReadVarInt(byte[] bytes, ref int offset, int bits)
+		{
+			int shift = 0;
+			ulong result = 0;
+
+			while (true)
+			{
+				ulong byteValue = bytes[offset++];
+				ulong tmp = byteValue & 0x7f;
+				result |= tmp << shift;
+
+				if (shift > bits)
+					throw new ArgumentOutOfRangeException(nameof(bytes), "Malformed VarInt");
+
+				if ((byteValue & 0x80) != 0x80)
+					return result;
+
+				shift += 7;
+			}
+		}
+
+		#endregion
+
+
+		#region Specialized (Bias, NoCapacityCheck)
 
 		//
 		// In our formatters we're often using 0-n for someID or count, and a limited set of negative numbers (often only -2 and -1) to signify some special cases, like "null" or something like that.
@@ -110,125 +190,7 @@
 
 		#endregion
 
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteInt64(ref byte[] buffer, ref int offset, long value)
-		{
-			EnsureCapacity(ref buffer, offset, 8 + 1);
-
-			var zigZag = EncodeZigZag64((long)value);
-			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static long ReadInt64(byte[] buffer, ref int offset)
-		{
-			var zigZag = ReadVarInt(buffer, ref offset, 64);
-			return (int)DecodeZigZag(zigZag);
-		}
-
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteUInt64(ref byte[] buffer, ref int offset, ulong value)
-		{
-			EnsureCapacity(ref buffer, offset, 8 + 1);
-
-			var zigZag = EncodeZigZag64((long)value);
-			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static ulong ReadUInt64(byte[] buffer, ref int offset)
-		{
-			var zigZag = ReadVarInt(buffer, ref offset, 64);
-			return (ulong)DecodeZigZag(zigZag);
-		}
-
-
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteInt64Fixed(ref byte[] buffer, ref int offset, long value)
-		{
-			EnsureCapacity(ref buffer, offset, 8);
-
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				*((long*)(pBuffer + offset)) = value;
-			}
-
-			offset += 8;
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static long ReadInt64Fixed(byte[] buffer, ref int offset)
-		{
-			long value;
-
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				value = *((long*)(pBuffer + offset));
-			}
-
-			offset += 8;
-			return value;
-		}
-
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteInt32Fixed(ref byte[] buffer, ref int offset, int value)
-		{
-			EnsureCapacity(ref buffer, offset, 4);
-
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				*((int*)(pBuffer + offset)) = value;
-			}
-
-			offset += 4;
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static int ReadInt32Fixed(byte[] buffer, ref int offset)
-		{
-			int value;
-
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				value = *((int*)(pBuffer + offset));
-			}
-
-			offset += 4;
-			return value;
-		}
-
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteUInt32Fixed(ref byte[] buffer, ref int offset, uint value)
-		{
-			EnsureCapacity(ref buffer, offset, 4);
-
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				*((uint*)(pBuffer + offset)) = value;
-			}
-
-			offset += 4;
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static uint ReadUInt32Fixed(byte[] buffer, ref int offset)
-		{
-			uint value;
-
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				value = *((uint*)(pBuffer + offset));
-			}
-
-			offset += 4;
-			return value;
-		}
-
+		
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteByte(ref byte[] buffer, ref int offset, byte value)
 		{
@@ -246,120 +208,117 @@
 			return b;
 		}
 
-
-		// todo: 
-		// 1. Test if unrolling (to max 9 bytes) is faster than our loop
-		// 2. I've read about some optimization that could be applied to the protobuf varint writer, maybe the same can be done here?
-		// 3. Would it make any sense to use unsafe code to address into the buffer directly (skipping bounds checks?)
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		static void WriteVarInt(ref byte[] buffer, ref int offset, ulong value)
+		public static void WriteInt16Fixed(ref byte[] buffer, ref int offset, short value)
 		{
-			do
-			{
-				var byteVal = value & 0x7f;
-				value >>= 7;
-
-				if (value != 0)
-					byteVal |= 0x80;
-
-				buffer[offset++] = (byte)byteVal;
-
-			} while (value != 0);
-		}
-
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		static ulong ReadVarInt(byte[] bytes, ref int offset, int bits)
-		{
-			int shift = 0;
-			ulong result = 0;
-
-			while (true)
-			{
-				ulong byteValue = bytes[offset++];
-				ulong tmp = byteValue & 0x7f;
-				result |= tmp << shift;
-
-				if (shift > bits)
-					throw new ArgumentOutOfRangeException(nameof(bytes), "Malformed VarInt");
-
-				if ((byteValue & 0x80) != 0x80)
-					return result;
-
-				shift += 7;
-			}
+			EnsureCapacity(ref buffer, offset, 2);
+			Unsafe.As<byte, short>(ref buffer[offset]) = value;
+			offset += 2;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteFloat32FixedNoCheck(byte[] buffer, ref int offset, float value)
+		public static short ReadInt16Fixed(byte[] buffer, ref int offset)
 		{
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				*((float*)(pBuffer + offset)) = value;
-			}
+			var value = Unsafe.As<byte, short>(ref buffer[offset]);
+			offset += 2;
+			return value;
+		}
 
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteInt32Fixed(ref byte[] buffer, ref int offset, int value)
+		{
+			EnsureCapacity(ref buffer, offset, 4);
+			Unsafe.As<byte, int>(ref buffer[offset]) = value;
 			offset += 4;
 		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static int ReadInt32Fixed(byte[] buffer, ref int offset)
+		{
+			var value = Unsafe.As<byte, int>(ref buffer[offset]);
+			offset += 4;
+			return value;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteUInt32Fixed(ref byte[] buffer, ref int offset, uint value)
+		{
+			EnsureCapacity(ref buffer, offset, 4);
+			Unsafe.As<byte, uint>(ref buffer[offset]) = value;
+			offset += 4;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static uint ReadUInt32Fixed(byte[] buffer, ref int offset)
+		{
+			var value = Unsafe.As<byte, uint>(ref buffer[offset]);
+			offset += 4;
+			return value;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteInt64Fixed(ref byte[] buffer, ref int offset, long value)
+		{
+			EnsureCapacity(ref buffer, offset, 8);
+			Unsafe.As<byte, long>(ref buffer[offset]) = value;
+			offset += 8;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long ReadInt64Fixed(byte[] buffer, ref int offset)
+		{
+			var value = Unsafe.As<byte, long>(ref buffer[offset]);
+			offset += 8;
+			return value;
+		}
+
 
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteFloat32Fixed(ref byte[] buffer, ref int offset, float value)
 		{
 			EnsureCapacity(ref buffer, offset, 4);
-
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				*((float*)(pBuffer + offset)) = value;
-			}
-
+			Unsafe.As<byte, float>(ref buffer[offset]) = value;
 			offset += 4;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static float ReadFloat32Fixed(byte[] buffer, ref int offset)
 		{
-			float d;
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				d = *((float*)(pBuffer + offset));
-			}
-
+			var value = Unsafe.As<byte, float>(ref buffer[offset]);
 			offset += 4;
-
-			return d;
+			return value;
 		}
+
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteFloat32FixedNoCheck(byte[] buffer, ref int offset, float value)
+		{
+			Unsafe.As<byte, float>(ref buffer[offset]) = value;
+			offset += 4;
+		}
+
 
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteDouble64Fixed(ref byte[] buffer, ref int offset, double value)
 		{
 			EnsureCapacity(ref buffer, offset, 8);
-
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				*((double*)(pBuffer + offset)) = value;
-			}
-
+			Unsafe.As<byte, double>(ref buffer[offset]) = value;
 			offset += 8;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static double ReadDouble64Fixed(byte[] buffer, ref int offset)
 		{
-			double d;
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				d = *((double*)(pBuffer + offset));
-			}
-
+			var value = Unsafe.As<byte, double>(ref buffer[offset]);
 			offset += 8;
-
-			return d;
+			return value;
 		}
 
 
-		static readonly UTF8Encoding _utf8Encoding = new UTF8Encoding(false, true);
 
+		static readonly UTF8Encoding _utf8Encoding = new UTF8Encoding(false, true);
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteString(ref byte[] buffer, ref int offset, string value)
@@ -422,26 +381,6 @@
 			offset += length;
 
 			return str;
-		}
-
-
-		// public static long EncodeZigZag(long value, int bitLength) => (value << 1) ^ (value >> (bitLength - 1));
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static long EncodeZigZag32(long value) => (value << 1) ^ (value >> (32 - 1));
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static long EncodeZigZag64(long value) => (value << 1) ^ (value >> (64 - 1));
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static long DecodeZigZag(ulong value)
-		{
-			if ((value & 0x1) != 0)
-			{
-				return (-1 * ((long)(value >> 1) + 1));
-			}
-
-			return (long)(value >> 1);
 		}
 
 
@@ -606,7 +545,7 @@
 			ExpandBuffer(ref buffer, newSize);
 		}
 
-		static void ExpandBuffer(ref byte[] buffer, int newSize)
+		internal static void ExpandBuffer(ref byte[] buffer, int newSize)
 		{
 			ThrowIfBufferTooLarge(newSize);
 
