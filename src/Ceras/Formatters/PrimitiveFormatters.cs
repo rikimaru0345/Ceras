@@ -3,7 +3,13 @@ using System.Linq.Expressions;
 
 namespace Ceras.Formatters
 {
-	sealed class ByteFormatter : IFormatter<byte>
+	// todo: fix bool, should write a byte instead of varint even if they're the same size
+
+
+	// Marker that gets applied to formatters that are binary equivalent to what 'ReinterpretFormatter<>' would write
+	interface IIsReinterpretFormatter { }
+
+	sealed class ByteFormatter : IFormatter<byte>, IIsReinterpretFormatter
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, byte value)
 		{
@@ -16,7 +22,7 @@ namespace Ceras.Formatters
 		}
 	}
 
-	sealed class SByteFormatter : IFormatter<sbyte>
+	sealed class SByteFormatter : IFormatter<sbyte>, IIsReinterpretFormatter
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, sbyte value)
 		{
@@ -28,6 +34,7 @@ namespace Ceras.Formatters
 			value = (sbyte)SerializerBinary.ReadByte(buffer, ref offset);
 		}
 	}
+
 
 	sealed class BoolFormatter : IFormatter<bool>
 	{
@@ -42,7 +49,7 @@ namespace Ceras.Formatters
 		}
 	}
 
-	sealed class CharFormatter : IFormatter<char>
+	sealed class CharFormatter : IFormatter<char>, IIsReinterpretFormatter
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, char value)
 		{
@@ -55,7 +62,7 @@ namespace Ceras.Formatters
 		}
 	}
 
-	sealed class Int16Formatter : IFormatter<short>
+	sealed class Int16FixedFormatter : IFormatter<short>, IIsReinterpretFormatter
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, short value)
 		{
@@ -68,7 +75,7 @@ namespace Ceras.Formatters
 		}
 	}
 
-	sealed class UInt16Formatter : IFormatter<ushort>
+	sealed class UInt16FixedFormatter : IFormatter<ushort>, IIsReinterpretFormatter
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, ushort value)
 		{
@@ -81,7 +88,8 @@ namespace Ceras.Formatters
 		}
 	}
 
-	sealed class Int32Formatter : IFormatter<int>, IInlineEmitter
+
+	sealed class Int32Formatter : IFormatter<int>
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, int value)
 		{
@@ -91,20 +99,6 @@ namespace Ceras.Formatters
 		public void Deserialize(byte[] buffer, ref int offset, ref int value)
 		{
 			value = SerializerBinary.ReadInt32(buffer, ref offset);
-		}
-
-
-		public Expression EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize)
-		{
-			writtenSize = 4;
-			return null;
-		}
-
-		public Expression EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize)
-		{
-			readSize = 4;
-
-			return null;
 		}
 	}
 
@@ -121,7 +115,35 @@ namespace Ceras.Formatters
 		}
 	}
 
-	sealed class FloatFormatter : IFormatter<float>
+	
+	sealed class Int32FixedFormatter : IFormatter<int>, IIsReinterpretFormatter
+	{
+		public void Serialize(ref byte[] buffer, ref int offset, int value)
+		{
+			SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, value);
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref int value)
+		{
+			value = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
+		}
+	}
+
+	sealed class UInt32FixedFormatter : IFormatter<uint>, IIsReinterpretFormatter
+	{
+		public void Serialize(ref byte[] buffer, ref int offset, uint value)
+		{
+			SerializerBinary.WriteUInt32Fixed(ref buffer, ref offset, value);
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref uint value)
+		{
+			value = SerializerBinary.ReadUInt32Fixed(buffer, ref offset);
+		}
+	}
+
+
+	sealed class FloatFormatter : IFormatter<float>, IIsReinterpretFormatter
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, float value)
 		{
@@ -134,7 +156,7 @@ namespace Ceras.Formatters
 		}
 	}
 
-	sealed class DoubleFormatter : IFormatter<double>
+	sealed class DoubleFormatter : IFormatter<double>, IIsReinterpretFormatter
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, double value)
 		{
@@ -147,7 +169,35 @@ namespace Ceras.Formatters
 		}
 	}
 
+
 	sealed class Int64Formatter : IFormatter<long>
+	{
+		public void Serialize(ref byte[] buffer, ref int offset, long value)
+		{
+			SerializerBinary.WriteInt64(ref buffer, ref offset, value);
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref long value)
+		{
+			value = SerializerBinary.ReadInt64(buffer, ref offset);
+		}
+	}
+
+	sealed class UInt64Formatter : IFormatter<ulong>
+	{
+		public void Serialize(ref byte[] buffer, ref int offset, ulong value)
+		{
+			SerializerBinary.WriteInt64(ref buffer, ref offset, (long)value);
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref ulong value)
+		{
+			value = (ulong)SerializerBinary.ReadInt64(buffer, ref offset);
+		}
+	}
+
+
+	sealed class Int64FixedFormatter : IFormatter<long>, IIsReinterpretFormatter
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, long value)
 		{
@@ -160,7 +210,7 @@ namespace Ceras.Formatters
 		}
 	}
 
-	sealed class UInt64Formatter : IFormatter<ulong>
+	sealed class UInt64FixedFormatter : IFormatter<ulong>, IIsReinterpretFormatter
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, ulong value)
 		{
@@ -172,6 +222,7 @@ namespace Ceras.Formatters
 			value = (ulong)SerializerBinary.ReadInt64Fixed(buffer, ref offset);
 		}
 	}
+
 
 	sealed class IntPtrFormatter : IFormatter<IntPtr>
 	{

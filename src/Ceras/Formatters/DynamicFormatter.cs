@@ -18,7 +18,6 @@ namespace Ceras.Formatters
 	 */
 
 	// todo: override formatters?
-	// todo: merge-blitting ReinterpretFormatter<T>.Write_NoCheckNoAdvance()
 
 	abstract class DynamicFormatter
 	{
@@ -33,6 +32,7 @@ namespace Ceras.Formatters
 		static readonly MethodInfo _sizeWriteMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.WriteUInt32Fixed));
 		static readonly MethodInfo _sizeReadMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadUInt32Fixed));
 		static readonly MethodInfo _offsetMismatchMethod = ReflectionHelper.GetMethod(() => ThrowOffsetMismatch(0, 0, 0));
+		static readonly MethodInfo ensureCapacityMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.EnsureCapacity));
 
 		readonly CerasSerializer _ceras;
 
@@ -114,8 +114,9 @@ namespace Ceras.Formatters
 				typeToFormatter.Add(m.MemberType, Constant(ceras.GetReferenceFormatter(m.MemberType)));
 
 			// Merge Blitting Step
-			if(!isSchemaFormatter)
-				MergeBlittableSerializeCalls(members, typeToFormatter);
+			List<SchemaMember> blittedMembers = null;
+			if (!isSchemaFormatter && ceras.Config.Advanced.MergeBlittableCalls)
+				blittedMembers = MergeBlittableSerializeCalls(members, typeToFormatter, body, refBufferArg, refOffsetArg, valueArg, true);
 
 
 			// Serialize all members
@@ -123,6 +124,9 @@ namespace Ceras.Formatters
 			{
 				if (member.IsSkip)
 					continue;
+
+				if (blittedMembers != null && blittedMembers.Contains(member))
+					continue; // already written
 
 				// Get the formatter and its Serialize method
 				var formatterExp = typeToFormatter[member.MemberType];
@@ -181,32 +185,81 @@ namespace Ceras.Formatters
 			return Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg);
 		}
 
-		static void MergeBlittableSerializeCalls(List<SchemaMember> members, Dictionary<Type, ConstantExpression> typeToFormatter)
+		static List<SchemaMember> MergeBlittableSerializeCalls(
+			List<SchemaMember> members, Dictionary<Type, ConstantExpression> typeToFormatter,
+			List<Expression> body,
+			ParameterExpression refBufferArg, ParameterExpression refOffsetArg, ParameterExpression valueArg,
+			bool isSerialize)
 		{
 			List<SchemaMember> mergeBlitMembers = new List<SchemaMember>();
 
+			//
+			// Find what members can be merged
+			int sizeSum = 0;
 			for (int i = 0; i < members.Count; i++)
 			{
 				var m = members[i];
-				if(!ReflectionHelper.IsBlittableType(m.MemberType))
+				if (!ReflectionHelper.IsBlittableType(m.MemberType))
 					break;
 
+				// Ensure we don't get tricked by some formatter
+				var formatter = typeToFormatter[m.MemberType].Value;
+
+				bool isValidReplacement = false;
+				if (typeof(IIsReinterpretFormatter).IsAssignableFrom(formatter.GetType()))
+					isValidReplacement = true;
+				if (formatter.GetType().IsGenericType && formatter.GetType().GetGenericTypeDefinition() == typeof(ReinterpretFormatter<>))
+					isValidReplacement = true;
+
+				if (!isValidReplacement)
+					throw new InvalidOperationException("Can not merge-blit formatter: " + formatter.GetType().FriendlyName(true));
+
 				mergeBlitMembers.Add(m);
+				sizeSum += ReflectionHelper.UnsafeGetSize(m.MemberType);
 			}
 
-			#if DEBUG
-			if(members.Count(m => ReflectionHelper.IsBlittableType(m.MemberType)) != mergeBlitMembers.Count)
+			if (mergeBlitMembers.Count == 0)
+				return mergeBlitMembers;
+
+			if (members.Count(m => ReflectionHelper.IsBlittableType(m.MemberType)) != mergeBlitMembers.Count)
 				throw new Exception("Found a second group of blittable members, but all blittable members should have been sorted together into one big group!");
-#endif
 
+			var totalSizeConst = Constant(sizeSum, typeof(int));
 
-			for (int i = 0; i < mergeBlitMembers.Count; i++)
+			//
+			// 1. EnsureCapacity with summed blit-size
+			if(isSerialize)
+				body.Add(Call(ensureCapacityMethod, refBufferArg, refOffsetArg, totalSizeConst));
+
+			//
+			// 2. Write each individual member
+			int runningOffset = 0;
+			foreach (var member in mergeBlitMembers)
 			{
-				var m = mergeBlitMembers[i];
-				var formatter = (IInlineEmitter)typeToFormatter[m.MemberType].Value;
+				var methodName = isSerialize
+					? nameof(ReinterpretFormatter<int>.Write)
+					: nameof(ReinterpretFormatter<int>.Read);
 
+				var writeMethod = typeof(ReinterpretFormatter<>)
+					.MakeGenericType(member.MemberType)
+					.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+					.First(m => m.Name == methodName);
+
+				body.Add(Call(
+					method: writeMethod,
+					refBufferArg,
+					Add(refOffsetArg, Constant(runningOffset)),
+					MakeMemberAccess(valueArg, member.MemberInfo)));
+
+				runningOffset += ReflectionHelper.UnsafeGetSize(member.MemberType);
 			}
 
+			//
+			// 3. Add the total offset
+			// offset += sizeSum;
+			body.Add(AddAssign(refOffsetArg, totalSizeConst));
+
+			return mergeBlitMembers;
 		}
 
 		internal static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)
@@ -273,6 +326,13 @@ namespace Ceras.Formatters
 
 			//
 			// 2. Deserialize into local (faster and more robust than field/prop directly)
+
+			// Merge Blitting Step
+			List<SchemaMember> blittedMembers = null;
+			if (!isSchemaFormatter && ceras.Config.Advanced.MergeBlittableCalls)
+				blittedMembers = MergeBlittableSerializeCalls(members, typeToFormatter, body, bufferArg, refOffsetArg, refValueArg, false);
+
+			// Normal deserialization
 			foreach (var m in members)
 			{
 				if (isSchemaFormatter)
@@ -300,6 +360,10 @@ namespace Ceras.Formatters
 
 				if (m.IsSkip && !isSchemaFormatter)
 					throw new InvalidOperationException("DynamicFormatter can not skip members in non-schema mode");
+
+				if(blittedMembers != null)
+					if(blittedMembers.Contains(m))
+						continue; // already written
 
 
 				var formatterExp = typeToFormatter[m.MemberType];

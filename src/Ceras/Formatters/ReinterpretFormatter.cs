@@ -14,26 +14,6 @@ namespace Ceras.Formatters
 	/// </summary>
 	public sealed unsafe class ReinterpretFormatter<T> : IFormatter<T>, IInlineEmitter where T : unmanaged
 	{
-		delegate void ReadWriteRawDelegate(byte[] buffer, int offset, ref T value);
-
-		internal static readonly MethodInfo _writeMethod = new ReadWriteRawDelegate(Write_Raw).Method;
-		internal static readonly MethodInfo _readMethod = new ReadWriteRawDelegate(Read_Raw).Method;
-		
-
-		static ReinterpretFormatter()
-		{
-			/*
-			var type = typeof(T);
-
-			if (type.IsEnum)
-				type = type.GetEnumUnderlyingType();
-
-			_itemSize = ReflectionHelper.GetSize(type);
-			if (_itemSize < 0)
-				throw new InvalidOperationException("Type is not blittable");
-			*/
-		}
-
 		public ReinterpretFormatter()
 		{
 			ThrowIfNotSupported();
@@ -43,72 +23,45 @@ namespace Ceras.Formatters
 		{
 			SerializerBinary.EnsureCapacity(ref buffer, offset, Unsafe.SizeOf<T>());
 
-			Write_Raw(buffer, offset, ref value);
+			Write(buffer, offset, ref value);
 
 			offset += Unsafe.SizeOf<T>();
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
-			Read_Raw(buffer, offset, ref value);
+			Read(buffer, offset, out value);
 
 			offset += Unsafe.SizeOf<T>();
 		}
 
-
-		// Write value type, don't check if it fits, don't modify offset
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void Write_Raw(byte[] buffer, int offset, ref T value)
-		{
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				var ptr = (T*)(pBuffer + offset);
-				*ptr = value;
-			}
-		}
+		internal static void Write(byte[] buffer, int offset, ref T value) => Unsafe.As<byte, T>(ref buffer[offset]) = value;
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void Write_Raw(byte[] buffer, int offset, T value)
-		{
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				var ptr = (T*)(pBuffer + offset);
-				*ptr = value;
-			}
-		}
-
-		// Read value type, don't modify offset
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void Read_Raw(byte[] buffer, int offset, ref T value)
-		{
-			fixed (byte* pBuffer = &buffer[0])
-			{
-				var ptr = (T*)(pBuffer + offset);
-				value = *ptr;
-			}
-		}
+		internal static void Read(byte[] buffer, int offset, out T value) => value = Unsafe.As<byte, T>(ref buffer[offset]);
 
 
 		Expression IInlineEmitter.EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize)
 		{
-			var call = Expression.Call(method: _writeMethod,
-									   arg0: bufferExp,
-									   arg1: offsetExp,
-									   arg2: valueExp);
+			//var call = Expression.Call(method: _writeMethod,
+			//						   arg0: bufferExp,
+			//						   arg1: offsetExp,
+			//						   arg2: valueExp);
 
 			writtenSize = Unsafe.SizeOf<T>();
-			return call;
+			return null;
 		}
 
 		Expression IInlineEmitter.EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize)
 		{
-			var call = Expression.Call(method: _readMethod,
-									   arg0: bufferExp,
-									   arg1: offsetExp,
-									   arg2: valueExp);
+			//var call = Expression.Call(method: _readMethod,
+			//						   arg0: bufferExp,
+			//						   arg1: offsetExp,
+			//						   arg2: valueExp);
 
 			readSize = Unsafe.SizeOf<T>();
-			return call;
+			return null;
 		}
 
 
@@ -434,10 +387,14 @@ namespace Ceras.Formatters
 
 	*/
 
-	// Our member sorting puts blitable types together; so we can merge repeated "EnsureCapacity" calls into one big call!
+
+	//
+	// Some formatters don't have any "state" and are just wrappers around functions.
+	// For those, the DynamicFormatter could just use the methods directly instead of going through a useless interface-dispatch
 	interface IInlineEmitter
 	{
 		Expression EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize);
+
 		Expression EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize);
 	}
 }

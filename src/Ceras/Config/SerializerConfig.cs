@@ -236,6 +236,7 @@
 		bool IAdvancedConfigOptions.RespectNonSerializedAttribute { get; set; } = true;
 		BitmapMode IAdvancedConfigOptions.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
 		AotMode IAdvancedConfigOptions.AotMode { get; set; } = AotMode.None;
+		bool IAdvancedConfigOptions.MergeBlittableCalls { get; set; } = true;
 	}
 
 
@@ -354,6 +355,12 @@
 		/// On an AoT platforms (for example Unity IL2CPP) Ceras can not use dynamic code generation. When enabled, Ceras will use reflection for everything where it would otherwise use dynamic code generation. This is slow, but it allows for testing and debugging on those platforms until 
 		/// </summary>
 		AotMode AotMode { get; set; }
+		
+		/// <summary>
+		/// 
+		/// <para>Default: true</para>
+		/// </summary>
+		bool MergeBlittableCalls { get; set; }
 	}
 
 	public interface ISizeLimitsConfig

@@ -46,7 +46,7 @@
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteInt64(ref byte[] buffer, ref int offset, long value)
 		{
-			EnsureCapacity(ref buffer, offset, 8 + 1);
+			EnsureCapacity(ref buffer, offset, 8 + 2);
 
 			var zigZag = EncodeZigZag64((long)value);
 			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
@@ -63,7 +63,7 @@
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteUInt64(ref byte[] buffer, ref int offset, ulong value)
 		{
-			EnsureCapacity(ref buffer, offset, 8 + 1);
+			EnsureCapacity(ref buffer, offset, 8 + 2);
 
 			var zigZag = EncodeZigZag64((long)value);
 			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
@@ -133,13 +133,19 @@
 				result |= tmp << shift;
 
 				if (shift > bits)
-					throw new ArgumentOutOfRangeException(nameof(bytes), "Malformed VarInt");
+					ThrowMalformedVarInt();
 
 				if ((byteValue & 0x80) != 0x80)
 					return result;
 
 				shift += 7;
 			}
+		}
+		
+		[MethodImpl(MethodImplOptions.NoInlining)]
+		static void ThrowMalformedVarInt()
+		{
+			throw new ArgumentOutOfRangeException("bytes", "Malformed VarInt");
 		}
 
 		#endregion

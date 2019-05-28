@@ -585,7 +585,7 @@ namespace LiveTesting
 			{
 				int counter = 0;
 
-				MicroBenchmark.Run(5, new (string, Action)[]
+				MicroBenchmark.Run(5, new BenchJob[]
 				{
 					("addSimple", () => counter = addSimple.Add(counter, 1)),
 					("addImplicit", () => counter = addImplicit.Add(counter, 1)),
