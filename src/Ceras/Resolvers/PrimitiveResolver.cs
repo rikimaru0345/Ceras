@@ -18,8 +18,8 @@
 
 			[typeof(char)] = new CharFormatter(),
 
-			[typeof(Int16)] = new Int16Formatter(),
-			[typeof(UInt16)] = new UInt16Formatter(),
+			[typeof(Int16)] = new Int16FixedFormatter(),
+			[typeof(UInt16)] = new UInt16FixedFormatter(),
 
 			[typeof(Int32)] = new Int32Formatter(),
 			[typeof(UInt32)] = new UInt32Formatter(),
