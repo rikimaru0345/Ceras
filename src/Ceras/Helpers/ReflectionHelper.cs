@@ -145,94 +145,10 @@
 		}
 
 
-		// Just for testing
-		internal static bool ComputeExpectedSize(Type type, out int size)
-		{
-			size = -1;
-
-			var debugName = type.FullName;
-
-			if (!type.IsValueType)
-				return false; // Only value types can be of fixed size
-
-			if (type.ContainsGenericParameters)
-				return false;
-
-			if (type.IsPointer || type == typeof(IntPtr) || type == typeof(UIntPtr))
-				return false; // Pointers can be different sizes on different platforms
-
-			if (type.IsPrimitive)
-			{
-				size = Marshal.SizeOf(type);
-				return true;
-			}
-
-			// fixed buffer struct members
-			if (type.DeclaringType != null && type.DeclaringType.IsValueType)
-			{
-				var fields = type.DeclaringType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-				var fieldInParent = fields.Single(f => f.FieldType == type);
-				var parentFieldFixedBuffer = fieldInParent.GetCustomAttribute<FixedBufferAttribute>();
-				if (parentFieldFixedBuffer != null)
-				{
-					if (!ComputeExpectedSize(parentFieldFixedBuffer.ElementType, out var fixedBufferElementSize))
-						throw new Exception();
-
-					size = parentFieldFixedBuffer.Length * fixedBufferElementSize;
-					return true;
-				}
-			}
-
-
-			if (type.IsAutoLayout)
-				return false; // Automatic layout means the type might be larger
-
-			var layout = type.StructLayoutAttribute;
-			if (layout == null)
-				throw new Exception($"Type '{type.FriendlyName(true)}' is a value-type but does not have a StructLayoutAttribute!");
-
-
-			size = 0;
-
-			foreach (var f in GetAllDataMembers(type, true, false).Cast<FieldInfo>())
-			{
-				var fixedBuffer = f.GetCustomAttribute<FixedBufferAttribute>();
-				if (fixedBuffer != null)
-				{
-					if (!ComputeExpectedSize(fixedBuffer.ElementType, out var fixedElementSize))
-						throw new InvalidOperationException();
-
-					var innerTypeSize = fixedBuffer.Length * fixedElementSize;
-					size += innerTypeSize;
-					continue;
-				}
-
-				if (!ComputeExpectedSize(f.FieldType, out var fieldSize))
-				{
-					size = -1;
-					return false;
-				}
-
-				size += fieldSize;
-			}
-
-			if (layout.Size != 0)
-				if (layout.Size != size)
-					throw new Exception($"Computed size of '{type.FriendlyName(true)}' did not match the StructLayout value");
-
-			var marshalSize = Marshal.SizeOf(type);
-			if (size != marshalSize)
-				throw new Exception($"Computed size of '{type.FriendlyName(true)}' does not match marshal size");
-
-			return true;
-		}
-
-
 		public static bool IsBlittableType(Type type)
 		{
 			if (!type.IsValueType)
 				return false;
-
 
 			if (type.IsEnum)
 				return true; // enums are auto-layout, but they're always blittable
@@ -278,35 +194,6 @@
 
 		public static int GetSize(Type type)
 		{
-			if (!IsBlittableType(type))
-				return -1;
-
-
-			lock (_typeToBlittableSize)
-			{
-				if (_typeToBlittableSize.TryGetValue(type, out int size))
-					return size;
-
-				//var computedSizeSuccess = ComputeExpectedSize(type, out int expectedSize);
-
-				if (!type.IsGenericType)
-				{
-					size = Marshal.SizeOf(type);
-				}
-				else
-				{
-					var inst = Activator.CreateInstance(type);
-					size = Marshal.SizeOf(inst);
-				}
-
-				_typeToBlittableSize.Add(type, size);
-				return size;
-			}
-		}
-
-
-		public static int UnsafeGetSize(Type type)
-		{
 			lock (_typeToUnsafeSize)
 			{
 				if (_typeToUnsafeSize.TryGetValue(type, out int size))
@@ -319,6 +206,7 @@
 				return size;
 			}
 		}
+		
 
 		public static Type FieldOrPropType(this MemberInfo memberInfo)
 		{

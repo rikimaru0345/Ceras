@@ -8,10 +8,10 @@ namespace Ceras.Test
 	using Resolvers;
 	using System.Runtime.InteropServices;
 	using Xunit;
-    using Ceras.Helpers;
-    using System.Runtime.CompilerServices;
+	using Ceras.Helpers;
+	using System.Runtime.CompilerServices;
 
-    public class Blitting : TestBase
+	public class Blitting : TestBase
 	{
 		// Types that the reinterpret formatter should be able to handle
 		// Arrays are handled by "ReinterpretArrayFormatter" of course
@@ -32,7 +32,7 @@ namespace Ceras.Test
 			typeof(float[]),
 			typeof(double[]),
 			typeof(decimal[]),
-			
+
 			typeof(Vector3),
 			typeof(Half2),
 			typeof(BigStruct),
@@ -105,13 +105,13 @@ namespace Ceras.Test
 			typeof(SByteFormatter),
 
 			typeof(CharFormatter),
-			typeof(Int16Formatter),
-			typeof(UInt16Formatter),
+			typeof(Int16FixedFormatter),
+			typeof(UInt16FixedFormatter),
 
-			typeof(Int32Formatter),
-			typeof(UInt32Formatter),
-			typeof(Int64Formatter),
-			typeof(UInt64Formatter),
+			typeof(Int32FixedFormatter),
+			typeof(UInt32FixedFormatter),
+			typeof(Int64FixedFormatter),
+			typeof(UInt64FixedFormatter),
 
 			typeof(FloatFormatter),
 			typeof(DoubleFormatter),
@@ -264,25 +264,25 @@ namespace Ceras.Test
 				typeof(TestEnumInt64),
 				typeof(TestEnumUInt64),
 			};
-			
+
 			var serializeMethod = typeof(CerasSerializer).GetMethods().First(m => m.Name == nameof(CerasSerializer.Serialize) && m.GetParameters().Length == 1);
 			var deserializeMethod = typeof(CerasSerializer).GetMethods().First(m => m.Name == nameof(CerasSerializer.Deserialize) && m.GetParameters().Length == 1);
-			
+
 
 			foreach (var t in typesToTest)
 			{
 				Type baseType = t.GetEnumUnderlyingType();
 				int expectedSize = Marshal.SizeOf(baseType);
-				
+
 				var values = Enum.GetValues(t).Cast<object>().Concat(stressTestValues.Cast<object>());
-				
+
 				foreach (var v in values)
 				{
 					var obj = Enum.ToObject(t, v);
 
 					// We must call Serialize<T>, and we can't use <object> because that would embed the type information
 					var data = (byte[])serializeMethod.MakeGenericMethod(t).Invoke(ceras, new object[] { obj });
-					
+
 					Assert.True(data.Length == expectedSize);
 
 					var cloneObj = deserializeMethod.MakeGenericMethod(t).Invoke(ceras, new object[] { data });
@@ -291,10 +291,10 @@ namespace Ceras.Test
 				}
 			}
 
-			
+
 			Assert.True(ceras.Serialize(TestEnumInt8.a).Length == 1);
 			Assert.True(ceras.Serialize(TestEnumUInt8.a).Length == 1);
-			
+
 			Assert.True(ceras.Serialize(TestEnumInt16.a).Length == 2);
 			Assert.True(ceras.Serialize(TestEnumUInt16.a).Length == 2);
 
@@ -302,6 +302,97 @@ namespace Ceras.Test
 			Assert.True(ceras.Serialize(TestEnumUInt64.a).Length == 8);
 		}
 
+		enum TestEnumInt8 : sbyte { a = 123, b, c }
+		enum TestEnumUInt8 : byte { a = 123, b, c }
+
+		enum TestEnumInt16 : short { a = 123, b, c }
+		enum TestEnumUInt16 : ushort { a = 123, b, c }
+
+		enum TestEnumInt64 : long { a = 123, b, c }
+		enum TestEnumUInt64 : ulong { a = 123, b, c }
+
+
+		[Fact]
+		public unsafe void SizeOfBoolIs1()
+		{
+			var single = ReflectionHelper.GetSize(typeof(bool));
+			Assert.True(single == 1);
+		}
+
+		[Fact]
+		public unsafe void SizeOfCharIs2()
+		{
+			var single = ReflectionHelper.GetSize(typeof(char));
+			Assert.True(single == 2);
+		}
+
+
+		[Fact]
+		public unsafe void BlittableSize()
+		{
+			var typeToExpectedSize = new (Type type, int singleSize)[]
+			{
+				( typeof(BlittableStruct_PackDefault), 8),
+				( typeof(BlittableStruct_Pack0), 8),
+				( typeof(BlittableStruct_Pack1), 7),
+
+				( typeof(BlittableStruct_Size1), 1 ),
+				( typeof(BlittableStruct_Size2), 2 ),
+				( typeof(BlittableStruct_Size3), 3 ),
+				( typeof(BlittableStruct_Size4), 4 ),
+				( typeof(BlittableStruct_Size5), 5 ),
+				
+				( typeof(TestEnumInt8), 1 ),
+				( typeof(TestEnumInt16), 2 ),
+				( typeof(TestEnumInt64), 8 ),
+			};
+
+			foreach (var entry in typeToExpectedSize)
+			{
+				var actualSingleSize = ReflectionHelper.GetSize(entry.type);
+
+				Assert.True(actualSingleSize == entry.singleSize);
+			}
+		}
+
+		[StructLayout(LayoutKind.Sequential, Size = 1)]
+		struct BlittableStruct_Size1 { public byte Byte; }
+		[StructLayout(LayoutKind.Sequential, Size = 2)]
+		struct BlittableStruct_Size2 { public byte Byte; }
+		[StructLayout(LayoutKind.Sequential, Size = 3)]
+		struct BlittableStruct_Size3 { public byte Byte; }
+		[StructLayout(LayoutKind.Sequential, Size = 4)]
+		struct BlittableStruct_Size4 { public byte Byte; }
+		[StructLayout(LayoutKind.Sequential, Size = 5)]
+		struct BlittableStruct_Size5 { public byte Byte; }
+
+
+		[StructLayout(LayoutKind.Sequential)]
+		struct BlittableStruct_PackDefault
+		{
+			public Int16 Int16;     // +2 = 2
+			public byte Byte;       // +1 = 3
+			public Int32 Int32;     // +4 = 7
+		}
+
+		[StructLayout(LayoutKind.Sequential, Pack = 0)]
+		struct BlittableStruct_Pack0
+		{
+			public Int16 Int16;     // +2 = 2
+			public byte Byte;       // +1 = 3
+			public Int32 Int32;     // +4 = 7
+		}
+
+		[StructLayout(LayoutKind.Sequential, Pack = 1)]
+		struct BlittableStruct_Pack1
+		{
+			public Int16 Int16;     // +2 = 2
+			public byte Byte;       // +1 = 3
+			public Int32 Int32;     // +4 = 7
+		}
+
+
+		/*
 		[Fact]
 		public unsafe void CouldCopyValueTupleDirectly()
 		{
@@ -318,15 +409,8 @@ namespace Ceras.Test
 			Assert.True(clone.Item3.Y == 2);
 			Assert.Equal(t, clone);
 		}
+		*/
 
-		enum TestEnumInt8 : sbyte { a = 123, b, c }
-		enum TestEnumUInt8 : byte { a = 123, b, c }
-
-		enum TestEnumInt16 : short { a = 123, b, c }
-		enum TestEnumUInt16 : ushort { a = 123, b, c }
-
-		enum TestEnumInt64 : long { a = 123, b, c }
-		enum TestEnumUInt64 : ulong { a = 123, b, c }
 
 	}
 }

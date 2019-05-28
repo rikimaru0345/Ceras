@@ -215,7 +215,7 @@ namespace Ceras.Formatters
 					throw new InvalidOperationException("Can not merge-blit formatter: " + formatter.GetType().FriendlyName(true));
 
 				mergeBlitMembers.Add(m);
-				sizeSum += ReflectionHelper.UnsafeGetSize(m.MemberType);
+				sizeSum += ReflectionHelper.GetSize(m.MemberType);
 			}
 
 			if (mergeBlitMembers.Count == 0)
@@ -251,7 +251,7 @@ namespace Ceras.Formatters
 					Add(refOffsetArg, Constant(runningOffset)),
 					MakeMemberAccess(valueArg, member.MemberInfo)));
 
-				runningOffset += ReflectionHelper.UnsafeGetSize(member.MemberType);
+				runningOffset += ReflectionHelper.GetSize(member.MemberType);
 			}
 
 			//

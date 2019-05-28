@@ -33,8 +33,16 @@
 	 * - Use it to read the data
 	 */
 
-	// !! DON'T USE GetHashCode(), the current implementation does not consider writing the hash to a file (and .NET hashcodes always change from one program start to another)
-	// !! If we ever want to embedd the hashcode we need to switch to xxHash or something (xxHash seems to be the best)
+	// todo:
+	// 1) Enums
+	//    Include size of underlying data.
+	//    - Either include all names and values, and also allow adding [PreviousName] or [PreviousValue]
+	//    - Or maybe just let the user deal with it?
+	//
+	// 2) PersistentName for types
+	//    - allow giving a type a persistent name, and also "previous names" so a type can be found after it was renamed
+	//
+
 	class Schema
 	{
 		public Type Type { get; }

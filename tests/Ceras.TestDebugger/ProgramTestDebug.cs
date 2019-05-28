@@ -33,8 +33,12 @@
 #error Unhandled framework version!
 #endif
 			
+			new Blitting().SizeOfCharIs2();
+			new Blitting().BlittableSize();
+
 			new VersionTolerance().EmulatorCanReadSchemaData();
 			
+
 			new Blitting().BlittingEnums();
 
 			new BuiltInTypes().MultidimensionalArrays();
@@ -42,7 +46,7 @@
 			new BuiltInTypes().Collections();
 
 			new Blitting().BlittableTypesUseCorrectFormatter();
-			new Blitting().CouldCopyValueTupleDirectly();
+			//new Blitting().CouldCopyValueTupleDirectly();
 			new Internals().FastCopy();
 			new BuiltInTypes().Bitmap();
 
