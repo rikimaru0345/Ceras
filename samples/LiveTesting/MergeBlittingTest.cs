@@ -101,14 +101,14 @@ namespace LiveTesting.MergeBlittingTest
 		{
 			var config = new SerializerConfig();
 			config.ConfigType<Vector3>().CustomResolver = (c, t) => c.Advanced.GetFormatterResolver<DynamicObjectFormatterResolver>().GetFormatter(t);
+			changeConfig(config);
+
 			var ceras = new CerasSerializer(config);
 			return (DynamicFormatter<Vector3>)ceras.GetSpecificFormatter(typeof(Vector3));
 		}
 
 		internal static void Test()
 		{
-			TestWithObject();
-
 			var defaultF = new DefaultFormatter();
 			var defaultFWithCaching = new ImprovedDefaultFormatter();
 
@@ -164,9 +164,9 @@ namespace LiveTesting.MergeBlittingTest
 					("DynamicMergeBlit3", () => DoTest(value, simpleDynamicMergeBlit3)), // +57%
 				};
 
-			MicroBenchmark.Run(5, jobs);
-			MicroBenchmark.Run(10, jobs);
-			MicroBenchmark.Run(30, jobs);
+			var runTimes = new[]{ 5, 5, 20, 20, 20 };
+			foreach(var t in runTimes)
+				MicroBenchmark.Run(t, jobs);
 
 			Console.WriteLine("done");
 			Console.ReadKey();
@@ -227,7 +227,7 @@ namespace LiveTesting.MergeBlittingTest
 					("DynamicFormatter (MergeBlit)",                    () => DoTest(value, dynamic2, ref clonedObject)),
 					("DynamicFormatter (MergeBlit, InlineCalls)",       () => DoTest(value, dynamic3, ref clonedObject)),
 				};
-			
+
 			MicroBenchmark.Run(5, jobs);
 			MicroBenchmark.Run(10, jobs);
 			MicroBenchmark.Run(30, jobs);

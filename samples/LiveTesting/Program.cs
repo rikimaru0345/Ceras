@@ -31,8 +31,8 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
-			// Benchmarks();
-
+			InterfaceVsDelegateTest.InterfaceVsDelegateTest.Test();
+			NewRefFormatter.ByteCodeReferenceFormatterTest.Test();
 			MergeBlittingTest.MergeBlittingTest.Test();
 
 			ConvertDynamicFormatterToString();

@@ -1328,11 +1328,7 @@ where T : class
 		{
 			const int Null = 0;
 			const int NewObject = 1; // + data
-									 // const int NewDerivedObject = 2; // + type + data
 			const int Backreference = 3; // + id
-										 // const int ExternalObject = 4; // + id
-										 // const int InlineType = 5; // + type
-
 
 			readonly CerasSerializer _ceras;
 

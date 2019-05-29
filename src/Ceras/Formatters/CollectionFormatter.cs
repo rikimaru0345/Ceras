@@ -32,7 +32,7 @@
 
 			SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, ar.Length, 1);
 
-			var f = _itemFormatter; // Cache into local to prevent ram fetches
+			var f = _itemFormatter;
 			for (int i = 0; i < ar.Length; i++)
 				f.Serialize(ref buffer, ref offset, ar[i]);
 		}
@@ -53,7 +53,7 @@
 			if (ar == null || ar.Length != length)
 				ar = new TItem[length];
 
-			var f = _itemFormatter; // Cache into local to prevent ram fetches
+			var f = _itemFormatter;
 			for (int i = 0; i < length; i++)
 				f.Deserialize(buffer, ref offset, ref ar[i]);
 		}
