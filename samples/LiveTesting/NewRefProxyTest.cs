@@ -156,83 +156,7 @@ namespace LiveTesting
 		}
 
 
-		class RefFormatter_OldObjectCache<T> : IFormatter<T> where T : class
-		{
-			const int Null = -1;
-			const int New = -2;
-
-			public ObjectCache _objectCache = new ObjectCache();
-			public IFormatter<T> InnerFormatter;
-
-			public void Serialize(ref byte[] buffer, ref int offset, T p)
-			{
-				if (ReferenceEquals(p, null))
-				{
-					// Null
-					SerializerBinary.WriteInt32(ref buffer, ref offset, Null);
-				}
-				else if (_objectCache.TryGetExistingObjectId(p, out int existingId))
-				{
-					// Existing
-					SerializerBinary.WriteInt32(ref buffer, ref offset, existingId);
-				}
-				else
-				{
-					// New
-					SerializerBinary.WriteInt32(ref buffer, ref offset, New);
-					_objectCache.RegisterObject(p);
-					InnerFormatter.Serialize(ref buffer, ref offset, p);
-				}
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref T value)
-			{
-				var id = SerializerBinary.ReadInt32(buffer, ref offset);
-				switch (id)
-				{
-				case Null: // Null
-					value = default;
-					break;
-
-				case New: // Read New
-					if (value == null)
-						value = Ctor<T>.New();
-
-					var proxy = _objectCache.CreateDeserializationProxy<T>();
-
-					proxy.Value = value;
-					InnerFormatter.Deserialize(buffer, ref offset, ref proxy.Value);
-					value = proxy.Value;
-					break;
-
-				default: // Existing
-					value = _objectCache.GetExistingObject<T>(id);
-					break;
-				}
-			}
-		}
-
-		class PersonFormatter_OldObjectCache : IFormatter<Person>
-		{
-			public RefFormatter_OldObjectCache<Person> RefFormatter;
-
-			public void Serialize(ref byte[] buffer, ref int offset, Person p)
-			{
-				SerializerBinary.WriteString(ref buffer, ref offset, p.Name);
-				SerializerBinary.WriteInt32(ref buffer, ref offset, p.Health);
-				RefFormatter.Serialize(ref buffer, ref offset, p.Friend1);
-				RefFormatter.Serialize(ref buffer, ref offset, p.Friend2);
-			}
-
-			public void Deserialize(byte[] buffer, ref int offset, ref Person value)
-			{
-				value.Name = SerializerBinary.ReadString(buffer, ref offset);
-				value.Health = SerializerBinary.ReadInt32(buffer, ref offset);
-				RefFormatter.Deserialize(buffer, ref offset, ref value.Friend1);
-				RefFormatter.Deserialize(buffer, ref offset, ref value.Friend2);
-			}
-		}
-
+		
 
 		class RefFormatter<T> : IFormatter<T> where T : class
 		{
@@ -494,12 +418,7 @@ namespace LiveTesting
 			var personFormatter2 = new PersonFormatterReaderWriter();
 			refPersonFormatter2.InnerFormatter = personFormatter2;
 			personFormatter2.RefFormatter = refPersonFormatter2;
-
-			var refPersonFormatterOld = new RefFormatter_OldObjectCache<Person>();
-			var personFormatterOld = new PersonFormatter_OldObjectCache();
-			refPersonFormatterOld.InnerFormatter = personFormatterOld;
-			personFormatterOld.RefFormatter = refPersonFormatterOld;
-
+			
 			var refPersonFormatterNewCache2 = new RefFormatterNewCache2<Person>();
 			var personFormatterNewCache2 = new PersonFormatterNewCache2();
 			refPersonFormatterNewCache2.InnerFormatter = personFormatterNewCache2;
@@ -522,7 +441,6 @@ namespace LiveTesting
 
 			for (int i = 0; i < 5; i++)
 				MicroBenchmark.Run(2,
-					("Using old ObjectCache", () => Clone(p1, refPersonFormatterOld)),
 					("NewCache(ar,ar)", () => Clone(p1, refPersonFormatter)),
 					("NewCache2(dict,ar)", () => Clone(p1, refPersonFormatterNewCache2)), // 4-14%
 

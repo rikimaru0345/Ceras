@@ -2,10 +2,11 @@
 {
 	using System;
 	using System.Collections.Generic;
-    using System.Runtime.CompilerServices;
+	using System.Runtime.CompilerServices;
 
-    // Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
-    class ObjectCache
+	// Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
+
+	class ObjectCache
 	{
 		// While serializing we add all encountered objects and give them an ID (their index), so when we encounter them again we can just write the index instead.
 		readonly Dictionary<object, int> _serializationCache = new Dictionary<object, int>(64);
@@ -36,7 +37,7 @@
 
 		internal bool GetObjectIdOrRegister<T>(T value, out int id) where T : class
 		{
-			if(_serializationCache.TryGetValue(value, out id))
+			if (_serializationCache.TryGetValue(value, out id))
 				return true;
 
 			id = _serializationCache.Count;
@@ -107,9 +108,9 @@
 		internal sealed class RefProxy<T> : RefProxy where T : class
 		{
 			public T Value;
-			
+
 			public override object ObjectValue => Value;
-						
+
 			[MethodImpl(MethodImplOptions.AggressiveInlining)]
 			public override void ResetAndReturn()
 			{
@@ -131,11 +132,11 @@
 
 			static RefProxyPool()
 			{
-				 _proxyPool = new FactoryPool<RefProxy<T>>(CreateProxy, 8);
+				_proxyPool = new FactoryPool<RefProxy<T>>(CreateProxy, 8);
 
 				RefProxyPoolRegister.RegisterPool(_proxyPool);
 			}
-			
+
 			[MethodImpl(MethodImplOptions.AggressiveInlining)]
 			internal static RefProxy<T> Rent()
 			{
@@ -165,15 +166,15 @@
 
 			public static void RegisterPool(IFactoryPool pool)
 			{
-				lock(_genericPools)
+				lock (_genericPools)
 					_genericPools.Add(pool);
 			}
 
 			public static void TrimAll()
 			{
-				lock(_genericPools)
+				lock (_genericPools)
 				{
-					foreach(var p in _genericPools)
+					foreach (var p in _genericPools)
 					{
 						p.TrimPool();
 					}

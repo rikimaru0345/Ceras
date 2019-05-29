@@ -16,7 +16,6 @@ namespace Ceras
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
 	using System.Text;
-
 	/*
 	 * Todo:
 	 * 
@@ -141,7 +140,7 @@ namespace Ceras
 		/// </summary>
 		public static void ClearGenericCaches()
 		{
-			ObjectCache.RefProxyPoolRegister.TrimAll();
+			// ObjectCache.RefProxyPoolRegister.TrimAll();
 		}
 
 		internal readonly SerializerConfig Config;
@@ -731,21 +730,10 @@ namespace Ceras
 			bool isExternalRootObj = typeof(IExternalRootObject).IsAssignableFrom(type);
 			bool isVersionTolerantMode = Config.VersionTolerance.Mode != VersionToleranceMode.Disabled;
 
-			if (Config.Experimental.UseBytePrefixReferenceFormatter)
-			{
-				if (type.IsSealed && !isType && !isExternalRootObj && !isVersionTolerantMode)
-					refFormatterType = typeof(Ceras.Formatters.FixedByte.ReferenceFormatter_KnownSealedType<>).MakeGenericType(type);
-				else
-					refFormatterType = typeof(Ceras.Formatters.FixedByte.ReferenceFormatter<>).MakeGenericType(type);
-			}
+			if (type.IsSealed && !isType && !isExternalRootObj && !isVersionTolerantMode)
+				refFormatterType = typeof(ReferenceFormatter_KnownSealedType<>).MakeGenericType(type);
 			else
-			{
-				if (type.IsSealed && !isType && !isExternalRootObj && !isVersionTolerantMode)
-					refFormatterType = typeof(ReferenceFormatter_KnownSealedType<>).MakeGenericType(type);
-				else
-					refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
-			}
-
+				refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
 
 			var referenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
 

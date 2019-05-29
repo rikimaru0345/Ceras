@@ -114,7 +114,7 @@ namespace Ceras.Formatters
 
 			// Merge Blitting Step
 			List<SchemaMember> blittedMembers = null;
-			if (!isSchemaFormatter && ceras.Config.Experimental.MergeBlittableCalls)
+			if (!isSchemaFormatter)
 				blittedMembers = MergeBlittableSerializeCalls(members, typeToFormatter, body, bufferArg, offsetArg, valueArg);
 
 
@@ -138,7 +138,7 @@ namespace Ceras.Formatters
 					bufferArg, offsetArg,
 					member,
 					MakeMemberAccess(valueArg, member.MemberInfo),
-					true, ceras.Config.Experimental.InlineCalls);
+					true);
 
 
 				// Call "Serialize"
@@ -223,7 +223,7 @@ namespace Ceras.Formatters
 				if (m.IsSkip)
 					continue;
 
-				if(!UseLocal(m.MemberInfo))
+				if (!UseLocal(m.MemberInfo))
 					continue;
 
 				var local = Variable(m.MemberType, "local_" + m.MemberName);
@@ -293,7 +293,7 @@ namespace Ceras.Formatters
 				var deserializeCall = EmitFormatterCall(typeToFormatter[m.MemberType],
 					bufferArg, offsetArg,
 					m, target,
-					false, ceras.Config.Experimental.InlineCalls);
+					false);
 
 				body.Add(deserializeCall);
 
@@ -469,59 +469,56 @@ namespace Ceras.Formatters
 			ParameterExpression bufferArg, ParameterExpression offsetArg,
 			SchemaMember schemaMember,
 			Expression target,
-			bool isSerialize, bool allowCallInlining)
+			bool isSerialize)
 		{
 			var formatter = (IFormatter)formatterConst.Value;
 
-			if (allowCallInlining)
+
+			// Try inlining interface
+			if (formatter is ICallInliner callInliner)
 			{
-				// Try inlining interface
-				if (formatter is ICallInliner callInliner)
+				if (isSerialize)
+					return callInliner.EmitSerialize(bufferArg, offsetArg, target);
+				else
+					return callInliner.EmitDeserialize(bufferArg, offsetArg, target);
+			}
+
+			// Try inlining blittable
+			if (formatter is IIsReinterpretFormatter)
+			{
+				var methodName = isSerialize
+					? nameof(ReinterpretFormatter<int>.Write)
+					: nameof(ReinterpretFormatter<int>.Read);
+
+				var method = typeof(ReinterpretFormatter<>)
+					.MakeGenericType(schemaMember.MemberType)
+					.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+					.First(m => m.Name == methodName);
+
+				var size = ReflectionHelper.GetSize(schemaMember.MemberType);
+
+				if (isSerialize)
 				{
-					if (isSerialize)
-						return callInliner.EmitSerialize(bufferArg, offsetArg, target);
-					else
-						return callInliner.EmitDeserialize(bufferArg, offsetArg, target);
+					return Block(
+						// EnsureCapacity()
+						Call(ensureCapacityMethod, bufferArg, offsetArg, Constant(size)),
+						// ReinterpretFormatter<T>.Write()
+						Call(method, bufferArg, offsetArg, target),
+						// offset += sizeof(T)
+						AddAssign(offsetArg, Constant(size))
+						);
 				}
-
-				// Try inlining blittable
-				if (formatter is IIsReinterpretFormatter)
+				else
 				{
-					var methodName = isSerialize
-						? nameof(ReinterpretFormatter<int>.Write)
-						: nameof(ReinterpretFormatter<int>.Read);
-
-					var method = typeof(ReinterpretFormatter<>)
-						.MakeGenericType(schemaMember.MemberType)
-						.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-						.First(m => m.Name == methodName);
-
-					var size = ReflectionHelper.GetSize(schemaMember.MemberType);
-
-					if (isSerialize)
-					{
-						return Block(
-							// EnsureCapacity()
-							Call(ensureCapacityMethod, bufferArg, offsetArg, Constant(size)),
-							// ReinterpretFormatter<T>.Write()
-							Call(method, bufferArg, offsetArg, target),
-							// offset += sizeof(T)
-							AddAssign(offsetArg, Constant(size))
-							);
-					}
-					else
-					{
-						return Block(
-							// ReinterpretFormatter<T>.Read()
-							Call(method, bufferArg, offsetArg, target),
-							// offset += sizeof(T)
-							AddAssign(offsetArg, Constant(size))
-							);
-					}
-
-
+					return Block(
+						// ReinterpretFormatter<T>.Read()
+						Call(method, bufferArg, offsetArg, target),
+						// offset += sizeof(T)
+						AddAssign(offsetArg, Constant(size))
+						);
 				}
 			}
+
 
 			//
 			// Normal call

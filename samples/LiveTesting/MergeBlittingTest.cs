@@ -109,6 +109,7 @@ namespace LiveTesting.MergeBlittingTest
 
 		internal static void Test()
 		{
+			/*
 			var defaultF = new DefaultFormatter();
 			var defaultFWithCaching = new ImprovedDefaultFormatter();
 
@@ -170,10 +171,12 @@ namespace LiveTesting.MergeBlittingTest
 
 			Console.WriteLine("done");
 			Console.ReadKey();
+			*/
 		}
 
 		static void TestWithObject()
 		{
+			/*
 			var defaultF = new DefaultFormatter();
 
 			IFormatter<SampleObject> dynamic1;
@@ -236,6 +239,7 @@ namespace LiveTesting.MergeBlittingTest
 
 			Console.WriteLine("done");
 			Console.ReadKey();
+			*/
 		}
 	}
 

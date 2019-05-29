@@ -3,6 +3,7 @@ using Ceras.Formatters;
 using Ceras.Resolvers;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -14,7 +15,9 @@ namespace LiveTesting.NewRefFormatter
 	//
 	// Result:
 	// New Byte-Code prefix is 5-10% faster
-	internal static class ByteCodeReferenceFormatterTest
+
+
+	internal static class RefFormatterTests
 	{
 		static byte[] _buffer = new byte[1000];
 
@@ -24,6 +27,18 @@ namespace LiveTesting.NewRefFormatter
 			formatter.Serialize(ref _buffer, ref offset, value);
 
 			offset = 0;
+			T cloneTarget = default;
+			formatter.Deserialize(_buffer, ref offset, ref cloneTarget);
+		}
+
+		static void DoTestSerialize<T>(T value, IFormatter<T> formatter)
+		{
+			int offset = 0;
+			formatter.Serialize(ref _buffer, ref offset, value);
+		}
+		static void DoTestDeserialize<T>(IFormatter<T> formatter)
+		{
+			int offset = 0;
 			T cloneTarget = default;
 			formatter.Deserialize(_buffer, ref offset, ref cloneTarget);
 		}
@@ -40,12 +55,12 @@ namespace LiveTesting.NewRefFormatter
 		{
 			IFormatter<object> formatterOldRef = CreateDynamicFormatterWithOptions<object>(c =>
 			{
-				c.Experimental.UseBytePrefixReferenceFormatter = false;
+				c.Experimental.UseNewCache = false;
 			});
 
 			IFormatter<object> formatterBytePrefix = CreateDynamicFormatterWithOptions<object>(c =>
 			{
-				c.Experimental.UseBytePrefixReferenceFormatter = true;
+				c.Experimental.UseNewCache = true;
 			});
 
 			var value = CreateTestValue();
@@ -56,7 +71,7 @@ namespace LiveTesting.NewRefFormatter
 					("BytePrefix", () => DoTest(value, formatterBytePrefix)),
 				};
 
-			var runTimes = new[] { 5, 10, 30, 30, 30 };
+			var runTimes = new[] { 5, 10, 20, 30, 30 };
 			foreach (var t in runTimes)
 				MicroBenchmark.Run(t, jobs);
 

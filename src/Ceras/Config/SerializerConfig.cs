@@ -247,17 +247,7 @@
 
 		internal class ExperimentalFeatures
 		{
-			// Collects and merges all calls to 'Fixed' formatters (Int32Fixed, Int64Fixed, ...)
-			// All EnsureCapacity() and offset+=...; will be merged together
-			public bool MergeBlittableCalls { get; set; }
-
-			// Skips the calls to formatters that have no 'state' by inlining whatever function they end up calling
-			// Example: All calls to 'Int32Formatter' will get replaced by 'SerializerBinary.WriteInt32/ReadInt32'
-			public bool InlineCalls { get; set; }
-
-			// Use a new ReferenceFormatter that uses a 1-byte code instead of a VarInt
-			// potentially improving performance.
-			public bool UseBytePrefixReferenceFormatter { get; set; }
+			public bool UseNewCache { get; set; }
 		}
 
 		#endregion
