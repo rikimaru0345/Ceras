@@ -122,7 +122,7 @@ namespace Ceras
 			else if (memberInfo is PropertyInfo p)
 			{
 				// prop: skip computed
-				if (ShouldSkipProperty(memberConfig))
+				if (IsComputedProperty(memberConfig, p))
 					return;
 			}
 			else
@@ -149,20 +149,15 @@ namespace Ceras
 				memberConfig.SetIncludeWithReason(SerializationOverride.ForceInclude, "[Include] attribute on member");
 
 			// Success: persistent name (from attribute or normal member name)
-			var prevName = memberInfo.GetCustomAttribute<PreviousNameAttribute>();
-			if (prevName != null)
-			{
-				memberConfig.PersistentName = prevName.Name;
-				//VerifyName(attrib.Name);
-				//foreach (var n in attrib.AlternativeNames)
-				//	VerifyName(n);
-			}
+			var memberName = memberInfo.GetCustomAttribute<MemberNameAttribute>();
+			if (memberName != null)
+				memberConfig.PersistentName = memberName.PersistentName;
+			else
+				memberConfig.PersistentName = memberInfo.Name;
 		}
 
-		static bool ShouldSkipProperty(MemberConfig m)
+		static bool IsComputedProperty(MemberConfig memberConfig, PropertyInfo p)
 		{
-			var p = (PropertyInfo)m.Member;
-
 			// There's no way we can serialize a prop that we can't write.
 			// If it would have a { private set; } that would work, but it doesn't.
 			var accessors = p.GetAccessors(true);
@@ -170,7 +165,7 @@ namespace Ceras
 			if (accessors.Length <= 1)
 			{
 				// It's a "computed" property, which has no concept of writing.
-				m.ExcludeWithReason("Computed Property (has no 'set' function, not even a private one)");
+				memberConfig.ExcludeWithReason("Computed Property (has no 'set' function, not even a private one)");
 				return true;
 			}
 

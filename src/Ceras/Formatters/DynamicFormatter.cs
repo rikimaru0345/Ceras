@@ -54,7 +54,6 @@ namespace Ceras.Formatters
 					: _ceras.GetTypeMetaData(type).PrimarySchema;
 
 			var typeConfig = _ceras.Config.GetTypeConfig(type, isStatic);
-			typeConfig.VerifyConstructionMethod();
 
 			if (!schema.IsPrimary)
 				throw new InvalidOperationException("Non-Primary Schema requires SchemaFormatter instead of DynamicFormatter!");
@@ -91,8 +90,8 @@ namespace Ceras.Formatters
 		internal static Expression<SerializeDelegate<T>> GenerateSerializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)
 		{
 			var members = schema.Members;
-			var refBufferArg = Parameter(typeof(byte[]).MakeByRefType(), "buffer");
-			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
+			var bufferArg = Parameter(typeof(byte[]).MakeByRefType(), "buffer");
+			var offsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
 			var valueArg = Parameter(typeof(T), "value");
 
 			if (isStatic)
@@ -115,8 +114,8 @@ namespace Ceras.Formatters
 
 			// Merge Blitting Step
 			List<SchemaMember> blittedMembers = null;
-			if (!isSchemaFormatter && ceras.Config.Advanced.MergeBlittableCalls)
-				blittedMembers = MergeBlittableSerializeCalls(members, typeToFormatter, body, refBufferArg, refOffsetArg, valueArg, true);
+			if (!isSchemaFormatter && ceras.Config.Experimental.MergeBlittableCalls)
+				blittedMembers = MergeBlittableSerializeCalls(members, typeToFormatter, body, bufferArg, offsetArg, valueArg);
 
 
 			// Serialize all members
@@ -131,10 +130,15 @@ namespace Ceras.Formatters
 				// Get the formatter and its Serialize method
 				var formatterExp = typeToFormatter[member.MemberType];
 				var formatter = formatterExp.Value;
-				var serializeMethod = formatter.GetType().ResolveSerializeMethod(member.MemberType);
+
 
 				// Prepare the actual serialize call
-				var serializeCall = Call(formatterExp, serializeMethod, refBufferArg, refOffsetArg, MakeMemberAccess(valueArg, member.MemberInfo));
+				Expression serializeCall = EmitFormatterCall(
+					formatterExp,
+					bufferArg, offsetArg,
+					member,
+					MakeMemberAccess(valueArg, member.MemberInfo),
+					true, ceras.Config.Experimental.InlineCalls);
 
 
 				// Call "Serialize"
@@ -146,34 +150,34 @@ namespace Ceras.Formatters
 				{
 					// remember current position
 					// startPos = offset; 
-					body.Add(Assign(startPos, refOffsetArg));
+					body.Add(Assign(startPos, offsetArg));
 
 					// reserve space for the length prefix
 					// offset += 4;
-					body.Add(AddAssign(refOffsetArg, Constant(FieldSizePrefixBytes)));
+					body.Add(AddAssign(offsetArg, Constant(FieldSizePrefixBytes)));
 
 					// Serialize(...) write the actual data
 					body.Add(serializeCall);
 
 					// calculate the size of what we just wrote
 					// size = (offset - startPos) - 4; 
-					body.Add(Assign(size, Subtract(Subtract(refOffsetArg, startPos), Constant(FieldSizePrefixBytes))));
+					body.Add(Assign(size, Subtract(Subtract(offsetArg, startPos), Constant(FieldSizePrefixBytes))));
 
 					// go back to where we started and write the size into the reserved space
 					// offset = startPos;
-					body.Add(Assign(refOffsetArg, startPos));
+					body.Add(Assign(offsetArg, startPos));
 
 					// WriteInt32( size )
 					body.Add(Call(
 								   method: _sizeWriteMethod,
-								   arg0: refBufferArg,
-								   arg1: refOffsetArg,
+								   arg0: bufferArg,
+								   arg1: offsetArg,
 								   arg2: Convert(size, _sizeType)
 								  ));
 
 					// continue after the written data
 					// offset = startPos + skipOffset; 
-					body.Add(Assign(refOffsetArg, Add(Add(startPos, size), Constant(FieldSizePrefixBytes))));
+					body.Add(Assign(offsetArg, Add(Add(startPos, size), Constant(FieldSizePrefixBytes))));
 				}
 			}
 
@@ -182,14 +186,216 @@ namespace Ceras.Formatters
 			if (isStatic)
 				valueArg = Parameter(typeof(T), "value");
 
-			return Lambda<SerializeDelegate<T>>(serializeBlock, refBufferArg, refOffsetArg, valueArg);
+			return Lambda<SerializeDelegate<T>>(serializeBlock, bufferArg, offsetArg, valueArg);
+		}
+
+		internal static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)
+		{
+			bool verifySizes = isSchemaFormatter && ceras.Config.VersionTolerance.VerifySizes;
+			var members = schema.Members;
+			var typeConfig = ceras.Config.GetTypeConfig(schema.Type, isStatic);
+			var tc = typeConfig.TypeConstruction;
+
+			bool callObjectConstructor = tc.HasDataArguments; // Are we responsible for instantiating an object?
+			bool weHaveObject = !callObjectConstructor;
+			HashSet<ParameterExpression> usedVariables = null; // track what variables the constructor already assigned
+
+			var bufferArg = Parameter(typeof(byte[]), "buffer");
+			var offsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
+			var valueArg = isStatic ? null : Parameter(typeof(T).MakeByRefType(), "value"); // instance is null for static classes/members
+
+			var body = new List<Expression>();
+			var locals = new List<ParameterExpression>(schema.Members.Count);
+
+
+			// BlockSize, OffsetStart (locals to store size of data)
+			ParameterExpression blockSize = null, offsetStart = null;
+			if (isSchemaFormatter)
+			{
+				locals.Add(blockSize = Variable(typeof(int), "blockSize"));
+				locals.Add(offsetStart = Variable(typeof(int), "offsetStart"));
+			}
+
+			// Create local variable for each MemberInfo
+			var memberInfoToLocal = new Dictionary<MemberInfo, ParameterExpression>();
+			foreach (var m in members)
+			{
+				if (m.IsSkip)
+					continue;
+
+				if(!UseLocal(m.MemberInfo))
+					continue;
+
+				var local = Variable(m.MemberType, "local_" + m.MemberName);
+				locals.Add(local);
+				memberInfoToLocal.Add(m.MemberInfo, local);
+			}
+
+			// Type -> Constant(IFormatter<Type>)
+			Dictionary<Type, ConstantExpression> typeToFormatter = members
+				.Where(m => !m.IsSkip).DistinctBy(m => m.MemberType)
+				.ToDictionary(m => m.MemberType, m => Constant(ceras.GetReferenceFormatter(m.MemberType)));
+
+
+			//
+			// 1. Initialize locals (if we have an object)
+			foreach (var m in members)
+			{
+				// We can't pass properties by ref to Deserialize() so:
+				// 1. localVar = obj.Prop;
+				// 2. Deserialize(buffer, offset, ref localVar);
+				// 3. obj.Prop = localVar;
+				if (m.IsSkip)
+					continue; // Member doesn't exist
+
+				if (!UseLocal(m.MemberInfo))
+					continue; // fields can be deserialized by ref
+
+				// Init the local with the current value
+				var local = memberInfoToLocal[m.MemberInfo];
+				body.Add(Assign(local, MakeMemberAccess(valueArg, m.MemberInfo)));
+			}
+
+			//
+			// 2. Deserialize into local (or field)
+			foreach (var m in members)
+			{
+				// blockSize = ReadSize();
+				if (isSchemaFormatter)
+				{
+					var readBlockSizeCall = Call(method: _sizeReadMethod, arg0: bufferArg, arg1: offsetArg);
+					body.Add(Assign(blockSize, Convert(readBlockSizeCall, typeof(int))));
+
+					if (verifySizes)
+					{
+						// Store the offset before reading the member so we can compare it later
+						body.Add(Assign(offsetStart, offsetArg));
+					}
+
+					if (m.IsSkip)
+					{
+						// Skip over the field
+						// offset += blockSize;
+						body.Add(AddAssign(offsetArg, blockSize));
+						continue;
+					}
+				}
+
+				if (m.IsSkip && !isSchemaFormatter)
+					throw new InvalidOperationException("DynamicFormatter can not skip members in non-schema mode");
+
+				// Where do we serialize into?
+				var target = UseLocal(m.MemberInfo)
+					? (Expression)memberInfoToLocal[m.MemberInfo] // Local
+					: MakeMemberAccess(valueArg, m.MemberInfo);   // value.Field
+
+				// _formatter.Deserialize(...)
+				var deserializeCall = EmitFormatterCall(typeToFormatter[m.MemberType],
+					bufferArg, offsetArg,
+					m, target,
+					false, ceras.Config.Experimental.InlineCalls);
+
+				body.Add(deserializeCall);
+
+
+				// Compare blockSize with how much we've actually read
+				if (isSchemaFormatter && verifySizes)
+				{
+					// if ( offsetStart + blockSize != offset )
+					//     ThrowException();
+
+					body.Add(IfThen(test: NotEqual(Add(offsetStart, blockSize), offsetArg),
+									ifTrue: Call(instance: null, _offsetMismatchMethod, offsetStart, offsetArg, blockSize)));
+				}
+			}
+
+			//
+			// 3. Create object instance
+			if (callObjectConstructor)
+			{
+				// Create a helper array for the implementing type construction
+				var memberParameters = (
+						from m in schema.Members
+						where !m.IsSkip
+						let local = memberInfoToLocal[m.MemberInfo]
+						select new MemberParameterPair { LocalVar = local, Member = m.MemberInfo }
+				).ToArray();
+
+				usedVariables = new HashSet<ParameterExpression>();
+				tc.EmitConstruction(schema, body, valueArg, usedVariables, memberParameters);
+			}
+
+			//
+			// 4. Assign members (from locals)
+			var orderedMembers = OrderMembersForWriteBack(members);
+			foreach (var m in orderedMembers)
+			{
+				if (m.IsSkip)
+					continue;
+
+				if (!UseLocal(m.MemberInfo))
+					continue; // Field was already deserialized directly
+
+				var local = memberInfoToLocal[m.MemberInfo];
+
+				if (usedVariables != null && usedVariables.Contains(local))
+					continue; // Member was already used in the constructor
+
+				if (m.MemberInfo is FieldInfo fieldInfo)
+				{
+					if (fieldInfo.IsInitOnly)
+					{
+						// Readonly field
+						var memberConfig = typeConfig.Members.First(x => x.Member == m.MemberInfo);
+						var rh = memberConfig.ComputeReadonlyHandling();
+						DynamicFormatterHelpers.EmitReadonlyWriteBack(m.MemberType, rh, fieldInfo, valueArg, local, body);
+					}
+					else
+					{
+						// Normal assignment
+						body.Add(Assign(left: Field(valueArg, fieldInfo),
+										right: local));
+					}
+				}
+				else
+				{
+					// Context
+					var p = (PropertyInfo)m.MemberInfo;
+
+					var setMethod = p.GetSetMethod(true);
+					body.Add(Call(instance: valueArg, setMethod, local));
+				}
+			}
+
+			//
+			// 5. Call "OnAfterDeserialize()"
+			EmitOnAfterDeserialize(body, schema, valueArg);
+
+
+
+			var bodyBlock = Block(variables: locals, expressions: body);
+
+			if (isStatic)
+				valueArg = Parameter(typeof(T).MakeByRefType(), "value");
+
+			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, offsetArg, valueArg);
+
+			bool UseLocal(MemberInfo memberInfo)
+			{
+				if (callObjectConstructor)
+					return true;
+				if (memberInfo is PropertyInfo)
+					return true;
+				if (memberInfo is FieldInfo field && field.IsInitOnly)
+					return true;
+				return false;
+			}
 		}
 
 		static List<SchemaMember> MergeBlittableSerializeCalls(
 			List<SchemaMember> members, Dictionary<Type, ConstantExpression> typeToFormatter,
 			List<Expression> body,
-			ParameterExpression refBufferArg, ParameterExpression refOffsetArg, ParameterExpression valueArg,
-			bool isSerialize)
+			ParameterExpression bufferArg, ParameterExpression offsetArg, ParameterExpression valueArg)
 		{
 			List<SchemaMember> mergeBlitMembers = new List<SchemaMember>();
 
@@ -207,8 +413,6 @@ namespace Ceras.Formatters
 
 				bool isValidReplacement = false;
 				if (typeof(IIsReinterpretFormatter).IsAssignableFrom(formatter.GetType()))
-					isValidReplacement = true;
-				if (formatter.GetType().IsGenericType && formatter.GetType().GetGenericTypeDefinition() == typeof(ReinterpretFormatter<>))
 					isValidReplacement = true;
 
 				if (!isValidReplacement)
@@ -228,17 +432,14 @@ namespace Ceras.Formatters
 
 			//
 			// 1. EnsureCapacity with summed blit-size
-			if(isSerialize)
-				body.Add(Call(ensureCapacityMethod, refBufferArg, refOffsetArg, totalSizeConst));
+			body.Add(Call(ensureCapacityMethod, bufferArg, offsetArg, totalSizeConst));
 
 			//
 			// 2. Write each individual member
 			int runningOffset = 0;
 			foreach (var member in mergeBlitMembers)
 			{
-				var methodName = isSerialize
-					? nameof(ReinterpretFormatter<int>.Write)
-					: nameof(ReinterpretFormatter<int>.Read);
+				var methodName = nameof(ReinterpretFormatter<int>.Write);
 
 				var writeMethod = typeof(ReinterpretFormatter<>)
 					.MakeGenericType(member.MemberType)
@@ -247,8 +448,8 @@ namespace Ceras.Formatters
 
 				body.Add(Call(
 					method: writeMethod,
-					refBufferArg,
-					Add(refOffsetArg, Constant(runningOffset)),
+					bufferArg,
+					Add(offsetArg, Constant(runningOffset)),
 					MakeMemberAccess(valueArg, member.MemberInfo)));
 
 				runningOffset += ReflectionHelper.GetSize(member.MemberType);
@@ -257,224 +458,110 @@ namespace Ceras.Formatters
 			//
 			// 3. Add the total offset
 			// offset += sizeSum;
-			body.Add(AddAssign(refOffsetArg, totalSizeConst));
+			body.Add(AddAssign(offsetArg, totalSizeConst));
 
 			return mergeBlitMembers;
 		}
 
-		internal static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)
+
+		static Expression EmitFormatterCall(
+			ConstantExpression formatterConst,
+			ParameterExpression bufferArg, ParameterExpression offsetArg,
+			SchemaMember schemaMember,
+			Expression target,
+			bool isSerialize, bool allowCallInlining)
 		{
-			bool verifySizes = isSchemaFormatter && ceras.Config.VersionTolerance.VerifySizes;
-			var members = schema.Members;
-			var typeConfig = ceras.Config.GetTypeConfig(schema.Type, isStatic);
-			var tc = typeConfig.TypeConstruction;
+			var formatter = (IFormatter)formatterConst.Value;
 
-			bool constructObject = tc.HasDataArguments; // Are we responsible for instantiating an object?
-			HashSet<ParameterExpression> usedVariables = null;
-
-			var bufferArg = Parameter(typeof(byte[]), "buffer");
-			var refOffsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
-			var refValueArg = Parameter(typeof(T).MakeByRefType(), "value");
-			if (isStatic)
-				refValueArg = null;
-
-			var body = new List<Expression>();
-			var locals = new List<ParameterExpression>(schema.Members.Count);
-
-			var onAfterDeserialize = GetOnAfterDeserialize(schema.Type);
-
-			ParameterExpression blockSize = null, offsetStart = null;
-			if (isSchemaFormatter)
+			if (allowCallInlining)
 			{
-				locals.Add(blockSize = Variable(typeof(int), "blockSize"));
-				locals.Add(offsetStart = Variable(typeof(int), "offsetStart"));
-			}
-
-
-			// MemberInfo -> Variable()
-			Dictionary<MemberInfo, ParameterExpression> memberInfoToLocal = new Dictionary<MemberInfo, ParameterExpression>();
-			foreach (var m in members)
-			{
-				if (m.IsSkip)
-					continue;
-
-				var local = Variable(m.MemberType, m.MemberName + "_local");
-				locals.Add(local);
-				memberInfoToLocal.Add(m.MemberInfo, local);
-			}
-
-			// Type -> Constant(IFormatter<Type>)
-			Dictionary<Type, ConstantExpression> typeToFormatter = new Dictionary<Type, ConstantExpression>();
-			foreach (var m in members.Where(m => !m.IsSkip).DistinctBy(m => m.MemberType))
-				typeToFormatter.Add(m.MemberType, Constant(ceras.GetReferenceFormatter(m.MemberType)));
-
-
-			//
-			// 1. Read existing values into locals (Why? See explanation at the end of the file)
-			foreach (var m in members)
-			{
-				if (constructObject)
-					continue; // Can't read existing data when there is no object yet...
-
-				if (m.IsSkip)
-					continue; // Member doesn't exist
-
-				// Init the local with the current value
-				var local = memberInfoToLocal[m.MemberInfo];
-				body.Add(Assign(local, MakeMemberAccess(refValueArg, m.MemberInfo)));
-			}
-
-			//
-			// 2. Deserialize into local (faster and more robust than field/prop directly)
-
-			// Merge Blitting Step
-			List<SchemaMember> blittedMembers = null;
-			if (!isSchemaFormatter && ceras.Config.Advanced.MergeBlittableCalls)
-				blittedMembers = MergeBlittableSerializeCalls(members, typeToFormatter, body, bufferArg, refOffsetArg, refValueArg, false);
-
-			// Normal deserialization
-			foreach (var m in members)
-			{
-				if (isSchemaFormatter)
+				// Try inlining interface
+				if (formatter is ICallInliner callInliner)
 				{
-					// Read block size
-					// blockSize = ReadSize();
-					var readCall = Call(method: _sizeReadMethod, arg0: bufferArg, arg1: refOffsetArg);
-					body.Add(Assign(blockSize, Convert(readCall, typeof(int))));
-
-					if (verifySizes)
-					{
-						// Store the offset before reading the member so we can compare it later
-						body.Add(Assign(offsetStart, refOffsetArg));
-					}
-
-
-					if (m.IsSkip)
-					{
-						// Skip over the field
-						// offset += blockSize;
-						body.Add(AddAssign(refOffsetArg, blockSize));
-						continue;
-					}
+					if (isSerialize)
+						return callInliner.EmitSerialize(bufferArg, offsetArg, target);
+					else
+						return callInliner.EmitDeserialize(bufferArg, offsetArg, target);
 				}
 
-				if (m.IsSkip && !isSchemaFormatter)
-					throw new InvalidOperationException("DynamicFormatter can not skip members in non-schema mode");
-
-				if(blittedMembers != null)
-					if(blittedMembers.Contains(m))
-						continue; // already written
-
-
-				var formatterExp = typeToFormatter[m.MemberType];
-				var formatter = formatterExp.Value;
-				var deserializeMethod = formatter.GetType().ResolveDeserializeMethod(m.MemberType);
-
-				var local = memberInfoToLocal[m.MemberInfo];
-				body.Add(Call(formatterExp, deserializeMethod, bufferArg, refOffsetArg, local));
-
-				if (isSchemaFormatter && verifySizes)
+				// Try inlining blittable
+				if (formatter is IIsReinterpretFormatter)
 				{
-					// Compare blockSize with how much we've actually read
-					// if ( offsetStart + blockSize != offset )
-					//     ThrowException();
+					var methodName = isSerialize
+						? nameof(ReinterpretFormatter<int>.Write)
+						: nameof(ReinterpretFormatter<int>.Read);
 
-					body.Add(IfThen(test: NotEqual(Add(offsetStart, blockSize), refOffsetArg),
-									ifTrue: Call(instance: null, _offsetMismatchMethod, offsetStart, refOffsetArg, blockSize)));
-				}
-			}
+					var method = typeof(ReinterpretFormatter<>)
+						.MakeGenericType(schemaMember.MemberType)
+						.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+						.First(m => m.Name == methodName);
 
-			//
-			// 3. Create object instance (only when actually needed)
-			if (constructObject)
-			{
-				// Create a helper array for the implementing type construction
-				var memberParameters = (
-						from m in schema.Members
-						where !m.IsSkip
-						let local = memberInfoToLocal[m.MemberInfo]
-						select new MemberParameterPair { LocalVar = local, Member = m.MemberInfo }
-				).ToArray();
+					var size = ReflectionHelper.GetSize(schemaMember.MemberType);
 
-				usedVariables = new HashSet<ParameterExpression>();
-				tc.EmitConstruction(schema, body, refValueArg, usedVariables, memberParameters);
-			}
-
-			//
-			// 4. Write back values in one batch
-			var orderedMembers = OrderMembersForWriteBack(members);
-			foreach (var m in orderedMembers)
-			{
-				if (m.IsSkip)
-					continue;
-
-				var local = memberInfoToLocal[m.MemberInfo];
-				var type = m.MemberType;
-
-				if (usedVariables != null && usedVariables.Contains(local))
-					// Member was already used in the constructor / factory method, no need to write it again
-					continue;
-
-				if (m.IsSkip)
-					continue;
-
-				if (m.MemberInfo is FieldInfo fieldInfo)
-				{
-					if (fieldInfo.IsInitOnly)
+					if (isSerialize)
 					{
-						// Readonly field
-						var memberConfig = typeConfig.Members.First(x => x.Member == m.MemberInfo);
-						var rh = memberConfig.ComputeReadonlyHandling();
-						DynamicFormatterHelpers.EmitReadonlyWriteBack(type, rh, fieldInfo, refValueArg, local, body);
+						return Block(
+							// EnsureCapacity()
+							Call(ensureCapacityMethod, bufferArg, offsetArg, Constant(size)),
+							// ReinterpretFormatter<T>.Write()
+							Call(method, bufferArg, offsetArg, target),
+							// offset += sizeof(T)
+							AddAssign(offsetArg, Constant(size))
+							);
 					}
 					else
 					{
-						// Normal assignment
-						body.Add(Assign(left: Field(refValueArg, fieldInfo),
-										right: local));
+						return Block(
+							// ReinterpretFormatter<T>.Read()
+							Call(method, bufferArg, offsetArg, target),
+							// offset += sizeof(T)
+							AddAssign(offsetArg, Constant(size))
+							);
 					}
-				}
-				else
-				{
-					// Context
-					var p = (PropertyInfo)m.MemberInfo;
 
-					var setMethod = p.GetSetMethod(true);
-					body.Add(Call(instance: refValueArg, setMethod, local));
+
 				}
 			}
 
+			//
+			// Normal call
+			//
+			var formatterMethod = isSerialize
+				? formatter.GetType().ResolveSerializeMethod(schemaMember.MemberType)
+				: formatter.GetType().ResolveDeserializeMethod(schemaMember.MemberType);
 
-			// Call "OnAfterDeserialize"
-			if (onAfterDeserialize != null)
-				body.Add(Call(refValueArg, onAfterDeserialize));
-
-
-			var bodyBlock = Block(variables: locals, expressions: body);
-
-
-			if (isStatic)
-				refValueArg = Parameter(typeof(T).MakeByRefType(), "value");
-
-			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, refOffsetArg, refValueArg);
+			return Call(
+				instance: formatterConst,
+				method: formatterMethod,
+				bufferArg, offsetArg, target);
 		}
 
 
-		static MethodInfo GetOnAfterDeserialize(Type type)
+		static void EmitOnAfterDeserialize(List<Expression> body, Schema schema, Expression valueArg)
 		{
+			var type = schema.Type;
 			var allMethods = type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+			MethodInfo method = null;
 
 			foreach (var m in allMethods)
 			{
-				if (m.ReturnType == typeof(void)
-					&& m.GetParameters().Length == 0
-					&& m.GetCustomAttribute<OnAfterDeserializeAttribute>() != null)
+				if (m.GetCustomAttribute<OnAfterDeserializeAttribute>() != null)
 				{
-					return m;
+					if (m.ReturnType != typeof(void) || m.GetParameters().Length > 0)
+						throw new InvalidOperationException($"Method '{m.Name}' is marked as '{nameof(OnAfterDeserializeAttribute)}', but doesn't return void or has parameters");
+
+					if (method == null)
+						method = m;
+					else
+						throw new InvalidOperationException($"Your type '{type.FriendlyName(false)}' has more than one method with the '{nameof(OnAfterDeserializeAttribute)}' attribute. Two methods found: '{m.Name}' and '{method.Name}'");
 				}
 			}
 
-			return null;
+			if (method != null)
+			{
+				body.Add(Call(valueArg, method));
+			}
 		}
 
 		static IEnumerable<SchemaMember> OrderMembersForWriteBack(List<SchemaMember> members)

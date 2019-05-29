@@ -5,7 +5,7 @@
 	using System.Collections.Generic;
 
 	/// <summary>
-	/// A really really boring resolver that produces formatters for all the "primitives" like bool, int, float, double, ... 
+	/// A really boring resolver that produces formatters for all the "primitives" like bool, int, float, double, ... 
 	/// </summary>
 	public sealed class PrimitiveResolver : IFormatterResolver
 	{
@@ -18,14 +18,14 @@
 
 			[typeof(char)] = new CharFormatter(),
 
-			[typeof(Int16)] = new Int16FixedFormatter(),
-			[typeof(UInt16)] = new UInt16FixedFormatter(),
+			[typeof(short)] = new Int16FixedFormatter(),
+			[typeof(ushort)] = new UInt16FixedFormatter(),
 
-			[typeof(Int32)] = new Int32Formatter(),
-			[typeof(UInt32)] = new UInt32Formatter(),
+			[typeof(int)] = new Int32FixedFormatter(),
+			[typeof(uint)] = new UInt32FixedFormatter(),
 
-			[typeof(Int64)] = new Int64Formatter(),
-			[typeof(UInt64)] = new UInt64Formatter(),
+			[typeof(long)] = new Int64FixedFormatter(),
+			[typeof(ulong)] = new UInt64FixedFormatter(),
 
 			[typeof(float)] = new FloatFormatter(),
 			[typeof(double)] = new DoubleFormatter(),

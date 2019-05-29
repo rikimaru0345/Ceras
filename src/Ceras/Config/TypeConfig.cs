@@ -17,11 +17,8 @@
 	// todo: exception: "your Type ... has no default ctor; you can activate an automatic fallback to 'GetUninitializedObject' if you want"
 	// todo: allow the worst case scenario (self ref with ctor) by using GetUninitializedObject, then reading and assigning, and then running the ctor after that!
 	// todo: "You have a configuration error on type 'bla': You selected 'mode' to create new objects, but the formatter used by ceras to handle this type is not 'DynamicFormatter' which is required for this mode to work. If this formatter is a custom (user-provided) formatter then you probably want to set the construction mode to either 'Null' so Ceras does not create an object and the formatter can handle it; or you can set it to 'Normal' so Ceras creates a new object instance using 'new()'. Generally: passing any arguments to functions can only work with the DynamicFormatter."
-	// todo: Compile some sort of 'EnsureInstance()' method that we can call for each specific type and can use directly in the ref-formatter-dispatcher.
-	// todo: when deferring to the dynamic object formatter, everything has to be done there: checking if an instance already exists, if it's the right type, and possibly discard it using the discard method
 
 	// Extra Features:
-	// todo: Methods for: BeforeReadingMember, BeforeWritingMember, AfterReadingMember, ... BeforeReadingObject, AfterReadingObject, ...
 	// todo: DiscardObject method
 	// todo: CustomSchema (with a method to obtain a default schema given some settings)
 	// todo: If we create something from uninitialized; do we give an option to run some specific ctor? Do we write some props/fields again after calling the ctor??
@@ -206,13 +203,28 @@
 			return true;
 		}
 
+		
 
 		internal void Seal()
 		{
+			if(_isSealed)
+				return;
+
+			VerifyAll();
+
 			_isSealed = true;
 		}
 
-		internal void VerifyConstructionMethod()
+		void VerifyAll()
+		{
+			VerifyConstructionMethod();
+
+			foreach(var member in Members)
+				if(member.ComputeFinalInclusionFast())
+					VerifyName(member.PersistentName);
+		}
+
+		void VerifyConstructionMethod()
 		{
 			if (TypeConstruction == null)
 				throw new CerasException($"You have not configured a construction mode for the type '{Type.FullName}' and it has no parameterless constructor. There are many ways Ceras can handle this, select one of the methods in the TypeConfig ('config.ConfigType<YourType>().ConstructBy(...)')");
@@ -220,7 +232,20 @@
 			TypeConstruction.VerifyReturnType();
 			TypeConstruction.VerifyParameterMapping();
 		}
+		
+		static void VerifyName(string name)
+		{
+			if (string.IsNullOrWhiteSpace(name))
+				throw new Exception("Member name can not be null/empty");
+			if (char.IsNumber(name[0]) || char.IsControl(name[0]))
+				throw new Exception("Name must start with a letter");
 
+			const string allowedChars = "_";
+
+			for (int i = 1; i < name.Length; i++)
+				if (!char.IsLetterOrDigit(name[i]) && !allowedChars.Contains(name[i]))
+					throw new Exception($"The name '{name}' has character '{name[i]}' at index '{i}', which is not allowed. Must be a letter or digit.");
+		}
 
 		internal void ThrowIfSealed()
 		{
@@ -656,7 +681,7 @@
 		public override string ToString() => $"{TypeConfig.Type.FriendlyName()}.{Member.Name} ({(ComputeFinalInclusionFast() ? "Included" : "Excluded")})";
 	}
 
-	public struct InclusionExclusionResult
+	public readonly struct InclusionExclusionResult
 	{
 		public readonly bool IsIncluded;
 		public readonly string Reason;
@@ -702,6 +727,4 @@
 			return TypeConfig;
 		}
 	}
-
-	public struct TUnknown { }
 }

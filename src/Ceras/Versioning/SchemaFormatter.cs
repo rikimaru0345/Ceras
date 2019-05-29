@@ -47,7 +47,6 @@ namespace Ceras.Helpers
 			BannedTypes.ThrowIfNonspecific(type);
 			
 			var typeConfig = _ceras.Config.GetTypeConfig(type, isStatic);
-			typeConfig.VerifyConstructionMethod();
 
 			ActivateSchema(_currentSchema);
 

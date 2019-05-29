@@ -13,7 +13,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace LiveTesting
+namespace LiveTesting.MergeBlittingTest
 {
 	using static Expression;
 
@@ -29,13 +29,29 @@ namespace LiveTesting
 		}
 	}
 
-	class NumberObject
+	class SampleObject
 	{
 		public string Text1;
 		public float Float1;
+		public int Int1;
 		public float Float2;
 		public string Text2;
+		public int Int2;
+		public string Text3;
+		public int Int3;
 	}
+
+	//class SampleObject
+	//{
+	//	public string Text1 { get; set; }
+	//	public float Float1 { get; set; }
+	//	public int Int1 { get; set; }
+	//	public float Float2 { get; set; }
+	//	public string Text2 { get; set; }
+	//	public int Int2 { get; set; }
+	//	public string Text3 { get; set; }
+	//	public int Int3 { get; set; }
+	//}
 
 	// Lessons learned:
 	// 1) passing simple values by ref makes no difference
@@ -48,21 +64,17 @@ namespace LiveTesting
 	// 2 and 3 probably mean that the compiler is bad with local variables for some reason
 
 	//
-	// Compared to the "classic" version (3x interface call to FloatFormatter):
+	// MergeBlitting and Inlining
+	// Target object is a 'struct Vector3' with 3 floats.
 	//
-	// DynamicFormatter (MergeBlitting=OFF)
-	// +35% faster
-	//
-	// DynamicFormatter (MergeBlitting=ON) but only inlining serialize calls
-	// +45% faster
+	// Baseline
+	// We comapre against a 'classic' formatter that contains an 'IFormatter<float>' field which gets called 3 times.
 	//
 	// DynamicFormatter (MergeBlitting=ON) inlining all calls
 	// +71% faster
 	//
-	// For objects the improvement is much smaller (2-5%)
-	// but then again there is no inlining yet for formatters that are not blittable StringFormatter (ref type) or IntFormatter (var int)
+	// Even for objects (SampleObject) there is still an improvement (+2-15% with props) (+4-10% with fields)
 	//
-
 	internal class MergeBlittingTest
 	{
 		static byte[] _buffer = new byte[1000];
@@ -85,46 +97,76 @@ namespace LiveTesting
 			formatter.Deserialize(_buffer, ref offset, ref cloneTarget);
 		}
 
-		internal static void Test()
+		static IFormatter<Vector3> CreateDynamicFormatterWithOptions(Action<SerializerConfig> changeConfig)
 		{
-			UnsafeAddition.Test();
-			TestWithObject();
-
-			var defaultF = new DefaultFormatter();
-
 			var config = new SerializerConfig();
 			config.ConfigType<Vector3>().CustomResolver = (c, t) => c.Advanced.GetFormatterResolver<DynamicObjectFormatterResolver>().GetFormatter(t);
 			var ceras = new CerasSerializer(config);
-			var dynamicFormatter = (DynamicFormatter<Vector3>)ceras.GetSpecificFormatter(typeof(Vector3));
+			return (DynamicFormatter<Vector3>)ceras.GetSpecificFormatter(typeof(Vector3));
+		}
 
-			var dynamicMergeBlit = new DynamicMergeBlitFormatter();
-			var dynamicMergeBlit2 = new DynamicMergeBlit2Formatter();
-			var dynamicMergeBlit3 = new DynamicMergeBlit3Formatter();
-			var mergeBlitSafe = new TestMergeBlitSafeFormatter();
-			var mergeBlit5Safe = new TestMergeBlitSafe5Formatter();
-			var mergeBlit6Safe = new TestMergeBlitSafe6Formatter();
-			var mergeBlit7Safe = new TestMergeBlitSafe7Formatter();
+		internal static void Test()
+		{
+			TestWithObject();
+
+			var defaultF = new DefaultFormatter();
+			var defaultFWithCaching = new ImprovedDefaultFormatter();
+
+			IFormatter<Vector3> dynamicNoOptimizations = CreateDynamicFormatterWithOptions(c =>
+			{
+				c.Experimental.MergeBlittableCalls = false;
+				c.Experimental.InlineCalls = false;
+			});
+
+			IFormatter<Vector3> dynamicInlineOnly = CreateDynamicFormatterWithOptions(c =>
+			{
+				c.Experimental.MergeBlittableCalls = false;
+				c.Experimental.InlineCalls = true;
+			});
+
+			IFormatter<Vector3> dynamicMergeBlit = CreateDynamicFormatterWithOptions(c =>
+			{
+				c.Experimental.MergeBlittableCalls = true;
+				c.Experimental.InlineCalls = false;
+			});
+
 			var reinterpret = new ReinterpretFormatter<Vector3>();
+
+			var manual1 = new ManualFormatter();
+			var manual5 = new Manual5Formatter();
+			var manual6 = new Manual6Formatter();
+			var manual7 = new Manual7Formatter();
+
+			var simpleDynamicMergeBlit = new DynamicMergeBlitFormatter();
+			var simpleDynamicMergeBlit2 = new DynamicMergeBlit2Formatter();
+			var simpleDynamicMergeBlit3 = new DynamicMergeBlit3Formatter();
 
 			var value = new Vector3(2325.123123f, -3524625.3424f, -0.2034324234234f);
 
-			for (int i = 0; i < 3; i++)
-				MicroBenchmark.Run(5, new BenchJob[]
+			var jobs = new BenchJob[]
 				{
 					("Default", () => DoTest(value, defaultF)),
-					("DynamicFormatter", () => DoTest(value, dynamicFormatter)),
-					("Reinterpret", () => DoTest(value, reinterpret)),
+					("Default v2", () => DoTest(value, defaultFWithCaching)), // No improvement
+					
+					("DynamicFormatter (no options)", () => DoTest(value, dynamicNoOptimizations)), // +33%
+					("DynamicFormatter (inline only)", () => DoTest(value, dynamicInlineOnly)), // +28%
+					("DynamicFormatter (merge blit)", () => DoTest(value, dynamicMergeBlit)), // +33%
 
+					("Reinterpret", () => DoTest(value, reinterpret)), // +95%
 
-					("MergeBlitSafe", () => DoTest(value, mergeBlitSafe)),
-					//("MergeBlit5Safe", () => DoTest(value, mergeBlit5Safe)),
-					//("MergeBlit6Safe", () => DoTest(value, mergeBlit6Safe)),
-					//("MergeBlit7Safe", () => DoTest(value, mergeBlit7Safe)),
+					("Manual 1", () => DoTest(value, manual1)), // +85%
+					//("Manual 5", () => DoTest(value, manual5)),
+					//("Manual 6", () => DoTest(value, manual6)),
+					//("Manual 7", () => DoTest(value, manual7)),
 
-					//("DynamicMergeBlit", () => DoTest(value, dynamicMergeBlit)),
-					//("DynamicMergeBlit2", () => DoTest(value, dynamicMergeBlit2)),
-					("DynamicMergeBlit3", () => DoTest(value, dynamicMergeBlit3)),
-				});
+					//("DynamicMergeBlit", () => DoTest(value, simpleDynamicMergeBlit)),
+					//("DynamicMergeBlit2", () => DoTest(value, simpleDynamicMergeBlit2)),
+					("DynamicMergeBlit3", () => DoTest(value, simpleDynamicMergeBlit3)), // +57%
+				};
+
+			MicroBenchmark.Run(5, jobs);
+			MicroBenchmark.Run(10, jobs);
+			MicroBenchmark.Run(30, jobs);
 
 			Console.WriteLine("done");
 			Console.ReadKey();
@@ -134,41 +176,63 @@ namespace LiveTesting
 		{
 			var defaultF = new DefaultFormatter();
 
-			IFormatter<NumberObject> dynamic1;
-			IFormatter<NumberObject> dynamic2;
+			IFormatter<SampleObject> dynamic1;
+			IFormatter<SampleObject> dynamic2;
+			IFormatter<SampleObject> dynamic3;
 
 			{
 				var config = new SerializerConfig();
-				config.ConfigType<NumberObject>().CustomResolver = (c, t) => c.Advanced.GetFormatterResolver<DynamicObjectFormatterResolver>().GetFormatter(t);
-				config.Advanced.MergeBlittableCalls = false;
+				config.ConfigType<SampleObject>().CustomResolver = (c, t) => c.Advanced.GetFormatterResolver<DynamicObjectFormatterResolver>().GetFormatter(t);
+				config.Experimental.MergeBlittableCalls = false;
+				config.Experimental.InlineCalls = false;
 				var ceras = new CerasSerializer(config);
-				dynamic1 = (DynamicFormatter<NumberObject>)ceras.GetSpecificFormatter(typeof(NumberObject));
+				dynamic1 = (DynamicFormatter<SampleObject>)ceras.GetSpecificFormatter(typeof(SampleObject));
 			}
 
 			{
 				var config = new SerializerConfig();
-				config.ConfigType<NumberObject>().CustomResolver = (c, t) => c.Advanced.GetFormatterResolver<DynamicObjectFormatterResolver>().GetFormatter(t);
-				config.Advanced.MergeBlittableCalls = true;
+				config.ConfigType<SampleObject>().CustomResolver = (c, t) => c.Advanced.GetFormatterResolver<DynamicObjectFormatterResolver>().GetFormatter(t);
+				config.Experimental.MergeBlittableCalls = true;
+				config.Experimental.InlineCalls = false;
 				var ceras = new CerasSerializer(config);
-				dynamic2 = (DynamicFormatter<NumberObject>)ceras.GetSpecificFormatter(typeof(NumberObject));
+				dynamic2 = (DynamicFormatter<SampleObject>)ceras.GetSpecificFormatter(typeof(SampleObject));
 			}
 
-			var value = new NumberObject
+			{
+				var config = new SerializerConfig();
+				config.ConfigType<SampleObject>().CustomResolver = (c, t) => c.Advanced.GetFormatterResolver<DynamicObjectFormatterResolver>().GetFormatter(t);
+				config.Experimental.MergeBlittableCalls = true;
+				config.Experimental.InlineCalls = true;
+				var ceras = new CerasSerializer(config);
+				dynamic3 = (DynamicFormatter<SampleObject>)ceras.GetSpecificFormatter(typeof(SampleObject));
+			}
+
+			var value = new SampleObject
 			{
 				Text1 = "abc",
 				Float1 = -12345667,
 				Float2 = 0.23452525f,
 				Text2 = "xyz",
+				Text3 = "asdasdasd",
+				Int1 = 52221,
+				Int2 = -2_013_677_673,
+				Int3 = 1,
 			};
 
-			var clonedObject = new NumberObject();
+			var clonedObject = new SampleObject();
 
-			for (int i = 0; i < 5; i++)
-				MicroBenchmark.Run(20, new BenchJob[]
+			var jobs = new BenchJob[]
 				{
-					("Object MergeBlit=OFF", () => DoTest(value, dynamic1, ref clonedObject)),
-					("Object MergeBlit=ON ", () => DoTest(value, dynamic2, ref clonedObject)),
-				});
+					("DynamicFormatter (no merge, no inline)",          () => DoTest(value, dynamic1, ref clonedObject)),
+					("DynamicFormatter (MergeBlit)",                    () => DoTest(value, dynamic2, ref clonedObject)),
+					("DynamicFormatter (MergeBlit, InlineCalls)",       () => DoTest(value, dynamic3, ref clonedObject)),
+				};
+			
+			MicroBenchmark.Run(5, jobs);
+			MicroBenchmark.Run(10, jobs);
+			MicroBenchmark.Run(30, jobs);
+			MicroBenchmark.Run(30, jobs);
+			MicroBenchmark.Run(30, jobs);
 
 			Console.WriteLine("done");
 			Console.ReadKey();
@@ -997,6 +1061,8 @@ namespace LiveTesting
 		#endregion
 	}
 
+	// Result:
+	// - interface call to struct is way slower (+30%)
 	internal class ClassInterfaceVsStructInterface
 	{
 		static byte[] _buffer = new byte[1000];
@@ -1027,54 +1093,45 @@ namespace LiveTesting
 			Console.WriteLine("done");
 			Console.ReadKey();
 		}
-	}
 
-	struct Int32Formatter_Struct : IFormatter<int>
-	{
-		public void Serialize(ref byte[] buffer, ref int offset, int value)
+
+
+		struct FloatFormatter_Struct : IFormatter<float>
 		{
-			SerializerBinary.WriteInt32(ref buffer, ref offset, value);
+			public void Serialize(ref byte[] buffer, ref int offset, float value)
+			{
+				SerializerBinary.WriteFloat32Fixed(ref buffer, ref offset, value);
+			}
+
+			public void Deserialize(byte[] buffer, ref int offset, ref float value)
+			{
+				value = SerializerBinary.ReadFloat32Fixed(buffer, ref offset);
+			}
 		}
 
-		public void Deserialize(byte[] buffer, ref int offset, ref int value)
+		class DefaultFormatter_Struct : IFormatter<Vector3>
 		{
-			value = SerializerBinary.ReadInt32(buffer, ref offset);
-		}
-	}
+			IFormatter<float> _floatFormatter = new FloatFormatter_Struct();
 
-	struct FloatFormatter_Struct : IFormatter<float>
-	{
-		public void Serialize(ref byte[] buffer, ref int offset, float value)
-		{
-			SerializerBinary.WriteFloat32Fixed(ref buffer, ref offset, value);
-		}
+			public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+			{
+				_floatFormatter.Serialize(ref buffer, ref offset, value.X);
+				_floatFormatter.Serialize(ref buffer, ref offset, value.Y);
+				_floatFormatter.Serialize(ref buffer, ref offset, value.Z);
+			}
 
-		public void Deserialize(byte[] buffer, ref int offset, ref float value)
-		{
-			value = SerializerBinary.ReadFloat32Fixed(buffer, ref offset);
-		}
-	}
-
-	class DefaultFormatter_Struct : IFormatter<Vector3>
-	{
-		IFormatter<float> _floatFormatter = new FloatFormatter_Struct();
-
-		public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
-		{
-			_floatFormatter.Serialize(ref buffer, ref offset, value.X);
-			_floatFormatter.Serialize(ref buffer, ref offset, value.Y);
-			_floatFormatter.Serialize(ref buffer, ref offset, value.Z);
+			public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value)
+			{
+				_floatFormatter.Deserialize(buffer, ref offset, ref value.X);
+				_floatFormatter.Deserialize(buffer, ref offset, ref value.Y);
+				_floatFormatter.Deserialize(buffer, ref offset, ref value.Z);
+			}
 		}
 
-		public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value)
-		{
-			_floatFormatter.Deserialize(buffer, ref offset, ref value.X);
-			_floatFormatter.Deserialize(buffer, ref offset, ref value.Y);
-			_floatFormatter.Deserialize(buffer, ref offset, ref value.Z);
-		}
 	}
 
 
+	// 3x IFormatter<float>
 	class DefaultFormatter : IFormatter<Vector3>
 	{
 		IFormatter<float> _floatFormatter = new FloatFormatter();
@@ -1094,9 +1151,35 @@ namespace LiveTesting
 		}
 	}
 
+	// Cache formatter field in local
+	// >>> No difference
+	class ImprovedDefaultFormatter : IFormatter<Vector3>
+	{
+		IFormatter<float> _floatFormatter = new FloatFormatter();
+
+		public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+		{
+			var f = _floatFormatter;
+
+			f.Serialize(ref buffer, ref offset, value.X);
+			f.Serialize(ref buffer, ref offset, value.Y);
+			f.Serialize(ref buffer, ref offset, value.Z);
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value)
+		{
+			var f = _floatFormatter;
+
+			f.Deserialize(buffer, ref offset, ref value.X);
+			f.Deserialize(buffer, ref offset, ref value.Y);
+			f.Deserialize(buffer, ref offset, ref value.Z);
+		}
+	}
+
+
 	// ref float p = ref Unsafe.As<byte, float>(ref buffer[offset]);
 	// p = ref Unsafe.Add(ref p, 1);
-	class TestMergeBlitSafeFormatter : IFormatter<Vector3>
+	class ManualFormatter : IFormatter<Vector3>
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
 		{
@@ -1131,7 +1214,7 @@ namespace LiveTesting
 	}
 
 	// ReinterpretFormatter<float>.Write() (best)
-	class TestMergeBlitSafe5Formatter : IFormatter<Vector3>
+	class Manual5Formatter : IFormatter<Vector3>
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
 		{
@@ -1155,7 +1238,7 @@ namespace LiveTesting
 	}
 
 	// ReinterpretFormatter<float>.Write() (caching 'offset', no difference)
-	class TestMergeBlitSafe6Formatter : IFormatter<Vector3>
+	class Manual6Formatter : IFormatter<Vector3>
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
 		{
@@ -1181,7 +1264,7 @@ namespace LiveTesting
 	}
 
 	// Caching 'offset' and increasing it locally: WORSE
-	class TestMergeBlitSafe7Formatter : IFormatter<Vector3>
+	class Manual7Formatter : IFormatter<Vector3>
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
 		{
@@ -1209,6 +1292,7 @@ namespace LiveTesting
 			offset += 3 * 4;
 		}
 	}
+
 
 	// SerializeInner( value )
 	class DynamicMergeBlitFormatter : IFormatter<Vector3>

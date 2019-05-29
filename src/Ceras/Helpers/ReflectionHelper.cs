@@ -10,8 +10,29 @@
 
 	static class ReflectionHelper
 	{
-		static readonly Dictionary<Type, int> _typeToBlittableSize = new Dictionary<Type, int>();
+		internal static readonly Func<object> _nullResultDelegate = () => null;
 		static readonly Dictionary<Type, int> _typeToUnsafeSize = new Dictionary<Type, int>();
+		
+
+		static ReflectionHelper()
+		{
+			_typeToUnsafeSize[typeof(Byte)] = 1;
+			_typeToUnsafeSize[typeof(SByte)] = 1;
+			_typeToUnsafeSize[typeof(Boolean)] = 1;
+			
+			_typeToUnsafeSize[typeof(Int16)] = 2;
+			_typeToUnsafeSize[typeof(UInt16)] = 2;
+			_typeToUnsafeSize[typeof(Char)] = 2;
+			
+			_typeToUnsafeSize[typeof(Int32)] = 4;
+			_typeToUnsafeSize[typeof(UInt32)] = 4;
+			_typeToUnsafeSize[typeof(Single)] = 4;
+			
+			_typeToUnsafeSize[typeof(Int64)] = 8;
+			_typeToUnsafeSize[typeof(UInt64)] = 8;
+			_typeToUnsafeSize[typeof(Double)] = 8;
+		}
+
 
 		public static Type FindClosedType(Type type, Type openGeneric)
 		{
@@ -194,6 +215,9 @@
 
 		public static int GetSize(Type type)
 		{
+			if(!type.IsValueType)
+				throw new InvalidOperationException($"Cannot get size of type '{type.FriendlyName()}'");
+
 			lock (_typeToUnsafeSize)
 			{
 				if (_typeToUnsafeSize.TryGetValue(type, out int size))
@@ -489,5 +513,15 @@
 				return fullName ? type.FullName : type.Name;
 			}
 		}
+	}
+	
+	// This is here so we are able to get specific internal framework types.
+	// Such as "System.RtFieldInfo" or "System.RuntimeTypeInfo", ...
+	static class MemberHelper
+	{
+		// Helper members
+		internal static byte _field;
+		internal static byte _prop { get; set; }
+		internal static void _method() { }
 	}
 }

@@ -12,7 +12,7 @@ namespace Ceras.Formatters
 	/// Extremely fast formatter that can be used with all unmanaged types. For example DateTime, int, Vector3, Point, ...
 	/// <para>This formatter always uses native endianness!</para>
 	/// </summary>
-	public sealed unsafe class ReinterpretFormatter<T> : IFormatter<T>, IInlineEmitter where T : unmanaged
+	public sealed unsafe class ReinterpretFormatter<T> : IFormatter<T>, IIsReinterpretFormatter where T : unmanaged
 	{
 		public ReinterpretFormatter()
 		{
@@ -36,34 +36,16 @@ namespace Ceras.Formatters
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		internal static void Write(byte[] buffer, int offset, ref T value) => Unsafe.As<byte, T>(ref buffer[offset]) = value;
+		internal static void Write(byte[] buffer, int offset, ref T value)
+		{
+			Unsafe.As<byte, T>(ref buffer[offset]) = value;
+		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		internal static void Read(byte[] buffer, int offset, out T value) => value = Unsafe.As<byte, T>(ref buffer[offset]);
-
-
-		Expression IInlineEmitter.EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize)
+		internal static void Read(byte[] buffer, int offset, out T value)
 		{
-			//var call = Expression.Call(method: _writeMethod,
-			//						   arg0: bufferExp,
-			//						   arg1: offsetExp,
-			//						   arg2: valueExp);
-
-			writtenSize = Unsafe.SizeOf<T>();
-			return null;
+			value = Unsafe.As<byte, T>(ref buffer[offset]);
 		}
-
-		Expression IInlineEmitter.EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize)
-		{
-			//var call = Expression.Call(method: _readMethod,
-			//						   arg0: bufferExp,
-			//						   arg1: offsetExp,
-			//						   arg2: valueExp);
-
-			readSize = Unsafe.SizeOf<T>();
-			return null;
-		}
-
 
 		internal static void ThrowIfNotSupported()
 		{
@@ -75,7 +57,6 @@ namespace Ceras.Formatters
 			if (!BitConverter.IsLittleEndian)
 				throw new Exception("ReinterpretFormatter requires little endian environment. Please turn off " + nameof(SerializerConfig.Advanced.UseReinterpretFormatter));
 		}
-
 	}
 
 	/// <summary>
@@ -386,15 +367,4 @@ namespace Ceras.Formatters
 	}
 
 	*/
-
-
-	//
-	// Some formatters don't have any "state" and are just wrappers around functions.
-	// For those, the DynamicFormatter could just use the methods directly instead of going through a useless interface-dispatch
-	interface IInlineEmitter
-	{
-		Expression EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize);
-
-		Expression EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize);
-	}
 }

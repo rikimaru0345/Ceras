@@ -34,6 +34,17 @@
 			return id;
 		}
 
+		internal bool GetObjectIdOrRegister<T>(T value, out int id) where T : class
+		{
+			if(_serializationCache.TryGetValue(value, out id))
+				return true;
+
+			id = _serializationCache.Count;
+			_serializationCache.Add(value, id);
+			return false;
+		}
+
+
 
 		// Deserialization:
 		// When encountering a new object

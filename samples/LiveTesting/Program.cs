@@ -33,7 +33,7 @@ namespace LiveTesting
 		{
 			// Benchmarks();
 
-			MergeBlittingTest.Test();
+			MergeBlittingTest.MergeBlittingTest.Test();
 
 			ConvertDynamicFormatterToString();
 
@@ -238,7 +238,7 @@ namespace LiveTesting
 				{  new KeyValuePair<decimal, bool>(decimal.MaxValue, true), new KeyValuePair<decimal, bool>(decimal.MaxValue, true), },
 			};
 			var elementType = ar.GetType().GetElementType();
-			var elementSize = ReflectionHelper.UnsafeGetSize(elementType);
+			var elementSize = ReflectionHelper.GetSize(elementType);
 			var byteCount = elementSize * ar.Length;
 			var buffer = new byte[byteCount];
 
@@ -260,7 +260,7 @@ namespace LiveTesting
 				{  new KeyValuePair<decimal, bool>(1, true), new KeyValuePair<decimal, bool>(2, true), new KeyValuePair<decimal, bool>(3, true), },
 			};
 			var elementType = ar.GetType().GetElementType();
-			var elementSize = ReflectionHelper.UnsafeGetSize(elementType);
+			var elementSize = ReflectionHelper.GetSize(elementType);
 			var byteCount = elementSize * ar.Length;
 			var buffer = new byte[byteCount];
 
@@ -273,9 +273,9 @@ namespace LiveTesting
 			Unsafe.CopyBlock(ref targetBytes[0, 0], ref buffer[0], (uint)byteCount);
 
 			// Need to keep padding in mind
-			var sizeDecimal = ReflectionHelper.UnsafeGetSize(typeof(decimal)); // 16
-			var sizeBool = ReflectionHelper.UnsafeGetSize(typeof(bool)); // 1
-			var sizeKeyValuePair = ReflectionHelper.UnsafeGetSize(typeof(KeyValuePair<decimal, bool>)); // 20
+			var sizeDecimal = ReflectionHelper.GetSize(typeof(decimal)); // 16
+			var sizeBool = ReflectionHelper.GetSize(typeof(bool)); // 1
+			var sizeKeyValuePair = ReflectionHelper.GetSize(typeof(KeyValuePair<decimal, bool>)); // 20
 		}
 
 
@@ -1494,7 +1494,7 @@ namespace LiveTesting
 		// B got removed
 		// --
 
-		[PreviousName("C", "C2")]
+		[MemberName("C", "C2")]
 		public int C2 = 52;
 
 		// D is new

@@ -6,6 +6,7 @@
 	using System.Linq;
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
+	using System.Runtime.Serialization;
 
 	/*
 	 * A 'Schema' is really simple, all it contains is:
@@ -50,7 +51,7 @@
 		public bool IsStatic { get; }
 		public bool IsPrimary { get; }
 		public List<SchemaMember> Members { get; } = new List<SchemaMember>();
-		
+
 		public Schema(bool isPrimary, Type type, TypeConfig typeConfig, bool isStatic)
 		{
 			IsPrimary = isPrimary;
@@ -91,7 +92,7 @@
 
 		public override bool Equals(object obj)
 		{
-			if (ReferenceEquals(null, obj))
+			if (obj is null)
 				return false;
 			if (ReferenceEquals(this, obj))
 				return true;
@@ -142,28 +143,36 @@
 			return null;
 		}
 
+		// Check if this member matches the given name we're looking for
 		static bool IsMatch(MemberInfo member, string name)
 		{
-			if (member.Name == name)
-				return true;
-
-			var attrib = member.GetCustomAttribute<PreviousNameAttribute>();
+			var attrib = member.GetCustomAttribute<MemberNameAttribute>();
 			if (attrib != null)
 			{
-				if (attrib.Name == name)
+				// If an attribute is specified, we only check for what it says otherwise we
+				// wouldn't be able to handle cases where (for example) two members have swapped names
+
+				if (attrib.PersistentName == name)
 					return true;
 
-				if (attrib.AlternativeNames.Any(n => n == name))
+				if (attrib.AlternativeNames.Contains(name))
 					return true;
 			}
-
+			
+			// No attribute or no match found yet?
+			// Try member name as a last resort
+			if (member.Name == name)
+				return true;
+			
 			return false;
 		}
 	}
 
 	class SchemaMember
 	{
-		public string PersistentName { get; } // If set, this gets written as type name
+		// Always set, this is the name used identify the member
+		public string PersistentName { get; }
+
 		public MemberInfo Member { get; }
 		public int WriteBackOrder { get; } // when to write the data back to the target (uses [DataMember.Order])
 
@@ -177,7 +186,7 @@
 		{
 			if (memberInfo == null)
 				throw new ArgumentNullException(nameof(memberInfo));
-			
+
 			var declaringType = memberInfo.DeclaringType;
 			if (declaringType == null)
 				throw new Exception("declaring type is null");
@@ -187,7 +196,7 @@
 				if (!p.CanRead || !p.CanWrite)
 					throw new Exception("property must be readable and writable");
 			}
-			
+
 			PersistentName = persistentName;
 			Member = memberInfo;
 			WriteBackOrder = writeBackOrder;
@@ -209,52 +218,6 @@
 				str = "[SKIP] " + str;
 
 			return str;
-		}
-	}
-
-	class SchemaComplex
-	{
-		readonly List<Schema> _schemata;
-		readonly int _hash;
-
-		public SchemaComplex(List<Schema> schemata)
-		{
-			_schemata = schemata;
-			_hash = CalculateHash();
-		}
-
-		int CalculateHash()
-		{
-			int hash = 17;
-
-			for (int i = 0; i < _schemata.Count; i++)
-				hash = hash * 31 + _schemata[i].GetHashCode();
-
-			return hash;
-		}
-
-		public override int GetHashCode()
-		{
-			return _hash;
-		}
-
-		public override bool Equals(object obj)
-		{
-			var other = obj as SchemaComplex;
-			if (other == null)
-				return false;
-
-			if (_hash != other._hash)
-				return false;
-
-			if (_schemata.Count != other._schemata.Count)
-				return false;
-
-			for (int i = 0; i < _schemata.Count; i++)
-				if (!_schemata[i].Equals(other._schemata[i]))
-					return false;
-
-			return true;
 		}
 	}
 }

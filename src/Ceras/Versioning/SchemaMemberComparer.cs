@@ -6,16 +6,21 @@
 	using Helpers;
 
 	/*
-	 * Sorting by memberType first gives us improved performance
-	 * - We're immune to the crazy reordering of members that all C# compilers sometimes do for no (obvious) reason.
-	 * - Better cache coherency when using the formatters, since we'll keep using the same type of formatter over and over again, instead of switching around wildly.
-	 * - Because fixed-size types get grouped together, this enables a huge optimization: We can do one big(combined) size-check for all of them; which enables us to use the "NoSizeCheck" versions of the methods in SerializerBinary (they don't exist yet, will be added together with them, todo)
-	 * - Sorting by declaring type last will improve our robustness in rare edge cases. Since we're doing ordering anyway, this optimization comes for free! (the edge case being when class A:B, and B:C, and later A and B swap names and there are private fields in each that have the same name)
+	 * When do we order members?
+	 * - Only when *not* using VersionTolerance, because when we do, we don't need any implicit ordering.
+	 *   Because then the 'Schema' fully describes how the binary data looks like, including member order.
+	 * 
+	 * Why do we order members?
+	 * - Must have stable order (because .NET/C# do *not* ensure stable order on their own)
+	 * - Reading/writing the same types - very slightly - improves performance because we're executing the same code (formatter) many times
+	 * - Grouping fixed-size types allows us to merge all those "do we have space for this in the target buffer??" into one big EnsureCapacity() (to be done)
+	 * - Prevent ambiguity when a base and derived type have the same member (for example: private int with same name in both)
 	 */
 	class SchemaMemberComparer : IComparer<SchemaMember>
 	{
 		public static readonly SchemaMemberComparer Instance = new SchemaMemberComparer();
 		
+
 		public int Compare(SchemaMember x, SchemaMember y)
 		{
 			var name1 = GetComparisonName(x);
@@ -26,33 +31,26 @@
 
 		static string GetComparisonName(SchemaMember m)
 		{
+			// todo:
+			// - ensure type names can be customized as well (and that those custom names are used here)
+			//   otherwise we might order members differently when someone uses obfuscation (where names of types and members change between every build)
+
 			// It's not just the contents, it's also this exact ordering of the elements that is important as well. Read above for more information
 			return
-				(IsFixedSize(m.MemberType) ? "" : "") + // Enforce fixed-size types to group together
-				m.MemberType.FullName + // Optimize for formatter reuse
-				m.PersistentName + // Actual name
-				m.MemberInfo.DeclaringType.FullName + // Ensure things are ordered correctly even when there are (inherited) fields of the exact same name and type
-				(m.MemberInfo is FieldInfo ? "f" : "p"); // Unsure if it can happen in some scenarios, but we need to differentiate between fields and props
-		}
+				// Group fixed-size types so we can optimize out the 'do we have enough space left' while writing
+				(ReflectionHelper.IsBlittableType(m.MemberType) ? "1" : "2") + 
 
-		static bool IsFixedSize(Type t)
-		{
-			if(t.IsPrimitive)
-				return true;
+				// Group by type: tiny performance improvement (repeated use of the same formatter)
+				m.MemberType.FullName +
 
-			if(!t.IsValueType)
-				return false;
+				// Actual name
+				m.PersistentName + 
 
-			// It is a struct
-			// Structs can be fixed size if all of its members are fixed size
-			foreach(var f in t.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
-			{
-				if(!IsFixedSize(f.FieldType))
-					return false;
-			}
+				// Prevent ambiguity with inheritance (ex: two private ints with same name defined in base and derived class)
+				m.MemberInfo.DeclaringType.FullName +
 
-			// The struct contains only fixed-size types, great!
-			return true;
+				// Unsure if it can happen in some scenarios, but just to be sure we differentiate between fields and props
+				(m.MemberInfo is FieldInfo ? "f" : "p");
 		}
 	}
 }

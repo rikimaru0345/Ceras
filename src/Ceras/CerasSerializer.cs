@@ -730,10 +730,22 @@ namespace Ceras
 			bool isType = typeof(Type).IsAssignableFrom(type);
 			bool isExternalRootObj = typeof(IExternalRootObject).IsAssignableFrom(type);
 			bool isVersionTolerantMode = Config.VersionTolerance.Mode != VersionToleranceMode.Disabled;
-			if (type.IsSealed && !isType && !isExternalRootObj && !isVersionTolerantMode)
-				refFormatterType = typeof(ReferenceFormatter_KnownSealedType<>).MakeGenericType(type);
+
+			if (Config.Experimental.UseBytePrefixReferenceFormatter)
+			{
+				if (type.IsSealed && !isType && !isExternalRootObj && !isVersionTolerantMode)
+					refFormatterType = typeof(Ceras.Formatters.FixedByte.ReferenceFormatter_KnownSealedType<>).MakeGenericType(type);
+				else
+					refFormatterType = typeof(Ceras.Formatters.FixedByte.ReferenceFormatter<>).MakeGenericType(type);
+			}
 			else
-				refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
+			{
+				if (type.IsSealed && !isType && !isExternalRootObj && !isVersionTolerantMode)
+					refFormatterType = typeof(ReferenceFormatter_KnownSealedType<>).MakeGenericType(type);
+				else
+					refFormatterType = typeof(ReferenceFormatter<>).MakeGenericType(type);
+			}
+
 
 			var referenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
 
@@ -867,7 +879,7 @@ namespace Ceras
 
 		void PrepareFormatter(IFormatter formatter)
 		{
-			if(formatter is DynamicFormatter dyn)
+			if (formatter is DynamicFormatter dyn)
 				dyn.Initialize();
 
 			// Simple DI system, injects:
@@ -1116,20 +1128,6 @@ namespace Ceras
 				SerializerBinary.WriteString(ref buffer, ref offset, members[i].PersistentName);
 		}
 
-
-		static void VerifyName(string name)
-		{
-			if (string.IsNullOrWhiteSpace(name))
-				throw new Exception("Member name can not be null/empty");
-			if (char.IsNumber(name[0]) || char.IsControl(name[0]))
-				throw new Exception("Name must start with a letter");
-
-			const string allowedChars = "_";
-
-			for (int i = 1; i < name.Length; i++)
-				if (!char.IsLetterOrDigit(name[i]) && !allowedChars.Contains(name[i]))
-					throw new Exception($"The name '{name}' has character '{name[i]}' at index '{i}', which is not allowed. Must be a letter or digit.");
-		}
 
 
 		/// <summary>

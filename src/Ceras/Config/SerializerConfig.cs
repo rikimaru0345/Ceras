@@ -120,7 +120,7 @@
 		#endregion
 
 		#region Type Configuration
-			
+
 		Dictionary<Type, TypeConfig> _configEntries = new Dictionary<Type, TypeConfig>();
 		Dictionary<Type, TypeConfig> _staticConfigEntries = new Dictionary<Type, TypeConfig>();
 
@@ -130,7 +130,7 @@
 			var configDict = isStatic ? _staticConfigEntries : _configEntries;
 			if (configDict.TryGetValue(type, out var typeConfig))
 				return typeConfig;
-				
+
 			if (type.ContainsGenericParameters)
 				throw new InvalidOperationException("You can not configure 'open' types (like List<>)! Only 'closed' types (like 'List<int>') can be configured statically. For dynamic configuration (which is what you are trying to do) use the 'OnConfigNewType' callback. It will be called for every fully instantiated type.");
 
@@ -212,6 +212,7 @@
 		#endregion
 
 
+		#region Advanced
 
 		/// <summary>
 		/// Advanced options. In here is everything that is very rarely used, dangerous, or otherwise special. 
@@ -236,7 +237,30 @@
 		bool IAdvancedConfigOptions.RespectNonSerializedAttribute { get; set; } = true;
 		BitmapMode IAdvancedConfigOptions.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
 		AotMode IAdvancedConfigOptions.AotMode { get; set; } = AotMode.None;
-		bool IAdvancedConfigOptions.MergeBlittableCalls { get; set; } = true;
+
+		#endregion
+
+
+		#region Experimental
+
+		internal ExperimentalFeatures Experimental { get; } = new ExperimentalFeatures();
+
+		internal class ExperimentalFeatures
+		{
+			// Collects and merges all calls to 'Fixed' formatters (Int32Fixed, Int64Fixed, ...)
+			// All EnsureCapacity() and offset+=...; will be merged together
+			public bool MergeBlittableCalls { get; set; }
+
+			// Skips the calls to formatters that have no 'state' by inlining whatever function they end up calling
+			// Example: All calls to 'Int32Formatter' will get replaced by 'SerializerBinary.WriteInt32/ReadInt32'
+			public bool InlineCalls { get; set; }
+
+			// Use a new ReferenceFormatter that uses a 1-byte code instead of a VarInt
+			// potentially improving performance.
+			public bool UseBytePrefixReferenceFormatter { get; set; }
+		}
+
+		#endregion
 	}
 
 
@@ -355,12 +379,6 @@
 		/// On an AoT platforms (for example Unity IL2CPP) Ceras can not use dynamic code generation. When enabled, Ceras will use reflection for everything where it would otherwise use dynamic code generation. This is slow, but it allows for testing and debugging on those platforms until 
 		/// </summary>
 		AotMode AotMode { get; set; }
-		
-		/// <summary>
-		/// 
-		/// <para>Default: true</para>
-		/// </summary>
-		bool MergeBlittableCalls { get; set; }
 	}
 
 	public interface ISizeLimitsConfig
