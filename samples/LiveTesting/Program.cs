@@ -31,6 +31,8 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
+			// Benchmarks();
+
 			MergeBlittingTest.Test();
 
 			ConvertDynamicFormatterToString();
