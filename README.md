@@ -1,6 +1,6 @@
 Ceras
 ===
-[![AppVeyor](https://ci.appveyor.com/api/projects/status/github/rikimaru0345/Ceras?branch=master&svg=true)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts)  [![Test Results](https://img.shields.io/appveyor/tests/rikimaru0345/ceras.svg)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/tests) [![LICENSE](https://img.shields.io/github/license/rikimaru0345/Ceras.svg)](https://github.com/rikimaru0345/Ceras/blob/master/LICENSE) [![Discord](https://discordapp.com/api/guilds/367211057787305985/embed.png)](https://discord.gg/FGaCX4c) [![NuGet](https://img.shields.io/nuget/v/Ceras.svg?logo=nuget&logoColor=ddd)](https://www.nuget.org/packages/Ceras/)  [![Release](https://img.shields.io/badge/download-70kb%20%5Brelease.zip%5D-blue.svg?logo=appveyor )](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts) 
+[![AppVeyor](https://ci.appveyor.com/api/projects/status/github/rikimaru0345/Ceras?branch=master&svg=true)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts)  [![Test Results](https://img.shields.io/appveyor/tests/rikimaru0345/ceras.svg)](https://ci.appveyor.com/project/rikimaru0345/ceras/build/tests) [![Discord](https://discordapp.com/api/guilds/367211057787305985/embed.png)](https://discord.gg/FGaCX4c) [![NuGet](https://img.shields.io/nuget/v/Ceras.svg?logo=nuget&logoColor=ddd)](https://www.nuget.org/packages/Ceras/)  [![Release](https://img.shields.io/badge/download-70kb%20%5Brelease.zip%5D-blue.svg?logo=appveyor )](https://ci.appveyor.com/project/rikimaru0345/ceras/build/artifacts)
 
 Ceras is a binary serializer. It converts *any* object into a `byte[]` and back.
 It goes above and beyond in terms of features, speed, and comfort.
@@ -48,7 +48,7 @@ The resulting binary size is about the same as MessagePack-CSharp.
 The shown results are obtained from **[this code](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Benchmarks.cs)** and I encourage you to not only try it yourself, but to also provide feedback about scenarios you had good and bad results with.
 
 Don't forget to tune the settings in `SerializerConfig` for your specific situation.
-Using Ceras to read/write network packets might require different settings than, lets say, saving a settings-object to a file, or persisting items/spells/monsters in a game, or ... 
+Using Ceras to read/write network packets might require different settings than, lets say, saving a settings-object to a file, or persisting items/spells/monsters in a game, or ...
 
 The project is still heavily work-in-progress, meaning that over time more optimizations will get implemented (your feedback is important here!).
 
@@ -57,7 +57,7 @@ The project is still heavily work-in-progress, meaning that over time more optim
 ### Example usages
 The primary goal is to make an universal serializer that can be used in every situation.
 Personally my primary intentions were easy object persistance and network communication.
-I've added many features over time and whenever someone can think of a good scenario that should be supported as well I'll make it happen. 
+I've added many features over time and whenever someone can think of a good scenario that should be supported as well I'll make it happen.
 
 Examples:
 - **Settings:**
@@ -69,7 +69,7 @@ So your `Person` has references to other `Person` objects, but each one should b
 Maybe you want to be able to put each `Person` into its own file, or send them over the network one-by-one as needed?
 **No problem!** Using `IExternalRootObject` it's not an issue! See [External Objects Guide (Game DB example))](https://github.com/rikimaru0345/Ceras/blob/6a435a6c21c31cc9548dcc40b2d2c1d1d35d9000/samples/LiveTesting/Tutorial.cs#L327).
 
-- **Network:** 
+- **Network:**
 Because of its simple API and vast set of features Ceras is uniquely suited to implement a full 'network-protocol' for you.
 I wrote [a short guide](https://rikidev.com/networking-with-ceras-part-1/) that shows off how a basic  TCP implementation could look like:
 Just `Send(myObject);` it, then `var obj = await Receive();` on the other side, that's it! It literally can't get any easier than that.
