@@ -13,7 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Ceras\Ceras.csproj" />
     <ProjectReference Include="..\..\tests\Ceras.Test\Ceras.Test.csproj" />
-    <PackageReference Include="AgileObjects.ReadableExpressions" Version="2.1.1" />
+    <PackageReference Include="AgileObjects.ReadableExpressions" Version="2.3.0" />
     <PackageReference Include="BenchmarkDotNet" Version="0.11.5" />
     <PackageReference Include="K4os.Compression.LZ4" Version="1.1.1" />
     <PackageReference Include="MessagePack" Version="1.7.3.4" />

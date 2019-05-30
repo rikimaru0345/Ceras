@@ -21,6 +21,7 @@ namespace LiveTesting
 	using System.Reflection;
 	using System.Reflection.Emit;
 	using System.Runtime.CompilerServices;
+	using System.Runtime.InteropServices;
 	using Tutorial;
 	using Xunit;
 	using Encoding = System.Text.Encoding;
@@ -31,12 +32,13 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
+			ConvertDynamicFormatterToString();
+
 			AvoidDispatch.AvoidDispatchTest.Test();
 
 			NewRefFormatter.RefFormatterTests.Test();
 			MergeBlittingTest.MergeBlittingTest.Test();
 
-			ConvertDynamicFormatterToString();
 
 			NewRefProxyTest.CompareCalls();
 			NewRefProxyTest.ReinterpretRefProxyTest();
@@ -122,17 +124,12 @@ namespace LiveTesting
 			var normalDeserializer = DynamicFormatter<Person>.GenerateDeserializer(ceras, schema, false, false);
 			var schemaDeserializer = DynamicFormatter<Person>.GenerateDeserializer(ceras, schema, true, false);
 
-			// wtf:
-			// ReferenceFormatter<Person>.Deserialize 
-			// value.set_Health(...);
-
-			/*
 			Func<TranslationSettings, TranslationSettings> configuration = s
-				=> s.ConvertPropertyMethods
-				.NameConstantsUsing(constant =>
+				=> s.TranslateConstantsUsing((type, obj) =>
 				{
-					var formattedType = constant.Type.FindClosedArg(typeof(IFormatter<>));
-					if(formattedType == null) return null;
+					var formattedType = type.FindClosedArg(typeof(IFormatter<>));
+					if (formattedType == null)
+						return null;
 
 					return "_" + formattedType.FriendlyName(false) + "Formatter";
 				});
@@ -140,7 +137,6 @@ namespace LiveTesting
 
 			var normalCode = normalDeserializer.ToReadableString(configuration);
 			var schemaCode = schemaDeserializer.ToReadableString(configuration);
-			*/
 		}
 
 		static void Benchmarks()
@@ -278,8 +274,6 @@ namespace LiveTesting
 			var sizeBool = ReflectionHelper.GetSize(typeof(bool)); // 1
 			var sizeKeyValuePair = ReflectionHelper.GetSize(typeof(KeyValuePair<decimal, bool>)); // 20
 		}
-
-
 
 		static void CustomComparerFormatter()
 		{

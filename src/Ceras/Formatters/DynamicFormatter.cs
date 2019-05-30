@@ -380,6 +380,10 @@ namespace Ceras.Formatters
 
 			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, offsetArg, valueArg);
 
+			//
+			// Local methods
+			List<SchemaMember> commentedMembers = new List<SchemaMember>();
+
 			bool UseLocal(MemberInfo memberInfo)
 			{
 				if (callObjectConstructor)
@@ -389,6 +393,13 @@ namespace Ceras.Formatters
 				if (memberInfo is FieldInfo field && field.IsInitOnly)
 					return true;
 				return false;
+			}
+			void AddComment(SchemaMember member)
+			{
+				if(commentedMembers.Contains(member)) return;
+				commentedMembers.Add(member);
+
+				// body.Add(Expression.DebugInfo)
 			}
 		}
 
