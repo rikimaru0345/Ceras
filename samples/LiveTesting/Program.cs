@@ -32,8 +32,12 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
-			ConvertDynamicFormatterToString();
+			CerasSerializer ceras = new CerasSerializer();
+			Person obj = null;
+			var bytes = ceras.Serialize(obj);
 
+			AotTest();
+			
 			AvoidDispatch.AvoidDispatchTest.Test();
 
 			NewRefFormatter.RefFormatterTests.Test();
@@ -114,7 +118,7 @@ namespace LiveTesting
 			Console.ReadKey();
 		}
 
-		static void ConvertDynamicFormatterToString()
+		static void AotTest()
 		{
 			var ceras = new CerasSerializer();
 			var personFormatter = (DynamicFormatter<Person>)ceras.GetSpecificFormatter(typeof(Person));
@@ -133,7 +137,6 @@ namespace LiveTesting
 
 					return "_" + formattedType.FriendlyName(false) + "Formatter";
 				});
-
 
 			var normalCode = normalDeserializer.ToReadableString(configuration);
 			var schemaCode = schemaDeserializer.ToReadableString(configuration);

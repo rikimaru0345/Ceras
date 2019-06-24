@@ -21,11 +21,6 @@ namespace Ceras.Formatters
 
 	abstract class DynamicFormatter
 	{
-		internal abstract void Initialize();
-	}
-
-	sealed class DynamicFormatter<T> : DynamicFormatter, IFormatter<T>
-	{
 		// Schema field prefix
 		const int FieldSizePrefixBytes = 4;
 		static readonly Type _sizeType = typeof(uint);
@@ -34,67 +29,17 @@ namespace Ceras.Formatters
 		static readonly MethodInfo _offsetMismatchMethod = ReflectionHelper.GetMethod(() => ThrowOffsetMismatch(0, 0, 0));
 		static readonly MethodInfo ensureCapacityMethod = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.EnsureCapacity));
 
-		readonly CerasSerializer _ceras;
-
-		SerializeDelegate<T> _serializer;
-		DeserializeDelegate<T> _deserializer;
-
-		readonly bool _isStatic;
-		readonly Schema _schema;
-
-		public DynamicFormatter(CerasSerializer serializer, bool isStatic)
-		{
-			_ceras = serializer;
-
-			var type = typeof(T);
-			BannedTypes.ThrowIfNonspecific(type);
-
-			var schema = isStatic
-					? _ceras.GetStaticTypeMetaData(type).PrimarySchema
-					: _ceras.GetTypeMetaData(type).PrimarySchema;
-
-			var typeConfig = _ceras.Config.GetTypeConfig(type, isStatic);
-
-			if (!schema.IsPrimary)
-				throw new InvalidOperationException("Non-Primary Schema requires SchemaFormatter instead of DynamicFormatter!");
-
-			if (schema.Members.Count == 0)
-			{
-				_serializer = (ref byte[] buffer, ref int offset, T value) => { };
-				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
-				return;
-			}
-
-			_isStatic = isStatic;
-			_schema = schema;
-		}
-
-		internal override void Initialize()
-		{
-			if (_serializer != null)
-				return;
-
-			// If we are getting constructed by a ReferenceFormatter, and one of our members
-			// depends on that same ReferenceFormatter we'll end up with a StackOverflowException.
-			// To solve this we just delay the compile step until after the constructor is done.
-			_serializer = GenerateSerializer(_ceras, _schema, false, _isStatic).Compile();
-			_deserializer = GenerateDeserializer(_ceras, _schema, false, _isStatic).Compile();
-		}
+		internal abstract void Initialize();
 
 
-		public void Serialize(ref byte[] buffer, ref int offset, T value) => _serializer(ref buffer, ref offset, value);
-
-		public void Deserialize(byte[] buffer, ref int offset, ref T value) => _deserializer(buffer, ref offset, ref value);
-
-
-		internal static Expression<SerializeDelegate<T>> GenerateSerializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)
+		internal static LambdaExpression GenerateSerializer(Type formattedType, CerasSerializer ceras, Schema schema, bool isSchemaFormatter)
 		{
 			var members = schema.Members;
 			var bufferArg = Parameter(typeof(byte[]).MakeByRefType(), "buffer");
 			var offsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
-			var valueArg = Parameter(typeof(T), "value");
+			var valueArg = Parameter(formattedType, "value");
 
-			if (isStatic)
+			if (schema.IsStatic)
 				valueArg = null;
 
 			var body = new List<Expression>();
@@ -183,17 +128,17 @@ namespace Ceras.Formatters
 
 			var serializeBlock = Block(variables: locals, expressions: body);
 
-			if (isStatic)
-				valueArg = Parameter(typeof(T), "value");
+			if (schema.IsStatic)
+				valueArg = Parameter(formattedType, "value");
 
-			return Lambda<SerializeDelegate<T>>(serializeBlock, bufferArg, offsetArg, valueArg);
+			return Lambda(typeof(SerializeDelegate<>).MakeGenericType(formattedType), serializeBlock, bufferArg, offsetArg, valueArg);
 		}
 
-		internal static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)
+		internal static LambdaExpression GenerateDeserializer(Type formattedType, CerasSerializer ceras, Schema schema, bool isSchemaFormatter)
 		{
 			bool verifySizes = isSchemaFormatter && ceras.Config.VersionTolerance.VerifySizes;
 			var members = schema.Members;
-			var typeConfig = ceras.Config.GetTypeConfig(schema.Type, isStatic);
+			var typeConfig = ceras.Config.GetTypeConfig(schema.Type, schema.IsStatic);
 			var tc = typeConfig.TypeConstruction;
 
 			bool callObjectConstructor = tc.HasDataArguments; // Are we responsible for instantiating an object?
@@ -202,7 +147,7 @@ namespace Ceras.Formatters
 
 			var bufferArg = Parameter(typeof(byte[]), "buffer");
 			var offsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
-			var valueArg = isStatic ? null : Parameter(typeof(T).MakeByRefType(), "value"); // instance is null for static classes/members
+			var valueArg = schema.IsStatic ? null : Parameter(formattedType.MakeByRefType(), "value"); // instance is null for static classes/members
 
 			var body = new List<Expression>();
 			var locals = new List<ParameterExpression>(schema.Members.Count);
@@ -375,15 +320,13 @@ namespace Ceras.Formatters
 
 			var bodyBlock = Block(variables: locals, expressions: body);
 
-			if (isStatic)
-				valueArg = Parameter(typeof(T).MakeByRefType(), "value");
-
-			return Lambda<DeserializeDelegate<T>>(bodyBlock, bufferArg, offsetArg, valueArg);
+			if (schema.IsStatic)
+				valueArg = Parameter(formattedType.MakeByRefType(), "value");
+			
+			return Lambda(typeof(DeserializeDelegate<>).MakeGenericType(formattedType), bodyBlock, bufferArg, offsetArg, valueArg);
 
 			//
 			// Local methods
-			List<SchemaMember> commentedMembers = new List<SchemaMember>();
-
 			bool UseLocal(MemberInfo memberInfo)
 			{
 				if (callObjectConstructor)
@@ -394,14 +337,8 @@ namespace Ceras.Formatters
 					return true;
 				return false;
 			}
-			void AddComment(SchemaMember member)
-			{
-				if(commentedMembers.Contains(member)) return;
-				commentedMembers.Add(member);
-
-				// body.Add(Expression.DebugInfo)
-			}
 		}
+
 
 		static List<SchemaMember> MergeBlittableSerializeCalls(
 			List<SchemaMember> members, Dictionary<Type, ConstantExpression> typeToFormatter,
@@ -473,7 +410,6 @@ namespace Ceras.Formatters
 
 			return mergeBlitMembers;
 		}
-
 
 		static Expression EmitFormatterCall(
 			ConstantExpression formatterConst,
@@ -583,5 +519,72 @@ namespace Ceras.Formatters
 		{
 			throw new InvalidOperationException($"The data being read is corrupted. The amount of data read did not match the expected block-size! BlockStart:{startOffset} BlockSize:{blockSize} CurrentOffset:{offset}");
 		}
+	}
+
+	sealed class DynamicFormatter<T> : DynamicFormatter, IFormatter<T>
+	{
+		readonly CerasSerializer _ceras;
+
+		SerializeDelegate<T> _serializer;
+		DeserializeDelegate<T> _deserializer;
+
+		readonly Schema _schema;
+
+		public DynamicFormatter(CerasSerializer serializer, bool isStatic)
+		{
+			_ceras = serializer;
+
+			//
+			// 1. Basic checks
+			var type = typeof(T);
+			BannedTypes.ThrowIfNonspecific(type);
+
+			//
+			// 2. Determine Schema and TypeConfig
+			var schema = isStatic
+					? _ceras.GetStaticTypeMetaData(type).PrimarySchema
+					: _ceras.GetTypeMetaData(type).PrimarySchema;
+
+			var typeConfig = _ceras.Config.GetTypeConfig(type, isStatic);
+
+			if (!schema.IsPrimary)
+				throw new InvalidOperationException("Non-Primary Schema requires SchemaFormatter instead of DynamicFormatter!");
+
+			//
+			// 3. If the type is empty, no need to generate anything
+			if (schema.Members.Count == 0)
+			{
+				_serializer = (ref byte[] buffer, ref int offset, T value) => { };
+				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
+			}
+			else
+			{
+				// 4. Otherwise remember schema for initialization phase
+				_schema = schema;
+			}
+		}
+
+		internal override void Initialize()
+		{
+			if (_serializer != null)
+				return;
+
+			// If we are getting constructed by a ReferenceFormatter, and one of our members
+			// depends on that same ReferenceFormatter we'll end up with a StackOverflowException.
+			// To solve this we just delay the compile step until after the constructor is done.
+			_serializer = GenerateSerializer(_ceras, _schema, false).Compile();
+			_deserializer = GenerateDeserializer(_ceras, _schema, false).Compile();
+		}
+		
+
+		public void Serialize(ref byte[] buffer, ref int offset, T value) => _serializer(ref buffer, ref offset, value);
+		public void Deserialize(byte[] buffer, ref int offset, ref T value) => _deserializer(buffer, ref offset, ref value);
+		
+		internal static Expression<SerializeDelegate<T>> GenerateSerializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter) 
+			=> (Expression<SerializeDelegate<T>>)GenerateSerializer(typeof(T), ceras, schema, isSchemaFormatter);
+
+		internal static Expression<DeserializeDelegate<T>> GenerateDeserializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter) 
+			=> (Expression<DeserializeDelegate<T>>)GenerateDeserializer(typeof(T), ceras, schema, isSchemaFormatter);
+
 	}
 }

@@ -1,12 +1,17 @@
 ﻿using System;
+using System.Runtime.CompilerServices;
+using Ceras.Helpers;
+
+#if NETCOREAPP2_1 || NETCOREAPP2_2 || NETCOREAPP3 || NETCOREAPP3_0 || NETSTANDARD2_1 || NETSTANDARD2_2
+// prep for if/when we switch to a span based system
+using System.Runtime.InteropServices;
+#define MemoryMarshal
+
+#endif
+
 
 namespace Ceras.Formatters
 {
-	using System.Linq.Expressions;
-	using System.Reflection;
-	using System.Runtime.CompilerServices;
-	using System.Runtime.InteropServices;
-	using Helpers;
 
 	/// <summary>
 	/// Extremely fast formatter that can be used with all unmanaged types. For example DateTime, int, Vector3, Point, ...
@@ -35,6 +40,7 @@ namespace Ceras.Formatters
 			offset += Unsafe.SizeOf<T>();
 		}
 
+
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		internal static void Write(byte[] buffer, int offset, ref T value)
 		{
@@ -46,6 +52,8 @@ namespace Ceras.Formatters
 		{
 			value = Unsafe.As<byte, T>(ref buffer[offset]);
 		}
+
+
 
 		internal static void ThrowIfNotSupported()
 		{
@@ -133,7 +141,7 @@ namespace Ceras.Formatters
 				return;
 
 			int remainingBytes = buffer.Length - offset;
-			if(bytes > remainingBytes)
+			if (bytes > remainingBytes)
 				throw new IndexOutOfRangeException($"Trying to read an array of '{typeof(T).FriendlyName()}' ({count} elements, {bytes} bytes) but only {remainingBytes} bytes are left in the buffer (buffer length: {buffer.Length}, offset: {offset}).");
 
 			// Read

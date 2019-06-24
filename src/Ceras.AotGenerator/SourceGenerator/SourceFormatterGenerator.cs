@@ -7,15 +7,17 @@
 	using System.Linq;
 	using System.Text;
 	using Ceras.Formatters;
-    using System.Reflection;
-    using System.Linq;
+	using System.Reflection;
+	using AgileObjects.ReadableExpressions;
 
-    static class SourceFormatterGenerator
+	// todo check if generic user classes are handled as well
+	static class SourceFormatterGenerator
 	{
 		public static void GenerateAll(List<Type> targets, CerasSerializer ceras, StringBuilder text)
 		{
 			text.AppendLine("using Ceras;");
 			text.AppendLine("using Ceras.Formatters;");
+			text.AppendLine("");
 			text.AppendLine("namespace Ceras.GeneratedFormatters");
 			text.AppendLine("{");
 
@@ -31,31 +33,27 @@ $@"	public static class GeneratedFormatters
 ");
 
 			foreach (var t in targets)
-				Generate(t, ceras, text);
+				GenerateFormatter(t, ceras, text);
 
 			text.Length -= Environment.NewLine.Length;
 			text.AppendLine("}");
 		}
 
-		static void Generate(Type type, CerasSerializer ceras, StringBuilder text)
-		{
-			text.AppendLine($"\tinternal class {type.ToVariableSafeName()}Formatter : IFormatter<{type.ToFriendlyName(true)}>");
-			text.AppendLine("\t{");
-			GenerateClassContent(text, ceras, type);
-			text.AppendLine("\t}");
-			text.AppendLine("");
-		}
-
-		static void GenerateClassContent(StringBuilder text, CerasSerializer ceras, Type type)
+		static void GenerateFormatter(Type type, CerasSerializer ceras, StringBuilder text)
 		{
 			var meta = ceras.GetTypeMetaData(type);
 			var schema = meta.PrimarySchema;
 
+			text.AppendLine("\t[AotGeneratedFormatterAttribute]");
+			text.AppendLine($"\tinternal class {type.ToVariableSafeName()}Formatter : IFormatter<{type.ToFriendlyName(true)}>");
+			text.AppendLine("\t{");
+
 			GenerateFormatterFields(text, schema);
+			GenerateSerializer(text, ceras, schema, false);
+			GenerateDeserializer(text, ceras, schema, false);
 
-			GenerateSerializer(text, schema);
-
-			GenerateDeserializer(text, schema);
+			text.AppendLine("\t}");
+			text.AppendLine("");
 		}
 
 		static void GenerateFormatterFields(StringBuilder text, Schema schema)
@@ -69,51 +67,33 @@ $@"	public static class GeneratedFormatters
 			text.AppendLine("");
 		}
 
-		static void GenerateSerializer(StringBuilder text, Schema schema)
+		static void GenerateSerializer(StringBuilder text, CerasSerializer ceras, Schema schema, bool isVersionTolerant)
 		{
 			text.AppendLine($"\t\tpublic void Serialize(ref byte[] buffer, ref int offset, {schema.Type.ToFriendlyName(true)} value)");
 			text.AppendLine("\t\t{");
 
-			foreach (var m in schema.Members)
-			{
-				var t = m.MemberType;
-				var fieldName = MakeFormatterFieldName(t);
-				text.AppendLine($"\t\t\t{fieldName}.Serialize(ref buffer, ref offset, value.{m.MemberName});");
-			}
+			var serializerExpr = DynamicFormatter.GenerateSerializer(schema.Type, ceras, schema, isVersionTolerant);
+			var serializerCode = serializerExpr.ToReadableString(_translationConfig);
+			var methodBody = ExtractMethodBody(serializerCode);
+
+			foreach (var line in methodBody.Split('\n'))
+				text.AppendLine("\t\t\t" + line.Trim());
 
 			text.AppendLine("\t\t}");
 			text.AppendLine("");
 		}
 
-		static void GenerateDeserializer(StringBuilder text, Schema schema)
+		static void GenerateDeserializer(StringBuilder text, CerasSerializer ceras, Schema schema, bool isVersionTolerant)
 		{
 			text.AppendLine($"\t\tpublic void Deserialize(byte[] buffer, ref int offset, ref {schema.Type.ToFriendlyName(true)} value)");
 			text.AppendLine("\t\t{");
 
-			// If there are any properties, we use temp local vars. And then the code gets a bit hard to read.
-			bool addEmptyLines = schema.Members.Any(sm => sm.MemberInfo is PropertyInfo);
+			var deserializerExpr = DynamicFormatter.GenerateDeserializer(schema.Type, ceras, schema, isVersionTolerant);
+			var deserializerCode = deserializerExpr.ToReadableString(_translationConfig);
+			var methodBody = ExtractMethodBody(deserializerCode);
 
-			foreach (var m in schema.Members)
-			{
-				var t = m.MemberType;
-				var fieldName = MakeFormatterFieldName(t);
-
-				if(m.MemberInfo is FieldInfo)
-				{
-					// Field
-					text.AppendLine($"\t\t\t{fieldName}.Deserialize(buffer, ref offset, ref value.{m.MemberName});");
-				}
-				else
-				{
-					// Prop
-					text.AppendLine($"\t\t\t_temp{m.MemberName} = value.{m.MemberName};");
-					text.AppendLine($"\t\t\t{fieldName}.Deserialize(buffer, ref offset, ref _temp{m.MemberName});");
-					text.AppendLine($"\t\t\tvalue.{m.MemberName} = _temp{m.MemberName};");
-				}
-
-				if(addEmptyLines)
-					text.AppendLine("");
-			}
+			foreach (var line in methodBody.Split('\n'))
+				text.AppendLine("\t\t\t" + line.Trim());
 
 			text.AppendLine("\t\t}");
 		}
@@ -130,35 +110,30 @@ $@"	public static class GeneratedFormatters
 
 			return typeName;
 		}
-	}
 
-	// Since we must use the same encoding that non-aot Ceras uses, we emulate the code it generates.
-	static class EnumGenerator
-	{
-		public static void Generate(Type enumType, StringBuilder text)
+		static string ExtractMethodBody(string methodDefinition)
 		{
-			var enumBaseTypeName = enumType.ToFriendlyName(true);
-			var baseType = enumType.GetEnumUnderlyingType();
-			
-			text.AppendLine($@"
-class EnumFormatter : IFormatter<{enumBaseTypeName}>
-{{
-		IFormatter<{baseType.ToFriendlyName(true)}> _valueFormatter;
+			var start = methodDefinition.IndexOf('{');
+			var end = methodDefinition.LastIndexOf('}');
 
-		public void Serialize(ref byte[] buffer, ref int offset, {enumBaseTypeName} value)
-		{{
-			_valueFormatter.Serialize(ref buffer, ref offset, ({baseType.ToFriendlyName(true)})value);
-		}}
+			if (start == -1 || end == -1)
+				throw new InvalidOperationException("Unexpected formatter code");
 
-		public void Deserialize(byte[] buffer, ref int offset, ref {enumBaseTypeName} value)
-		{{
-			{baseType.ToFriendlyName(true)} x = default({baseType.ToFriendlyName(true)});
-			_valueFormatter.Deserialize(buffer, ref offset, ref x);
-			value = x;
-		}}
-}}");
+			var length = end - start;
+			var body = methodDefinition.Substring(start, length);
+
+			return body;
 		}
-	}
 
-	
+
+		static readonly Func<TranslationSettings, TranslationSettings> _translationConfig = s
+				=> s.TranslateConstantsUsing((type, obj) =>
+				{
+					var formattedType = type.FindClosedArg(typeof(IFormatter<>));
+					if (formattedType == null)
+						throw new InvalidOperationException("cannot find formatted type from formatter-type argument");
+
+					return MakeFormatterFieldName(formattedType);
+				});
+	}
 }
