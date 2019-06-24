@@ -23,6 +23,7 @@ namespace CerasAotFormatterGenerator
 			var inputAssemblies = args.Reverse().Skip(1).Reverse().ToArray();
 			var outputCsFileName = args.Reverse().First();
 
+			Generator.RegisterAssemblyResolver();
 
 			var asms = inputAssemblies.Select(Assembly.LoadFrom);
 			StringBuilder fullCode = new StringBuilder(25 * 1000);
