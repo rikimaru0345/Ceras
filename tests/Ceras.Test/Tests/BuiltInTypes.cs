@@ -2,13 +2,13 @@
 
 namespace Ceras.Test
 {
-    using Ceras.Helpers;
-    using System.Collections;
+	using Ceras.Helpers;
+	using System.Collections;
 	using System.Collections.Generic;
 	using System.Collections.Immutable;
 	using System.Collections.ObjectModel;
-    using System.Linq;
-    using System.Numerics;
+	using System.Linq;
+	using System.Numerics;
 	using System.Runtime.CompilerServices;
 	using System.Runtime.InteropServices;
 	using Xunit;
@@ -62,7 +62,63 @@ namespace Ceras.Test
 
 			TestDeepEquality(new Complex(rngDouble, rngDouble));
 			CheckAndResetTotalRunCount(1 * 3);
+		}
 
+
+		[Fact]
+		public void Delegates()
+		{
+			var config = CreateConfig(f => f.Advanced.DelegateSerialization = DelegateSerializationFlags.AllowStatic | DelegateSerializationFlags.AllowInstance);
+
+			// Simple Action and Func
+			Action<int> delegate1 = DelegateTest.TakeIntStatic;
+			Func<int> delegate2 = DelegateTest.Get5Static;
+
+			TestDeepEquality(delegate1, TestMode.Default, config);
+			TestDeepEquality(delegate2, TestMode.Default, config);
+
+
+			// Merged Recursive ((x+x) + x)
+			Func<int> inner = (Func<int>)DelegateTest.Get5Static + DelegateTest.Get5Static;
+			Func<int> outer = inner + DelegateTest.Get5Static;
+
+			TestDeepEquality(inner, TestMode.Default, config);
+			TestDeepEquality(outer, TestMode.Default, config);
+
+
+			// Mixed with Instances: Some delegates contain instances
+			var a = new DelegateTest();
+			var b = new DelegateTest();
+
+			Func<int> mixedInner = (Func<int>)a.Get7 + DelegateTest.Get5Static;
+			Func<int> mixedOuter = mixedInner + b.Get7 + a.Get7;
+			Func<int> wrapper = new Func<int>(mixedOuter);
+
+			TestDeepEquality(wrapper, TestMode.Default, config);
+
+			Func<int> delA = new Func<int>(a.Get7);
+			Func<int> delB = new Func<int>(b.Get7);
+
+			Func<int> delCombined = delA + delB;
+
+			TestDeepEquality(delCombined, TestMode.Default, config);
+		}
+
+		class DelegateTest
+		{
+			static int _counter;
+			public string Name;
+			public DelegateTest()
+			{
+				_counter++;
+				Name = "Instance #" + _counter;
+			}
+
+			public static int Get5Static() => 5;
+			public static void TakeIntStatic(int x) { }
+
+			public int Get7() => 7;
+			public void TakeIntInstance(int x) { }
 		}
 
 		[Fact]
@@ -159,7 +215,7 @@ namespace Ceras.Test
 				{ 4,5,6 },
 				{ 7,8,9 },
 			});
-			
+
 			TestDeepEquality(new Vector3[,]
 			{
 				{ rngVec, rngVec },
@@ -201,7 +257,7 @@ namespace Ceras.Test
 			};
 			TestDeepEquality(ar6);
 
-			
+
 			KeyValuePair<Vector3, bool>[] ar7 = new[]
 			{
 				new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128),

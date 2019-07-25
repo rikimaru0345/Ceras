@@ -9,27 +9,13 @@ namespace Ceras.Formatters
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
 
-	/*
-	 * 1.) At the moment we support static delegates because they are "reasonable".
-	 * 2.) But delegates that have a "target object" are pretty difficult already (do you include the target? how? what if it is not supposed to be serialized?)
-	 * 3.) And then serialization of lambda-expressions is utter madness (compiler merging capture-classes so you serialize **completely** unrelated stuff on accident).
-	 *
-	 * The first one is easily supported.
-	 *
-	 * The second one can be done if you carefully design your code, and for reliable results the target object is always an IExternalRootObject.
-	 *
-	 * As for the third one: in real-world scenarios you actually very very rarely want to serialize lambda expressions, but
-	 * maybe there are cases where it's needed. To be honest, there are so incredibly many side effects that you are much better off just creating
-	 * some sort of "OnDeserializationDone()" method in your objects and then "repair" / recreate the needed lambda expressions.
-	 * Chances are that it is actually impossible to come up with a solution that is fully automatic and reliable at the same time.
-	 */
-
 	// This formatter serializes Delegate, Action, Func, event, ... (with some caveats)
 	class DelegateFormatter<T> : IFormatter<T>
 			where T : Delegate
 	{
 		readonly IFormatter<MethodInfo> _methodInfoFormatter;
 		readonly IFormatter<object> _targetFormatter;
+		readonly IFormatter<Delegate> _recursiveDispatch; // for multicasts, the inner delegates might have a different type than the container delegate (will that ever really happen without much hackery? well, better safe than sorry)
 		readonly bool _allowStatic;
 		readonly bool _allowInstance;
 
@@ -37,24 +23,46 @@ namespace Ceras.Formatters
 		{
 			_methodInfoFormatter = ceras.GetFormatter<MethodInfo>();
 			_targetFormatter = ceras.GetFormatter<object>();
-			
+			_recursiveDispatch = (IFormatter<Delegate>)ceras.GetReferenceFormatter(typeof(Delegate));
+
 			_allowStatic = (ceras.Config.Advanced.DelegateSerialization & DelegateSerializationFlags.AllowStatic) != 0;
 			_allowInstance = (ceras.Config.Advanced.DelegateSerialization & DelegateSerializationFlags.AllowInstance) != 0;
 		}
 
+		//
+		// Delegates with just one entry in their invocation list can be serialized directly.
+		// But '.Target' and '.Method' only ever reflect the last entry, so for anything above we must iterate through the sub-delegates to get the individual methods and target objects
 		public void Serialize(ref byte[] buffer, ref int offset, T del)
 		{
+			//
+			// 1. Recursion for multiple invocations
+			var invocationList = del.GetInvocationList();
+
+			SerializerBinary.WriteUInt32(ref buffer, ref offset, (uint)invocationList.Length);
+
+			if (invocationList.Length > 1)
+			{
+				// Multiple different methods and/or target objects; we must serialize them individually.
+				for (int i = 0; i < invocationList.Length; i++)
+					_recursiveDispatch.Serialize(ref buffer, ref offset, invocationList[i]);
+
+				return;
+			}
+
+
+			//
+			// 2. Check if we're even allowed to serialize this
 			var target = del.Target;
-			
+
 			if (target != null)
 			{
 				// Check: Instance
 				if (!_allowInstance)
 					ThrowInstance(del, target);
-				
+
 				// Check: Lambda
 				var targetType = target.GetType();
-				if(targetType.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
+				if (targetType.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
 					throw new InvalidOperationException($"The delegate '{del}' is targeting a 'lambda'. This makes it impossible to serialize because the compiler can (and will!) merge all lambda \"closures\" of the containing method or type, which is very dangerous even in the most simple scenarios. For more information of what exactly this means you should read this: 'https://github.com/rikimaru0345/Ceras/issues/11'. If you have a good use-case and/or a solution for the problems described in the link, open an issue on GitHub or join the Discord server...");
 			}
 			else
@@ -64,34 +72,55 @@ namespace Ceras.Formatters
 					ThrowStatic(del);
 			}
 
+
+			//
+			// 3. Serialize target object and method
 			_targetFormatter.Serialize(ref buffer, ref offset, target);
-
-			var invocationList = del.GetInvocationList();
-			if (invocationList.Length != 1)
-				throw new InvalidOperationException($"The delegate cannot be serialized, its 'invocation list' must have exactly one target, but it has '{invocationList.Length}'.");
-
 			_methodInfoFormatter.Serialize(ref buffer, ref offset, del.Method);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
 		{
+			//
+			// 1. How many invocations are there?
+			int invocationListLength = (int)SerializerBinary.ReadUInt32(buffer, ref offset);
+
+			if (invocationListLength > 1)
+			{
+				// Deserialize individual invocations and construct combined delegate
+				Delegate[] invocationList = new Delegate[invocationListLength];
+				for (int i = 0; i < invocationListLength; i++)
+					_recursiveDispatch.Deserialize(buffer, ref offset, ref invocationList[i]);
+
+				value = (T)Delegate.Combine(invocationList);
+
+				return;
+			}
+
+			//
+			// 2. Single target+method combo
+
+			// Get object
 			object targetObject = null;
 			_targetFormatter.Deserialize(buffer, ref offset, ref targetObject);
 
+			// Get method
 			MethodInfo methodInfo = null;
 			_methodInfoFormatter.Deserialize(buffer, ref offset, ref methodInfo);
 
+			// Check settings
 			if (methodInfo.IsStatic && !_allowStatic)
 				ThrowStatic(null);
 			if (!methodInfo.IsStatic && !_allowInstance)
 				ThrowInstance(null, targetObject);
 
+			// Construct bound delegate
 			if (targetObject == null)
-				value = (T) Delegate.CreateDelegate(typeof(T), methodInfo, true);
+				value = (T)Delegate.CreateDelegate(typeof(T), methodInfo, true);
 			else
-				value = (T) Delegate.CreateDelegate(typeof(T), targetObject, methodInfo, true);
+				value = (T)Delegate.CreateDelegate(typeof(T), targetObject, methodInfo, true);
 		}
-		
+
 		static void ThrowStatic(T delegateValue)
 		{
 			throw new InvalidOperationException($"The delegate '{delegateValue}' can not be serialized/deserialized as it references a static method and your settings in 'config.Advanced.DelegateSerialization' don't allow serialization of static-delegates. Change the setting in your config, or exclude the member, ...");

@@ -32,13 +32,19 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
+			new Ceras.Test.BuiltInTypes().Delegates();
+
+			SegmentedStringWriting();
+
 			CerasSerializer ceras = new CerasSerializer();
 			Person obj = null;
 			var bytes = ceras.Serialize(obj);
 
-			AotTest();
 			
 			AvoidDispatch.AvoidDispatchTest.Test();
+
+
+			// Benchmarks();
 
 			NewRefFormatter.RefFormatterTests.Test();
 			MergeBlittingTest.MergeBlittingTest.Test();
@@ -118,15 +124,83 @@ namespace LiveTesting
 			Console.ReadKey();
 		}
 
-		static void AotTest()
+
+		unsafe static void SegmentedStringWriting()
+		{
+			// 1. delegates with multiple invocations
+			// 2. String encoding
+			// 3. Type codes
+
+			string str = "😀 😁 😂 🤣 😃 😄 😅 😆 😉 😊 😋 😎 😍 😘 🥰 😗 😙 😚 ☺️ ";
+			Console.WriteLine("Converting: " + str);
+
+			var encoding = Encoding.UTF8;
+			var encoder = encoding.GetEncoder();
+			var decoder = encoding.GetDecoder();
+
+
+			// ! Remaining problem: we don't remember how long each segment is. We assume they are all equally long, but that's not true. If a char doesn't fit, it will be shorter!
+
+			int segmentSize = 8;
+			List<byte[]> segments = new List<byte[]>();
+
+			int totalCharsConsumed = 0;
+			int totalBytesConsumed = 0;
+
+			while (true)
+			{
+				byte[] segment = new byte[segmentSize];
+
+				fixed (char* strPtr = str)
+				fixed (byte* bufferPtr = segment)
+				{
+					char* p = strPtr + totalCharsConsumed;
+
+					int nChars = str.Length - totalCharsConsumed;
+
+					encoder.Convert(p, nChars, bufferPtr, segment.Length, false, out int usedChars, out int usedBytes, out bool isComplete);
+
+					totalCharsConsumed += usedChars;
+					totalBytesConsumed += usedBytes;
+
+					segments.Add(segment);
+
+					if (isComplete)
+						break;
+				}
+			}
+
+
+			char[] resultChars = new char[str.Length];
+			int totalDecodedChars = 0;
+			int totalBytesDecoded = 0;
+
+			for (int i = 0; i < segments.Count; i++)
+			{
+				var segment = segments[i];
+				
+				// Either use the full segment length, or the correct length when its the last segment
+				int segmentLength = Math.Min(segment.Length, totalBytesConsumed - totalBytesDecoded);
+
+				int decoded = decoder.GetChars(segment, 0, segmentLength, resultChars, totalDecodedChars);
+
+				totalDecodedChars += decoded;
+				totalBytesDecoded += segmentLength;
+			}
+
+			var decodedString = new string(resultChars);
+
+		}
+
+		static void ConvertDynamicFormatterToString()
 		{
 			var ceras = new CerasSerializer();
 			var personFormatter = (DynamicFormatter<Person>)ceras.GetSpecificFormatter(typeof(Person));
 
 			var schema = ceras.GetTypeMetaData(typeof(Person)).PrimarySchema;
 
-			var normalDeserializer = DynamicFormatter<Person>.GenerateDeserializer(ceras, schema, false, false);
-			var schemaDeserializer = DynamicFormatter<Person>.GenerateDeserializer(ceras, schema, true, false);
+			var normalDeserializer = DynamicFormatter<Person>.GenerateDeserializer(ceras, schema, false);
+			var schemaDeserializer = DynamicFormatter<Person>.GenerateDeserializer(ceras, schema, true);
 
 			Func<TranslationSettings, TranslationSettings> configuration = s
 				=> s.TranslateConstantsUsing((type, obj) =>

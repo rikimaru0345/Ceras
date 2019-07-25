@@ -255,8 +255,8 @@ namespace LiveTesting
 			var meta = ceras.GetTypeMetaData(typeof(Person));
 			var schema = meta.PrimarySchema;
 
-			_serializer1 = DynamicFormatter<Person>.GenerateSerializer(ceras, schema, false, false).Compile();
-			//_serializer2 = DynamicFormatter<Person>.GenerateSerializer2(ceras, schema, false, false);
+			_serializer1 = DynamicFormatter<Person>.GenerateSerializer(ceras, schema, false).Compile();
+			//_serializer2 = DynamicFormatter<Person>.GenerateSerializer2(ceras, schema, false);
 		}
 
 

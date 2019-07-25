@@ -58,12 +58,15 @@ namespace Ceras.Test
 
 
 
-		public void TestDeepEquality<T>(T obj, TestMode testMode = TestMode.Default)
+		public void TestDeepEquality<T>(T obj, TestMode testMode = TestMode.Default, params SerializerConfig[] serializerConfigs)
 		{
 			if (_currentTestConfigurations == null || _currentTestConfigurations.Length == 0)
 				throw new InvalidOperationException("no test configurations");
 
-			foreach (var config in _currentTestConfigurations)
+			if(serializerConfigs == null || serializerConfigs.Length == 0)
+				serializerConfigs = _currentTestConfigurations;
+
+			foreach (var config in serializerConfigs)
 			{
 				if (!testMode.HasFlag(TestMode.AllowNull))
 					Assert.NotNull(obj);
@@ -80,8 +83,6 @@ namespace Ceras.Test
 				DeepComparer.Instance.CheckEquality(obj, clone);
 			}
 		}
-
-
 		public T Clone<T>(T source, SerializerConfig config = null)
 		{
 			var ceras = new CerasSerializer(config);

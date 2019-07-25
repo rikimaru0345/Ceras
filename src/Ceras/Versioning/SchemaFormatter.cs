@@ -159,8 +159,8 @@ namespace Ceras.Helpers
 			// Generate
 			if (schema.IsPrimary)
 			{
-				_serializer = DynamicFormatter<T>.GenerateSerializer(_ceras, schema, true, isStatic).Compile();
-				_deserializer = DynamicFormatter<T>.GenerateDeserializer(_ceras, schema, true, isStatic).Compile();
+				_serializer = DynamicFormatter<T>.GenerateSerializer(_ceras, schema, true).Compile();
+				_deserializer = DynamicFormatter<T>.GenerateDeserializer(_ceras, schema, true).Compile();
 			}
 			else
 			{
@@ -170,7 +170,7 @@ namespace Ceras.Helpers
 				// And we get into all sorts of troubles with type-conversion (not implemented yet, but it will probably arrive earlier than this...)
 				// This also protects us against bugs!
 				_serializer = ErrorSerializer;
-				_deserializer = DynamicFormatter<T>.GenerateDeserializer(_ceras, schema, true, isStatic).Compile();
+				_deserializer = DynamicFormatter<T>.GenerateDeserializer(_ceras, schema, true).Compile();
 			}
 
 			_currentSchema = schema;

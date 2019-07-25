@@ -432,6 +432,9 @@
 		/// Allow delegates even when they include an object reference (that will get serialized as well)
 		/// </summary>
 		AllowInstance = 1 << 1,
+
+
+		AllowAll = AllowStatic | AllowInstance,
 	}
 
 

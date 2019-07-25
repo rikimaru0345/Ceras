@@ -67,6 +67,7 @@ namespace Ceras
 		{
 			// Ceras has built-in support for some special types. Those are considered "primitives".
 			// This definition has little to do with 'Type.IsPrimitive', it's more about what Types have a "Schema".
+			// Serialization-Primitives have no schema, and their formatter can not be changed.
 
 			if (type.IsPrimitive)
 				return true;
@@ -739,6 +740,8 @@ namespace Ceras
 
 			meta.ReferenceFormatter = referenceFormatter;
 
+			meta.TypeConfig?.Seal();
+
 			return referenceFormatter;
 		}
 
@@ -770,6 +773,7 @@ namespace Ceras
 				meta.SpecificFormatter = meta.TypeConfig.CustomFormatter;
 				FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
 				PrepareFormatter(meta.SpecificFormatter);
+				meta.TypeConfig?.Seal();
 				return meta.SpecificFormatter;
 			}
 			if (!meta.IsPrimitive && meta.TypeConfig.CustomResolver != null)
@@ -778,6 +782,7 @@ namespace Ceras
 				meta.SpecificFormatter = formatter ?? throw new InvalidOperationException($"The custom formatter-resolver registered for Type '{type.FullName}' has returned 'null'.");
 				FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
 				PrepareFormatter(meta.SpecificFormatter);
+				meta.TypeConfig?.Seal();
 				return meta.SpecificFormatter;
 			}
 
@@ -792,6 +797,7 @@ namespace Ceras
 						meta.SpecificFormatter = formatter;
 						FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
 						PrepareFormatter(formatter);
+						meta.TypeConfig?.Seal();
 						return formatter;
 					}
 				}
@@ -804,6 +810,7 @@ namespace Ceras
 				{
 					meta.SpecificFormatter = formatter;
 					PrepareFormatter(formatter);
+					meta.TypeConfig?.Seal();
 					return formatter;
 				}
 			}
@@ -815,6 +822,7 @@ namespace Ceras
 				{
 					meta.SpecificFormatter = formatter;
 					PrepareFormatter(formatter);
+					meta.TypeConfig?.Seal();
 					return formatter;
 				}
 			}
@@ -1031,7 +1039,6 @@ namespace Ceras
 				return null;
 
 			var typeConfig = Config.GetTypeConfig(type, isStatic);
-			typeConfig.Seal();
 
 			Schema schema = new Schema(true, type, typeConfig, isStatic);
 

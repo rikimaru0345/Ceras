@@ -131,7 +131,7 @@
 
 			var configType = typeof(MemberConfig<>).MakeGenericType(type);
 
-			var members = from m in  isStatic ? type.GetAllStaticDataMembers() : type.GetAllDataMembers()
+			var members = from m in isStatic ? type.GetAllStaticDataMembers() : type.GetAllDataMembers()
 						  let a = new object[] { this, m }
 						  select (MemberConfig)Activator.CreateInstance(configType,
 																	  BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
@@ -153,7 +153,7 @@
 			for (int i = 0; i < _allMembers.Count; i++)
 			{
 				var mc = _allMembers[i];
-				if(mc.Member == memberInfo)
+				if (mc.Member == memberInfo)
 					return mc;
 			}
 
@@ -203,11 +203,11 @@
 			return true;
 		}
 
-		
+
 
 		internal void Seal()
 		{
-			if(_isSealed)
+			if (_isSealed)
 				return;
 
 			VerifyAll();
@@ -219,20 +219,23 @@
 		{
 			VerifyConstructionMethod();
 
-			foreach(var member in Members)
-				if(member.ComputeFinalInclusionFast())
+			foreach (var member in Members)
+				if (member.ComputeFinalInclusionFast())
 					VerifyName(member.PersistentName);
 		}
 
 		void VerifyConstructionMethod()
 		{
+			if (CerasSerializer.IsFormatterConstructed(Type))
+				return;
+
 			if (TypeConstruction == null)
 				throw new CerasException($"You have not configured a construction mode for the type '{Type.FullName}' and it has no parameterless constructor. There are many ways Ceras can handle this, select one of the methods in the TypeConfig ('config.ConfigType<YourType>().ConstructBy(...)')");
 
 			TypeConstruction.VerifyReturnType();
 			TypeConstruction.VerifyParameterMapping();
 		}
-		
+
 		static void VerifyName(string name)
 		{
 			if (string.IsNullOrWhiteSpace(name))
@@ -571,7 +574,7 @@
 			_explicitInclusionReason = reason;
 		}
 
-		
+
 		/// <summary>
 		/// Determine whether or not this member is included when serializing/deserializing.
 		/// </summary>
