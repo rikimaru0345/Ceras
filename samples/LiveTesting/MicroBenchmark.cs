@@ -99,7 +99,7 @@ namespace LiveTesting
 						? $"{(1 / factor * 100) - 100:0}% faster!"
 						: $"{((1 - factor) * 100):0}% SLOWER!!";
 
-				var name = jobs[i].name.PadLeft(padLeft);
+				var name = jobs[i].Name.PadLeft(padLeft);
 				Console.WriteLine($"{name}: {elapsedMs[i],5:0} ms ({factor:0.00}x) {fasterSlower}");
 			}
 		}
