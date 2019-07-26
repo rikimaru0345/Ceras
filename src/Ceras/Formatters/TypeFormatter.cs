@@ -1,30 +1,21 @@
 ﻿namespace Ceras.Formatters
 {
-	using System;
+    using Ceras.Helpers;
+    using System;
 
 
 	/*
-	 * Important:
-	 * For a long time this was wrapped into a ReferenceFormatter, but that had a problem.
-	 * Assuming we've added List<> and MyObj to KnownTypes, then List<MyObj> was still not known, which is bad!
-	 * The ReferenceFormatter only deals with concrete values and can't know that List<MyObj> can
-	 * be assembled from some already existing "primitives" (in our example case: List<> and MyObj).
+	 * What does TypeFormatter do?
 	 * 
-	 * The TypeFormatter is aware of this and deals with it in the most efficient way by splitting each generic
-	 * type into its components and serializing them individually, so they can be reconstructed from their individual parts.
+	 * Assuming we have 'List<>' and 'MyObj' in KnownTypes. And now we want to serialize 'List<MyObj>', but that type isn't known!
+	 * ReferenceFormatter (where this functionality was originally located) only deals with actual, concrete, values and can't
+	 * know that List<MyObj> can be assembled from some already existing "primitives" (in our example case: List<> and MyObj).
 	 * 
-	 * This saves a ton of space (and thus time!)
-	 */
-
-
-	/*
-	 * Todo 1:
+	 * TypeFormatter however is aware of this.
+	 * It splits each generic type into its components and serializes them individually, 
+	 * so they can be reconstructed from their individual parts.
 	 * 
-	 * right now we have checks like this:
-	 *		if (_ceras.Config.VersionTolerance == VersionTolerance.AutomaticEmbedded)
-	 * 
-	 * Would it be possible to remove them, and create a 'SchemaTypeFormatter' which overrides Serialize and Deserialize and adds that to the end?
-	 * Would it be faster? Would serialization performance be impacted negatively when not using VersionTolerance because of the virtual methods?
+	 * This saves a ton of space (and time!)
 	 */
 
 	sealed class TypeFormatter : IFormatter<Type>
@@ -160,7 +151,7 @@
 			{
 				var proxy = typeCache.CreateDeserializationProxy();
 
-				string baseTypeName = SerializerBinary.ReadString(buffer, ref offset);
+				string baseTypeName = SerializerBinary.ReadStringLimited(buffer, ref offset, 350);
 				type = _typeBinder.GetTypeFromBase(baseTypeName);
 
 				proxy.Type = type;
@@ -174,11 +165,11 @@
 		{
 			if (serializing)
 			{
-				throw new InvalidOperationException($"Serialization Error: The type '{type.FullName}' cannot be added to the TypeCache because the cache is sealed (most likely on purpose to protect against exploits). Check your SerializerConfig (KnownTypes, SealType... ), or open a github issue if you think this is not supposed to happen with your settings.");
+				throw new InvalidOperationException($"Serialization Error: The type '{type.FriendlyName(true)}' cannot be added to the TypeCache because the cache is sealed (most likely on purpose to protect against exploits). Check your SerializerConfig (KnownTypes, SealType... ), or open a github issue if you think this is not supposed to happen with your settings.");
 			}
 			else
 			{
-				throw new InvalidOperationException($"Deserialization Error: The data contained the type '{type.FullName}', but embedding of types that are not known in advance is not allowed in the current SerializerConfig (most likely on purpose to protect against exploits). Check your SerializerConfig (KnownTypes, SealType... ), or open a github issue if you think this is not supposed to happen with your settings.");
+				throw new InvalidOperationException($"Deserialization Error: The data contained the type '{type.FriendlyName(true)}', but embedding of types that are not known in advance is not allowed in the current SerializerConfig (most likely on purpose to protect against exploits). Check your SerializerConfig (KnownTypes, SealType... ), or open a github issue if you think this is not supposed to happen with your settings.");
 			}
 		}
 
@@ -190,18 +181,3 @@
 
 	}
 }
-
-
-/*
- * Explanation:
- * 
- * 	When we're deserializing any nested types (ex: Literal<float>)
-	then we're writing Literal`1 as 0, and System.Single as 1
-	but while reading, we're recursively descending, so System.Single would get read first (as 0)
-	which would throw off everything.
-	Solution: 
-	Reserve some space (inserting <null>) into the object-cache before actually reading, so all the nested things will just append to the list as intended.
-	and then just overwrite the inserted placeholder with the actual value once we're done.
-	This only works for types, since generic types obviously can't recursively contain exact copies of themselves.
- * 
- */

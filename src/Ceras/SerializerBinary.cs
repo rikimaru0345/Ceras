@@ -379,7 +379,7 @@
 				return null;
 
 			if ((uint)length > maxLength)
-				throw new InvalidOperationException($"The current data contains a string of length '{length}', but the maximum allowed string length is '{maxLength}'");
+				throw new InvalidOperationException($"The data contains a string of length '{length}', but the maximum allowed string length is '{maxLength}'");
 
 
 			// Data
