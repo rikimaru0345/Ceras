@@ -10,7 +10,6 @@
 	using System.Reflection;
 	using AgileObjects.ReadableExpressions;
 
-	// todo check if generic user classes are handled as well
 	static class SourceFormatterGenerator
 	{
 		public static void GenerateAll(List<Type> targets, CerasSerializer ceras, StringBuilder text)
