@@ -74,8 +74,8 @@ namespace Ceras.Test
 			Action<int> delegate1 = DelegateTest.TakeIntStatic;
 			Func<int> delegate2 = DelegateTest.Get5Static;
 
-			TestDeepEquality(delegate1, TestMode.Default, config);
-			TestDeepEquality(delegate2, TestMode.Default, config);
+			//TestDeepEquality(delegate1, TestMode.Default, config);
+			//TestDeepEquality(delegate2, TestMode.Default, config);
 
 
 			// Merged Recursive ((x+x) + x)

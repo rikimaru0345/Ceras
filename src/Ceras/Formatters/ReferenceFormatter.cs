@@ -114,7 +114,7 @@ where T : class
 					SerializerBinary.WriteByte(ref buffer, ref offset, ExternalObject);
 
 					var refId = externalObj.GetReferenceId();
-					SerializerBinary.WriteInt32(ref buffer, ref offset, refId);
+					SerializerBinary.WriteUInt32Fixed(ref buffer, ref offset, (uint)refId);
 
 					_ceras.Config.OnExternalObject?.Invoke(externalObj);
 
@@ -129,7 +129,7 @@ where T : class
 				{
 					// Existing value
 					SerializerBinary.WriteByte(ref buffer, ref offset, Backreference);
-					SerializerBinary.WriteUInt32(ref buffer, ref offset, (uint)id);
+					SerializerBinary.WriteUInt32Fixed(ref buffer, ref offset, (uint)id);
 					return;
 				}
 
@@ -178,13 +178,13 @@ where T : class
 
 			case Backreference:
 				// Something we already know
-				var objectId = SerializerBinary.ReadInt32(buffer, ref offset);
+				var objectId = (int)SerializerBinary.ReadUInt32Fixed(buffer, ref offset);
 				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objectId);
 				return;
 
 			case ExternalObject:
 				// Let the user resolve
-				var externalId = SerializerBinary.ReadInt32(buffer, ref offset);
+				var externalId = (int)SerializerBinary.ReadUInt32Fixed(buffer, ref offset);
 				_ceras.Config.ExternalObjectResolver.Resolve(externalId, out value);
 				return;
 
@@ -654,14 +654,14 @@ where T : class
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
-			// Null?
+			// Null
 			if (value is null)
 			{
 				SerializerBinary.WriteByte(ref buffer, ref offset, Null);
 				return;
 			}
 
-			// Register reference
+			// Backreference
 			if (_allowReferences)
 				if (_ceras.InstanceData.ObjectCache.GetObjectIdOrRegister(value, out int id))
 				{
@@ -671,7 +671,7 @@ where T : class
 					return;
 				}
 
-			// New value (same type)
+			// NewObject (same type)
 			SerializerBinary.WriteByte(ref buffer, ref offset, NewObject);
 			_formatter.Serialize(ref buffer, ref offset, value);
 		}
@@ -695,10 +695,19 @@ where T : class
 			if (value == null)
 				value = _constructor();
 
-			
+
 			if (_allowReferences)
 			{
-				// Deserialize the object
+				// Backreference
+				if (code == Backreference)
+				{
+					var objectId = (int)SerializerBinary.ReadUInt32Fixed(buffer, ref offset);
+					value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objectId);
+					return;
+				}
+
+
+				// NewObject
 				// 1. First generate a proxy so we can do lookups
 				var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
 

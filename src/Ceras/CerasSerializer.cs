@@ -54,9 +54,10 @@ namespace Ceras
 
 		internal static bool IsFormatterConstructed(Type type)
 		{
-			// Array is also always constructed by the caller, but it is handled separately
-
 			if (type.IsAbstract)
+				return true;
+
+			if(type.IsArray)
 				return true;
 
 			lock (_formatterConstructedTypes)
