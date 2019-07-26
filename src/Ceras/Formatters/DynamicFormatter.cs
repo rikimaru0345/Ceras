@@ -34,6 +34,8 @@ namespace Ceras.Formatters
 
 		internal static LambdaExpression GenerateSerializer(Type formattedType, CerasSerializer ceras, Schema schema, bool isSchemaFormatter)
 		{
+			schema.TypeConfig.Seal();
+
 			var members = schema.Members;
 			var bufferArg = Parameter(typeof(byte[]).MakeByRefType(), "buffer");
 			var offsetArg = Parameter(typeof(int).MakeByRefType(), "offset");
@@ -139,6 +141,7 @@ namespace Ceras.Formatters
 			bool verifySizes = isSchemaFormatter && ceras.Config.VersionTolerance.VerifySizes;
 			var members = schema.Members;
 			var typeConfig = ceras.Config.GetTypeConfig(schema.Type, schema.IsStatic);
+			typeConfig.Seal();
 			var tc = typeConfig.TypeConstruction;
 
 			bool callObjectConstructor = tc.HasDataArguments; // Are we responsible for instantiating an object?
@@ -195,6 +198,9 @@ namespace Ceras.Formatters
 
 				if (!UseLocal(m.MemberInfo))
 					continue; // fields can be deserialized by ref
+
+				if(callObjectConstructor)
+					continue; // calling a ctor means our current 'value' is 'null', so we can't take the existing values. We do however create locals for the members (otherwise where would we store the values we read until we finally construct the object?)
 
 				// Init the local with the current value
 				var local = memberInfoToLocal[m.MemberInfo];
