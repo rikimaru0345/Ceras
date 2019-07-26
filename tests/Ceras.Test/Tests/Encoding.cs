@@ -19,7 +19,7 @@
 			byte[] data;
 
 			data = _ceras.Serialize<object>(null);
-			Assert.Equal(new byte[1] { 4 }, data); // Must be 4, because we're encoding a biased int marker
+			Assert.Equal(new byte[1] { 0 }, data);
 
 			data = _ceras.Serialize<string>(null);
 			Assert.Equal(new byte[1] { 0 }, data); // Strings do not use the reference formatter (maybe adding that later as an option if any good use cases are presented). The string formatter uses its own bias-encoding for even more efficient packing, so 0 = null, 1 = string of length 0, 2 = string of length 1, ...
