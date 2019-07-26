@@ -533,8 +533,11 @@ where T : class
 													$"You can either set a default setting for all types (config.DefaultTypeConstructionMode) or configure it for individual types in config.ConfigType<YourType>()... For more examples take a look at the tutorial.");
 			}
 
-			if (tc.HasDataArguments || tc is ConstructNull)
+			if (tc is ConstructNull || tc.HasDataArguments)
 			{
+				// ConstructNull is obvious, but we also don't construct and object if the ctor has data arguments!
+				// Why? Because this "TypeConstruction" thing is only for the ReferenceFormatter! And the reference formatter obviously can't call a ctor that has arguments!
+				// That ctor will be called by the DynamicFormatter instead, while the ReferenceFormatter just passes in 'null'
 				return ReflectionHelper._nullResultDelegate;
 			}
 			else

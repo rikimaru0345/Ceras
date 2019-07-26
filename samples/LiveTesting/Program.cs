@@ -32,7 +32,8 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
-			new Ceras.Test.BuiltInTypes().ObjectArrays();
+			new Ceras.Test.Encoding().Null();
+			new Ceras.Test.ConstructionAndPooling().TestDirectPoolingMethods();
 			new Ceras.Test.BuiltInTypes().Delegates();
 			new Ceras.Test.Blitting().BlittableTypesUseCorrectFormatter();
 

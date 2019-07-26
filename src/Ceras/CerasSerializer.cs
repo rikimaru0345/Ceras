@@ -741,8 +741,6 @@ namespace Ceras
 
 			meta.ReferenceFormatter = referenceFormatter;
 
-			meta.TypeConfig?.Seal();
-
 			return referenceFormatter;
 		}
 

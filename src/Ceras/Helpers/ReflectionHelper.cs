@@ -10,7 +10,8 @@
 
 	static class ReflectionHelper
 	{
-		internal static readonly Func<object> _nullResultDelegate = () => null;
+		static object ReturnNull() => null;
+		internal static readonly Func<object> _nullResultDelegate = (Func<object>)ReturnNull;
 		static readonly Dictionary<Type, int> _typeToUnsafeSize = new Dictionary<Type, int>();
 		
 
