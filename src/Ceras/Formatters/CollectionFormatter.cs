@@ -8,8 +8,8 @@
 
 	// todo: Can we optimize the call to IFormater<TItem> ? We cache it into a local already, but but can we do better?
 
-	// Simple formatter for Arrays.
-	// Writes elements one by one. ReinterpretArrayFormatter is faster and gets used whenever possible.
+	// Simple formatter for Arrays. Should only be used when the element type is int-like and varint encoded.
+	// Otherwise (when using fixed size int encoding) the ReinterpretArrayFormatter is much faster.
 	public sealed class ArrayFormatter<TItem> : IFormatter<TItem[]>
 	{
 		readonly IFormatter<TItem> _itemFormatter;

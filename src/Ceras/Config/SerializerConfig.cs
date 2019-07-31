@@ -201,10 +201,18 @@
 			get => _onConfigNewType;
 			set
 			{
-				if (_onConfigNewType == null)
-					_onConfigNewType = value;
-				else
-					throw new InvalidOperationException(nameof(OnConfigNewType) + " is already set. Multiple type configuration callbacks would overwrite each others changes, you must collect all the callbacks into one function to maintain detailed control over how each Type gets configured.");
+				// Always allow setting to null, maybe the user has used the getter and is constructing their own "cascade" of type-configs now after getting the exception below.
+				if(value == null)
+				{
+					_onConfigNewType = null;
+					return;
+				}
+
+				// Can't overwrite if there's already a configuration set
+				if (_onConfigNewType != null)
+					throw new InvalidOperationException(nameof(OnConfigNewType) + $" has already been set somewhere else!\r\n (The method registered is: \"{_onConfigNewType.Method.Name}\")\r\n Multiple type configuration callbacks would overwrite each others changes in no specified order. If that's what you want, you should save the current callback in a local variable, then set '{nameof(OnConfigNewType)}' to null, and then set your combined method...");
+
+				_onConfigNewType = value;
 			}
 		}
 		Action<TypeConfig> _onConfigNewType;
@@ -237,6 +245,9 @@
 		bool IAdvancedConfigOptions.RespectNonSerializedAttribute { get; set; } = true;
 		BitmapMode IAdvancedConfigOptions.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
 		AotMode IAdvancedConfigOptions.AotMode { get; set; } = AotMode.None;
+
+		IntEncodingMethod IAdvancedConfigOptions.DefaultIntEncoding { get; set; } = IntEncodingMethod.Variable;
+		IntEncodingMethod IAdvancedConfigOptions.DefaultIntArrayEncoding { get; set; } = IntEncodingMethod.Fixed;
 
 		#endregion
 
@@ -366,9 +377,20 @@
 		BitmapMode BitmapMode { get; set; }
 
 		/// <summary>
-		/// On an AoT platforms (for example Unity IL2CPP) Ceras can not use dynamic code generation. When enabled, Ceras will use reflection for everything where it would otherwise use dynamic code generation. This is slow, but it allows for testing and debugging on those platforms until 
+		/// On an AoT platform (for example Unity IL2CPP) Ceras can not use dynamic code generation. When enabled, Ceras will use reflection for everything where it would otherwise use dynamic code generation. This is slow, but it allows for testing and debugging on those platforms until 
 		/// </summary>
 		AotMode AotMode { get; set; }
+
+		/// <summary>
+		/// Controls how fields/properties of short/ushort/int/uint/long/ulong are encoded by default (if not overriden using TypeConfig).
+		/// <para>Fixed means uncompressed, so fastest de/serialization; Variable spends a little time to compress values.</para>
+		/// </summary>
+		IntEncodingMethod DefaultIntEncoding { get; set; }
+
+		/// <summary>
+		/// Controls how arrays of short/ushort/int/uint/long/ulong are encoded. Take a look at the <see cref="DefaultIntEncoding"/> setting for more information.
+		/// </summary>
+		IntEncodingMethod DefaultIntArrayEncoding { get; set; }
 	}
 
 	public interface ISizeLimitsConfig
@@ -527,4 +549,18 @@
 		/// </summary>
 		Enabled,
 	}
+
+	public enum IntEncodingMethod
+	{
+		/// <summary>
+		/// Uses the "normal" fixed size for each 16/32/64-bit integer. That means int/uint will consume 4 bytes, long/ulong will use 8 bytes, ...
+		/// This is the fastest setting, but doesn't save any binary space.
+		/// </summary>
+		Fixed,
+		/// <summary>
+		/// Variable length encoding compresses datatypes like <see cref="int"/> when their value is small. For example an int field containing the value '5' will only use a single byte when serialized. You're trading de/serialization speed for binary size.
+		/// </summary>
+		Variable,
+	}
+
 }

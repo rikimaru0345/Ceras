@@ -105,13 +105,6 @@ namespace Ceras.Test
 			typeof(SByteFormatter),
 
 			typeof(CharFormatter),
-			typeof(Int16FixedFormatter),
-			typeof(UInt16FixedFormatter),
-
-			typeof(Int32FixedFormatter),
-			typeof(UInt32FixedFormatter),
-			typeof(Int64FixedFormatter),
-			typeof(UInt64FixedFormatter),
 
 			typeof(FloatFormatter),
 			typeof(DoubleFormatter),

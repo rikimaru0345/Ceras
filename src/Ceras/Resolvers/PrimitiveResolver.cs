@@ -18,14 +18,14 @@
 
 			[typeof(char)] = new CharFormatter(),
 
-			[typeof(short)] = new Int16FixedFormatter(),
-			[typeof(ushort)] = new UInt16FixedFormatter(),
+			[typeof(short)] = new Int16Formatter(),
+			[typeof(ushort)] = new UInt16Formatter(),
 
-			[typeof(int)] = new Int32FixedFormatter(),
-			[typeof(uint)] = new UInt32FixedFormatter(),
+			[typeof(int)] = new Int32Formatter(),
+			[typeof(uint)] = new UInt32Formatter(),
 
-			[typeof(long)] = new Int64FixedFormatter(),
-			[typeof(ulong)] = new UInt64FixedFormatter(),
+			[typeof(long)] = new Int64Formatter(),
+			[typeof(ulong)] = new UInt64Formatter(),
 
 			[typeof(float)] = new FloatFormatter(),
 			[typeof(double)] = new DoubleFormatter(),
@@ -33,15 +33,6 @@
 			[typeof(IntPtr)] = new IntPtrFormatter(),
 			[typeof(UIntPtr)] = new UIntPtrFormatter(),
 		};
-
-		readonly CerasSerializer _ceras;
-
-
-
-		public PrimitiveResolver(CerasSerializer ceras)
-		{
-			_ceras = ceras;
-		}
 
 		public IFormatter GetFormatter(Type type)
 		{
@@ -53,6 +44,5 @@
 
 			return null;
 		}
-
 	}
 }
