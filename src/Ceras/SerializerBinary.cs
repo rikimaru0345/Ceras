@@ -1,5 +1,6 @@
 ﻿namespace Ceras
 {
+	using Ceras.Formatters;
 	using System;
 	using System.Diagnostics;
 	using System.Runtime.CompilerServices;
@@ -10,6 +11,41 @@
 	public static unsafe class SerializerBinary
 	{
 		#region Variable Length Encoding (Int32, UInt32, Int64, UInt64)
+
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteInt16(ref byte[] buffer, ref int offset, short value)
+		{
+			EnsureCapacity(ref buffer, offset, 2 + 1);
+
+			var zigZag = EncodeZigZag16((long)value);
+			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static short ReadInt16(byte[] buffer, ref int offset)
+		{
+			var zigZag = ReadVarInt(buffer, ref offset, 16);
+			return (short)DecodeZigZag(zigZag);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static void WriteUInt16(ref byte[] buffer, ref int offset, ushort value)
+		{
+			EnsureCapacity(ref buffer, offset, 2 + 1);
+
+			var zigZag = EncodeZigZag16((long)value);
+			WriteVarInt(ref buffer, ref offset, (ulong)zigZag);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static ushort ReadUInt16(byte[] buffer, ref int offset)
+		{
+			var zigZag = ReadVarInt(buffer, ref offset, 16);
+			return (ushort)DecodeZigZag(zigZag);
+		}
+
+
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteInt32(ref byte[] buffer, ref int offset, int value)
@@ -76,9 +112,12 @@
 			return (ulong)DecodeZigZag(zigZag);
 		}
 
-		
+
 
 		// public static long EncodeZigZag(long value, int bitLength) => (value << 1) ^ (value >> (bitLength - 1));
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long EncodeZigZag16(long value) => (value << 1) ^ (value >> (16 - 1));
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static long EncodeZigZag32(long value) => (value << 1) ^ (value >> (32 - 1));
@@ -98,7 +137,7 @@
 		}
 
 
-		
+
 		// todo: 
 		// 1. Test if unrolling (to max 9 bytes) is faster than our loop
 		// 2. I've read about some optimization that could be applied to the protobuf varint writer, maybe the same can be done here?
@@ -141,7 +180,7 @@
 				shift += 7;
 			}
 		}
-		
+
 		[MethodImpl(MethodImplOptions.NoInlining)]
 		static void ThrowMalformedVarInt()
 		{
@@ -196,7 +235,7 @@
 
 		#endregion
 
-		
+
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteByte(ref byte[] buffer, ref int offset, byte value)
 		{
@@ -365,7 +404,7 @@
 			// Data
 			var str = _utf8Encoding.GetString(buffer, offset, length);
 			offset += length;
-			
+
 			return str;
 		}
 
@@ -387,6 +426,155 @@
 			offset += length;
 
 			return str;
+		}
+
+
+		// todo: save encoder/decoder into threadlocal, call reset after use
+
+		[ThreadStatic]
+		static char[] _stringDecodingBuffer;
+
+		public unsafe static void WriteStringNew(ref byte[] buffer, ref int offset, string str)
+		{
+			// First byte:
+			// The most-significant-bit (MSB) is the "ExtendedStringFlag", which tells us
+			// if we're dealing with a short string or a long one.
+			// 
+			// - ExtendedStringFlag is NOT SET (0-127):
+			//	 127: null
+			// 0-126: length in bytes
+			//
+			// - ExtendedStringFlag is SET (128-255):
+			// Interpret the byte with the special flag masked out (so its not set),
+			// so you have a value between 0 and 127 again.
+			// This number tells you how many bytes were actually written,
+			// And because we're in the special case, we also know that a VarUInt32 will follow after those initial bytes,
+			// which will then tell us how many more bytes there will be.
+
+			// It is most likely possible to squeeze a few more bytes/characters in there by using the bits in an even smarter way.
+			// I implemented a simple test to measure the performance characteristics of many different strings (all A, random, emoji, ...) with
+			// all different lengths from 0 to 1000 and ran it on multiple machines to see how big the encoding-overhead is compared to
+			// any potential savings a smarter encoding could possibly give.
+			// 
+			// (Un)surprisingly keeping it simple prevails yet again.
+			// With any string longer than ~64 bytes the encoding overhead totally drowns out any potential performance gains.
+			//
+			// That means the actual *smart* play here is to not spend any time on better string encoding (which won't save us any cpu cycles anyway)
+			// and invest that time into making other features better :)
+
+			if (str == null)
+			{
+				WriteByte(ref buffer, ref offset, 127); // 127 == null
+				return;
+			}
+
+			int totalMaximumBytes = 1 // code-prefix
+				+ 4 // max number of remaining bytes
+				+ str.Length * 2; // maximum str bytes
+
+			EnsureCapacity(ref buffer, offset, totalMaximumBytes);
+
+			var encoding = _utf8Encoding;
+			var encoder = encoding.GetEncoder();
+
+
+			int codeOffset = offset; // where we'll write our "start code"
+			offset += 1; // leave 1 byte space for later
+
+
+			fixed (char* strChars = str)
+			fixed (byte* bufferPtr = buffer)
+			{
+				var targetPtr = bufferPtr + offset;
+
+				encoder.Convert(strChars, str.Length, targetPtr, 126, false, out int charsUsed, out int bytesUsed, out bool isComplete);
+
+				offset += bytesUsed;
+
+				if (isComplete)
+				{
+					// We're done! Just tell the reader how many bytes there are
+					buffer[codeOffset] = (byte)bytesUsed;
+				}
+				else
+				{
+					// We need more space, so let the reader know the number of bytes so far plus the "extended flag"
+					buffer[codeOffset] = (byte)(128 | (byte)bytesUsed);
+
+					// Also so lets leave a gap here for the remaining space
+					int additionalSizeOffset = offset;
+					offset += 4;
+
+					// Continue encoding until the end
+					targetPtr = bufferPtr + offset;
+					int remainingSpace = buffer.Length - offset;
+					encoder.Convert(strChars + charsUsed, str.Length - charsUsed, targetPtr, remainingSpace, true, out charsUsed, out bytesUsed, out isComplete);
+
+					Debug.Assert(isComplete, "string encoding not complete after second encode pass");
+
+					// Let the reader know how many remaining bytes there are
+					Unsafe.As<byte, uint>(ref buffer[additionalSizeOffset]) = (uint)bytesUsed;
+
+					offset += bytesUsed;
+				}
+			}
+		}
+
+		public unsafe static string ReadStringNew(byte[] buffer, ref int offset)
+		{
+			byte code = buffer[offset++];
+			bool isExtended = (code & 128) != 0;
+			int length1 = code & 127;
+
+			var encoding = _utf8Encoding;
+
+			if (!isExtended)
+			{
+				// Short string, read in one step
+				var result = encoding.GetString(buffer, offset, length1);
+
+				offset += length1;
+
+				return result;
+			}
+			else
+			{
+				// Long string
+				int length2 = (int)Unsafe.As<byte, uint>(ref buffer[offset + length1]);
+				int totalLength = length1 + length2;
+				
+				// Assume maximum case: every byte will result in one character
+				var charBuffer = _stringDecodingBuffer;
+				if(charBuffer == null || charBuffer.Length < totalLength)
+				{
+					int bufferSize = totalLength;
+					if(bufferSize < 0x1000)
+						bufferSize = 0x1000;
+					_stringDecodingBuffer = charBuffer = new char[bufferSize];
+				}
+				
+				// Read first part
+				var decoder = encoding.GetDecoder();
+				
+				int totalChars = 0;
+
+				fixed (byte* bufferPtr = buffer)
+				fixed (char* charPtr = charBuffer)
+				{
+					var ptrPart1 = bufferPtr + offset;
+					int charactersRead1 = decoder.GetChars(ptrPart1, length1, charPtr, totalLength, false);
+
+					var ptrPart2 = bufferPtr + offset + length1 + 4; // "length2" is an int, that's where 4 comes from
+					int charactersRead2 = decoder.GetChars(ptrPart2, length2, charPtr + charactersRead1, totalLength, true);
+
+					totalChars = charactersRead1 + charactersRead2;
+				}
+
+				offset += length1 + length2 + 4;
+
+				var result = new string(charBuffer, 0, totalChars);
+				return result;
+			}
 		}
 
 
@@ -583,12 +771,12 @@
 		{
 			var oldBuffer = buffer;
 
-			#if DEBUG
+#if DEBUG
 			if (newSize <= 0)
 				throw new ArgumentOutOfRangeException(nameof(newSize));
 			if (newSize <= oldBuffer.Length)
 				throw new ArgumentOutOfRangeException(nameof(newSize) + " cannot be smaller than (or equal to) the old size");
-			#endif
+#endif
 
 
 			// Get a new buffer

@@ -32,18 +32,19 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
+			SegmentedStringWriting();
+
 			new Ceras.Test.Encoding().Null();
 			new Ceras.Test.ConstructionAndPooling().TestDirectPoolingMethods();
 			new Ceras.Test.BuiltInTypes().Delegates();
 			new Ceras.Test.Blitting().BlittableTypesUseCorrectFormatter();
 
-			SegmentedStringWriting();
 
 			CerasSerializer ceras = new CerasSerializer();
 			Person obj = null;
 			var bytes = ceras.Serialize(obj);
 
-			
+
 			AvoidDispatch.AvoidDispatchTest.Test();
 
 
@@ -130,68 +131,70 @@ namespace LiveTesting
 
 		unsafe static void SegmentedStringWriting()
 		{
-			// 1. delegates with multiple invocations
-			// 2. String encoding
 			// 3. Type codes
 
-			string str = "😀 😁 😂 🤣 😃 😄 😅 😆 😉 😊 😋 😎 😍 😘 🥰 😗 😙 😚 ☺️ ";
-			Console.WriteLine("Converting: " + str);
+			string str1 = "😀😁😂🤣😃😄😅😆😉😊😋😎😍😘🥰😗😙😚";
+			var str2 = str1;
+			str2 += str2;
+			str2 += str2;
+			str2 += str2;
 
-			var encoding = Encoding.UTF8;
-			var encoder = encoding.GetEncoder();
-			var decoder = encoding.GetDecoder();
+			var str3 = str2 + str2 + str2;
 
-
-			// ! Remaining problem: we don't remember how long each segment is. We assume they are all equally long, but that's not true. If a char doesn't fit, it will be shorter!
-
-			int segmentSize = 8;
-			List<byte[]> segments = new List<byte[]>();
-
-			int totalCharsConsumed = 0;
-			int totalBytesConsumed = 0;
-
-			while (true)
+			string[] testStrings = new string[]
 			{
-				byte[] segment = new byte[segmentSize];
+				"a",
+				"b",
+				"c",
+				"d",
+				"1234567890",
+				"1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890",
+				"😀",
+				"😀😀😀",
+				str1,
+				str2,
+				str3,
+			};
 
-				fixed (char* strPtr = str)
-				fixed (byte* bufferPtr = segment)
+			var jobs = new BenchJob[]
+			{
+				("Old", () =>
 				{
-					char* p = strPtr + totalCharsConsumed;
+					foreach (var testString in testStrings)
+					{
+						byte[] buffer = new byte[1];
+						int offset = 0;
+						SerializerBinary.WriteString(ref buffer, ref offset, testString);
 
-					int nChars = str.Length - totalCharsConsumed;
+						offset = 0;
+						var strCopy = SerializerBinary.ReadString(buffer, ref offset);
 
-					encoder.Convert(p, nChars, bufferPtr, segment.Length, false, out int usedChars, out int usedBytes, out bool isComplete);
-
-					totalCharsConsumed += usedChars;
-					totalBytesConsumed += usedBytes;
-
-					segments.Add(segment);
-
-					if (isComplete)
-						break;
-				}
-			}
-
-
-			char[] resultChars = new char[str.Length];
-			int totalDecodedChars = 0;
-			int totalBytesDecoded = 0;
-
-			for (int i = 0; i < segments.Count; i++)
-			{
-				var segment = segments[i];
+						if (testString != strCopy)
+							Debug.Fail("string encoding failure");
+					}
+				}),
 				
-				// Either use the full segment length, or the correct length when its the last segment
-				int segmentLength = Math.Min(segment.Length, totalBytesConsumed - totalBytesDecoded);
+				("New", () =>
+				{
+					foreach (var testString in testStrings)
+					{
+						byte[] buffer = new byte[1];
+						int offset = 0;
+						SerializerBinary.WriteStringNew(ref buffer, ref offset, testString);
 
-				int decoded = decoder.GetChars(segment, 0, segmentLength, resultChars, totalDecodedChars);
+						offset = 0;
+						var strCopy = SerializerBinary.ReadStringNew(buffer, ref offset);
 
-				totalDecodedChars += decoded;
-				totalBytesDecoded += segmentLength;
-			}
+						if(testString != strCopy)
+							Debug.Fail("string encoding failure");
+					}
+				}),
+			};
 
-			var decodedString = new string(resultChars);
+			MicroBenchmark.Run(1, jobs);
+
+			Console.WriteLine("done");
+			Console.ReadKey();
 
 		}
 
