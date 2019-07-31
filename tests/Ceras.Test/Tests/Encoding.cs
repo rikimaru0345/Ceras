@@ -22,7 +22,7 @@
 			Assert.Equal(new byte[1] { 0 }, data);
 
 			data = _ceras.Serialize<string>(null);
-			Assert.Equal(new byte[1] { 0 }, data); // Strings do not use the reference formatter (maybe adding that later as an option if any good use cases are presented). The string formatter uses its own bias-encoding for even more efficient packing, so 0 = null, 1 = string of length 0, 2 = string of length 1, ...
+			Assert.Equal(new byte[1] { 127 }, data); // Strings do not use the reference formatter (maybe adding that later as an option if any good use cases are presented). The string formatter uses its own bias-encoding for even more efficient packing.
 
 			data = _ceras.Serialize(0);
 			Assert.Equal(new byte[1] { 0 }, data); // VarInt encoding should not use a bias
@@ -47,14 +47,14 @@
 
 
 			data = _ceras.Serialize<short>(1);
-			Assert.Equal(2, data.Length);
+			Assert.Equal(1, data.Length);
 
 			data = _ceras.Serialize<short>(short.MaxValue);
-			Assert.Equal(2, data.Length);
+			Assert.Equal(3, data.Length);
 
 
 			data = _ceras.Serialize("12345");
-			Assert.Equal(new byte[] { 6, 49, 50, 51, 52, 53 }, data); // 1byte length, 5bytes content
+			Assert.Equal(new byte[] { 5, 49, 50, 51, 52, 53 }, data); // 1byte length, 5bytes content
 		}
 
 		[Fact]

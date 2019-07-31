@@ -366,7 +366,7 @@
 		static readonly UTF8Encoding _utf8Encoding = new UTF8Encoding(false, true);
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteString(ref byte[] buffer, ref int offset, string value)
+		public static void WriteStringOld(ref byte[] buffer, ref int offset, string value)
 		{
 			if (value == null)
 			{
@@ -393,7 +393,7 @@
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static string ReadString(byte[] buffer, ref int offset)
+		public static string ReadStringOld(byte[] buffer, ref int offset)
 		{
 			// Length
 			int length = ReadUInt32Bias(buffer, ref offset, 1);
@@ -409,7 +409,7 @@
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static string ReadStringLimited(byte[] buffer, ref int offset, uint maxLength)
+		public static string ReadStringLimitedOld(byte[] buffer, ref int offset, uint maxLength)
 		{
 			// Length
 			int length = ReadUInt32Bias(buffer, ref offset, 1);
@@ -434,7 +434,7 @@
 		[ThreadStatic]
 		static char[] _stringDecodingBuffer;
 
-		public unsafe static void WriteStringNew(ref byte[] buffer, ref int offset, string str)
+		public unsafe static void WriteString(ref byte[] buffer, ref int offset, string str)
 		{
 			// First byte:
 			// The most-significant-bit (MSB) is the "ExtendedStringFlag", which tells us
@@ -520,7 +520,12 @@
 			}
 		}
 
-		public unsafe static string ReadStringNew(byte[] buffer, ref int offset)
+		public unsafe static string ReadString(byte[] buffer, ref int offset)
+		{
+			return ReadStringLimited(buffer, ref offset, uint.MaxValue);
+		}
+
+		public static string ReadStringLimited(byte[] buffer, ref int offset, uint maxLength)
 		{
 			byte code = buffer[offset++];
 			bool isExtended = (code & 128) != 0;
@@ -542,20 +547,23 @@
 				// Long string
 				int length2 = (int)Unsafe.As<byte, uint>(ref buffer[offset + length1]);
 				int totalLength = length1 + length2;
-				
+
+				if (totalLength > maxLength)
+					throw new InvalidOperationException($"The data contains a string of length '{totalLength}', but the maximum allowed string length is '{maxLength}'");				
+
 				// Assume maximum case: every byte will result in one character
 				var charBuffer = _stringDecodingBuffer;
-				if(charBuffer == null || charBuffer.Length < totalLength)
+				if (charBuffer == null || charBuffer.Length < totalLength)
 				{
 					int bufferSize = totalLength;
-					if(bufferSize < 0x1000)
+					if (bufferSize < 0x1000)
 						bufferSize = 0x1000;
 					_stringDecodingBuffer = charBuffer = new char[bufferSize];
 				}
-				
+
 				// Read first part
 				var decoder = encoding.GetDecoder();
-				
+
 				int totalChars = 0;
 
 				fixed (byte* bufferPtr = buffer)
@@ -576,7 +584,6 @@
 				return result;
 			}
 		}
-
 
 
 		/// <summary>

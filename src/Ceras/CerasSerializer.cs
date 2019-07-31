@@ -142,7 +142,7 @@ namespace Ceras
 		/// </summary>
 		public static void ClearGenericCaches()
 		{
-			// ObjectCache.RefProxyPoolRegister.TrimAll();
+			ObjectCache.RefProxyPoolRegister.TrimAll();
 		}
 
 		internal readonly SerializerConfig Config;

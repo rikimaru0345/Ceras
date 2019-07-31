@@ -138,7 +138,7 @@ namespace Ceras.Formatters
 		public Expression EmitDeserialize(ParameterExpression bufferArg, ParameterExpression offsetArg, Expression target)
 		{
 			var method = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadInt16));
-			return Expression.Call(method, bufferArg, offsetArg, target);
+			return Expression.Assign(target, Expression.Call(method, bufferArg, offsetArg));
 		}
 	}
 
@@ -163,7 +163,7 @@ namespace Ceras.Formatters
 		public Expression EmitDeserialize(ParameterExpression bufferArg, ParameterExpression offsetArg, Expression target)
 		{
 			var method = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadUInt16));
-			return Expression.Call(method, bufferArg, offsetArg, target);
+			return Expression.Assign(target, Expression.Call(method, bufferArg, offsetArg));
 		}
 	}
 
@@ -190,7 +190,7 @@ namespace Ceras.Formatters
 		public Expression EmitDeserialize(ParameterExpression bufferArg, ParameterExpression offsetArg, Expression target)
 		{
 			var method = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadInt32));
-			return Expression.Call(method, bufferArg, offsetArg, target);
+			return Expression.Assign(target, Expression.Call(method, bufferArg, offsetArg));
 		}
 	}
 
@@ -216,7 +216,7 @@ namespace Ceras.Formatters
 		public Expression EmitDeserialize(ParameterExpression bufferArg, ParameterExpression offsetArg, Expression target)
 		{
 			var method = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadUInt32));
-			return Expression.Call(method, bufferArg, offsetArg, target);
+			return Expression.Assign(target, Expression.Call(method, bufferArg, offsetArg));
 		}
 	}
 
@@ -242,7 +242,7 @@ namespace Ceras.Formatters
 		public Expression EmitDeserialize(ParameterExpression bufferArg, ParameterExpression offsetArg, Expression target)
 		{
 			var method = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadInt64));
-			return Expression.Call(method, bufferArg, offsetArg, target);
+			return Expression.Assign(target, Expression.Call(method, bufferArg, offsetArg));
 		}
 	}
 
@@ -268,7 +268,7 @@ namespace Ceras.Formatters
 		public Expression EmitDeserialize(ParameterExpression bufferArg, ParameterExpression offsetArg, Expression target)
 		{
 			var method = typeof(SerializerBinary).GetMethod(nameof(SerializerBinary.ReadUInt64));
-			return Expression.Call(method, bufferArg, offsetArg, target);
+			return Expression.Assign(target, Expression.Call(method, bufferArg, offsetArg));
 		}
 	}
 
@@ -300,7 +300,7 @@ namespace Ceras.Formatters
 		public Expression EmitDeserialize(ParameterExpression bufferArg, ParameterExpression offsetArg, Expression target)
 		{
 			var method = typeof(IntPtrFormatter).GetMethod(nameof(IntPtrFormatter.Read));
-			return Expression.Call(method, bufferArg, offsetArg, target);
+			return Expression.Assign(target, Expression.Call(method, bufferArg, offsetArg));
 		}
 	}
 
@@ -329,7 +329,7 @@ namespace Ceras.Formatters
 		public Expression EmitDeserialize(ParameterExpression bufferArg, ParameterExpression offsetArg, Expression target)
 		{
 			var method = typeof(UIntPtrFormatter).GetMethod(nameof(UIntPtrFormatter.Read));
-			return Expression.Call(method, bufferArg, offsetArg, target);
+			return Expression.Assign(target, Expression.Call(method, bufferArg, offsetArg));
 		}
 	}
 

@@ -32,18 +32,7 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
-			SegmentedStringWriting();
-
-			new Ceras.Test.Encoding().Null();
-			new Ceras.Test.ConstructionAndPooling().TestDirectPoolingMethods();
-			new Ceras.Test.BuiltInTypes().Delegates();
 			new Ceras.Test.Blitting().BlittableTypesUseCorrectFormatter();
-
-
-			CerasSerializer ceras = new CerasSerializer();
-			Person obj = null;
-			var bytes = ceras.Serialize(obj);
-
 
 			AvoidDispatch.AvoidDispatchTest.Test();
 
@@ -60,6 +49,7 @@ namespace LiveTesting
 			ReinterpretMultiDimensionalArray1();
 			ReinterpretMultiDimensionalArray2();
 
+			SegmentedStringWriting();
 
 			CustomComparerFormatter();
 
@@ -131,8 +121,6 @@ namespace LiveTesting
 
 		unsafe static void SegmentedStringWriting()
 		{
-			// 3. Type codes
-
 			string str1 = "😀😁😂🤣😃😄😅😆😉😊😋😎😍😘🥰😗😙😚";
 			var str2 = str1;
 			str2 += str2;
@@ -158,37 +146,37 @@ namespace LiveTesting
 
 			var jobs = new BenchJob[]
 			{
-				("Old", () =>
-				{
-					foreach (var testString in testStrings)
-					{
-						byte[] buffer = new byte[1];
-						int offset = 0;
-						SerializerBinary.WriteString(ref buffer, ref offset, testString);
+				//("Old", () =>
+				//{
+				//	foreach (var testString in testStrings)
+				//	{
+				//		byte[] buffer = new byte[1];
+				//		int offset = 0;
+				//		SerializerBinary.WriteString(ref buffer, ref offset, testString);
 
-						offset = 0;
-						var strCopy = SerializerBinary.ReadString(buffer, ref offset);
+				//		offset = 0;
+				//		var strCopy = SerializerBinary.ReadString(buffer, ref offset);
 
-						if (testString != strCopy)
-							Debug.Fail("string encoding failure");
-					}
-				}),
+				//		if (testString != strCopy)
+				//			Debug.Fail("string encoding failure");
+				//	}
+				//}),
 				
-				("New", () =>
-				{
-					foreach (var testString in testStrings)
-					{
-						byte[] buffer = new byte[1];
-						int offset = 0;
-						SerializerBinary.WriteStringNew(ref buffer, ref offset, testString);
+				//("New", () =>
+				//{
+				//	foreach (var testString in testStrings)
+				//	{
+				//		byte[] buffer = new byte[1];
+				//		int offset = 0;
+				//		SerializerBinary.WriteStringNew(ref buffer, ref offset, testString);
 
-						offset = 0;
-						var strCopy = SerializerBinary.ReadStringNew(buffer, ref offset);
+				//		offset = 0;
+				//		var strCopy = SerializerBinary.ReadStringNew(buffer, ref offset);
 
-						if(testString != strCopy)
-							Debug.Fail("string encoding failure");
-					}
-				}),
+				//		if(testString != strCopy)
+				//			Debug.Fail("string encoding failure");
+				//	}
+				//}),
 			};
 
 			MicroBenchmark.Run(1, jobs);

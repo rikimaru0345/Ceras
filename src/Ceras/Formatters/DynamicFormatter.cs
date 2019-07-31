@@ -370,7 +370,17 @@ namespace Ceras.Formatters
 					isValidReplacement = true;
 
 				if (!isValidReplacement)
-					throw new InvalidOperationException("Can not merge-blit formatter: " + formatter.GetType().FriendlyName(true));
+				{
+					// Abort. One of the formatters might be an "Int32Formatter" or something, instead of a ReinterpretFormatter.
+					// Meaning that either reinterpret-mode is disabled; or maybe the user just prefers VarInt encoding in this class.
+					// In any case, this would throw off the offset calculation completely.
+					// Maybe we can enable this in the future by a third mode, where we just merge the EnsureCapacity calls...
+					// The inlining part will still work and EmitFormatterCall() will pick up our the vast majority of our slack here :)
+					mergeBlitMembers.Clear();
+					return mergeBlitMembers;
+
+					// throw new InvalidOperationException("Can not merge-blit formatter: " + formatter.GetType().FriendlyName(true));
+				}
 
 				mergeBlitMembers.Add(m);
 				sizeSum += ReflectionHelper.GetSize(m.MemberType);
