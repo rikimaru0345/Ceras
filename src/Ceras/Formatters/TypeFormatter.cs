@@ -1,7 +1,8 @@
 ﻿namespace Ceras.Formatters
 {
-    using Ceras.Helpers;
-    using System;
+	using Ceras.Helpers;
+	using System;
+	using System.Collections.Generic;
 
 
 	/*
@@ -20,16 +21,47 @@
 
 	sealed class TypeFormatter : IFormatter<Type>
 	{
-		readonly CerasSerializer _ceras;
-		readonly ITypeBinder _typeBinder;
+		static readonly TypeDictionary<uint> _commonTypeToId = new TypeDictionary<uint>();
+		static readonly Dictionary<uint, Type> _idToCommonType = new Dictionary<uint, Type>();
+
+		static TypeFormatter()
+		{
+			_idToCommonType.Add(0, typeof(int));
+			_idToCommonType.Add(1, typeof(uint));
+			_idToCommonType.Add(2, typeof(short));
+			_idToCommonType.Add(3, typeof(ushort));
+			_idToCommonType.Add(4, typeof(byte));
+			_idToCommonType.Add(5, typeof(char));
+			_idToCommonType.Add(6, typeof(float));
+			_idToCommonType.Add(7, typeof(double));
+			_idToCommonType.Add(8, typeof(List<>));
+			_idToCommonType.Add(9, typeof(Dictionary<,>));
+			_idToCommonType.Add(10, typeof(int[]));
+			_idToCommonType.Add(11, typeof(byte[]));
+			_idToCommonType.Add(12, typeof(float[]));
+			_idToCommonType.Add(13, typeof(string));
+			_idToCommonType.Add(14, typeof(System.Collections.ArrayList));
+			_idToCommonType.Add(15, typeof(System.Collections.Hashtable));
+			_idToCommonType.Add(16, typeof(object));
+
+			foreach (var kvp in _idToCommonType)
+				_commonTypeToId.GetOrAddValueRef(kvp.Value) = kvp.Key;
+		}
+
 
 		const int Null = -1;
 		const int NewGeneric = -2; // type that is further specified through generic arguments
 		const int NewSingle = -3; // normal type that has no generic args
+		const int SingleCommon = -4; // one of the types that are so common that they get a dedicated ID to save space
 
-		const int Bias = 3;
+		const int Bias = 4;
+
+		readonly CerasSerializer _ceras;
+		readonly ITypeBinder _typeBinder;
+
 
 		bool _isSealed;
+
 
 		public TypeFormatter(CerasSerializer ceras)
 		{
@@ -58,13 +90,15 @@
 			if (_isSealed)
 				ThrowSealed(type, true);
 
-			//
+
 			// From here on we know it's a new type
 			// Now, is it a composite type that we have to split into its parts? (aka any generic)
 			bool isClosed = !type.ContainsGenericParameters;
 
 			if (isClosed && type.IsGenericType)
 			{
+				// Generic Type
+
 				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewGeneric, Bias);
 
 				// Split and write
@@ -85,16 +119,26 @@
 			}
 			else
 			{
-				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewSingle, Bias);
+				// Single Type
 
-				// Open generic, something that can be serialized alone
-				var typeName = _typeBinder.GetBaseName(type);
+				if (_commonTypeToId.TryGetValue(type, out uint commonId))
+				{
+					// Common Type
 
-				// Name
-				SerializerBinary.WriteString(ref buffer, ref offset, typeName);
+					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, SingleCommon, Bias);
+					SerializerBinary.WriteUInt32(ref buffer, ref offset, commonId);
+				}
+				else
+				{
+					// New Type: write name
 
-				// Register single type
-				typeCache.RegisterObject(type);
+					SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, NewSingle, Bias);
+
+					var typeName = _typeBinder.GetBaseName(type);
+					SerializerBinary.WriteString(ref buffer, ref offset, typeName);
+
+					typeCache.RegisterObject(type);
+				}
 			}
 		}
 
@@ -120,9 +164,9 @@
 			}
 
 
-			bool isComposite = mode == NewGeneric;
+			bool isComposite = mode == NewGeneric; // composite aka "closed generic"
 
-			if (isComposite) // composite aka "closed generic"
+			if (isComposite)
 			{
 				// Read base type first (example: Dictionary<T1, T2>)
 				Type baseType = type;
@@ -149,16 +193,35 @@
 			}
 			else
 			{
-				var proxy = typeCache.CreateDeserializationProxy();
+				if (mode == SingleCommon)
+				{
+					// Common Type
 
-				string baseTypeName = SerializerBinary.ReadStringLimited(buffer, ref offset, 350);
-				type = _typeBinder.GetTypeFromBase(baseTypeName);
+					var commonId = SerializerBinary.ReadUInt32(buffer, ref offset);
+					if (!_idToCommonType.TryGetValue(commonId, out type))
+						ThrowNoSuchCommonType(commonId);
+				}
+				else
+				{
+					// New Single Type
 
-				proxy.Type = type;
+					var proxy = typeCache.CreateDeserializationProxy();
 
-				if (_isSealed)
-					ThrowSealed(type, false);
+					string baseTypeName = SerializerBinary.ReadStringLimited(buffer, ref offset, 350);
+					type = _typeBinder.GetTypeFromBase(baseTypeName);
+
+					proxy.Type = type;
+
+					if (_isSealed)
+						ThrowSealed(type, false);
+				}
 			}
+		}
+
+		
+		public void Seal()
+		{
+			_isSealed = true;
 		}
 
 		static void ThrowSealed(Type type, bool serializing)
@@ -173,11 +236,9 @@
 			}
 		}
 
-
-		public void Seal()
+		static void ThrowNoSuchCommonType(uint commonId)
 		{
-			_isSealed = true;
+			throw new Exceptions.CerasException($"Read common type ID '{commonId}', but no such type exists. Maybe the data is corrupted, was serialized with different settings, or a different version.");
 		}
-
 	}
 }
