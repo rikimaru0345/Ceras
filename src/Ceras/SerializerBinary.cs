@@ -363,76 +363,50 @@
 
 
 
-		static readonly UTF8Encoding _utf8Encoding = new UTF8Encoding(false, true);
 
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void WriteStringOld(ref byte[] buffer, ref int offset, string value)
-		{
-			if (value == null)
-			{
-				WriteUInt32Bias(ref buffer, ref offset, -1, 1);
-				return;
-			}
-
-			// todo: maybe we can replace Encoding.UTF8.GetByteCount with reasonable estimation?
-			// default implementation Encoding.GetByteCount still allocates a new array
-			// but Encoding.UTF8 overrides it with more efficient implementation.
-			// If Encoding.UTF8 will be replaced in future - original implementation
-			// might be even faster.
-
-			var encoding = _utf8Encoding;
-
-			var valueBytesCount = encoding.GetByteCount(value);
-			EnsureCapacity(ref buffer, offset, valueBytesCount + 5); // 5 bytes space for the VarInt
-
-			// Length
-			WriteUInt32BiasNoCheck(buffer, ref offset, valueBytesCount, 1);
-
-			var realBytesCount = encoding.GetBytes(value, 0, value.Length, buffer, offset);
-			offset += realBytesCount;
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static string ReadStringOld(byte[] buffer, ref int offset)
-		{
-			// Length
-			int length = ReadUInt32Bias(buffer, ref offset, 1);
-
-			if (length == -1)
-				return null;
-
-			// Data
-			var str = _utf8Encoding.GetString(buffer, offset, length);
-			offset += length;
-
-			return str;
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static string ReadStringLimitedOld(byte[] buffer, ref int offset, uint maxLength)
-		{
-			// Length
-			int length = ReadUInt32Bias(buffer, ref offset, 1);
-
-			if (length == -1)
-				return null;
-
-			if ((uint)length > maxLength)
-				throw new InvalidOperationException($"The data contains a string of length '{length}', but the maximum allowed string length is '{maxLength}'");
-
-
-			// Data
-			var str = _utf8Encoding.GetString(buffer, offset, length);
-			offset += length;
-
-			return str;
-		}
-
-
-		// todo: save encoder/decoder into threadlocal, call reset after use
+		// todo: use string.Create (in net standard 2.1, core2.1+)
 
 		[ThreadStatic]
-		static char[] _stringDecodingBuffer;
+		static StringEncodingData EncodingData;
+		struct StringEncodingData
+		{
+			public char[] DecodingBuffer;
+			public UTF8Encoding Encoding;
+			public Encoder Encoder;
+			public Decoder Decoder;
+		}
+
+		static StringEncodingData GetStringEncoding()
+		{
+			var d = EncodingData;
+			if(d.Encoding == null)
+			{
+				d.Encoding = new UTF8Encoding(false, true);
+				d.Encoder = d.Encoding.GetEncoder();
+				d.Decoder = d.Encoding.GetDecoder();
+
+				EncodingData = d;
+			}
+
+			return d;
+		}
+
+		static StringEncodingData GetStringEncoding(int minDecodingChars)
+		{
+			var d = GetStringEncoding();
+
+			var buffer = d.DecodingBuffer;
+			if(buffer == null || buffer.Length < minDecodingChars)
+			{
+				int size = 0x1000;
+				while(size < minDecodingChars)
+					size *= 2;
+
+				d.DecodingBuffer = new char[size];
+			}
+
+			return d;
+		}
 
 		public unsafe static void WriteString(ref byte[] buffer, ref int offset, string str)
 		{
@@ -474,8 +448,7 @@
 
 			EnsureCapacity(ref buffer, offset, totalMaximumBytes);
 
-			var encoding = _utf8Encoding;
-			var encoder = encoding.GetEncoder();
+			var encoder = GetStringEncoding().Encoder;
 
 
 			int codeOffset = offset; // where we'll write our "start code"
@@ -487,6 +460,7 @@
 			{
 				var targetPtr = bufferPtr + offset;
 
+				encoder.Reset();
 				encoder.Convert(strChars, str.Length, targetPtr, 126, false, out int charsUsed, out int bytesUsed, out bool isComplete);
 
 				offset += bytesUsed;
@@ -531,12 +505,11 @@
 			bool isExtended = (code & 128) != 0;
 			int length1 = code & 127;
 
-			var encoding = _utf8Encoding;
 
 			if (!isExtended)
 			{
 				// Short string, read in one step
-				var result = encoding.GetString(buffer, offset, length1);
+				var result = GetStringEncoding().Encoding.GetString(buffer, offset, length1);
 
 				offset += length1;
 
@@ -552,19 +525,12 @@
 					throw new InvalidOperationException($"The data contains a string of length '{totalLength}', but the maximum allowed string length is '{maxLength}'");				
 
 				// Assume maximum case: every byte will result in one character
-				var charBuffer = _stringDecodingBuffer;
-				if (charBuffer == null || charBuffer.Length < totalLength)
-				{
-					int bufferSize = totalLength;
-					if (bufferSize < 0x1000)
-						bufferSize = 0x1000;
-					_stringDecodingBuffer = charBuffer = new char[bufferSize];
-				}
-
-				// Read first part
-				var decoder = encoding.GetDecoder();
+				var encoding = GetStringEncoding(totalLength);
+				var decoder = encoding.Decoder;
+				var charBuffer = encoding.DecodingBuffer;
 
 				int totalChars = 0;
+				decoder.Reset();
 
 				fixed (byte* bufferPtr = buffer)
 				fixed (char* charPtr = charBuffer)
