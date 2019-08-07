@@ -219,7 +219,7 @@ namespace Ceras
 			_userResolvers = Config.OnResolveFormatter.ToArray();
 
 			// Int, Float, Enum, ...
-			_resolvers.Add(new PrimitiveResolver());
+			_resolvers.Add(new PrimitiveResolver(this));
 
 			// Fast native copy for unmanaged types;
 			// can not handle generic structs like ValueTuple<> because they always have to be ".IsAutoLayout"

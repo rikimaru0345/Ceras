@@ -505,6 +505,8 @@
 			bool isExtended = (code & 128) != 0;
 			int length1 = code & 127;
 
+			if(length1 == 127)
+				return null;
 
 			if (!isExtended)
 			{
