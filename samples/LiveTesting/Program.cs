@@ -32,12 +32,7 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
-
-
-
-			SegmentedStringWriting();
-
-			new Ceras.Test.Examples().BeforeAndAfterSerializeCalls();
+			new Ceras.Test.Examples().CallbackWithContext();
 			// Benchmarks();
 
 			NewRefFormatter.RefFormatterTests.Test();

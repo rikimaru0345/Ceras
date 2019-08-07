@@ -185,6 +185,16 @@ namespace Ceras
 		RecursionMode _mode = RecursionMode.Idle; // while in one mode we cannot enter the others
 
 		/// <summary>
+		/// A "free" property where you can store anything.
+		/// <para>This is useful for scenarios where callbacks like <see cref="OnBeforeSerializeAttribute"/> are used, because the <see cref="CerasSerializer"/> instance is passed to those methods (assuming they take a <see cref="CerasSerializer"/> instance as an argument). That way you can obtain the <see cref="UserContext"/> inside those methods.</para>
+		/// </summary>
+		public object UserContext
+		{
+			get => InstanceData.UserContext;
+			set => InstanceData.UserContext = value;
+		}
+
+		/// <summary>
 		/// <para>The state-checksum of the serializer.</para>
 		/// <para>Many configuration settings and all KnownTypes contribute to the checksum.</para>
 		/// <para>Useful for networking scenarios, so when connecting you can ensure client and server are using the same settings and KnownTypes.</para>
@@ -1272,6 +1282,8 @@ namespace Ceras
 		public ObjectCache ObjectCache;
 
 		public IExternalRootObject CurrentRoot;
+
+		public object UserContext;
 
 		// Why <Type> instead of <Schema> ? Becasue while reading we'll never encounter multiple different schemata for the same type.
 		// And while writing we'll only ever use the primary schema.

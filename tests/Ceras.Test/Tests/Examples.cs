@@ -132,6 +132,27 @@ namespace Ceras.Test
 			Assert.True(test.Actions.SequenceEqual(new int[] { 0, 1, 2, 1, 2, 3, 4 }));
 		}
 
+		[Fact]
+		public void CallbackWithContext()
+		{
+			var ceras = new CerasSerializer();
+
+			var obj = new CallbackTestWithContext();
+			obj.Text = "abc";
+
+			// Set context, then clone
+			var context = new ContextObject();
+			ceras.UserContext = context;
+
+			var clone = ceras.Advanced.Clone(obj);
+
+			// Source object should have gotten calls to OnBeforeSerialize and OnAfterSerialize, 
+			// each method incrementing the counter by one.
+			// After that the Deserialize call should have added two more.
+
+			Assert.Equal(4, context.Counter);
+		}
+
 	}
 
 	class NormalClass
@@ -227,6 +248,44 @@ namespace Ceras.Test
 		void AfterDeserialize()
 		{
 			Actions.Add(4);
+		}
+	}
+
+	class ContextObject
+	{
+		public int Counter = 0;
+	}
+
+	class CallbackTestWithContext
+	{
+		public string Text;
+
+		[OnBeforeSerialize]
+		void BeforeSerialize(CerasSerializer ceras)
+		{
+			var ctx = ceras.UserContext as ContextObject;
+			ctx.Counter++;
+		}
+
+		[OnAfterSerialize]
+		void AfterSerialize(CerasSerializer ceras)
+		{
+			var ctx = ceras.UserContext as ContextObject;
+			ctx.Counter++;
+		}
+
+		[OnBeforeDeserialize]
+		void BeforeDeserialize(CerasSerializer ceras)
+		{
+			var ctx = ceras.UserContext as ContextObject;
+			ctx.Counter++;
+		}
+
+		[OnAfterDeserialize]
+		void AfterDeserialize(CerasSerializer ceras)
+		{
+			var ctx = ceras.UserContext as ContextObject;
+			ctx.Counter++;
 		}
 	}
 }
