@@ -184,6 +184,27 @@ namespace Ceras
 	{
 	}
 
+	
+	/// <summary>
+	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// </summary>
+	public class OnBeforeSerializeAttribute : Attribute
+	{
+	}
+
+	/// <summary>
+	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// </summary>
+	public class OnAfterSerializeAttribute : Attribute
+	{
+	}
+	
+	/// <summary>
+	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// </summary>
+	public class OnBeforeDeserializeAttribute : Attribute
+	{
+	}
 
 	/// <summary>
 	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
@@ -191,8 +212,6 @@ namespace Ceras
 	public class OnAfterDeserializeAttribute : Attribute
 	{
 	}
-
-
 }
 
 namespace Ceras.Formatters
