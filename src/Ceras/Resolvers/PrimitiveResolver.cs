@@ -17,7 +17,16 @@
 			[typeof(sbyte)] = new SByteFormatter(),
 
 			[typeof(char)] = new CharFormatter(),
+			
+			[typeof(IntPtr)] = new IntPtrFormatter(),
+			[typeof(UIntPtr)] = new UIntPtrFormatter(),
+			
+			[typeof(float)] = new FloatFormatter(),
+			[typeof(double)] = new DoubleFormatter(),
 
+
+			//
+			// VarInt Formatters
 			[typeof(short)] = new Int16Formatter(),
 			[typeof(ushort)] = new UInt16Formatter(),
 
@@ -26,16 +35,21 @@
 
 			[typeof(long)] = new Int64Formatter(),
 			[typeof(ulong)] = new UInt64Formatter(),
-
-			[typeof(float)] = new FloatFormatter(),
-			[typeof(double)] = new DoubleFormatter(),
-
-			[typeof(IntPtr)] = new IntPtrFormatter(),
-			[typeof(UIntPtr)] = new UIntPtrFormatter(),
 		};
+
+		readonly CerasSerializer _ceras;
+
+		public PrimitiveResolver(CerasSerializer ceras)
+		{
+			_ceras = ceras;
+		}
 
 		public IFormatter GetFormatter(Type type)
 		{
+			if(_ceras.Config.IntegerEncoding == IntegerEncoding.ForceReinterpret)
+				if(IsVarIntInteger(type))
+					return null;
+
 			if (_primitiveFormatters.TryGetValue(type, out var f))
 				return f;
 
@@ -43,6 +57,18 @@
 				return (IFormatter)Activator.CreateInstance(typeof(ReinterpretFormatter<>).MakeGenericType(type));
 
 			return null;
+		}
+
+		static bool IsVarIntInteger(Type type)
+		{
+			if(type == typeof(int)
+				|| type == typeof(uint)
+				|| type == typeof(short)
+				|| type == typeof(ushort)
+				|| type == typeof(long)
+				|| type == typeof(ulong))
+				return true;
+			return false;
 		}
 	}
 }

@@ -32,10 +32,10 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
-			new Ceras.Test.Blitting().BlittableTypesUseCorrectFormatter();
 
-			AvoidDispatch.AvoidDispatchTest.Test();
 
+
+			SegmentedStringWriting();
 
 			// Benchmarks();
 
@@ -49,7 +49,6 @@ namespace LiveTesting
 			ReinterpretMultiDimensionalArray1();
 			ReinterpretMultiDimensionalArray2();
 
-			SegmentedStringWriting();
 
 			CustomComparerFormatter();
 

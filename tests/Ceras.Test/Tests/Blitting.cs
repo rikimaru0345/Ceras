@@ -231,6 +231,18 @@ namespace Ceras.Test
 		}
 
 		[Fact]
+		public void EncodingPresets()
+		{
+			// Check different encoding modes (default, forceReinterpret, forceVarInt)
+			// by checking if the correct formatters are used
+
+			// Direct test: int, int[], ushort, ushort[]
+			// Class: Person
+			// Struct: DemoStruct, DemoStruct[]
+		}
+
+
+		[Fact]
 		public void BlittingEnums()
 		{
 			// Usually we don't use the reinterpret-formatter for enum members so we can minimize the size (varint encoding)

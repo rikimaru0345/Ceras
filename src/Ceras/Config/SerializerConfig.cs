@@ -32,6 +32,14 @@
 		#region Basic Settings
 
 		/// <summary>
+		/// Decides how integers are formatted, which has effects on binary size and serialization speed.
+		/// The default gives you the best of both worlds by intelligently switching depending on the situation, but sometimes it 
+		/// can be neccessary to force a specific encoding. (But it would probably be smarter to change that using TypeConfig)
+		/// <para>Default: Default</para>
+		/// </summary>
+		public IntegerEncoding IntegerEncoding { get; set; } = IntegerEncoding.Default;
+
+		/// <summary>
 		/// If you want to, you can add all the types you want to serialize to this collection.
 		/// When you add at least one Type to this list, Ceras will run in "sealed mode", which does 2 different things:
 		/// 
@@ -380,17 +388,6 @@
 		/// On an AoT platform (for example Unity IL2CPP) Ceras can not use dynamic code generation. When enabled, Ceras will use reflection for everything where it would otherwise use dynamic code generation. This is slow, but it allows for testing and debugging on those platforms until 
 		/// </summary>
 		AotMode AotMode { get; set; }
-
-		/// <summary>
-		/// Controls how fields/properties of short/ushort/int/uint/long/ulong are encoded by default (if not overriden using TypeConfig).
-		/// <para>Fixed means uncompressed, so fastest de/serialization; Variable spends a little time to compress values.</para>
-		/// </summary>
-		IntEncodingMethod DefaultIntEncoding { get; set; }
-
-		/// <summary>
-		/// Controls how arrays of short/ushort/int/uint/long/ulong are encoded. Take a look at the <see cref="DefaultIntEncoding"/> setting for more information.
-		/// </summary>
-		IntEncodingMethod DefaultIntArrayEncoding { get; set; }
 	}
 
 	public interface ISizeLimitsConfig
@@ -550,17 +547,22 @@
 		Enabled,
 	}
 
-	public enum IntEncodingMethod
+	public enum IntegerEncoding
 	{
 		/// <summary>
-		/// Uses the "normal" fixed size for each 16/32/64-bit integer. That means int/uint will consume 4 bytes, long/ulong will use 8 bytes, ...
-		/// This is the fastest setting, but doesn't save any binary space.
+		/// By default Ceras uses VarInt encoding for Int-like types (short, int, long, ...). While arrays and structs will use ReinterpretFormatter.
 		/// </summary>
-		Fixed,
+		Default,
+
 		/// <summary>
-		/// Variable length encoding compresses datatypes like <see cref="int"/> when their value is small. For example an int field containing the value '5' will only use a single byte when serialized. You're trading de/serialization speed for binary size.
+		/// Always use ReinterpretFormatter for int-types, even when it doesn't really make sense (like for fields/props in classes). This might result in a slightly faster serialization/deserialization speed.
 		/// </summary>
-		Variable,
+		ForceReinterpret,
+
+		/// <summary>
+		/// Uses VarInt encoding for everything. If you have large short/int/long arrays this will drastically reduce performance because every value will be encoded; but it could also save the most space (result in the smallest binary output) depending on the actual values that are getting serialized. 
+		/// </summary>
+		ForceVarInt,
 	}
 
 }
