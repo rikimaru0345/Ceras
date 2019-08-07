@@ -122,7 +122,7 @@ namespace Ceras.Formatters
 			*/
 
 			if (!isStatic)
-				EmitCallToAttribute(body, valueArg, schema.Type, typeof(OnBeforeSerializeAttribute), false);
+				EmitCallToAttribute(ceras, body, valueArg, schema.Type, typeof(OnBeforeSerializeAttribute), false);
 
 			// Serialize all members
 			foreach (var member in members)
@@ -181,7 +181,7 @@ namespace Ceras.Formatters
 
 
 			if (!isStatic)
-				EmitCallToAttribute(body, valueArg, schema.Type, typeof(OnAfterSerializeAttribute), false);
+				EmitCallToAttribute(ceras, body, valueArg, schema.Type, typeof(OnAfterSerializeAttribute), false);
 
 			var serializeBlock = Block(variables: locals, expressions: body);
 
@@ -267,7 +267,7 @@ namespace Ceras.Formatters
 			//
 			// 1. OnBeforeDeserialize
 			if (!isStatic)
-				EmitCallToAttribute(body, refValueArg, schema.Type, typeof(OnBeforeDeserializeAttribute), true);
+				EmitCallToAttribute(ceras, body, refValueArg, schema.Type, typeof(OnBeforeDeserializeAttribute), true);
 
 			//
 			// 2. Read existing values into locals (Why? See explanation at the end of the file)
@@ -396,7 +396,7 @@ namespace Ceras.Formatters
 			//
 			// 6. OnAfterDeserialize
 			if (!isStatic)
-				EmitCallToAttribute(body, refValueArg, schema.Type, typeof(OnAfterDeserializeAttribute), false);
+				EmitCallToAttribute(ceras, body, refValueArg, schema.Type, typeof(OnAfterDeserializeAttribute), false);
 
 
 			var bodyBlock = Block(variables: locals, expressions: body);
@@ -409,7 +409,7 @@ namespace Ceras.Formatters
 		}
 
 
-		static void EmitCallToAttribute(List<Expression> block, Expression value, Type objectType, Type attributeType, bool checkIfObjectIsNull)
+		static void EmitCallToAttribute(CerasSerializer ceras, List<Expression> block, Expression value, Type objectType, Type attributeType, bool checkIfObjectIsNull)
 		{
 			var method = GetMethodByAttribute(objectType, attributeType);
 			if (method == null)
@@ -418,17 +418,21 @@ namespace Ceras.Formatters
 			if (objectType.IsValueType)
 				checkIfObjectIsNull = false;
 
+			MethodCallExpression call;
+			if (method.GetParameters().Length == 0)
+				call = Call(value, method);
+			else
+				call = Call(value, method, Constant(ceras));
+
 			if (checkIfObjectIsNull)
 			{
 				var valueIsNotNull = Not(ReferenceEqual(value, Constant(null, typeof(object))));
-				var call = Call(value, method);
-
 				var checkAndCall = IfThen(valueIsNotNull, call);
 				block.Add(checkAndCall);
 			}
 			else
 			{
-				block.Add(Call(value, method));
+				block.Add(call);
 			}
 		}
 
@@ -436,17 +440,28 @@ namespace Ceras.Formatters
 		{
 			var allMethods = objectType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
 
+			MethodInfo method = null;
+
 			foreach (var m in allMethods)
 			{
-				if (m.ReturnType == typeof(void)
-					&& m.GetParameters().Length == 0
-					&& m.GetCustomAttribute(attributeType) != null)
-				{
-					return m;
-				}
+				if (m.GetCustomAttribute(attributeType) == null)
+					continue;
+
+				if (m.ReturnType != typeof(void))
+					throw new InvalidOperationException($"Method '{objectType.Name}.{m.Name}' is marked as '{attributeType.Name}' so it must return 'void'. But it currently returns '{m.ReturnType.FriendlyName(true)}'. ");
+
+				var parameters = m.GetParameters();
+				if ((parameters.Length == 1 && parameters[0].ParameterType != typeof(CerasSerializer))
+					|| parameters.Length >= 2)
+					throw new InvalidOperationException($"Method '{objectType.Name}.{m.Name}' must either take a '{nameof(CerasSerializer)}' or zero arguments.");
+
+				if (method == null)
+					method = m;
+				else
+					throw new InvalidOperationException($"Your type '{objectType.FriendlyName(false)}' has more than one method with the '{attributeType.Name}' attribute. Two methods found: '{m.Name}' and '{method.Name}'");
 			}
 
-			return null;
+			return method;
 		}
 
 		static IEnumerable<SchemaMember> OrderMembersForWriteBack(List<SchemaMember> members)
