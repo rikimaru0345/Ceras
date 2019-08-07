@@ -140,31 +140,37 @@ namespace Ceras
 
 	
 	/// <summary>
-	/// Add this to any method of your class to let Ceras call it when all members are deserialized.
+	/// Add this to any method of your class to let Ceras call it during serialization.
 	/// <para>The method must have 'void' as return type, and not take any parameters</para>
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Method)]
-	public class OnAfterDeserializeAttribute : Attribute
+	public class OnBeforeSerializeAttribute : Attribute
 	{
 	}
-
+	
 	/// <summary>
-	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// Add this to any method of your class to let Ceras call it during serialization.
+	/// <para>The method must have 'void' as return type, and not take any parameters</para>
 	/// </summary>
+	[AttributeUsage(AttributeTargets.Method)]
 	public class OnAfterSerializeAttribute : Attribute
 	{
 	}
 	
 	/// <summary>
-	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// Add this to any method of your class to let Ceras call it during serialization.
+	/// <para>The method must have 'void' as return type, and not take any parameters</para>
 	/// </summary>
+	[AttributeUsage(AttributeTargets.Method)]
 	public class OnBeforeDeserializeAttribute : Attribute
 	{
 	}
-
+	
 	/// <summary>
-	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// Add this to any method of your class to let Ceras call it during serialization.
+	/// <para>The method must have 'void' as return type, and not take any parameters</para>
 	/// </summary>
+	[AttributeUsage(AttributeTargets.Method)]
 	public class OnAfterDeserializeAttribute : Attribute
 	{
 	}
