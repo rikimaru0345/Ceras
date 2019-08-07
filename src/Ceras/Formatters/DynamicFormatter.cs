@@ -113,9 +113,13 @@ namespace Ceras.Formatters
 			foreach (var m in members.Where(m => !m.IsSkip).DistinctBy(m => m.MemberType))
 				typeToFormatter.Add(m.MemberType, Constant(ceras.GetReferenceFormatter(m.MemberType)));
 
+			/* 
+			 * Temporary disabled until v5 is released
+			 * 
 			// Merge Blitting Step
 			if (!isSchemaFormatter)
 				MergeBlittableSerializeCalls(members, typeToFormatter);
+			*/
 
 			if (!isStatic)
 				EmitCallToAttribute(body, valueArg, schema.Type, typeof(OnBeforeSerializeAttribute), false);
