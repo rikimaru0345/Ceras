@@ -31,6 +31,7 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
+			new Ceras.Test.Examples().BeforeAndAfterSerializeCalls();
 			// Benchmarks();
 
 			MergeBlittingTest.Test();
