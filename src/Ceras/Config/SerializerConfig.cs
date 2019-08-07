@@ -254,9 +254,6 @@
 		BitmapMode IAdvancedConfigOptions.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
 		AotMode IAdvancedConfigOptions.AotMode { get; set; } = AotMode.None;
 
-		IntEncodingMethod IAdvancedConfigOptions.DefaultIntEncoding { get; set; } = IntEncodingMethod.Variable;
-		IntEncodingMethod IAdvancedConfigOptions.DefaultIntArrayEncoding { get; set; } = IntEncodingMethod.Fixed;
-
 		#endregion
 
 
