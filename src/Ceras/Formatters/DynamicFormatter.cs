@@ -59,15 +59,13 @@ namespace Ceras.Formatters
 			foreach (var m in members.Where(m => !m.IsSkip).DistinctBy(m => m.MemberType))
 				typeToFormatter.Add(m.MemberType, Constant(ceras.GetReferenceFormatter(m.MemberType)));
 
-			/* 
-			 * Temporary disabled until v5 is released
-			 * 
+			
 			// Merge Blitting Step
+			List<SchemaMember> blittedMembers = null;
 			if (!isSchemaFormatter)
-				MergeBlittableSerializeCalls(members, typeToFormatter);
-			*/
+				blittedMembers = MergeBlittableSerializeCalls(members, typeToFormatter, body, bufferArg, offsetArg, valueArg);
 
-			if (!isStatic)
+			if (!schema.IsStatic)
 				EmitCallToAttribute(body, valueArg, schema.Type, typeof(OnBeforeSerializeAttribute), false);
 
 			// Serialize all members
@@ -134,7 +132,7 @@ namespace Ceras.Formatters
 			}
 
 
-			if (!isStatic)
+			if (!schema.IsStatic)
 				EmitCallToAttribute(body, valueArg, schema.Type, typeof(OnAfterSerializeAttribute), false);
 
 			var serializeBlock = Block(variables: locals, expressions: body);
@@ -153,8 +151,8 @@ namespace Ceras.Formatters
 			typeConfig.Seal();
 			var tc = typeConfig.TypeConstruction;
 
-			bool callObjectConstructor = tc.HasDataArguments; // Are we responsible for instantiating an object?
-			bool weHaveObject = !callObjectConstructor;
+			bool constructObject = tc.HasDataArguments; // Are we responsible for instantiating an object?
+			bool weHaveObject = !constructObject;
 			HashSet<ParameterExpression> usedVariables = null; // track what variables the constructor already assigned
 
 			var bufferArg = Parameter(typeof(byte[]), "buffer");
@@ -194,8 +192,8 @@ namespace Ceras.Formatters
 
 			//
 			// 1. OnBeforeDeserialize
-			if (!isStatic)
-				EmitCallToAttribute(body, refValueArg, schema.Type, typeof(OnBeforeDeserializeAttribute), true);
+			if (!schema.IsStatic)
+				EmitCallToAttribute(body, valueArg, schema.Type, typeof(OnBeforeDeserializeAttribute), true);
 
 			//
 			// 2. Read existing values into locals (Why? See explanation at the end of the file)
@@ -211,7 +209,7 @@ namespace Ceras.Formatters
 				if (!UseLocal(m.MemberInfo))
 					continue; // fields can be deserialized by ref
 
-				if(callObjectConstructor)
+				if(constructObject)
 					continue; // calling a ctor means our current 'value' is 'null', so we can't take the existing values. We do however create locals for the members (otherwise where would we store the values we read until we finally construct the object?)
 
 				// Init the local with the current value
@@ -332,8 +330,8 @@ namespace Ceras.Formatters
 
 			//
 			// 6. OnAfterDeserialize
-			if (!isStatic)
-				EmitCallToAttribute(body, refValueArg, schema.Type, typeof(OnAfterDeserializeAttribute), false);
+			if (!schema.IsStatic)
+				EmitCallToAttribute(body, valueArg, schema.Type, typeof(OnAfterDeserializeAttribute), false);
 
 
 			var bodyBlock = Block(variables: locals, expressions: body);
@@ -347,12 +345,12 @@ namespace Ceras.Formatters
 			// Local methods
 			bool UseLocal(MemberInfo memberInfo)
 			{
-				if (callObjectConstructor)
-					return true;
+				if (constructObject)
+					return true; // If we don't have an object yet, we can't do "Deserialize(..., ref value.Field)", so we have to use a local
 				if (memberInfo is PropertyInfo)
-					return true;
+					return true; // Can't pass properties by ref, so we have to use a local
 				if (memberInfo is FieldInfo field && field.IsInitOnly)
-					return true;
+					return true; // readonly fields always require a local as we can't pass them by ref
 				return false;
 			}
 		}
@@ -544,19 +542,16 @@ namespace Ceras.Formatters
 					&& m.GetCustomAttribute(attributeType) != null)
 				{
 					if (m.ReturnType != typeof(void) || m.GetParameters().Length > 0)
-						throw new InvalidOperationException($"Method '{m.Name}' is marked as '{nameof(OnAfterDeserializeAttribute)}', but doesn't return void or has parameters");
+						throw new InvalidOperationException($"Method '{m.Name}' is marked as '{attributeType.Name}', but doesn't return void or has parameters");
 
 					if (method == null)
 						method = m;
 					else
-						throw new InvalidOperationException($"Your type '{type.FriendlyName(false)}' has more than one method with the '{nameof(OnAfterDeserializeAttribute)}' attribute. Two methods found: '{m.Name}' and '{method.Name}'");
+						throw new InvalidOperationException($"Your type '{objectType.FriendlyName(false)}' has more than one method with the '{attributeType.Name}' attribute. Two methods found: '{m.Name}' and '{method.Name}'");
 				}
 			}
 
-			if (method != null)
-			{
-				body.Add(Call(valueArg, method));
-			}
+			return method;
 		}
 
 		static IEnumerable<SchemaMember> OrderMembersForWriteBack(List<SchemaMember> members)
