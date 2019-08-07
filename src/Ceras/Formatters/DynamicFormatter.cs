@@ -59,11 +59,16 @@ namespace Ceras.Formatters
 			foreach (var m in members.Where(m => !m.IsSkip).DistinctBy(m => m.MemberType))
 				typeToFormatter.Add(m.MemberType, Constant(ceras.GetReferenceFormatter(m.MemberType)));
 
+			/* 
+			 * Temporary disabled until v5 is released
+			 * 
 			// Merge Blitting Step
-			List<SchemaMember> blittedMembers = null;
 			if (!isSchemaFormatter)
-				blittedMembers = MergeBlittableSerializeCalls(members, typeToFormatter, body, bufferArg, offsetArg, valueArg);
+				MergeBlittableSerializeCalls(members, typeToFormatter);
+			*/
 
+			if (!isStatic)
+				EmitCallToAttribute(body, valueArg, schema.Type, typeof(OnBeforeSerializeAttribute), false);
 
 			// Serialize all members
 			foreach (var member in members)
@@ -128,6 +133,10 @@ namespace Ceras.Formatters
 				}
 			}
 
+
+			if (!isStatic)
+				EmitCallToAttribute(body, valueArg, schema.Type, typeof(OnAfterSerializeAttribute), false);
+
 			var serializeBlock = Block(variables: locals, expressions: body);
 
 			if (schema.IsStatic)
@@ -155,8 +164,6 @@ namespace Ceras.Formatters
 			var body = new List<Expression>();
 			var locals = new List<ParameterExpression>(schema.Members.Count);
 
-
-			// BlockSize, OffsetStart (locals to store size of data)
 			ParameterExpression blockSize = null, offsetStart = null;
 			if (isSchemaFormatter)
 			{
@@ -186,7 +193,12 @@ namespace Ceras.Formatters
 
 
 			//
-			// 1. Initialize locals (if we have an object)
+			// 1. OnBeforeDeserialize
+			if (!isStatic)
+				EmitCallToAttribute(body, refValueArg, schema.Type, typeof(OnBeforeDeserializeAttribute), true);
+
+			//
+			// 2. Read existing values into locals (Why? See explanation at the end of the file)
 			foreach (var m in members)
 			{
 				// We can't pass properties by ref to Deserialize() so:
@@ -208,7 +220,7 @@ namespace Ceras.Formatters
 			}
 
 			//
-			// 2. Deserialize into local (or field)
+			// 3. Deserialize into local (faster and more robust than field/prop directly)
 			foreach (var m in members)
 			{
 				// blockSize = ReadSize();
@@ -261,8 +273,8 @@ namespace Ceras.Formatters
 			}
 
 			//
-			// 3. Create object instance
-			if (callObjectConstructor)
+			// 4. Create object instance (only when actually needed)
+			if (constructObject)
 			{
 				// Create a helper array for the implementing type construction
 				var memberParameters = (
@@ -277,7 +289,7 @@ namespace Ceras.Formatters
 			}
 
 			//
-			// 4. Assign members (from locals)
+			// 5. Write back values in one batch
 			var orderedMembers = OrderMembersForWriteBack(members);
 			foreach (var m in orderedMembers)
 			{
@@ -319,9 +331,9 @@ namespace Ceras.Formatters
 			}
 
 			//
-			// 5. Call "OnAfterDeserialize()"
-			EmitOnAfterDeserialize(body, schema, valueArg);
-
+			// 6. OnAfterDeserialize
+			if (!isStatic)
+				EmitCallToAttribute(body, refValueArg, schema.Type, typeof(OnAfterDeserializeAttribute), false);
 
 
 			var bodyBlock = Block(variables: locals, expressions: body);
@@ -496,17 +508,40 @@ namespace Ceras.Formatters
 				bufferArg, offsetArg, target);
 		}
 
-
-		static void EmitOnAfterDeserialize(List<Expression> body, Schema schema, Expression valueArg)
+		static void EmitCallToAttribute(List<Expression> block, Expression value, Type objectType, Type attributeType, bool checkIfObjectIsNull)
 		{
-			var type = schema.Type;
-			var allMethods = type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+			var method = GetMethodByAttribute(objectType, attributeType);
+			if (method == null)
+				return;
+
+			if (objectType.IsValueType)
+				checkIfObjectIsNull = false;
+
+			if (checkIfObjectIsNull)
+			{
+				var valueIsNotNull = Not(ReferenceEqual(value, Constant(null, typeof(object))));
+				var call = Call(value, method);
+
+				var checkAndCall = IfThen(valueIsNotNull, call);
+				block.Add(checkAndCall);
+			}
+			else
+			{
+				block.Add(Call(value, method));
+			}
+		}
+
+		static MethodInfo GetMethodByAttribute(Type objectType, Type attributeType)
+		{
+			var allMethods = objectType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
 
 			MethodInfo method = null;
 
 			foreach (var m in allMethods)
 			{
-				if (m.GetCustomAttribute<OnAfterDeserializeAttribute>() != null)
+				if (m.ReturnType == typeof(void)
+					&& m.GetParameters().Length == 0
+					&& m.GetCustomAttribute(attributeType) != null)
 				{
 					if (m.ReturnType != typeof(void) || m.GetParameters().Length > 0)
 						throw new InvalidOperationException($"Method '{m.Name}' is marked as '{nameof(OnAfterDeserializeAttribute)}', but doesn't return void or has parameters");

@@ -47,7 +47,7 @@ namespace Ceras.Test
 					// When that happens we have two options:
 
 					// a) Skip all members of 'SecretData' itself
-					foreach(var m in t.Members)
+					foreach (var m in t.Members)
 						m.SerializationOverride = SerializationOverride.ForceSkip;
 
 					// b) Throw an exception
@@ -105,6 +105,33 @@ namespace Ceras.Test
 			}
 		}
 
+		[Fact]
+		public void BeforeAndAfterSerializeCalls()
+		{
+			SimpleListTest test = new SimpleListTest();
+			test.SomeNumber = 123;
+			test.SomeText = "asdasd";
+
+			// Deserialize stuff should only be called on the new object (obviously)
+			// And Serialize methods only on the old object
+			{
+				var clone = Clone(test);
+
+				Assert.True(test.Actions.SequenceEqual(new int[] { 0, 1, 2 }));
+				Assert.True(clone.Actions.SequenceEqual(new int[] { 0, 3, 4 }));
+			}
+
+
+			// But if we overwrite the object instead, we expect all methods to appear in the list
+			var c = new CerasSerializer();
+
+			var data = c.Serialize(test); // we serialize AGAIN (in addition to the clone above), so we expect 0,1,2,1,2
+			Assert.True(test.Actions.SequenceEqual(new int[] { 0, 1, 2, 1, 2 }));
+
+			c.Deserialize(ref test, data); // overwrite data into existing object
+			Assert.True(test.Actions.SequenceEqual(new int[] { 0, 1, 2, 1, 2, 3, 4 }));
+		}
+
 	}
 
 	class NormalClass
@@ -159,6 +186,47 @@ namespace Ceras.Test
 			Assert.True(z == 0);
 			ComputeZ();
 			Assert.True(z != 0);
+		}
+	}
+
+	class SimpleListTest
+	{
+		[NonSerialized]
+		public List<int> Actions = new List<int>();
+
+		public int SomeNumber;
+		public int AnotherNumber;
+		public string SomeText;
+		public string AnotherText;
+
+
+		public SimpleListTest()
+		{
+			Actions.Add(0);
+		}
+
+		[OnBeforeSerialize]
+		void BeforeSerialize()
+		{
+			Actions.Add(1);
+		}
+
+		[OnAfterSerialize]
+		void AfterSerialize()
+		{
+			Actions.Add(2);
+		}
+
+		[OnBeforeDeserialize]
+		void BeforeDeserialize()
+		{
+			Actions.Add(3);
+		}
+
+		[OnAfterDeserialize]
+		void AfterDeserialize()
+		{
+			Actions.Add(4);
 		}
 	}
 }

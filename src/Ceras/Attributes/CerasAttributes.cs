@@ -138,7 +138,7 @@ namespace Ceras
 	{
 	}
 
-
+	
 	/// <summary>
 	/// Add this to any method of your class to let Ceras call it when all members are deserialized.
 	/// <para>The method must have 'void' as return type, and not take any parameters</para>
@@ -148,7 +148,26 @@ namespace Ceras
 	{
 	}
 
+	/// <summary>
+	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// </summary>
+	public class OnAfterSerializeAttribute : Attribute
+	{
+	}
+	
+	/// <summary>
+	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// </summary>
+	public class OnBeforeDeserializeAttribute : Attribute
+	{
+	}
 
+	/// <summary>
+	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// </summary>
+	public class OnAfterDeserializeAttribute : Attribute
+	{
+	}
 }
 
 namespace Ceras.Formatters

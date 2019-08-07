@@ -9,8 +9,9 @@ namespace CerasAotFormatterGenerator
 	using System.Text;
 	using Ceras.Formatters;
 	using Ceras.Formatters.AotGenerator;
+    using System.IO;
 
-	/*
+    /*
 	 * Ideas for improvement:
 	 * 
 	 * 1. (Done) Remove roslyn, ignore code formatting, that way we can drop a huge dependency which enables the next steps
@@ -30,6 +31,9 @@ namespace CerasAotFormatterGenerator
 	{
 		public static void Generate(IEnumerable<Assembly> asms, StringBuilder output)
 		{
+			if(!_resolverRegistered)
+				throw new InvalidOperationException("please call RegisterAssemblyResolver() first so you can get better error messages when a DLL can't be loaded!");
+
 			var (ceras, targets) = CreateSerializerAndTargets(asms);
 			SourceFormatterGenerator.GenerateAll(targets, ceras, output);
 		}
@@ -110,6 +114,51 @@ namespace CerasAotFormatterGenerator
 			}
 
 			return (ceras, targets);
+		}
+	
+		
+	
+		static bool _resolverRegistered = false;
+		public static void RegisterAssemblyResolver()
+		{
+			if(_resolverRegistered)
+				return;
+			AppDomain.CurrentDomain.AssemblyResolve += ResolveAssembly;
+			_resolverRegistered = true;
+		}
+
+		static Assembly ResolveAssembly(object sender, ResolveEventArgs args)
+		{
+			var unityHubDir = @"C:\Program Files\Unity\Hub\Editor";
+			if (Directory.Exists(unityHubDir))
+			{
+				var r = SearchAssembly(unityHubDir, args.Name);
+				if (r != null)
+					return r;
+			}
+
+			Console.WriteLine($"Trying to load assembly '{args.Name}' (requested by '{args.RequestingAssembly.FullName}')");
+
+			return null;
+		}
+
+		static Assembly SearchAssembly(string directory, string assemblyFullName)
+		{
+			foreach (var dllPath in Directory.EnumerateFiles(directory, "*.dll", SearchOption.AllDirectories))
+			{
+				try
+				{
+					var asmName = AssemblyName.GetAssemblyName(dllPath);
+					if (asmName.FullName == assemblyFullName)
+						return Assembly.LoadFrom(dllPath);
+				}
+				catch (BadImageFormatException badImgEx)
+				{
+					Console.WriteLine($"Skipping module \"{dllPath}\" (BadImageFormat: probably not a .NET dll)");
+				}
+			}
+
+			return null;
 		}
 	}
 }

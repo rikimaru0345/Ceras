@@ -503,18 +503,18 @@ namespace LiveTesting
 			{
 				int counter = 0;
 
-				MicroBenchmark.Run(5, new BenchJob[]
-				{
-					("addSimple", () => counter = addSimple.Add(counter, 1)),
-					("addImplicit", () => counter = addImplicit.Add(counter, 1)),
-					("addExplicit", () => counter = addExplicit.Add(counter, 1)),
-					("addBase", () => counter = addBase.Add(counter, 1)),
+				//MicroBenchmark.Run(5, new (string, Action)[]
+				//{
+				//	("addSimple", () => counter = addSimple.Add(counter, 1)),
+				//	("addImplicit", () => counter = addImplicit.Add(counter, 1)),
+				//	("addExplicit", () => counter = addExplicit.Add(counter, 1)),
+				//	("addBase", () => counter = addBase.Add(counter, 1)),
 
-					("addSimpleR", () => counter = addSimpleR.Add(counter, 1)),
-					("addImplicitR", () => counter = addImplicitR.Add(counter, 1)),
-					("addExplicitR", () => counter = addExplicitR.Add(counter, 1)),
-					("addBaseR", () => counter = addBaseR.Add(counter, 1)),
-				});
+				//	("addSimpleR", () => counter = addSimpleR.Add(counter, 1)),
+				//	("addImplicitR", () => counter = addImplicitR.Add(counter, 1)),
+				//	("addExplicitR", () => counter = addExplicitR.Add(counter, 1)),
+				//	("addBaseR", () => counter = addBaseR.Add(counter, 1)),
+				//});
 			}
 		}
 

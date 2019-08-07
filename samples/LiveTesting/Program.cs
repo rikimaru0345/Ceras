@@ -37,6 +37,7 @@ namespace LiveTesting
 
 			SegmentedStringWriting();
 
+			new Ceras.Test.Examples().BeforeAndAfterSerializeCalls();
 			// Benchmarks();
 
 			NewRefFormatter.RefFormatterTests.Test();
