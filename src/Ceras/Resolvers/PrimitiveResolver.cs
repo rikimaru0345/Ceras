@@ -49,7 +49,7 @@
 				return f;
 
 			if (type.IsEnum)
-				return (IFormatter)Activator.CreateInstance(typeof(ReinterpretFormatter<>).MakeGenericType(type), _ceras);
+				return (IFormatter)Activator.CreateInstance(typeof(ReinterpretFormatter<>).MakeGenericType(type));
 
 			return null;
 		}
