@@ -96,63 +96,61 @@ namespace Ceras.Versioning
 			for (int i = 0; i < _readers.Length; i++)
 				_readers[i].Execute(target, buffer, ref offset);
 		}
+	}
 
+	abstract class MemberReader
+	{
+		public abstract void Execute(object target, byte[] buffer, ref int offset);
+	}
 
+	sealed class FieldReader<TMember> : MemberReader
+	{
+		readonly IFormatter<TMember> _formatter;
+		readonly FieldInfo _field;
 
-		abstract class MemberReader
+		public FieldReader(IFormatter<TMember> formatter, FieldInfo field)
 		{
-			public abstract void Execute(object target, byte[] buffer, ref int offset);
+			_formatter = formatter;
+			_field = field;
 		}
 
-		sealed class FieldReader<TMember> : MemberReader
+		public override void Execute(object target, byte[] buffer, ref int offset)
 		{
-			readonly IFormatter<TMember> _formatter;
-			readonly FieldInfo _field;
+			var size = SerializerBinary.ReadUInt32Fixed(buffer, ref offset);
 
-			public FieldReader(IFormatter<TMember> formatter, FieldInfo field)
-			{
-				_formatter = formatter;
-				_field = field;
-			}
+			TMember value = default;
+			_formatter.Deserialize(buffer, ref offset, ref value);
+			_field.SetValue(target, value);
+		}
+	}
 
-			public override void Execute(object target, byte[] buffer, ref int offset)
-			{
-				var size = SerializerBinary.ReadUInt32Fixed(buffer, ref offset);
+	sealed class PropertyReader<TMember> : MemberReader
+	{
+		readonly IFormatter<TMember> _formatter;
+		readonly Action<object, TMember> _propSetter;
 
-				TMember value = default;
-				_formatter.Deserialize(buffer, ref offset, ref value);
-				_field.SetValue(target, value);
-			}
+		public PropertyReader(IFormatter<TMember> formatter, PropertyInfo prop)
+		{
+			_formatter = formatter;
+			_propSetter = (Action<object, TMember>)Delegate.CreateDelegate(typeof(Action<object, TMember>), prop.GetSetMethod(true));
 		}
 
-		sealed class PropertyReader<TMember> : MemberReader
+		public override void Execute(object target, byte[] buffer, ref int offset)
 		{
-			readonly IFormatter<TMember> _formatter;
-			readonly Action<object, TMember> _propSetter;
+			var size = SerializerBinary.ReadUInt32Fixed(buffer, ref offset);
 
-			public PropertyReader(IFormatter<TMember> formatter, PropertyInfo prop)
-			{
-				_formatter = formatter;
-				_propSetter = (Action<object, TMember>)Delegate.CreateDelegate(typeof(Action<object, TMember>), prop.GetSetMethod(true));
-			}
-
-			public override void Execute(object target, byte[] buffer, ref int offset)
-			{
-				var size = SerializerBinary.ReadUInt32Fixed(buffer, ref offset);
-
-				TMember value = default;
-				_formatter.Deserialize(buffer, ref offset, ref value);
-				_propSetter(target, value);
-			}
+			TMember value = default;
+			_formatter.Deserialize(buffer, ref offset, ref value);
+			_propSetter(target, value);
 		}
+	}
 
-		sealed class SkipReader : MemberReader
+	sealed class SkipReader : MemberReader
+	{
+		public override void Execute(object target, byte[] buffer, ref int offset)
 		{
-			public override void Execute(object target, byte[] buffer, ref int offset)
-			{
-				var size = SerializerBinary.ReadUInt32Fixed(buffer, ref offset);
-				offset += (int)size;
-			}
+			var size = SerializerBinary.ReadUInt32Fixed(buffer, ref offset);
+			offset += (int)size;
 		}
 	}
 }
