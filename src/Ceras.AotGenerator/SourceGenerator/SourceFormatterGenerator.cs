@@ -131,34 +131,4 @@ $@"	public static class GeneratedFormatters
 			return typeName;
 		}
 	}
-
-	// Since we must use the same encoding that non-aot Ceras uses, we emulate the code it generates.
-	static class EnumGenerator
-	{
-		public static void Generate(Type enumType, StringBuilder text)
-		{
-			var enumBaseTypeName = enumType.ToFriendlyName(true);
-			var baseType = enumType.GetEnumUnderlyingType();
-			
-			text.AppendLine($@"
-class EnumFormatter : IFormatter<{enumBaseTypeName}>
-{{
-		IFormatter<{baseType.ToFriendlyName(true)}> _valueFormatter;
-
-		public void Serialize(ref byte[] buffer, ref int offset, {enumBaseTypeName} value)
-		{{
-			_valueFormatter.Serialize(ref buffer, ref offset, ({baseType.ToFriendlyName(true)})value);
-		}}
-
-		public void Deserialize(byte[] buffer, ref int offset, ref {enumBaseTypeName} value)
-		{{
-			{baseType.ToFriendlyName(true)} x = default({baseType.ToFriendlyName(true)});
-			_valueFormatter.Deserialize(buffer, ref offset, ref x);
-			value = x;
-		}}
-}}");
-		}
-	}
-
-	
 }
