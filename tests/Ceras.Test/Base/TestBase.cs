@@ -33,16 +33,6 @@ namespace Ceras.Test
 			return s;
 		}
 
-		protected SerializerConfig Config_WithReinterpret => CreateConfig(x =>
-		{
-			x.Advanced.UseReinterpretFormatter = true;
-			x.UseImmutableFormatters();
-		});
-		protected SerializerConfig Config_NoReinterpret => CreateConfig(x =>
-		{
-			x.Advanced.UseReinterpretFormatter = false;
-			x.UseImmutableFormatters();
-		});
 		protected SerializerConfig Config_WithVersioning => CreateConfig(x =>
 		{
 			x.VersionTolerance.Mode = VersionToleranceMode.Standard;

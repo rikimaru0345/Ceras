@@ -10,7 +10,7 @@ namespace Ceras.Resolvers
 	using Helpers;
 
 	/// <summary>
-	/// Creates super-fast formatters for "blittable" types. Only returns results when <see cref="IAdvancedConfigOptions.UseReinterpretFormatter"/> is true.
+	/// Creates super-fast formatters for "blittable" types. Only returns results when IntegerEncoding isn't set to ForceVarInt
 	/// </summary>
 	public sealed class ReinterpretFormatterResolver : IFormatterResolver
 	{
@@ -23,14 +23,14 @@ namespace Ceras.Resolvers
 
 		public IFormatter GetFormatter(Type type)
 		{
-			if(!_ceras.Config.Advanced.UseReinterpretFormatter)
-				return null;
-
 			if (!ReflectionHelper.IsBlittableType(type))
 				return null;
 
 			if(_ceras.Config.IntegerEncoding == IntegerEncoding.ForceVarInt)
 				return null;
+
+			if(_ceras.Config.VersionTolerance.Mode != VersionToleranceMode.Disabled)
+				return null; // reinterpret is not compatible with the idea of version tolerance
 
 			var formatterType = typeof(ReinterpretFormatter<>).MakeGenericType(type);
 

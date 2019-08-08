@@ -63,7 +63,7 @@ namespace Ceras.Formatters
 			// todo: must have the same size as we've expected
 
 			if (!BitConverter.IsLittleEndian)
-				throw new Exception("ReinterpretFormatter requires little endian environment. Please turn off " + nameof(SerializerConfig.Advanced.UseReinterpretFormatter));
+				throw new Exception("ReinterpretFormatter requires little endian environment.");
 		}
 	}
 

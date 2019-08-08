@@ -115,7 +115,6 @@ namespace Ceras.Test
 		public void BlittableTypesUseCorrectFormatter()
 		{
 			var config = new SerializerConfig();
-			config.Advanced.UseReinterpretFormatter = true;
 			var ceras = new CerasSerializer(config);
 
 			foreach (var t in _blittableTypes)

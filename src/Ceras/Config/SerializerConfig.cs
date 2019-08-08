@@ -115,12 +115,7 @@
 		VersionToleranceMode IVersionToleranceConfig.Mode
 		{
 			get => _versionToleranceMode;
-			set
-			{
-				if (_versionToleranceMode == VersionToleranceMode.Disabled && value != VersionToleranceMode.Disabled)
-					Advanced.UseReinterpretFormatter = false;
-				_versionToleranceMode = value;
-			}
+			set => _versionToleranceMode = value;
 		}
 		bool IVersionToleranceConfig.VerifySizes { get; set; } = false;
 		//bool IVersionToleranceConfig.IncludeFrameworkTypes { get; set; } = false;
@@ -249,7 +244,6 @@
 		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
 		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = new SimpleTypeBinder();
 		DelegateSerializationFlags IAdvancedConfigOptions.DelegateSerialization { get; set; } = DelegateSerializationFlags.Off;
-		bool IAdvancedConfigOptions.UseReinterpretFormatter { get; set; } = true;
 		bool IAdvancedConfigOptions.RespectNonSerializedAttribute { get; set; } = true;
 		BitmapMode IAdvancedConfigOptions.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
 		AotMode IAdvancedConfigOptions.AotMode { get; set; } = AotMode.None;
@@ -362,12 +356,6 @@
 		/// <para>Default: Off</para>
 		/// </summary>
 		DelegateSerializationFlags DelegateSerialization { get; set; }
-
-		/// <summary>
-		/// Allows Ceras to use an extremely fast formatter for so called "blittable" types. Works for single objects as well as arrays! This formatter always uses the native memory layout, does not respect endianness, and does not support version tolerance.
-		/// <para>Default: true</para>
-		/// </summary>
-		bool UseReinterpretFormatter { get; set; }
 
 		/// <summary>
 		/// If true, Ceras will skip fields with the '[System.NonSerialized]' attribute

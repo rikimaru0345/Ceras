@@ -40,7 +40,8 @@
 						? _ceras.Config.Advanced.SizeLimits.MaxByteArraySize
 						: _ceras.Config.Advanced.SizeLimits.MaxArraySize;
 
-				bool allowReinterpret = _ceras.Config.Advanced.UseReinterpretFormatter && _ceras.Config.IntegerEncoding != IntegerEncoding.ForceVarInt;
+				bool allowReinterpret = _ceras.Config.IntegerEncoding != IntegerEncoding.ForceVarInt 
+					&& _ceras.Config.VersionTolerance.Mode == VersionToleranceMode.Disabled;
 
 				if (rank == 1 && allowReinterpret && ReflectionHelper.IsBlittableType(itemType))
 				{
