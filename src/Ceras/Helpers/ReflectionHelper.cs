@@ -118,9 +118,18 @@
 			}
 		}
 
+
+		[ThreadStatic]
+		static HashSet<string> _propertyNames; // used by EnumerateMembers to discard properties that have already been found
+
 		static IEnumerable<MemberInfo> EnumerateMembers(this Type type)
 		{
-			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+			var names = _propertyNames;
+			if (names == null)
+				names = _propertyNames = new HashSet<string>();
+			names.Clear();
+
+			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
 			while (type != null)
 			{
@@ -129,19 +138,29 @@
 						yield return f;
 
 				foreach (var p in type.GetProperties(flags))
-					if (p.DeclaringType == type)
-					{
-						var getter = p.GetGetMethod(true);
-						if (getter != null)
-							if (getter.GetParameters().Length > 0)
-								// Indexers are not data
-								continue;
+				{
+					if (p.DeclaringType != type)
+						System.Diagnostics.Debug.Assert(false, "reflection returned a property with a different declaring type"); // ... even though DeclaredOnly was specified!
 
-						yield return p;
-					}
+					var getter = p.GetGetMethod(true);
+					if (getter == null)
+						continue; // when can that happen??
+
+					if (getter.GetParameters().Length > 0)
+						continue; // Indexers are not data
+					
+					if(names.Contains(p.Name))
+						continue; // property was already defined in the derived class we inspected before
+
+					names.Add(p.Name);
+
+					yield return p;
+				}
 
 				type = type.BaseType;
 			}
+
+			names.Clear();
 		}
 
 
@@ -569,28 +588,42 @@
 
 		public static string FriendlyName(this Type type, bool fullName = false)
 		{
-			if (type == typeof(bool))  return "bool";
+			if (type == typeof(bool))
+				return "bool";
 
-			if (type == typeof(byte))  return "byte";
-			if (type == typeof(sbyte))  return "sbyte";			
-			
-			if (type == typeof(short)) return "short";
-			if (type == typeof(ushort)) return "ushort";
+			if (type == typeof(byte))
+				return "byte";
+			if (type == typeof(sbyte))
+				return "sbyte";
 
-			if (type == typeof(int))	return "int";
-			if (type == typeof(uint))	return "uint";
-			
-			if (type == typeof(long))  return "long";
-			if (type == typeof(ulong))  return "ulong";
+			if (type == typeof(short))
+				return "short";
+			if (type == typeof(ushort))
+				return "ushort";
 
-			if (type == typeof(float)) return "float";
-			if (type == typeof(double)) return "double";
+			if (type == typeof(int))
+				return "int";
+			if (type == typeof(uint))
+				return "uint";
 
-			if (type == typeof(decimal)) return "decimal";
-			
-			if (type == typeof(string)) return "string";
-			if (type == typeof(char)) return "char";
-			
+			if (type == typeof(long))
+				return "long";
+			if (type == typeof(ulong))
+				return "ulong";
+
+			if (type == typeof(float))
+				return "float";
+			if (type == typeof(double))
+				return "double";
+
+			if (type == typeof(decimal))
+				return "decimal";
+
+			if (type == typeof(string))
+				return "string";
+			if (type == typeof(char))
+				return "char";
+
 			if (type.IsGenericType)
 			{
 				var n = fullName ? type.FullName : type.Name;

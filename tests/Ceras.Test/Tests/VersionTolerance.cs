@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using Xunit;
@@ -34,7 +35,7 @@ namespace Ceras.Test
 			ReadData(buffer);
 		}
 
-		private void ReadData(byte[] buffer)
+		void ReadData(byte[] buffer)
 		{
 			var config = new SerializerConfig();
 			config.VersionTolerance.Mode = VersionToleranceMode.Standard;
@@ -47,5 +48,41 @@ namespace Ceras.Test
 			var clone = ceras.Deserialize<VersionTest>(buffer);
 
 		}
+
+		[Fact]
+		public void DerivedProperties()
+		{
+			var config = new SerializerConfig();
+			config.VersionTolerance.Mode = VersionToleranceMode.Standard;
+			CerasSerializer ceras = new CerasSerializer(config);
+
+			var obj = new DerivedClass();
+			obj.Name = "derived!";
+
+			var data = ceras.Serialize(obj);
+			var clone = ceras.Deserialize<DerivedClass>(data);
+
+			Assert.True(clone.Name == obj.Name);
+
+			Assert.True(config.ConfigType<DerivedClass>().Members.Count(m => m.Member is PropertyInfo) == 1);
+		}
+
+	}
+
+	class DisplayAttribute : Attribute
+	{
+		public string Name;
+	}
+
+	public class BaseClass
+	{
+		[Display(Name = "Bla bla bla")]
+		public virtual string Name { get; set; }
+	}
+
+	public class DerivedClass : BaseClass
+	{
+		[Display(Name = "Cla Cla Cla")]
+		public override string Name { get; set; }
 	}
 }
