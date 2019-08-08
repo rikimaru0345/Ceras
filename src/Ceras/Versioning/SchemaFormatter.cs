@@ -57,10 +57,12 @@ namespace Ceras.Helpers
 
 		public void Serialize(ref byte[] buffer, ref int offset, T value)
 		{
-			// If this is the first time this type is being written,
-			// we need to write the Schema as well.
+			// If this is the first time (in the current Serialization) that this type is being written?
+			// -> Ensure we're on the primary schema
+			// -> Write the Schema into the binary
 			if (!_ceras.InstanceData.EncounteredSchemaTypes.Contains(typeof(T)))
 			{
+				_ceras.EnsurePrimarySchema(typeof(T));
 				_ceras.InstanceData.EncounteredSchemaTypes.Add(typeof(T));
 				CerasSerializer.WriteSchema(ref buffer, ref offset, _currentSchema);
 			}

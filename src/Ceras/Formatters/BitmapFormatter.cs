@@ -8,8 +8,8 @@ namespace Ceras.Formatters
 	using System.IO;
 #endif
 
-
-	// We have to use 'FromArgb' to maintain things like IsKnownColor, IsNamedColor, ...
+	// Color must be serialized by its argb value
+	// We don't want to add nonsense like IsKnownColor here (that's what custom formatters are for, see unit tests)
 	class ColorFormatter : IFormatter<Color>
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Color value)

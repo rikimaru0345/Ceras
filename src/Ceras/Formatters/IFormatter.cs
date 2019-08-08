@@ -19,6 +19,8 @@ namespace Ceras.Formatters
 	delegate void StaticDeserializeDelegate(byte[] buffer, ref int offset);
 
 
+	// A formatter that is relying on the Schema of a Type in some way (either directly: SchemaDynamicFormatter, or indirectly ReferenceFormatter)
+	// Those formatters need to be notified when the CurrentSchema of a Type changes (because of reading an older schema, or because we're resetting to the primary schema for writing) 
 	interface ISchemaTaintedFormatter
 	{
 		void OnSchemaChanged(TypeMetaData meta);

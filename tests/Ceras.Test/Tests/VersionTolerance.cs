@@ -8,6 +8,27 @@ using Xunit;
 
 namespace Ceras.Test
 {
+	
+	namespace Version1
+	{
+		class Person
+		{
+			public string Name;
+			public int Age;
+		}
+	}
+
+	namespace Version2
+	{
+		class Person
+		{
+			public string Name;
+			public string Surname;
+			public int Age;
+		}
+	}
+
+
 	class VersionTest
 	{
 		public string Name;
@@ -67,6 +88,50 @@ namespace Ceras.Test
 			Assert.True(config.ConfigType<DerivedClass>().Members.Count(m => m.Member is PropertyInfo) == 1);
 		}
 
+		[Fact]
+		public void AutomaticSchemaChanges()
+		{
+			var config = new SerializerConfig();
+			config.VersionTolerance.Mode = VersionToleranceMode.Standard;
+			var typeMap = new MappingTypeBinder();
+			config.Advanced.TypeBinder = typeMap;
+
+			typeMap.Map(typeof(Version1.Person), "Person");
+			typeMap.Map(typeof(Version2.Person), "Person");
+			typeMap.Map("Person", typeof(Version2.Person));
+
+			byte[] data1 = null;
+			byte[] data2 = null;
+
+			{ // 1: Save old data
+				CerasSerializer ceras = new CerasSerializer(config);
+
+				Version1.Person p1 = new Version1.Person { Name = "A", Age = 1 };
+				data1 = ceras.Serialize(p1);
+			}
+
+			{ // 2: Use new type (added member), load old data, save again
+				CerasSerializer ceras = new CerasSerializer(config);
+				Version2.Person p2 = null;
+				ceras.Deserialize(ref p2, data1);
+
+				// Check if everything was loaded correctly
+				Assert.True(p2.Name == "A");
+				Assert.True(p2.Age == 1);
+				Assert.True(p2.Surname == null);
+
+				// Make use of the new member, and save it
+				p2.Surname = "S";
+				data2 = ceras.Serialize(p2);
+
+				// Load new data, then old again
+				var p2Clone = ceras.Deserialize<Version2.Person>(data2);
+				var p1Clone = ceras.Deserialize<Version2.Person>(data1);
+
+				Assert.True(p2Clone.Surname == "S");
+				Assert.True(p1Clone.Surname == null);
+			}
+		}
 	}
 
 	class DisplayAttribute : Attribute
@@ -85,4 +150,39 @@ namespace Ceras.Test
 		[Display(Name = "Cla Cla Cla")]
 		public override string Name { get; set; }
 	}
+
+
+	
+	class MappingTypeBinder : ITypeBinder
+	{
+		Dictionary<Type, string> _typeToName = new Dictionary<Type, string>();
+		Dictionary<string, Type> _nameToType = new Dictionary<string, Type>();
+
+		public void Map(string name, Type type)
+		{
+			_nameToType.Add(name, type);
+		}
+
+		public void Map(Type type, string name)
+		{
+			_typeToName.Add(type, name);
+		}
+
+
+		public string GetBaseName(Type type)
+		{
+			return _typeToName[type];
+		}
+
+		public Type GetTypeFromBase(string baseTypeName)
+		{
+			return _nameToType[baseTypeName];
+		}
+
+		public Type GetTypeFromBaseAndArguments(string baseTypeName, params Type[] genericTypeArguments)
+		{
+			throw new NotSupportedException("this binder is only for debugging");
+		}
+	}
+
 }

@@ -14,10 +14,11 @@ namespace Ceras.Versioning
 	// Scenario:
 	// - We're running with AotMode.Enabled and VersionTolerance at the same time
 	// - The user is giving us some data to deserialize, but the embedded Schema is different.
-	// Usually we'd be screwed now. We cant generate a formatter to match the Schema, game over.
+	//   Usually we'd be screwed now since we can't generate a formatter to match the Schema!
 	//
-	// But there actually is something we can do.
-	// We can "emulate" the reading.
+	// This formatter solves this by emulating the needed reads.
+	// While this isn't very fast, it is the only thing that can be done when forced to
+	// react to a new Schema while at the same time not being allowed to generated code.
 	//
 
 	internal sealed class DynamicEmulator<T> : IFormatter<T> where T : class
@@ -40,21 +41,26 @@ namespace Ceras.Versioning
 
 				if (m.IsSkip)
 				{
-					_readers[i] = new EmulatedReaders.SkipReader();
+					_readers[i] = new SkipReader();
 				}
 				else if (m.MemberInfo is FieldInfo fieldInfo)
 				{
 					var formatter = ceras.GetReferenceFormatter(m.MemberType);
-					var readerType = typeof(EmulatedReaders.FieldReader<>).MakeGenericType(m.MemberType);
+					var readerType = typeof(FieldReader<>).MakeGenericType(m.MemberType);
 					_readers[i] = (MemberReader)Activator.CreateInstance(readerType, formatter, fieldInfo);
 				}
 				else if (m.MemberInfo is PropertyInfo propInfo)
 				{
 					var formatter = ceras.GetReferenceFormatter(m.MemberType);
-					var readerType = typeof(EmulatedReaders.PropertyReader<>).MakeGenericType(m.MemberType);
+					var readerType = typeof(PropertyReader<>).MakeGenericType(m.MemberType);
 					_readers[i] = (MemberReader)Activator.CreateInstance(readerType, formatter, propInfo);
 				}
 			}
+		}
+
+		public void Serialize(ref byte[] buffer, ref int offset, T value)
+		{
+			throw new NotImplementedException("Call to DynamicEmulator.Serialize (this is a bug, Serialization must always use primary schema, please report this on GitHub!)");
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref T value)
@@ -91,20 +97,14 @@ namespace Ceras.Versioning
 				_readers[i].Execute(target, buffer, ref offset);
 		}
 
-		public void Serialize(ref byte[] buffer, ref int offset, T value)
+
+
+		abstract class MemberReader
 		{
-			throw new NotImplementedException("Call to DynamicEmulator.Serialize (this is a bug, Serialization must always use primary schema, please report this on GitHub!)");
+			public abstract void Execute(object target, byte[] buffer, ref int offset);
 		}
-	}
 
-	internal abstract class MemberReader
-	{
-		public abstract void Execute(object target, byte[] buffer, ref int offset);
-	}
-
-	static class EmulatedReaders
-	{
-		internal sealed class FieldReader<TMember> : MemberReader
+		sealed class FieldReader<TMember> : MemberReader
 		{
 			readonly IFormatter<TMember> _formatter;
 			readonly FieldInfo _field;
@@ -125,7 +125,7 @@ namespace Ceras.Versioning
 			}
 		}
 
-		internal sealed class PropertyReader<TMember> : MemberReader
+		sealed class PropertyReader<TMember> : MemberReader
 		{
 			readonly IFormatter<TMember> _formatter;
 			readonly Action<object, TMember> _propSetter;
@@ -146,7 +146,7 @@ namespace Ceras.Versioning
 			}
 		}
 
-		internal sealed class SkipReader : MemberReader
+		sealed class SkipReader : MemberReader
 		{
 			public override void Execute(object target, byte[] buffer, ref int offset)
 			{
@@ -154,6 +154,5 @@ namespace Ceras.Versioning
 				offset += (int)size;
 			}
 		}
-
 	}
 }
