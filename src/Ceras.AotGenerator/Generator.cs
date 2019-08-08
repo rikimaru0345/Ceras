@@ -11,7 +11,7 @@ namespace CerasAotFormatterGenerator
 	using Ceras.Formatters.AotGenerator;
     using System.IO;
 
-    /*
+	/*
 	 * Ideas for improvement:
 	 * 
 	 * 1. (Done) Remove roslyn, ignore code formatting, that way we can drop a huge dependency which enables the next steps
