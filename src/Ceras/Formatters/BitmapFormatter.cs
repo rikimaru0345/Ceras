@@ -2,10 +2,29 @@
 
 namespace Ceras.Formatters
 {
-#if NETFRAMEWORK
 	using System.Drawing;
+#if NETFRAMEWORK
 	using System.Drawing.Imaging;
 	using System.IO;
+#endif
+
+
+	// We have to use 'FromArgb' to maintain things like IsKnownColor, IsNamedColor, ...
+	class ColorFormatter : IFormatter<Color>
+	{
+		public void Serialize(ref byte[] buffer, ref int offset, Color value)
+		{
+			SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, value.ToArgb());
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref Color value)
+		{
+			var argb = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
+			value = Color.FromArgb(argb);
+		}
+	}
+
+#if NETFRAMEWORK
 
 	class BitmapFormatter : IFormatter<Bitmap>
 	{
@@ -31,7 +50,7 @@ namespace Ceras.Formatters
 			// Prepare buffer stream
 			if (_sharedMemoryStream == null)
 				_sharedMemoryStream = new MemoryStream(200 * 1024);
-			
+
 			var stream = _sharedMemoryStream;
 
 			// Encode image into stream
@@ -81,7 +100,7 @@ namespace Ceras.Formatters
 				img = null;
 				return;
 			}
-			
+
 			// Copy bitmap data into the stream-buffer
 			stream.SetLength(size);
 			stream.Position = 0;
@@ -107,20 +126,6 @@ namespace Ceras.Formatters
 				return ImageFormat.Png;
 
 			throw new ArgumentOutOfRangeException();
-		}
-	}
-
-	class ColorFormatter : IFormatter<Color>
-	{
-		public void Serialize(ref byte[] buffer, ref int offset, Color value)
-		{
-			SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, value.ToArgb());
-		}
-
-		public void Deserialize(byte[] buffer, ref int offset, ref Color value)
-		{
-			var argb = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
-			value = Color.FromArgb(argb);
 		}
 	}
 

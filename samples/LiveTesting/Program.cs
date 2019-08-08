@@ -21,6 +21,8 @@ namespace LiveTesting
 	using System.Reflection;
 	using System.Reflection.Emit;
 	using System.Runtime.CompilerServices;
+	using System.Runtime.InteropServices;
+	using System.Runtime.Versioning;
 	using Tutorial;
 	using Xunit;
 	using Encoding = System.Text.Encoding;
@@ -31,6 +33,9 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
+
+			RuntimeColorTest();
+
 			new Ceras.Test.Examples().CallbackWithContext();
 			// Benchmarks();
 
@@ -110,6 +115,97 @@ namespace LiveTesting
 
 			Console.WriteLine("All tests completed.");
 			Console.ReadKey();
+		}
+
+		static void RuntimeColorTest()
+		{
+			Console.WriteLine("Running on: " + TargetFramework.FrameworkName);
+
+			var config = new SerializerConfig();
+			var typeConfig = config.ConfigType<System.Drawing.Color>();
+			CerasSerializer ceras = new CerasSerializer(config);
+
+			var colorData = ceras.Serialize(new System.Drawing.Color[] { System.Drawing.Color.Red, System.Drawing.Color.Aquamarine });
+
+
+#if NETCOREAPP
+			File.WriteAllBytes("color from netCoreApp.bin", colorData);
+			Console.WriteLine("Written file to: " + Path.GetFullPath("color from netCoreApp.bin"));
+#else
+			File.WriteAllBytes("color from framework.bin", colorData);
+#endif
+
+		}
+
+		static TargetFrameworkAttribute TargetFramework = Assembly
+			.GetEntryAssembly()
+			.GetCustomAttribute<TargetFrameworkAttribute>();
+
+		unsafe static void SegmentedStringWriting()
+		{
+			string str1 = "😀😁😂🤣😃😄😅😆😉😊😋😎😍😘🥰😗😙😚";
+			var str2 = str1;
+			str2 += str2;
+			str2 += str2;
+			str2 += str2;
+
+			var str3 = str2 + str2 + str2;
+
+			string[] testStrings = new string[]
+			{
+				"a",
+				"b",
+				"c",
+				"d",
+				"1234567890",
+				"1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890",
+				"😀",
+				"😀😀😀",
+				str1,
+				str2,
+				str3,
+			};
+
+			var jobs = new BenchJob[]
+			{
+				//("Old", () =>
+				//{
+				//	foreach (var testString in testStrings)
+				//	{
+				//		byte[] buffer = new byte[1];
+				//		int offset = 0;
+				//		SerializerBinary.WriteString(ref buffer, ref offset, testString);
+
+				//		offset = 0;
+				//		var strCopy = SerializerBinary.ReadString(buffer, ref offset);
+
+				//		if (testString != strCopy)
+				//			Debug.Fail("string encoding failure");
+				//	}
+				//}),
+				
+				//("New", () =>
+				//{
+				//	foreach (var testString in testStrings)
+				//	{
+				//		byte[] buffer = new byte[1];
+				//		int offset = 0;
+				//		SerializerBinary.WriteStringNew(ref buffer, ref offset, testString);
+
+				//		offset = 0;
+				//		var strCopy = SerializerBinary.ReadStringNew(buffer, ref offset);
+
+				//		if(testString != strCopy)
+				//			Debug.Fail("string encoding failure");
+				//	}
+				//}),
+			};
+
+			MicroBenchmark.Run(1, jobs);
+
+			Console.WriteLine("done");
+			Console.ReadKey();
+
 		}
 
 		static void ConvertDynamicFormatterToString()
