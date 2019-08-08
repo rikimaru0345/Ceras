@@ -77,7 +77,8 @@ namespace Ceras.Test
 					if (ReferenceEquals(obj, null) ^ ReferenceEquals(clone, null))
 						Assert.True(false, "objects must both have a value or both be null");
 
-				DeepComparer.Instance.CheckEquality(obj, clone);
+				bool areEqual = DeepComparer.Instance.CheckEquality(obj, clone);
+				Assert.True(areEqual, "Equality test failed!");
 			}
 		}
 
@@ -182,7 +183,8 @@ namespace Ceras.Test
 				else
 				{
 					var yEq = (IStructuralEquatable)y;
-					return (xEq.Equals(yEq, DeepComparer.Instance));
+					if (xEq.Equals(yEq, DeepComparer.Instance))
+						return true;
 				}
 			}
 			else if (x is IEnumerable xEnum)
@@ -198,8 +200,12 @@ namespace Ceras.Test
 			}
 			else
 			{
-				return x.Equals(y);
+				if (x.Equals(y))
+					return true;
+
 			}
+
+			return false;
 		}
 
 

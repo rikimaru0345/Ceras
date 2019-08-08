@@ -63,6 +63,8 @@ namespace Ceras.Test
 			TestDeepEquality(new Complex(rngDouble, rngDouble));
 			CheckAndResetTotalRunCount(1 * 3);
 
+
+			TestDeepEquality(123.32465246M);
 		}
 
 		[Fact]
@@ -136,8 +138,6 @@ namespace Ceras.Test
 		[Fact]
 		public void ObjectArrays()
 		{
-			TestDeepEquality(new[] { new object(), new object(), new object() });
-
 			TestDeepEquality(new[] { "asdfg", "asdfg", "asdfg", "", "", "1", "2", "3", ",.-üä#ß351293ß6!§`?=&=$&" });
 
 			TestDeepEquality(new[] { (object)DateTime.Now, (object)DateTime.Now, (object)DateTime.Now, (object)DateTime.Now, });
@@ -336,7 +336,7 @@ namespace Ceras.Test
 				rngLong,
 				rngFloat.ToString(),
 				new List<bool>{ true, true, false},
-				StructuralComparisons.StructuralComparer,
+				"asdfg" + Environment.TickCount + rngFloat,
 			};
 			TestDeepEquality(randomStuff);
 
