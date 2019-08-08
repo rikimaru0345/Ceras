@@ -22,6 +22,7 @@ namespace LiveTesting
 	using System.Reflection.Emit;
 	using System.Runtime.CompilerServices;
 	using System.Runtime.InteropServices;
+	using System.Runtime.Versioning;
 	using Tutorial;
 	using Xunit;
 	using Encoding = System.Text.Encoding;
@@ -32,6 +33,9 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
+
+			RuntimeColorTest();
+
 			new Ceras.Test.Examples().CallbackWithContext();
 			// Benchmarks();
 
@@ -113,6 +117,29 @@ namespace LiveTesting
 			Console.ReadKey();
 		}
 
+		static void RuntimeColorTest()
+		{
+			Console.WriteLine("Running on: " + TargetFramework.FrameworkName);
+
+			var config = new SerializerConfig();
+			var typeConfig = config.ConfigType<System.Drawing.Color>();
+			CerasSerializer ceras = new CerasSerializer(config);
+
+			var colorData = ceras.Serialize(new System.Drawing.Color[] { System.Drawing.Color.Red, System.Drawing.Color.Aquamarine });
+
+
+#if NETCOREAPP
+			File.WriteAllBytes("color from netCoreApp.bin", colorData);
+			Console.WriteLine("Written file to: " + Path.GetFullPath("color from netCoreApp.bin"));
+#else
+			File.WriteAllBytes("color from framework.bin", colorData);
+#endif
+
+		}
+
+		static TargetFrameworkAttribute TargetFramework = Assembly
+			.GetEntryAssembly()
+			.GetCustomAttribute<TargetFrameworkAttribute>();
 
 		unsafe static void SegmentedStringWriting()
 		{

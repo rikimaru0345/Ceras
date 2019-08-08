@@ -61,9 +61,10 @@
 			_primitiveFormatters.GetOrAddValueRef(typeof(Uri)) = new UriFormatter();
 			_primitiveFormatters.GetOrAddValueRef(typeof(BitArray)) = new BitArrayFormatter();
 
+
+			_primitiveFormatters.GetOrAddValueRef(typeof(System.Drawing.Color)) = new ColorFormatter();
 			#if NETFRAMEWORK
 			_primitiveFormatters.GetOrAddValueRef(typeof(System.Drawing.Bitmap)) = new BitmapFormatter();
-			_primitiveFormatters.GetOrAddValueRef(typeof(System.Drawing.Color)) = new ColorFormatter();
 			#endif
 		}
 
