@@ -17,9 +17,6 @@ namespace Ceras.Formatters
 	 * Given a "Schema" it compiles an optimized formatter for it.
 	 */
 
-	// todo: override formatters?
-	// todo: merge-blitting ReinterpretFormatter<T>.Write_NoCheckNoAdvance()
-
 	abstract class DynamicFormatter
 	{
 		internal abstract void Initialize();
@@ -58,13 +55,6 @@ namespace Ceras.Formatters
 
 			if (!schema.IsPrimary)
 				throw new InvalidOperationException("Non-Primary Schema requires SchemaFormatter instead of DynamicFormatter!");
-
-			if (schema.Members.Count == 0)
-			{
-				_serializer = (ref byte[] buffer, ref int offset, T value) => { };
-				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
-				return;
-			}
 
 			_isStatic = isStatic;
 			_schema = schema;

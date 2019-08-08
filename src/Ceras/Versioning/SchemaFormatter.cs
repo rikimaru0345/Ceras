@@ -149,14 +149,6 @@ namespace Ceras.Helpers
 				return;
 			}
 
-			// No members?
-			if (schema.Members.Count == 0)
-			{
-				_serializer = (ref byte[] buffer, ref int offset, T value) => { };
-				_deserializer = (byte[] buffer, ref int offset, ref T value) => { };
-				return;
-			}
-
 			bool isStatic = schema.IsStatic;
 
 			// Generate
