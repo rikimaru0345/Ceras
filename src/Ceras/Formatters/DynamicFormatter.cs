@@ -173,6 +173,9 @@ namespace Ceras.Formatters
 			if (!isStatic)
 				EmitCallToAttribute(ceras, body, valueArg, schema.Type, typeof(OnAfterSerializeAttribute), false);
 
+			if(body.Count == 0)
+				body.Add(Empty());
+
 			var serializeBlock = Block(variables: locals, expressions: body);
 
 			if (isStatic)
@@ -388,6 +391,9 @@ namespace Ceras.Formatters
 			if (!isStatic)
 				EmitCallToAttribute(ceras, body, refValueArg, schema.Type, typeof(OnAfterDeserializeAttribute), false);
 
+			
+			if(body.Count == 0)
+				body.Add(Empty());
 
 			var bodyBlock = Block(variables: locals, expressions: body);
 
