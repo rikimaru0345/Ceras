@@ -269,4 +269,13 @@ namespace Ceras.Formatters.AotGenerator
 	public class CerasAutoGenFormatterAttribute : Attribute
 	{
 	}
+
+	/// <summary>
+	/// Intended to only be used by the AotGenerator.
+	/// The AotGenerator marks the classes it has generated, so it can differentiate between formatters it has written itself and formatters written by the user.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Class)]
+	public class GeneratedFormatterAttribute :Attribute
+	{
+	}
 }

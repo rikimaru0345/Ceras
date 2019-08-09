@@ -62,11 +62,9 @@ namespace CerasAotFormatterGenerator
 			// And also include all marked types
 			var marker = typeof(CerasAutoGenFormatterAttribute);
 
-			bool HasMarker(Type t) => t.GetCustomAttributes(true)
-									   .Any(a => a.GetType().FullName == marker.FullName);
 
 			var markedTargets = asms.SelectMany(a => a.GetTypes())
-									.Where(t => !t.IsAbstract && HasMarker(t));
+									.Where(t => !t.IsAbstract && IsMarkedForAot(t));
 
 			newTypes.AddRange(markedTargets);
 
@@ -104,16 +102,21 @@ namespace CerasAotFormatterGenerator
 
 			foreach (var t in allTypes)
 			{
-				var f = ceras.GetSpecificFormatter(t);
-				var fType = f.GetType();
+				var formatter = ceras.GetSpecificFormatter(t);
+				var formatterType = formatter.GetType();
 
-				if (fType.IsGenericType && fType.GetGenericTypeDefinition().Name == typeof(DynamicFormatter<int>).GetGenericTypeDefinition().Name)
-					targets.Add(t);
-				else if (HasMarker(t))
-					targets.Add(t);
+				if (formatterType.IsGenericType && formatterType.GetGenericTypeDefinition().Name == typeof(DynamicFormatter<int>).GetGenericTypeDefinition().Name)
+					targets.Add(t); // handled by DynamicFormatter, we definitely need to generate a replacement for this one
+				else if(formatterType.GetCustomAttributes().Any(a => a.GetType().Name == nameof(GeneratedFormatterAttribute)))
+					targets.Add(t); // we wrote a formatter for this type in the past, so that means we must do so again
+				else if (IsMarkedForAot(t))
+					targets.Add(t); // explicitly marked by the user
 			}
 
 			return (ceras, targets);
+
+			bool IsMarkedForAot(Type t) => t.GetCustomAttributes(true)
+									   .Any(a => a.GetType().FullName == marker.FullName);
 		}
 	
 		

@@ -16,6 +16,8 @@
 		{
 			text.AppendLine("using Ceras;");
 			text.AppendLine("using Ceras.Formatters;");
+			text.AppendLine("using Ceras.Formatters.AotGenerator;");
+			text.AppendLine("");
 			text.AppendLine("namespace Ceras.GeneratedFormatters");
 			text.AppendLine("{");
 
@@ -39,6 +41,7 @@ $@"	public static class GeneratedFormatters
 
 		static void Generate(Type type, CerasSerializer ceras, StringBuilder text)
 		{
+			text.AppendLine("[GeneratedFormatterAttribute]");
 			text.AppendLine($"\tinternal class {type.ToVariableSafeName()}Formatter : IFormatter<{type.ToFriendlyName(true)}>");
 			text.AppendLine("\t{");
 			GenerateClassContent(text, ceras, type);
