@@ -144,9 +144,9 @@
 
 			_allMembers = members.ToList();
 
-			TypeConfigDefaults.ApplyTypeAttributes(this);
-			TypeConfigDefaults.ApplySpecializedDefaults(this);
+			TypeConfigDefaults.ApplySpecializedDefaults(this); // apply special handling first
 
+			TypeConfigDefaults.ApplyTypeAttributes(this); // then attributes on the type and members
 			foreach (var m in _allMembers)
 				TypeConfigDefaults.ApplyMemberAttributes(m);
 		}

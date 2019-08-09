@@ -201,7 +201,6 @@ namespace Ceras
 				return;
 			}
 
-
 			// Expression & TrueReadOnlyCollection
 			if (type.Assembly == typeof(Expression).Assembly)
 			{
