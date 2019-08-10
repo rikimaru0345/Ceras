@@ -35,11 +35,11 @@ namespace LiveTesting
 
 		static unsafe void Main(string[] args)
 		{
+			Benchmarks();
 			
 			RuntimeColorTest();
 
 			new Ceras.Test.Examples().CallbackWithContext();
-			// Benchmarks();
 
 			NewRefFormatter.RefFormatterTests.Test();
 			MergeBlittingTest.MergeBlittingTest.Test();
@@ -239,8 +239,8 @@ namespace LiveTesting
 			// Benchmark_DynamicMethod();
 			// Benchmark_SealedTypeOptimization();
 
-			var config = CerasGlobalBenchmarkConfig.Medium;
-			BenchmarkRunner.Run<Benchmark_SealedTypeOptimization>(config);
+			var config = CerasGlobalBenchmarkConfig.Short;
+			BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
 
 
 			//Benchmark_ReferenceFormatter_UsingCreateDelegateDispatcher bench = new Benchmark_ReferenceFormatter_UsingCreateDelegateDispatcher();
