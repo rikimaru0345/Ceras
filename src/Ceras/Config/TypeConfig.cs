@@ -141,9 +141,9 @@
 
 			_allMembers = members.ToList();
 
-			TypeConfigDefaults.ApplyTypeAttributes(this);
-			TypeConfigDefaults.ApplySpecializedDefaults(this);
+			TypeConfigDefaults.ApplySpecializedDefaults(this); // apply special handling first
 
+			TypeConfigDefaults.ApplyTypeAttributes(this); // then attributes on the type and members
 			foreach (var m in _allMembers)
 				TypeConfigDefaults.ApplyMemberAttributes(m);
 		}
@@ -211,6 +211,21 @@
 				return;
 
 			VerifyAll();
+			
+			// Protect the user against problematic cases that aren't immediately obvious
+			if (Config.Warnings.ExceptionOnStructWithAutoProperties)
+			{
+				if (Type.IsValueType) // is struct
+					if (Members.All(m => m.ComputeFinalInclusionFast() == false)) // no included members
+						if (Members.Where(m => m.Member is FieldInfo).All(m => m.IsCompilerGenerated)) // all fields are compiler generated
+							if (Members.Count(m => m.Member is PropertyInfo) > 0) // has properties
+								throw new WarningException($"Warning: The type '{Type.FriendlyName(true)}' is a struct and by default Ceras serializes structs only through their fields. This struct has only auto-properties, for which the compiler generates hidden 'backing-fields' that are all marked as 'CompilerGenerated'.\r\n" +
+									"You can do multiple things to fix this: \r\n" +
+									"(1) Change all properties to fields.\r\n" +
+									"(2) Explicitly include the properties either with the [Include] attribute, or [MemberConfig].\r\n" +
+									"(3) Disable this warning-exception in 'config.Warnings'.");
+			}
+
 
 			_isSealed = true;
 		}

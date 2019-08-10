@@ -184,10 +184,19 @@ namespace Ceras
 				if(typeConfig.TypeConstruction == null)
 					typeConfig.TypeConstruction = ConstructNull.Instance;
 
+				typeConfig.TargetMembers = TargetMember.AllFields;
 				typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
 				return;
 			}
 
+			// Version
+			if(type == typeof(Version))
+			{
+				ForceSerialization(typeConfig);
+				return;
+			}
+
+			// Expression & TrueReadOnlyCollection
 			if (type.Assembly == typeof(Expression).Assembly)
 			{
 				if (!type.IsAbstract && type.IsSubclassOf(typeof(Expression)))
@@ -203,6 +212,7 @@ namespace Ceras
 				}
 			}
 
+			// ReadOnlyCollection
 			if (type.Assembly == typeof(ReadOnlyCollection<>).Assembly)
 				if (type.FullName.StartsWith("System.Collections.ObjectModel.ReadOnlyCollection"))
 				{

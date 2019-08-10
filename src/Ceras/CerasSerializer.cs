@@ -919,7 +919,7 @@ namespace Ceras
 					SafeInject(formatter, f, Config);
 					continue;
 				}
-				else if (fieldType == typeof(IAdvancedConfigOptions))
+				else if (fieldType == typeof(IAdvancedConfig))
 				{
 					SafeInject(formatter, f, Config.Advanced);
 					continue;
@@ -1032,7 +1032,14 @@ namespace Ceras
 				taintedFormatter.OnSchemaChanged(meta);
 			}
 		}
+				
+		internal void EnsurePrimarySchema(Type type)
+		{
+			var meta = GetTypeMetaData(type);
 
+			if (!meta.CurrentSchema.IsPrimary)
+				ActivateSchemaOverride(type, meta.PrimarySchema);
+		}
 
 
 		// Creates the primary schema for a given type
@@ -1282,8 +1289,10 @@ namespace Ceras
 
 		public object UserContext;
 
-		// Why <Type> instead of <Schema> ? Becasue while reading we'll never encounter multiple different schemata for the same type.
-		// And while writing we'll only ever use the primary schema.
+		// Why <Type> instead of <Schema>?
+		// -> While reading we'll never encounter multiple different schemata for the same type.
+		// -> While writing we always use the primary schema.
+		// So only the Type differs!
 		public HashSet<Type> EncounteredSchemaTypes;
 	}
 

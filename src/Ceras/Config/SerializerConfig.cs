@@ -22,7 +22,7 @@
 	/// You shouldn't share a single instance of a SerializerConfig either
 	/// </para>
 	/// </summary>
-	public class SerializerConfig : IAdvancedConfigOptions, ISizeLimitsConfig, IVersionToleranceConfig
+	public class SerializerConfig : IAdvancedConfig, ISizeLimitsConfig, IVersionToleranceConfig, IWarningConfig
 	{
 		bool _isSealed; // todo
 		internal bool IsSealed => _isSealed;
@@ -228,43 +228,45 @@
 		/// <summary>
 		/// Advanced options. In here is everything that is very rarely used, dangerous, or otherwise special. 
 		/// </summary>
-		public IAdvancedConfigOptions Advanced => this;
+		public IAdvancedConfig Advanced => this;
 
-		ISizeLimitsConfig IAdvancedConfigOptions.SizeLimits => this;
+		ISizeLimitsConfig IAdvancedConfig.SizeLimits => this;
 		uint ISizeLimitsConfig.MaxStringLength { get; set; } = uint.MaxValue;
 		uint ISizeLimitsConfig.MaxArraySize { get; set; } = uint.MaxValue;
 		uint ISizeLimitsConfig.MaxByteArraySize { get; set; } = uint.MaxValue;
 		uint ISizeLimitsConfig.MaxCollectionSize { get; set; } = uint.MaxValue;
 
-		Action<object> IAdvancedConfigOptions.DiscardObjectMethod { get; set; } = null;
-		ReadonlyFieldHandling IAdvancedConfigOptions.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.ExcludeFromSerialization;
-		bool IAdvancedConfigOptions.EmbedChecksum { get; set; } = false;
-		bool IAdvancedConfigOptions.PersistTypeCache { get; set; } = false;
-		bool IAdvancedConfigOptions.SealTypesWhenUsingKnownTypes { get; set; } = true;
-		bool IAdvancedConfigOptions.SkipCompilerGeneratedFields { get; set; } = true;
-		ITypeBinder IAdvancedConfigOptions.TypeBinder { get; set; } = new SimpleTypeBinder();
-		DelegateSerializationFlags IAdvancedConfigOptions.DelegateSerialization { get; set; } = DelegateSerializationFlags.Off;
-		bool IAdvancedConfigOptions.RespectNonSerializedAttribute { get; set; } = true;
-		BitmapMode IAdvancedConfigOptions.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
-		AotMode IAdvancedConfigOptions.AotMode { get; set; } = AotMode.None;
+		Action<object> IAdvancedConfig.DiscardObjectMethod { get; set; } = null;
+		ReadonlyFieldHandling IAdvancedConfig.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.ExcludeFromSerialization;
+		bool IAdvancedConfig.EmbedChecksum { get; set; } = false;
+		bool IAdvancedConfig.PersistTypeCache { get; set; } = false;
+		bool IAdvancedConfig.SealTypesWhenUsingKnownTypes { get; set; } = true;
+		bool IAdvancedConfig.SkipCompilerGeneratedFields { get; set; } = true;
+		ITypeBinder IAdvancedConfig.TypeBinder { get; set; } = new SimpleTypeBinder();
+		DelegateSerializationFlags IAdvancedConfig.DelegateSerialization { get; set; } = DelegateSerializationFlags.Off;
+		bool IAdvancedConfig.UseReinterpretFormatter { get; set; } = true;
+		bool IAdvancedConfig.RespectNonSerializedAttribute { get; set; } = true;
+		BitmapMode IAdvancedConfig.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
+		AotMode IAdvancedConfig.AotMode { get; set; } = AotMode.None;
 
 		#endregion
+		
+		#region Warnings
 
+		/// <summary>
+		/// Ceras can detect some common mistakes and notifies you of them by throwing exceptions.
+		/// In case you know better, you can disable those exceptions here.
+		/// </summary>
+		public IWarningConfig Warnings => this;
 
-		#region Experimental
-
-		internal ExperimentalFeatures Experimental { get; } = new ExperimentalFeatures();
-
-		internal class ExperimentalFeatures
-		{
-			public bool UseNewCache { get; set; }
-		}
+		bool IWarningConfig.ExceptionWhenUsingDynamicFormatterInAotMode { get; set; } = true;
+		bool IWarningConfig.ExceptionOnStructWithAutoProperties { get; set; } = true;
 
 		#endregion
 	}
 
 
-	public interface IAdvancedConfigOptions
+	public interface IAdvancedConfig
 	{
 		/// <summary>
 		/// Set this to a function you provide. Ceras will call it when an object instance is no longer needed.
@@ -420,6 +422,21 @@
 		bool IncludeFrameworkTypes { get; set; }
 		*/
 	}
+
+	public interface IWarningConfig
+	{
+		/// <summary>
+		/// When enabled, will throw an exception when the serializer is running with <see cref="AotMode.Enabled"/> and is about to create an instance of <see cref="DynamicFormatter"/>
+		/// <para>Default: true</para>
+		/// </summary>
+		bool ExceptionWhenUsingDynamicFormatterInAotMode { get; set; }
+
+		/// <summary>
+		/// When a struct is encountered that only consists of auto-properties, it will not be serialized correctly. That is because structs (by default) are serialized by their fields, but auto-properties make it so those fields become marked as 'CompilerGenerated' (preventing them from being part of the serialization).
+		/// </summary>
+		bool ExceptionOnStructWithAutoProperties { get; set; }
+	}
+
 
 	[Flags]
 	public enum DelegateSerializationFlags

@@ -17,8 +17,6 @@ namespace Ceras.Formatters
 	 * Given a "Schema" it compiles an optimized formatter for it.
 	 */
 
-	// todo: override formatters?
-
 	abstract class DynamicFormatter
 	{
 		// Schema field prefix
@@ -134,6 +132,9 @@ namespace Ceras.Formatters
 
 			if (!schema.IsStatic)
 				EmitCallToAttribute(ceras, body, valueArg, schema.Type, typeof(OnAfterSerializeAttribute), false);
+
+			if(body.Count == 0)
+				body.Add(Empty());
 
 			var serializeBlock = Block(variables: locals, expressions: body);
 
@@ -333,6 +334,9 @@ namespace Ceras.Formatters
 			if (!schema.IsStatic)
 				EmitCallToAttribute(ceras, body, valueArg, schema.Type, typeof(OnAfterDeserializeAttribute), false);
 
+			
+			if(body.Count == 0)
+				body.Add(Empty());
 
 			var bodyBlock = Block(variables: locals, expressions: body);
 

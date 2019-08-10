@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 
 namespace Ceras.Test
 {
+	using Ceras.Exceptions;
 	using Xunit;
 
 	public class Examples : TestBase
@@ -153,6 +154,25 @@ namespace Ceras.Test
 			Assert.Equal(4, context.Counter);
 		}
 
+		[Fact]
+		public void WarnUserAgainstPropertyStruct()
+		{
+			Assert.Throws<WarningException>(() =>
+			{
+				var config = new SerializerConfig();
+				config.VersionTolerance.Mode = VersionToleranceMode.Standard;
+
+				var tc = config.ConfigType<PropertyStruct>();
+
+				CerasSerializer ceras = new CerasSerializer(config);
+				var obj = new PropertyStruct();
+				obj.DeviceAddress = 1235;
+				obj.SwitchId = 45454545;
+
+				var data = ceras.Serialize(obj);
+				var clone = ceras.Deserialize<PropertyStruct>(data);
+			});
+		}
 	}
 
 	class NormalClass
@@ -286,6 +306,19 @@ namespace Ceras.Test
 		{
 			var ctx = ceras.UserContext as ContextObject;
 			ctx.Counter++;
+		}
+	}
+
+	struct PropertyStruct
+	{
+		public int DeviceAddress { get; set; }
+
+		public int SwitchId { get; set; }
+
+		public PropertyStruct(int deviceAddress, int switchId)
+		{
+			DeviceAddress = deviceAddress;
+			SwitchId = switchId;
 		}
 	}
 }

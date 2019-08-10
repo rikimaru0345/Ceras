@@ -28,4 +28,12 @@ namespace Ceras.Exceptions
 		{
 		}
 	}
+
+	public class WarningException : CerasException
+	{
+		public WarningException(string message) : base(message)
+		{
+
+		}
+	}
 }

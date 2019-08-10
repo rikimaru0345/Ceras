@@ -16,6 +16,7 @@
 		{
 			text.AppendLine("using Ceras;");
 			text.AppendLine("using Ceras.Formatters;");
+			text.AppendLine("using Ceras.Formatters.AotGenerator;");
 			text.AppendLine("");
 			text.AppendLine("namespace Ceras.GeneratedFormatters");
 			text.AppendLine("{");
