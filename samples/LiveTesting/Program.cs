@@ -31,12 +31,46 @@ namespace LiveTesting
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
 
+		[MemberConfig(TargetMember.AllPublic)]
+		public struct TestClass
+		{
+			public int DeviceAddress { get; set; }
+
+			public int SwitchId { get; set; }
+
+			public TestClass(int deviceAddress, int switchId)
+			{
+				DeviceAddress = deviceAddress;
+				SwitchId = switchId;
+			}
+		}
+
 		static unsafe void Main(string[] args)
 		{
+			Benchmarks();
+
+			{
+				var config = new SerializerConfig();
+				config.VersionTolerance.Mode = VersionToleranceMode.Standard;
+
+				var tc = config.ConfigType<TestClass>();
+
+				CerasSerializer ceras = new CerasSerializer(config);
+				var obj = new TestClass();
+				obj.DeviceAddress = 1235;
+				obj.SwitchId = 45454545;
+
+				var data = ceras.Serialize(obj);
+				var clone = ceras.Deserialize<TestClass>(data);
+			}
+
+
+			new Ceras.Test.BuiltInTypes().MultidimensionalArrays();
+			new Ceras.Test.VersionTolerance().EmulatorCanReadSchemaData();
+
 			RuntimeColorTest();
 
 			new Ceras.Test.Examples().CallbackWithContext();
-			// Benchmarks();
 
 			MergeBlittingTest.Test();
 
@@ -243,8 +277,8 @@ namespace LiveTesting
 			// Benchmark_DynamicMethod();
 			// Benchmark_SealedTypeOptimization();
 
-			var config = CerasGlobalBenchmarkConfig.Medium;
-			BenchmarkRunner.Run<Benchmark_SealedTypeOptimization>(config);
+			var config = CerasGlobalBenchmarkConfig.Short;
+			BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
 
 
 			//Benchmark_ReferenceFormatter_UsingCreateDelegateDispatcher bench = new Benchmark_ReferenceFormatter_UsingCreateDelegateDispatcher();
