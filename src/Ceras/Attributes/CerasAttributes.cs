@@ -256,7 +256,7 @@ namespace Ceras.Formatters.AotGenerator
 	/// The tool inspects 'KnownTypes' as well as all types that you configured using the ConfigType methods. Types that are only handled in "OnConfigNewType" will not be handled in any way because that method is only called when any type is actually encountered (serialized or deserialized).
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Method)]
-	public class CerasAutoGenConfigAttribute : Attribute
+	public class AotSerializerConfigAttribute : Attribute
 	{
 	}
 
@@ -266,16 +266,7 @@ namespace Ceras.Formatters.AotGenerator
 	/// If a base type (for example 'abstract class NetworkMessage') has this attribute, then all derived types that the tool can find will also have a formatter generated for them.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
-	public class CerasAutoGenFormatterAttribute : Attribute
-	{
-	}
-
-	/// <summary>
-	/// Intended to only be used by the AotGenerator.
-	/// The AotGenerator marks the classes it has generated, so it can differentiate between formatters it has written itself and formatters written by the user.
-	/// </summary>
-	[AttributeUsage(AttributeTargets.Class)]
-	public class GeneratedFormatterAttribute :Attribute
+	public class GenerateFormatterAttribute : Attribute
 	{
 	}
 }

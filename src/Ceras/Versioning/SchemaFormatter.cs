@@ -1,26 +1,8 @@
-﻿using System.Collections.Generic;
-
-namespace Ceras.Helpers
+﻿namespace Ceras.Helpers
 {
-	using Formatters;
 	using System;
-	using System.Diagnostics;
-	using System.Linq;
-	using System.Linq.Expressions;
-	using System.Reflection;
-	using static System.Linq.Expressions.Expression;
-
-	// Idea #1:
-	// Currently every field has a UInt32 size prefix.
-	// But for some types the size can be inferred! 
-	// - Primitives (int, ...) can have a fixed size (only when using block-encoding, so actually very rarely...)
-	// - String's size is actually known because we currently encode it by prefixing the length as a varint.
-	// Maybe this can be exploited somehow? (currently there are too many edge cases, but maybe in the future?) 
-	//
-	// Idea #2:
-	// Maybe the user wants to be able to customize the size-prefix? (but for what?)
-	// It could be nice to be able to switch between UInt32 and varint, maybe for networking purposes.
-
+	using System.Collections.Generic;
+	using Formatters;
 
 	class SchemaDynamicFormatter<T> : IFormatter<T>, ISchemaTaintedFormatter
 	{

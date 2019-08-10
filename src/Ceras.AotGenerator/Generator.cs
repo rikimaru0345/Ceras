@@ -9,9 +9,10 @@ namespace CerasAotFormatterGenerator
 	using System.Text;
 	using Ceras.Formatters;
 	using Ceras.Formatters.AotGenerator;
-    using System.IO;
+	using System.IO;
+    using Ceras.Helpers;
 
-	/*
+    /*
 	 * Ideas for improvement:
 	 * 
 	 * 1. (Done) Remove roslyn, ignore code formatting, that way we can drop a huge dependency which enables the next steps
@@ -27,11 +28,13 @@ namespace CerasAotFormatterGenerator
 	 *    - ...
 	 */
 
-	public class Generator
+    public class Generator
 	{
+		static readonly Type Marker = typeof(GenerateFormatterAttribute);
+
 		public static void Generate(IEnumerable<Assembly> asms, StringBuilder output)
 		{
-			if(!_resolverRegistered)
+			if (!_resolverRegistered)
 				throw new InvalidOperationException("please call RegisterAssemblyResolver() first so you can get better error messages when a DLL can't be loaded!");
 
 			var (ceras, targets) = CreateSerializerAndTargets(asms);
@@ -44,41 +47,35 @@ namespace CerasAotFormatterGenerator
 			SerializerConfig config = new SerializerConfig();
 			var configMethods = asms.SelectMany(a => a.GetTypes())
 									.SelectMany(t => t.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
-									.Where(m => m.GetCustomAttribute<CerasAutoGenConfigAttribute>() != null)
+									.Where(m => m.GetCustomAttribute<AotSerializerConfigAttribute>() != null)
 									.ToArray();
 			if (configMethods.Length > 1)
 				throw new Exception("Found more than one method with the CerasAutoGenConfig attribute!");
 			if (configMethods.Length == 1)
 				config = (SerializerConfig)configMethods[0].Invoke(null, null);
 
-			config.VersionTolerance.Mode = VersionToleranceMode.Disabled; // ensure VersionTolerance is off so we don't accidentally get 'SchemaDynamicFormatter'
 			var ceras = new CerasSerializer(config);
 
 
-			// Start with KnownTypes...
+			// Start with KnownTypes and user-marked types...
 			HashSet<Type> newTypes = new HashSet<Type>();
 			newTypes.AddRange(config.KnownTypes);
-
-			// And also include all marked types
-			var marker = typeof(CerasAutoGenFormatterAttribute);
-
-
-			var markedTargets = asms.SelectMany(a => a.GetTypes())
-									.Where(t => !t.IsAbstract && IsMarkedForAot(t));
-
-			newTypes.AddRange(markedTargets);
+			newTypes.AddRange(asms.SelectMany(a => a.GetTypes()).Where(t => !t.IsAbstract && IsMarkedForAot(t)));
 
 
 			// Go through each type, add all the member-types it wants to serialize as well
-			HashSet<Type> allTypes = new HashSet<Type>();
+			HashSet<Type> processedTypes = new HashSet<Type>();
 
 			while (newTypes.Any())
 			{
 				// Get first, remove from "to explore" list, and add it to the "done" list.
 				var t = newTypes.First();
-				newTypes.Remove(t);
-				allTypes.Add(t);
 
+				if(t.IsArray)
+					t = t.GetElementType();
+
+				newTypes.Remove(t);
+				processedTypes.Add(t);
 
 				if (CerasSerializer.IsPrimitiveType(t))
 					// Skip int, string, Type, ...
@@ -92,39 +89,50 @@ namespace CerasAotFormatterGenerator
 				var schema = ceras.GetTypeMetaData(t).PrimarySchema;
 
 				foreach (var member in schema.Members)
-					if (!allTypes.Contains(member.MemberType))
+					if (!processedTypes.Contains(member.MemberType))
 						newTypes.Add(member.MemberType);
 			}
 
 
 			// Only leave things that use DynamicFormatter, or have the marker attribute
 			List<Type> targets = new List<Type>();
+			List<Type> debugIgnoreList = new List<Type>(); // list for types that were ignored
 
-			foreach (var t in allTypes)
+			foreach (var t in processedTypes)
 			{
+				if (CerasSerializer.IsPrimitiveType(t))
+					continue; // Skip int, string, Type, ...
+
+				if (t.IsAbstract || t.ContainsGenericParameters)
+					continue; // Abstract or open generics can't have instances...
+
 				var formatter = ceras.GetSpecificFormatter(t);
 				var formatterType = formatter.GetType();
 
-				if (formatterType.IsGenericType && formatterType.GetGenericTypeDefinition().Name == typeof(DynamicFormatter<int>).GetGenericTypeDefinition().Name)
-					targets.Add(t); // handled by DynamicFormatter, we definitely need to generate a replacement for this one
-				else if(formatterType.GetCustomAttributes().Any(a => a.GetType().Name == nameof(GeneratedFormatterAttribute)))
-					targets.Add(t); // we wrote a formatter for this type in the past, so that means we must do so again
+				if (CerasHelpers.IsDynamicFormatter(formatterType) || CerasHelpers.IsSchemaDynamicFormatter(formatterType))
+					targets.Add(t); // handled by Schema/DynamicFormatter; which definitely won't be available later...
 				else if (IsMarkedForAot(t))
 					targets.Add(t); // explicitly marked by the user
+				else
+					debugIgnoreList.Add(t);
 			}
 
 			return (ceras, targets);
-
-			bool IsMarkedForAot(Type t) => t.GetCustomAttributes(true)
-									   .Any(a => a.GetType().FullName == marker.FullName);
+			
+			bool IsMarkedForAot(Type t)
+			{
+				if (t.GetCustomAttributes(true).Any(a => a.GetType().FullName == Marker.FullName))
+					return true; // has 'Generate Formatter' attribute
+				return false;
+			}
 		}
-	
-		
-	
+
+
+
 		static bool _resolverRegistered = false;
 		public static void RegisterAssemblyResolver()
 		{
-			if(_resolverRegistered)
+			if (_resolverRegistered)
 				return;
 			AppDomain.CurrentDomain.AssemblyResolve += ResolveAssembly;
 			_resolverRegistered = true;
