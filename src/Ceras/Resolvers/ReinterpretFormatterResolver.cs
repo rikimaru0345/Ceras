@@ -10,7 +10,7 @@ namespace Ceras.Resolvers
 	using Helpers;
 
 	/// <summary>
-	/// Creates super-fast formatters for so called "blittable" types. Only returns results when <see cref="IAdvancedConfigOptions.UseReinterpretFormatter"/> is true.
+	/// Creates super-fast formatters for so called "blittable" types. Only returns results when <see cref="IAdvancedConfig.UseReinterpretFormatter"/> is true.
 	/// </summary>
 	public sealed class ReinterpretFormatterResolver : IFormatterResolver
 	{

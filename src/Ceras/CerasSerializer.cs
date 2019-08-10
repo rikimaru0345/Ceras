@@ -915,7 +915,7 @@ namespace Ceras
 					SafeInject(formatter, f, Config);
 					continue;
 				}
-				else if (fieldType == typeof(IAdvancedConfigOptions))
+				else if (fieldType == typeof(IAdvancedConfig))
 				{
 					SafeInject(formatter, f, Config.Advanced);
 					continue;
