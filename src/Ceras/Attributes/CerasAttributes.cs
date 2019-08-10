@@ -208,16 +208,6 @@ namespace Ceras.Formatters
 	public class CerasNoReference : Attribute
 	{
 	}
-
-	/// <summary>
-	/// This attribute is used by the AotGenerator. It places this attribute on all formatters it generates so they can be identified as ahead-of-time generated formatters.
-	/// This is very important so the AotGenerator can properly distinguish between formatters it has written itself, and formatters written by the user.
-	/// </summary>
-	[AttributeUsage(AttributeTargets.Class)]
-	public class AotGeneratedFormatterAttribute : Attribute
-	{
-	}
-
 }
 
 namespace Ceras.Formatters.AotGenerator

@@ -44,7 +44,6 @@ $@"	public static class GeneratedFormatters
 			var meta = ceras.GetTypeMetaData(type);
 			var schema = meta.PrimarySchema;
 
-			text.AppendLine("\t[AotGeneratedFormatterAttribute]");
 			text.AppendLine($"\tinternal class {type.ToVariableSafeName()}Formatter : IFormatter<{type.ToFriendlyName(true)}>");
 			text.AppendLine("\t{");
 
