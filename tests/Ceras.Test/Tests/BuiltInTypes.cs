@@ -17,7 +17,11 @@ namespace Ceras.Test
 	{
 		public BuiltInTypes()
 		{
-			SetSerializerConfigurations(Config_NoReinterpret, Config_WithReinterpret, Config_WithVersioning);
+			SetSerializerConfigurations(
+				Config_DefaultIntEncoding,
+				Config_VarIntEncoding,
+				Config_FixedIntEncoding,
+				Config_WithVersioning);
 		}
 
 		[Fact]

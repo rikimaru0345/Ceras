@@ -39,6 +39,22 @@ namespace Ceras.Test
 			x.VersionTolerance.VerifySizes = true;
 			x.UseImmutableFormatters();
 		});
+		
+		protected SerializerConfig Config_DefaultIntEncoding => CreateConfig(x =>
+		{
+			x.IntegerEncoding = IntegerEncoding.Default;
+			x.UseImmutableFormatters();
+		});
+		protected SerializerConfig Config_VarIntEncoding => CreateConfig(x =>
+		{
+			x.IntegerEncoding = IntegerEncoding.ForceVarInt;
+			x.UseImmutableFormatters();
+		});
+		protected SerializerConfig Config_FixedIntEncoding => CreateConfig(x =>
+		{
+			x.IntegerEncoding = IntegerEncoding.ForceReinterpret;
+			x.UseImmutableFormatters();
+		});
 
 		SerializerConfig[] _currentTestConfigurations = { new SerializerConfig() };
 		int _runCount = 0;
