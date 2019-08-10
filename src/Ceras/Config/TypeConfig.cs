@@ -134,7 +134,7 @@
 
 			var configType = typeof(MemberConfig<>).MakeGenericType(type);
 
-			var members = from m in  isStatic ? type.GetAllStaticDataMembers() : type.GetAllDataMembers()
+			var members = from m in isStatic ? type.GetAllStaticDataMembers() : type.GetAllDataMembers()
 						  let a = new object[] { this, m }
 						  select (MemberConfig)Activator.CreateInstance(configType,
 																	  BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
@@ -156,7 +156,7 @@
 			for (int i = 0; i < _allMembers.Count; i++)
 			{
 				var mc = _allMembers[i];
-				if(mc.Member == memberInfo)
+				if (mc.Member == memberInfo)
 					return mc;
 			}
 
@@ -209,6 +209,24 @@
 
 		internal void Seal()
 		{
+			if (_isSealed)
+				return;
+
+			// Protect the user against problematic cases that aren't immediately obvious
+			if (Config.Warnings.ExceptionOnStructWithAutoProperties)
+			{
+				if (Type.IsValueType) // is struct
+					if (Members.All(m => m.ComputeFinalInclusionFast() == false)) // no included members
+						if (Members.Where(m => m.Member is FieldInfo).All(m => m.IsCompilerGenerated)) // all fields are compiler generated
+							if (Members.Count(m => m.Member is PropertyInfo) > 0) // has properties
+								throw new WarningException($"Warning: The type '{Type.FriendlyName(true)}' is a struct and by default Ceras serializes structs only through their fields. This struct has only auto-properties, for which the compiler generates hidden 'backing-fields' that are all marked as 'CompilerGenerated'.\r\n" +
+									"You can do multiple things to fix this: \r\n" +
+									"(1) Change all properties to fields.\r\n" +
+									"(2) Explicitly include the properties either with the [Include] attribute, or [MemberConfig].\r\n" +
+									"(3) Disable this warning-exception in 'config.Warnings'.");
+			}
+
+
 			_isSealed = true;
 		}
 
@@ -546,7 +564,7 @@
 			_explicitInclusionReason = reason;
 		}
 
-		
+
 		/// <summary>
 		/// Determine whether or not this member is included when serializing/deserializing.
 		/// </summary>
