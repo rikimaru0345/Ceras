@@ -222,7 +222,6 @@
 
 		#endregion
 
-
 		#region Advanced
 
 		/// <summary>
@@ -244,7 +243,6 @@
 		bool IAdvancedConfig.SkipCompilerGeneratedFields { get; set; } = true;
 		ITypeBinder IAdvancedConfig.TypeBinder { get; set; } = new SimpleTypeBinder();
 		DelegateSerializationFlags IAdvancedConfig.DelegateSerialization { get; set; } = DelegateSerializationFlags.Off;
-		bool IAdvancedConfig.UseReinterpretFormatter { get; set; } = true;
 		bool IAdvancedConfig.RespectNonSerializedAttribute { get; set; } = true;
 		BitmapMode IAdvancedConfig.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
 		AotMode IAdvancedConfig.AotMode { get; set; } = AotMode.None;

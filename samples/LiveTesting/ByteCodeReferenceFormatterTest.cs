@@ -55,12 +55,12 @@ namespace LiveTesting.NewRefFormatter
 		{
 			IFormatter<object> formatterOldRef = CreateDynamicFormatterWithOptions<object>(c =>
 			{
-				c.Experimental.UseNewCache = false;
+				//c.Experimental.UseNewCache = false;
 			});
 
 			IFormatter<object> formatterBytePrefix = CreateDynamicFormatterWithOptions<object>(c =>
 			{
-				c.Experimental.UseNewCache = true;
+				//c.Experimental.UseNewCache = true;
 			});
 
 			var value = CreateTestValue();
