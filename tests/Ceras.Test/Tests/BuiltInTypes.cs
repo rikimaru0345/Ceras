@@ -2,13 +2,13 @@
 
 namespace Ceras.Test
 {
-    using Ceras.Helpers;
-    using System.Collections;
+	using Ceras.Helpers;
+	using System.Collections;
 	using System.Collections.Generic;
 	using System.Collections.Immutable;
 	using System.Collections.ObjectModel;
-    using System.Linq;
-    using System.Numerics;
+	using System.Linq;
+	using System.Numerics;
 	using System.Runtime.CompilerServices;
 	using System.Runtime.InteropServices;
 	using Xunit;
@@ -95,9 +95,21 @@ namespace Ceras.Test
 
 			TestDeepEquality(new byte[0]);
 
+			Assert.Equal(1, ReflectionHelper.GetSize(typeof(bool)));
+
 			var byteAr = new byte[rng.Next(100, 200)];
 			rng.NextBytes(byteAr);
 			TestDeepEquality(byteAr);
+
+			for (int i = 0; i < 100; i++)
+			{
+				bool[] ar = new bool[i];
+				for (int j = 0; j < ar.Length; j++)
+					ar[j] = rngByte < 128;
+
+				TestDeepEquality(ar);
+			}
+
 		}
 
 		[Fact]
@@ -159,7 +171,7 @@ namespace Ceras.Test
 				{ 4,5,6 },
 				{ 7,8,9 },
 			});
-			
+
 			TestDeepEquality(new Vector3[,]
 			{
 				{ rngVec, rngVec },
@@ -201,7 +213,7 @@ namespace Ceras.Test
 			};
 			TestDeepEquality(ar6);
 
-			
+
 			KeyValuePair<Vector3, bool>[] ar7 = new[]
 			{
 				new KeyValuePair<Vector3, bool>(rngVec, rngByte < 128),
