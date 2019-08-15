@@ -1,5 +1,6 @@
 ﻿namespace Ceras.Helpers
 {
+	using Ceras.Exceptions;
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
@@ -148,8 +149,8 @@
 
 					if (getter.GetParameters().Length > 0)
 						continue; // Indexers are not data
-					
-					if(names.Contains(p.Name))
+
+					if (names.Contains(p.Name))
 						continue; // property was already defined in the derived class we inspected before
 
 					names.Add(p.Name);
@@ -306,8 +307,6 @@
 				if (_typeToBlittableSize.TryGetValue(type, out int size))
 					return size;
 
-				//var computedSizeSuccess = ComputeExpectedSize(type, out int expectedSize);
-
 				if (!type.IsGenericType)
 				{
 					size = Marshal.SizeOf(type);
@@ -317,6 +316,15 @@
 					var inst = Activator.CreateInstance(type);
 					size = Marshal.SizeOf(inst);
 				}
+
+				// Special handling for some types where Marshal.SizeOf reports
+				if (type == typeof(bool))
+					size = 1;
+
+				// Verify that the size matches!
+				int unsafeSize = UnsafeGetSize(type);
+				if (unsafeSize != size)
+					throw new CerasException($"Marshal.SizeOf() != Unsafe.SizeOf<>() for type '{type.FullName}'. This is a bug, please report it on GitHub!");
 
 				_typeToBlittableSize.Add(type, size);
 				return size;

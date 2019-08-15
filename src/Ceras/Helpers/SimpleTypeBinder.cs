@@ -49,7 +49,7 @@
 
 			return type.FullName;
 		}
-		
+
 		public Type GetTypeFromBase(string baseTypeName)
 		{
 			foreach (var a in _searchAssemblies)
@@ -71,7 +71,7 @@
 					return t;
 				}
 			}
-			
+
 			// Oh no... did the user forget to add the right assembly??
 			// Lets search in everything that's loaded...
 			foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
