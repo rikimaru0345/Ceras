@@ -365,7 +365,7 @@ namespace Ceras.Formatters
 					if (fieldInfo.IsInitOnly)
 					{
 						// Readonly field
-						var memberConfig = typeConfig.Members.First(x => x.Member == m.MemberInfo);
+						var memberConfig = typeConfig._allMembers.First(x => x.Member == m.MemberInfo);
 						var rh = memberConfig.ComputeReadonlyHandling();
 						DynamicFormatterHelpers.EmitReadonlyWriteBack(type, rh, fieldInfo, refValueArg, local, body);
 					}

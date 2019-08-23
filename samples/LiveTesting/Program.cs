@@ -31,36 +31,43 @@ namespace LiveTesting
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
 
-		static void TryWithCount(int boolCount, int floatCount)
+		public sealed class CustomProperty
 		{
-			var serializer = new CerasSerializer();
-			var deserializer = new CerasSerializer();
+			public CustomProperty(string key, decimal value)
+			{
+				Key = key;
+				Value = value;
+			}
 
-			var dict = new Dictionary<string, object>();
-			bool[] boolArray = new bool[boolCount];
-			float[] floatArray = new float[floatCount];
-			for (int i = 0; i < boolCount; i++)
-				boolArray[i] = i % 2 == 0 ? false : true;
-			for (int i = 0; i < floatCount; i++)
-				floatArray[i] = (float)i * 10000.0f;
-
-			dict.Add("Booleans", boolArray);
-			dict.Add("Floats", floatArray);
-
-			var bytes = serializer.Serialize<Dictionary<string, object>>(dict);
-			Dictionary<string, object> clone = new Dictionary<string, object>();
-			deserializer.Deserialize<Dictionary<string, object>>(ref clone, bytes);
-
-			foreach (var element in clone)
-				Console.WriteLine($"{element.Key}: {element.Value}");
+			public string Key { get; }
+			public decimal Value { get; }
 		}
+
 
 		static unsafe void Main(string[] args)
 		{
-			TryWithCount(30, 30);
-			TryWithCount(30, 200);
-			TryWithCount(40, 120);
-			TryWithCount(60, 120);
+			var config = new SerializerConfig();
+
+			config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
+			config.OnConfigNewType = typeConfig =>
+			{
+				if (typeConfig.Type == typeof(CustomProperty))
+				{
+					typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
+					foreach(var m in typeConfig.UnsafeGetAllMembersIncludingCompilerGenerated())
+						if(m.IsCompilerGenerated && m.Member is FieldInfo f)
+							m.SetIncludeWithReason(SerializationOverride.ForceInclude, "want to include backing field");
+				}
+			};
+			
+			var ceras = new CerasSerializer(config);
+
+			var obj = new CustomProperty("abc", 123.456M);
+
+			var report = ceras.GenerateSerializationDebugReport(typeof(CustomProperty));
+
+			var data = ceras.Serialize(obj);
+			var clone = ceras.Deserialize<CustomProperty>(data);
 
 
 			new Ceras.Test.BuiltInTypes().MultidimensionalArrays();
