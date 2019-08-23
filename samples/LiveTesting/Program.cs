@@ -49,16 +49,13 @@ namespace LiveTesting
 			var config = new SerializerConfig();
 
 			config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
-			config.OnConfigNewType = typeConfig =>
-			{
-				if (typeConfig.Type == typeof(CustomProperty))
-				{
-					typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
-					foreach(var m in typeConfig.UnsafeGetAllMembersIncludingCompilerGenerated())
-						if(m.IsCompilerGenerated && m.Member is FieldInfo f)
-							m.SetIncludeWithReason(SerializationOverride.ForceInclude, "want to include backing field");
-				}
-			};
+			config.Advanced.SkipCompilerGeneratedFields = false;
+			config.DefaultTargets = TargetMember.PrivateFields;
+
+			// Next two lines do exactly the same
+			config.ConfigType(typeof(CustomProperty)).TypeConstruction = TypeConstruction.ByUninitialized();
+			config.ConfigType<CustomProperty>().ConstructByUninitialized();
+
 			
 			var ceras = new CerasSerializer(config);
 
