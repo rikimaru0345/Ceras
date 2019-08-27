@@ -33,8 +33,6 @@ namespace LiveTesting
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
 
 
-
-
 		public class NullableWrapper
 		{
 			public Test? TestStruct;
@@ -44,17 +42,7 @@ namespace LiveTesting
 				TestStruct = nullableStruct;
 			}
 		}
-
-		public class NormalWrapper
-		{
-			public readonly Test Struct;
-
-			public NormalWrapper(Test nullableStruct)
-			{
-				Struct = nullableStruct;
-			}
-		}
-
+		
 		public struct Test : IEquatable<Test>
 		{
 			public decimal Value;
@@ -98,7 +86,7 @@ namespace LiveTesting
 			}
 		}
 
-		public struct NameAge : IEquatable<NameAge>
+		public readonly struct NameAge
 		{
 			public readonly string Name;
 			public readonly int? Age;
@@ -107,17 +95,6 @@ namespace LiveTesting
 			{
 				Name = name;
 				Age = age;
-			}
-
-			public override bool Equals(object obj)
-			{
-				return obj is NameAge age && Equals(age);
-			}
-
-			public bool Equals(NameAge other)
-			{
-				return Name == other.Name &&
-					   EqualityComparer<int?>.Default.Equals(Age, other.Age);
 			}
 		}
 
@@ -280,8 +257,8 @@ namespace LiveTesting
 
 
 
+			/*
 			var eqOpNullableTest = StructEquality<Test?>.EqualFunction;
-
 
 			var name = "abc";
 			var a = new NullableWrapper(new Test { Value = 2, SubStruct = new SubStruct(new NameAge(name, 8), 1111, 3) });
@@ -292,16 +269,21 @@ namespace LiveTesting
 			var ab = eqOpNullableTest(ref a.TestStruct, ref b.TestStruct);
 			var bc = eqOpNullableTest(ref b.TestStruct, ref c.TestStruct);
 
-			
-			MicroBenchmark.Run(2, 
+
+			MicroBenchmark.Run(2, new[]{
+				new BenchJob(".Value -> IEquatable<T>.Equals()", () => b.TestStruct.Value.Equals(c.TestStruct.Value) ),
+				new BenchJob("object.Equals()", () => object.Equals(b.TestStruct, c.TestStruct) ),
+				new BenchJob("Nullable<T>.Equals()", () => b.TestStruct.Equals(c.TestStruct) ),
 				new BenchJob("StructEquality<T>.AreEqual()", () => StructEquality<Test?>.AreEqual(ref b.TestStruct, ref c.TestStruct)),
-				new BenchJob("object.Equals(left, right)", () => object.Equals(b, c) )
-				//new BenchJob("left.Equals(right)", () => b.TestStruct.Equals(c.TestStruct) ),
-				);
+			});
+
+			Console.WriteLine();
+			Console.WriteLine();
+			Console.WriteLine("done!");
 			Console.ReadLine();
+			*/
 
-
-			SaveDelegateIL(StructEquality<Test?>.Lambda);
+			//SaveDelegateIL(StructEquality<Test?>.Lambda);
 
 
 			var config = new SerializerConfig { DefaultTargets = TargetMember.AllFields, PreserveReferences = false };
@@ -312,7 +294,7 @@ namespace LiveTesting
 
 			var ceras = new CerasSerializer(config);
 
-			var obj = new NullableWrapper(new Test { Value = 123.456M });
+			var obj = new NullableWrapper(new Test { Value = 2.34M, SubStruct = new SubStruct(new NameAge("riki", 5), 6, 7) });
 
 			var data = ceras.Serialize(obj);
 			var clone = ceras.Deserialize<NullableWrapper>(data);

@@ -29,9 +29,7 @@
 			{
 				// Value types are simple.
 				// Either they match perfectly -> do nothing
-				// Or the values are not the same -> either throw an exception of do a forced overwrite
-
-				
+				// Or the values are not the same -> throw exception or forced overwrite
 
 				Expression onMismatch;
 				if (readonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
@@ -41,7 +39,7 @@
 					onMismatch = Throw(Constant(new CerasException($"The value-type in field '{fieldInfo.Name}' does not match the expected value, but the field is readonly and overwriting is not allowed in the configuration. Make the field writeable or enable 'ForcedOverwrite' in the serializer settings to allow Ceras to overwrite the readonly-field.")));
 
 				block.Add(IfThenElse(
-									 test: Equal(tempStore, MakeMemberAccess(refValueArg, fieldInfo)),
+									 test: StructEquality.IsStructEqual(tempStore, Field(refValueArg, fieldInfo)),
 									 ifTrue: Empty(),
 									 ifFalse: onMismatch
 									));
