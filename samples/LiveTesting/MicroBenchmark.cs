@@ -136,11 +136,13 @@ namespace LiveTesting
 			}
 		}
 
-		public static implicit operator BenchJob((string name, Action action) data) => new BenchJob
+		public BenchJob(string name, Action action)
 		{
-			Name = data.name,
-			Action = data.action,
-		};
+			Name = name;
+			Action = action;
+		}
+
+		public static implicit operator BenchJob((string name, Action action) data) => new BenchJob(data.name, data.action);
 	}
 
 	struct Timer : IDisposable

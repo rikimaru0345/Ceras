@@ -9,7 +9,7 @@
 	using System.Runtime.CompilerServices;
 	using System.Runtime.InteropServices;
 
-	static class ReflectionHelper
+	public static class ReflectionHelper
 	{
 		static readonly Dictionary<Type, int> _typeToBlittableSize = new Dictionary<Type, int>();
 		static readonly Dictionary<Type, int> _typeToUnsafeSize = new Dictionary<Type, int>();
@@ -634,8 +634,10 @@
 
 			if (type.IsGenericType)
 			{
-				var n = fullName ? type.FullName : type.Name;
-				return n.Split('`')[0] + "<" + string.Join(", ", type.GetGenericArguments().Select(t => t.FriendlyName(fullName)).ToArray()) + ">";
+				var name = fullName ? type.FullName : type.Name;
+				var baseName = name.Split('`')[0].Replace("+", ".");
+
+				return baseName + "<" + string.Join(", ", type.GetGenericArguments().Select(t => t.FriendlyName(fullName)).ToArray()) + ">";
 			}
 			else
 			{

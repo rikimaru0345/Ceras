@@ -36,25 +36,10 @@ namespace System
 		}
 
 		// returns something like
-		// "List<int>"
+		// List<int>
 		public static string ToFriendlyName(this Type type, bool fullName = false)
 		{
-			var primitiveName = TryGetPrimitiveName(type);
-			if(primitiveName != null)
-				return primitiveName;
-			
-			var name = fullName ? type.FullName : type.Name;
-			if (type.IsGenericType)
-			{
-				return name.Split('`')[0] // base name
-					+ "<" 
-					+ string.Join(", ", type.GetGenericArguments().Select(t => t.ToFriendlyName(fullName)).ToArray())
-					+ ">";
-			}
-			else
-			{
-				return name;
-			}
+			return Ceras.Helpers.ReflectionHelper.FriendlyName(type, fullName);
 		}
 	
 		// returns something like

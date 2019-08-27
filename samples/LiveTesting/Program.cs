@@ -23,48 +23,300 @@ namespace LiveTesting
 	using System.Runtime.CompilerServices;
 	using System.Runtime.InteropServices;
 	using System.Runtime.Versioning;
+	using System.Threading;
 	using Tutorial;
 	using Xunit;
 	using Encoding = System.Text.Encoding;
 
-	class Program
+	partial class Program
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
 
-		public sealed class CustomProperty
+
+
+
+		public class NullableWrapper
 		{
-			public CustomProperty(string key, decimal value)
+			public Test? TestStruct;
+
+			public NullableWrapper(Test? nullableStruct)
 			{
-				Key = key;
-				Value = value;
+				TestStruct = nullableStruct;
+			}
+		}
+
+		public class NormalWrapper
+		{
+			public readonly Test Struct;
+
+			public NormalWrapper(Test nullableStruct)
+			{
+				Struct = nullableStruct;
+			}
+		}
+
+		public struct Test : IEquatable<Test>
+		{
+			public decimal Value;
+			public SubStruct SubStruct;
+
+			public override bool Equals(object obj)
+			{
+				return obj is Test test && Equals(test);
 			}
 
-			public string Key { get; }
-			public decimal Value { get; }
+			public bool Equals(Test other)
+			{
+				return Value == other.Value &&
+					   SubStruct.Equals(other.SubStruct);
+			}
+		}
+
+		public readonly struct SubStruct : IEquatable<SubStruct>
+		{
+			public readonly NameAge NameAge;
+			public readonly int? Count;
+			public readonly decimal? Num;
+
+			public SubStruct(NameAge nameAge, int? count, decimal? num)
+			{
+				NameAge = nameAge;
+				Count = count;
+				Num = num;
+			}
+
+			public override bool Equals(object obj)
+			{
+				return obj is SubStruct @struct && Equals(@struct);
+			}
+
+			public bool Equals(SubStruct other)
+			{
+				return NameAge.Equals(other.NameAge) &&
+					   EqualityComparer<int?>.Default.Equals(Count, other.Count) &&
+					   EqualityComparer<decimal?>.Default.Equals(Num, other.Num);
+			}
+		}
+
+		public struct NameAge : IEquatable<NameAge>
+		{
+			public readonly string Name;
+			public readonly int? Age;
+
+			public NameAge(string name, int? age)
+			{
+				Name = name;
+				Age = age;
+			}
+
+			public override bool Equals(object obj)
+			{
+				return obj is NameAge age && Equals(age);
+			}
+
+			public bool Equals(NameAge other)
+			{
+				return Name == other.Name &&
+					   EqualityComparer<int?>.Default.Equals(Age, other.Age);
+			}
 		}
 
 
+
+		public delegate ref TField GetFieldRefDelegate<TStruct, TField>(ref TStruct targetStruct);
+		public delegate void ReadonlySetterDelegate<TStruct, TField>(ref TStruct targetStruct, in TField value);
+		static class ReadonlySetter
+		{
+			static Dictionary<FieldInfo, Delegate> getFieldRefMethods;
+
+			public static GetFieldRefDelegate<TStruct, TField> CreateGetFieldRef<TStruct, TField>(FieldInfo field)
+			{
+				var fieldType = field.FieldType;
+
+				MethodInfo asRef = typeof(Unsafe)
+					.GetMethods(BindingFlags.Static | BindingFlags.Public)
+					.Where(m => m.Name == nameof(Unsafe.AsRef))
+					.First(m => m.ReturnType == m.GetParameters()[0].ParameterType)
+					.MakeGenericMethod(fieldType);
+
+				var targetStruct = Expression.Parameter(typeof(TStruct).MakeByRefType(), "targetStruct");
+
+				// (ref MyStruct targetStruct) => { return ref targetStruct.field; }
+				var lambda = Expression.Lambda(
+					delegateType: typeof(GetFieldRefDelegate<TStruct, TField>),
+					body: Expression.Call(asRef,
+						Expression.MakeMemberAccess(targetStruct, field)),
+					parameters: targetStruct
+				);
+
+				return (GetFieldRefDelegate<TStruct, TField>)lambda.Compile();
+			}
+
+			public static LambdaExpression CreateGetFieldRef(Type structType, FieldInfo field)
+			{
+				var fieldType = field.FieldType;
+
+				MethodInfo asRef = typeof(Unsafe)
+					.GetMethods(BindingFlags.Static | BindingFlags.Public)
+					.Where(m => m.Name == nameof(Unsafe.AsRef))
+					.First(m => m.ReturnType == m.GetParameters()[0].ParameterType)
+					.MakeGenericMethod(fieldType);
+
+				var targetStruct = Expression.Parameter(structType.MakeByRefType(), "targetStruct");
+
+				// (ref MyStruct targetStruct) => { return ref targetStruct.field; }
+				var lambda = Expression.Lambda(
+					delegateType: typeof(GetFieldRefDelegate<,>).MakeGenericType(structType, fieldType),
+					body: Expression.Call(asRef,
+						Expression.MakeMemberAccess(targetStruct, field)),
+					parameters: targetStruct
+				);
+
+				return lambda;
+			}
+
+			public static (ReadonlySetterDelegate<TStruct, TField>, LambdaExpression) GenerateSetter<TStruct, TField>(FieldInfo targetField)
+			{
+				var (del, lambda) = GenerateSetter(targetField);
+				return ((ReadonlySetterDelegate<TStruct, TField>)del, lambda);
+			}
+
+			public static (Delegate, LambdaExpression) GenerateSetter(FieldInfo targetField)
+			{
+				var structType = targetField.DeclaringType;
+				var fieldType = targetField.FieldType;
+
+				MethodInfo asRef = typeof(Unsafe)
+					.GetMethods(BindingFlags.Static | BindingFlags.Public)
+					.Where(m => m.Name == nameof(Unsafe.AsRef))
+					.First(m => m.ReturnType == m.GetParameters()[0].ParameterType)
+					.MakeGenericMethod(fieldType);
+
+				MethodInfo write = typeof(Unsafe)
+					.GetMethod(nameof(Unsafe.Write), BindingFlags.Static | BindingFlags.Public)
+					.MakeGenericMethod(fieldType);
+
+				MethodInfo assign = typeof(Program)
+					.GetMethod(nameof(Program.Assign), BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+					.MakeGenericMethod(fieldType);
+
+
+
+				var targetStruct = Expression.Parameter(structType.MakeByRefType(), "targetStruct");
+				var value = Expression.Parameter(fieldType.MakeByRefType(), "value");
+
+				var body = new List<Expression>();
+
+				// void* ptr = AsPointer(ref myStruct.MyReadonlyField);
+				// Write(ptr, value);
+
+
+				var getFieldRefExp = CreateGetFieldRef(structType, targetField);
+				//var getFieldRef = getFieldRefExp.Compile();
+				// (ref getFieldRef(ref targetStruct)) = value;
+				//var refTarget = Expression.Invoke(getFieldRefExp, targetStruct);
+				var refTarget = Expression.MakeMemberAccess(targetStruct, targetField);
+
+				body.Add(
+					Expression.Call(assign,
+					refTarget,
+					value
+					)
+				);
+
+
+
+				var lambda = Expression.Lambda(
+					delegateType: typeof(ReadonlySetterDelegate<,>).MakeGenericType(structType, fieldType),
+					body: Expression.Block(body),
+					targetStruct, value);
+
+				var del = lambda.Compile();
+
+				return (del, lambda);
+			}
+		}
+
+		static void Assign<T>(ref T target, in T value)
+		{
+			target = value;
+
+			// ldarg.0
+			// ldflda    string [LiveTesting]LiveTesting.Program/NameAge::Name
+			// ldarg.1
+			// call      void [LiveTesting]LiveTesting.Program::Assign<string>(!!0&, !!0&)
+			// ret
+		}
+
 		static unsafe void Main(string[] args)
 		{
-			var config = new SerializerConfig();
+			/*
+			var nameAge = new NameAge("riki", null);
 
-			config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
-			config.Advanced.SkipCompilerGeneratedFields = false;
-			config.DefaultTargets = TargetMember.PrivateFields;
+			var (nameSetter, nameSetterLambda) = ReadonlySetter.GenerateSetter<NameAge, string>(GetField(() => nameAge.Name));
+			var (ageSetter, ageSetterLambda) = ReadonlySetter.GenerateSetter<NameAge, int?>(GetField(() => nameAge.Age));
 
-			// Next two lines do exactly the same
-			config.ConfigType(typeof(CustomProperty)).TypeConstruction = TypeConstruction.ByUninitialized();
-			config.ConfigType<CustomProperty>().ConstructByUninitialized();
+
+			SaveDelegateIL(nameSetterLambda); // operation can destabilize the runtime
+
+
+			var newName = "changed!";
+			int? newAge = 12;
+
+			nameSetter(ref nameAge, newName);
+			ageSetter(ref nameAge, newAge);
+
+			var ageField = GetField(()=>nameAge.Age);
+			object boxedNameAge = nameAge;
+			object boxedNewAgeValue = newAge;
+
+			MicroBenchmark.Run(2, 
+				new BenchJob("setValue(box, box)", () => ageField.SetValue(boxedNameAge, boxedNewAgeValue)),
+				new BenchJob("ageSetter", () => ageSetter(ref nameAge, newAge))
+				);
+
+			Console.ReadLine();
+			*/
+
+
+
+			var eqOpNullableTest = StructEquality<Test?>.EqualFunction;
+
+
+			var name = "abc";
+			var a = new NullableWrapper(new Test { Value = 2, SubStruct = new SubStruct(new NameAge(name, 8), 1111, 3) });
+			var b = new NullableWrapper(new Test { Value = 2, SubStruct = new SubStruct(new NameAge(name, 8), 5, 3) });
+			var c = new NullableWrapper(new Test { Value = 2, SubStruct = new SubStruct(new NameAge(name, 8), 5, 3) });
+
+			// 1: Does it work?
+			var ab = eqOpNullableTest(ref a.TestStruct, ref b.TestStruct);
+			var bc = eqOpNullableTest(ref b.TestStruct, ref c.TestStruct);
 
 			
+			MicroBenchmark.Run(2, 
+				new BenchJob("StructEquality<T>.AreEqual()", () => StructEquality<Test?>.AreEqual(ref b.TestStruct, ref c.TestStruct)),
+				new BenchJob("object.Equals(left, right)", () => object.Equals(b, c) )
+				//new BenchJob("left.Equals(right)", () => b.TestStruct.Equals(c.TestStruct) ),
+				);
+			Console.ReadLine();
+
+
+			SaveDelegateIL(StructEquality<Test?>.Lambda);
+
+
+			var config = new SerializerConfig { DefaultTargets = TargetMember.AllFields, PreserveReferences = false };
+			config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
+			config.Advanced.SkipCompilerGeneratedFields = false;
+			config.OnConfigNewType = tc => tc.TypeConstruction = TypeConstruction.ByUninitialized();
+
+
 			var ceras = new CerasSerializer(config);
 
-			var obj = new CustomProperty("abc", 123.456M);
-
-			var report = ceras.GenerateSerializationDebugReport(typeof(CustomProperty));
+			var obj = new NullableWrapper(new Test { Value = 123.456M });
 
 			var data = ceras.Serialize(obj);
-			var clone = ceras.Deserialize<CustomProperty>(data);
+			var clone = ceras.Deserialize<NullableWrapper>(data);
+
 
 
 			new Ceras.Test.BuiltInTypes().MultidimensionalArrays();
@@ -1574,6 +1826,36 @@ namespace LiveTesting
 				return n.Constructor;
 
 			throw new ArgumentException();
+		}
+
+		static FieldInfo GetField<T>(Expression<Func<T>> e)
+		{
+			var b = e.Body;
+
+			if (b is MemberExpression m)
+				if (m.Member is FieldInfo f)
+					return f;
+
+			throw new ArgumentException();
+		}
+
+		[Conditional("NET47")]
+		static void SaveDelegateIL(LambdaExpression lambdaExp, string fileName = "dyn.dll", string methodName = "Method")
+		{
+#if NET47
+			var da = AppDomain.CurrentDomain.DefineDynamicAssembly(new AssemblyName("dyn"), AssemblyBuilderAccess.Save);
+
+			var dm = da.DefineDynamicModule("dyn_mod", "dyn.dll");
+			var dt = dm.DefineType("dyn_type");
+			var method = dt.DefineMethod(
+				methodName,
+				MethodAttributes.Public | MethodAttributes.Static);
+
+			lambdaExp.CompileToMethod(method);
+			dt.CreateType();
+
+			da.Save(fileName);
+#endif
 		}
 	}
 
