@@ -28,6 +28,16 @@
 		internal bool IsSealed => _isSealed;
 		internal void Seal() => _isSealed = true;
 
+		CerasSerializer _claimedBy;
+		internal bool Claim(CerasSerializer ceras)
+		{
+			if(_claimedBy != null)
+				return false;
+			_claimedBy = ceras;
+			return true;
+		}
+
+
 
 		#region Basic Settings
 

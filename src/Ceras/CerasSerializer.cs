@@ -208,6 +208,11 @@ namespace Ceras
 		/// </summary>
 		public CerasSerializer(SerializerConfig config = null)
 		{
+			if (config != null)
+				if (!config.Claim(this))
+					throw new CerasException($"The given SerializerConfig was used to construct a CerasSerializer already. A SerializerConfig can not be shared/reused.");
+
+
 			Config = config ?? new SerializerConfig();
 
 			if (Config.ExternalObjectResolver == null)
@@ -877,7 +882,7 @@ namespace Ceras
 
 		void PrepareFormatter(IFormatter formatter)
 		{
-			if(formatter is DynamicFormatter dyn)
+			if (formatter is DynamicFormatter dyn)
 				dyn.Initialize();
 
 			// Simple DI system, injects:
@@ -1028,7 +1033,7 @@ namespace Ceras
 				taintedFormatter.OnSchemaChanged(meta);
 			}
 		}
-				
+
 		internal void EnsurePrimarySchema(Type type)
 		{
 			var meta = GetTypeMetaData(type);

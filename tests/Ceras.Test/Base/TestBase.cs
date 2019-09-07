@@ -33,27 +33,30 @@ namespace Ceras.Test
 			return s;
 		}
 
-		protected SerializerConfig Config_WithReinterpret => CreateConfig(x =>
+		protected Func<SerializerConfig> Config_WithReinterpret => () => CreateConfig(x =>
 		{
 			x.Advanced.UseReinterpretFormatter = true;
 			x.UseImmutableFormatters();
 		});
-		protected SerializerConfig Config_NoReinterpret => CreateConfig(x =>
+		protected Func<SerializerConfig> Config_NoReinterpret => () => CreateConfig(x =>
 		{
 			x.Advanced.UseReinterpretFormatter = false;
 			x.UseImmutableFormatters();
 		});
-		protected SerializerConfig Config_WithVersioning => CreateConfig(x =>
+		protected Func<SerializerConfig> Config_WithVersioning => () => CreateConfig(x =>
 		{
 			x.VersionTolerance.Mode = VersionToleranceMode.Standard;
 			x.VersionTolerance.VerifySizes = true;
 			x.UseImmutableFormatters();
 		});
 
-		SerializerConfig[] _currentTestConfigurations = { new SerializerConfig() };
-		int _runCount = 0;
+		Func<SerializerConfig>[] _currentTestConfigurations = new Func<SerializerConfig>[]
+		{
+			() => new SerializerConfig(),
+		};
+		int _callsToClone = 0;
 
-		protected void SetSerializerConfigurations(params SerializerConfig[] configs) => _currentTestConfigurations = configs;
+		protected void SetSerializerConfigurations(params Func<SerializerConfig>[] configs) => _currentTestConfigurations = configs;
 
 
 
@@ -63,11 +66,12 @@ namespace Ceras.Test
 			if (_currentTestConfigurations == null || _currentTestConfigurations.Length == 0)
 				throw new InvalidOperationException("no test configurations");
 
-			foreach (var config in _currentTestConfigurations)
+			foreach (var configFunc in _currentTestConfigurations)
 			{
 				if (!testMode.HasFlag(TestMode.AllowNull))
 					Assert.NotNull(obj);
 
+				var config = configFunc();
 				var clone = Clone(obj, config);
 
 				if (!testMode.HasFlag(TestMode.AllowNull))
@@ -94,15 +98,15 @@ namespace Ceras.Test
 			int read = 0;
 			ceras.Deserialize(ref clone, data, ref read, len);
 
-			_runCount++;
+			_callsToClone++;
 
 			return clone;
 		}
 
 		protected void CheckAndResetTotalRunCount(int i)
 		{
-			Assert.True(_runCount == i);
-			_runCount = 0;
+			Assert.True(_callsToClone == i);
+			_callsToClone = 0;
 		}
 
 		public MethodInfo GetMethod(Expression<Action> e)

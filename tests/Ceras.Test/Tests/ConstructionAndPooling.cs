@@ -185,6 +185,7 @@ namespace Ceras.Test
 
 			// 3. If we switch to "allow instance", it should persist instance-delegates, but no lambdas
 			{
+				config = new SerializerConfig();
 				config.Advanced.DelegateSerialization = DelegateSerializationFlags.AllowInstance;
 				ceras = new CerasSerializer(config);
 

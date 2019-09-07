@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Ceras.Test
 {
-	
+
 	namespace Version1
 	{
 		class Person
@@ -91,27 +91,31 @@ namespace Ceras.Test
 		[Fact]
 		public void AutomaticSchemaChanges()
 		{
-			var config = new SerializerConfig();
-			config.VersionTolerance.Mode = VersionToleranceMode.Standard;
-			var typeMap = new MappingTypeBinder();
-			config.Advanced.TypeBinder = typeMap;
+			SerializerConfig CreateConfig()
+			{
+				var config = new SerializerConfig();
+				config.VersionTolerance.Mode = VersionToleranceMode.Standard;
+				var typeMap = new MappingTypeBinder();
+				config.Advanced.TypeBinder = typeMap;
 
-			typeMap.Map(typeof(Version1.Person), "Person");
-			typeMap.Map(typeof(Version2.Person), "Person");
-			typeMap.Map("Person", typeof(Version2.Person));
+				typeMap.Map(typeof(Version1.Person), "Person");
+				typeMap.Map(typeof(Version2.Person), "Person");
+				typeMap.Map("Person", typeof(Version2.Person));
+				return config;
+			}
 
 			byte[] data1 = null;
 			byte[] data2 = null;
 
 			{ // 1: Save old data
-				CerasSerializer ceras = new CerasSerializer(config);
+				CerasSerializer ceras = new CerasSerializer(CreateConfig());
 
 				Version1.Person p1 = new Version1.Person { Name = "A", Age = 1 };
 				data1 = ceras.Serialize(p1);
 			}
 
 			{ // 2: Use new type (added member), load old data, save again
-				CerasSerializer ceras = new CerasSerializer(config);
+				CerasSerializer ceras = new CerasSerializer(CreateConfig());
 				Version2.Person p2 = null;
 				ceras.Deserialize(ref p2, data1);
 
@@ -152,7 +156,7 @@ namespace Ceras.Test
 	}
 
 
-	
+
 	class MappingTypeBinder : ITypeBinder
 	{
 		Dictionary<Type, string> _typeToName = new Dictionary<Type, string>();

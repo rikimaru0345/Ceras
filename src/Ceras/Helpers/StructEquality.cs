@@ -57,7 +57,7 @@ namespace Ceras.Helpers
 			var type = left.Type; // Expression automatically strips 'byRef'
 
 			if (!type.IsValueType || type.IsPrimitive)
-				throw new InvalidOperationException("T must be a non-primitive value type (a struct)");
+				throw new InvalidOperationException($"Type T must be a non-primitive value type (a struct), given '{type.FriendlyName(true)}'");
 
 			/*
 			 * return (
