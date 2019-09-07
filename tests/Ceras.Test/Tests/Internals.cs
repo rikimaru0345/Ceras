@@ -320,6 +320,44 @@ namespace Ceras.Test
 			Assert.True(tc.PrivateText2 == tcClone.PrivateText2);
 		}
 
+		[Fact]
+		public void ValueTypeEquality()
+		{
+			(object left, object right)[] pairs = new (object, object)[]
+			{
+				(new (string,bool?)?(("t", true)), new (string,bool?)?(("t", true))),
+				(new (string,bool)?(("a", true)), new (string,bool)?(("abc".Substring(0,1), true))),
+				
+				(new (string,bool)?(("a", true)), new (string,bool)?(("b", true))),
+				(new (string,bool)?(("ee", true)), new (string,bool)?(("ee", false))),
+
+				(new (string,bool?)?(("t", true)), new (string,bool?)?(("t", true))),
+				(new (string,bool?)?(("t", null)), new (string,bool?)?(("t", null))),
+				(new (string,bool?)?(("t", true)), new (string,bool?)?(("t", null))),
+				(new (string,bool?)?(("t", false)), new (string,bool?)?(("t", null))),
+				(new (string,bool?)?(("t", false)), new (string,bool?)?(("t", false))),
+				(new (string,bool?)?(("t", true)), new (string,bool?)?(("t", null))),
+				(new (string,bool?)?(("t", true)), new (string,bool?)?(("t", false))),
+				(1, 5),
+				(5.3M, 5M + 0.3M),
+
+			};
+
+			foreach (var (left, right) in pairs)
+			{
+				var objectEq = (bool)object.Equals(left, right);
+				var customEq = (bool)StructEquality.GetEqualsDelegate(left.GetType()).DynamicInvoke(left, right);
+
+				if (objectEq != customEq)
+					throw new Exception(
+						$"Equality check failed for type '{left.GetType().FriendlyName(true)}'\n" +
+						$"Left: {left}\n" +
+						$"Right: {right}\n" +
+						$"ObjectEq:{objectEq}  CustomEq:{customEq}"
+					);
+			}
+		}
+
 		public abstract class BaseCls
 		{
 			public string Field1;
