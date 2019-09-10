@@ -1,16 +1,14 @@
-﻿namespace CerasAotFormatterGenerator
-{
-	using Ceras;
-	using Ceras.Helpers;
-	using System;
-	using System.Collections.Generic;
-	using System.Linq;
-	using System.Text;
-	using Ceras.Formatters;
-    using System.Reflection;
-    using System.Linq;
+﻿using Ceras;
+using Ceras.Helpers;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Reflection;
 
-    static class SourceFormatterGenerator
+namespace CerasAotFormatterGenerator
+{
+	static class SourceFormatterGenerator
 	{
 		public static void GenerateAll(List<Type> targets, CerasSerializer ceras, StringBuilder text)
 		{
@@ -41,7 +39,6 @@ $@"	public static class GeneratedFormatters
 
 		static void Generate(Type type, CerasSerializer ceras, StringBuilder text)
 		{
-			text.AppendLine("[GeneratedFormatterAttribute]");
 			text.AppendLine($"\tinternal class {type.ToVariableSafeName()}Formatter : IFormatter<{type.ToFriendlyName(true)}>");
 			text.AppendLine("\t{");
 			GenerateClassContent(text, ceras, type);
