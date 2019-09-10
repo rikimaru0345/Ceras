@@ -106,7 +106,7 @@ $@"	public static class GeneratedFormatters
 				else
 				{
 					// Prop
-					text.AppendLine($"\t\t\t_temp{m.MemberName} = value.{m.MemberName};");
+					text.AppendLine($"\t\t\tvar _temp{m.MemberName} = value.{m.MemberName};");
 					text.AppendLine($"\t\t\t{fieldName}.Deserialize(buffer, ref offset, ref _temp{m.MemberName});");
 					text.AppendLine($"\t\t\tvalue.{m.MemberName} = _temp{m.MemberName};");
 				}
