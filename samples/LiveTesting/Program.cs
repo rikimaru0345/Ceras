@@ -24,8 +24,8 @@ namespace LiveTesting
 	using System.Runtime.InteropServices;
 	using System.Runtime.Versioning;
 	using System.Threading;
-	using Tutorial;
-	using Xunit;
+    using Tutorial;
+    using Xunit;
 	using Encoding = System.Text.Encoding;
 
 	partial class Program
@@ -367,20 +367,6 @@ namespace LiveTesting
 
 			ListTest();
 
-
-
-			var tutorial = new Tutorial();
-
-			tutorial.Step1_SimpleUsage();
-			tutorial.Step2_Attributes();
-			tutorial.Step3_Recycling();
-			tutorial.Step4_KnownTypes();
-			tutorial.Step5_CustomFormatters();
-			// tutorial.Step6_NetworkExample();
-			tutorial.Step7_GameDatabase();
-			// tutorial.Step8_DataUpgrade_OLD();
-			// tutorial.Step9_VersionTolerance();
-			tutorial.Step10_ReadonlyHandling();
 
 			Console.WriteLine("All tests completed.");
 			Console.ReadKey();
