@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.27703.2018
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29123.88
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ceras", "src\Ceras\Ceras.csproj", "{F246878A-DA0D-4177-9625-915091427FCB}"
 EndProject
@@ -21,11 +21,13 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ceras.AotGenerator", "src\C
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ceras.ImmutableCollections", "src\Ceras.ImmutableCollections\Ceras.ImmutableCollections.csproj", "{B501B391-9D31-49ED-9B81-996DDB08059C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ceras.TestDebugger", "tests\Ceras.TestDebugger\Ceras.TestDebugger.csproj", "{677C2BAF-61EC-4DE1-83C3-59EA9D9143C2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ceras.TestDebugger", "tests\Ceras.TestDebugger\Ceras.TestDebugger.csproj", "{677C2BAF-61EC-4DE1-83C3-59EA9D9143C2}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{E639A621-A2B3-4C6D-BF2B-64285FEBB50F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ceras.AotGeneratorApp", "src\Ceras.AotGeneratorApp\Ceras.AotGeneratorApp.csproj", "{DFF62833-959D-4942-A316-73A2EB7B229F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ceras.AotGeneratorApp", "src\Ceras.AotGeneratorApp\Ceras.AotGeneratorApp.csproj", "{DFF62833-959D-4942-A316-73A2EB7B229F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tutorial", "src\Tutorial\Tutorial.csproj", "{D7FB1936-6E08-4D2B-B38C-39B5BDBCC523}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -69,6 +71,10 @@ Global
 		{DFF62833-959D-4942-A316-73A2EB7B229F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DFF62833-959D-4942-A316-73A2EB7B229F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DFF62833-959D-4942-A316-73A2EB7B229F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D7FB1936-6E08-4D2B-B38C-39B5BDBCC523}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D7FB1936-6E08-4D2B-B38C-39B5BDBCC523}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D7FB1936-6E08-4D2B-B38C-39B5BDBCC523}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D7FB1936-6E08-4D2B-B38C-39B5BDBCC523}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -79,6 +85,7 @@ Global
 		{AF7DEF66-8C40-4DB8-B67A-843A19F9C821} = {4B233565-8D04-407A-A3A1-DD1FCE0146A6}
 		{677C2BAF-61EC-4DE1-83C3-59EA9D9143C2} = {6765D856-DB60-4D76-AB22-20252F870E6F}
 		{DFF62833-959D-4942-A316-73A2EB7B229F} = {E639A621-A2B3-4C6D-BF2B-64285FEBB50F}
+		{D7FB1936-6E08-4D2B-B38C-39B5BDBCC523} = {4B233565-8D04-407A-A3A1-DD1FCE0146A6}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {CD3F58FB-923B-4483-AD03-D21BEFE0C653}
