@@ -17,7 +17,7 @@ var ceras = new CerasSerializer();
 var bytes = ceras.Serialize(p);
 ```
 
-1. [**>> Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Tutorial.cs)
+1. [**>> Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/src/Tutorial/Tutorial.cs)
 2. [**>> Detailed guides for specific scenarios on my blog**](https://www.rikidev.com/)
 3. [**>> Read 'Optimization & Usage Pitfalls'**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
 - [**>> Changelog v3.0 (rikidev.com/new-features-in-ceras-3-0-2)**](https://www.rikidev.com/new-features-in-ceras-3-0-2/)
@@ -62,12 +62,12 @@ I've added many features over time and whenever someone can think of a good scen
 Examples:
 - **Settings:**
 Saving objects to disk quickly without much trouble: settings, savegames, whatever it  is. With pretty much zero config.
-See steps 1 and 2 in the [Usage Guide](https://github.com/rikimaru0345/Ceras/blob/5593ed603630275906dec831eef19564d0a5d94c/LiveTesting/Tutorial.cs#L21)
+See steps 1 and 2 in the [Usage Guide](https://github.com/rikimaru0345/Ceras/blob/master/src/Tutorial/Tutorial.cs#L22)
 
 - **Splitting:**
 So your `Person` has references to other `Person` objects, but each one should be serialized individually!? (without the references quickly dragging in essentially your whole program).
 Maybe you want to be able to put each `Person` into its own file, or send them over the network one-by-one as needed?
-**No problem!** Using `IExternalRootObject` it's not an issue! See [External Objects Guide (Game DB example))](https://github.com/rikimaru0345/Ceras/blob/6a435a6c21c31cc9548dcc40b2d2c1d1d35d9000/samples/LiveTesting/Tutorial.cs#L327).
+**No problem!** Using `IExternalRootObject` it's not an issue! See [External Objects Guide (Game DB example))](https://github.com/rikimaru0345/Ceras/blob/master/src/Tutorial/Tutorial.cs#L350).
 
 - **Network:** 
 Because of its simple API and vast set of features Ceras is uniquely suited to implement a full 'network-protocol' for you.
