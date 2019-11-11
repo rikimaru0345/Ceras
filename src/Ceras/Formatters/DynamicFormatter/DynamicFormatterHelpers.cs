@@ -19,7 +19,7 @@
 
 		// A member has been deserialized into a local variable, and now it has to be written back to its actual field (which is readonly)
 		// Depending on the setting we'll do different things here.
-		internal static void EmitReadonlyWriteBack(Type type, ReadonlyFieldHandling readonlyFieldHandling, FieldInfo fieldInfo, ParameterExpression refValueArg, ParameterExpression tempStore, List<Expression> block)
+		internal static void EmitReadonlyWriteBack(Type type, ReadonlyFieldHandling readonlyFieldHandling, FieldInfo fieldInfo, ParameterExpression refValueArg, ParameterExpression tempStore, List<Expression> block, List<ParameterExpression> locals)
 		{
 			if (readonlyFieldHandling == ReadonlyFieldHandling.ExcludeFromSerialization)
 				throw new InvalidOperationException($"Error while trying to generate a deserializer for the field '{fieldInfo.DeclaringType.FriendlyName(true)}.{fieldInfo.Name}': the field is readonly, but ReadonlyFieldHandling is turned off in the configuration.");
@@ -33,10 +33,39 @@
 
 				Expression onMismatch;
 				if (readonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
+				{
 					// field.SetValue(valueArg, tempStore)
-					onMismatch = Call(Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: Convert(tempStore, typeof(object))); // Explicit boxing needed
+
+					if (refValueArg.Type.IsValueType)
+					{
+						// Worst possible case...
+						// Pretty big performance hit, but there's no other way
+						var boxedRefVal = Variable(typeof(object), "boxedRef");
+						locals.Add(boxedRefVal);
+
+						var setValCall = Call(
+							Constant(fieldInfo), _setValue,
+							arg0: boxedRefVal,
+							arg1: Convert(tempStore, typeof(object))); // Explicit boxing needed
+
+						// Explicit unbox
+						onMismatch = Block(
+							Assign(boxedRefVal, Convert(refValueArg, typeof(object))),
+							setValCall,
+							Assign(refValueArg, Convert(boxedRefVal, refValueArg.Type)));
+					}
+					else
+					{
+						onMismatch = Call(
+							Constant(fieldInfo), _setValue,
+							arg0: refValueArg,
+							arg1: Convert(tempStore, typeof(object))); // Explicit boxing needed
+					}
+				}
 				else
+				{
 					onMismatch = Throw(Constant(new CerasException($"The value-type in field '{fieldInfo.Name}' does not match the expected value, but the field is readonly and overwriting is not allowed in the configuration. Make the field writeable or enable 'ForcedOverwrite' in the serializer settings to allow Ceras to overwrite the readonly-field.")));
+				}
 
 				block.Add(IfThenElse(
 									 test: StructEquality.IsStructEqual(tempStore, Field(refValueArg, fieldInfo)),
@@ -58,11 +87,36 @@
 
 				Expression onReassignment;
 				if (readonlyFieldHandling == ReadonlyFieldHandling.ForcedOverwrite)
+				{
 					// field.SetValue(valueArg, tempStore)
-					onReassignment = Call(Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: tempStore);
-				else
-					onReassignment = Throw(Constant(new CerasException("The reference in the readonly-field '" + fieldInfo.Name + "' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
 
+					if (refValueArg.Type.IsValueType)
+					{
+						// Worst possible case...
+						// Pretty big performance hit, but there's no other way
+						var boxedRefVal = Variable(typeof(object), "boxedRef");
+						locals.Add(boxedRefVal);
+
+						var setValCall = Call(
+							Constant(fieldInfo), _setValue,
+							arg0: boxedRefVal,
+							arg1: Convert(tempStore, typeof(object))); // Explicit boxing needed
+
+						// Explicit unbox
+						onReassignment = Block(
+							Assign(boxedRefVal, Convert(refValueArg, typeof(object))),
+							setValCall,
+							Assign(refValueArg, Convert(boxedRefVal, refValueArg.Type)));
+					}
+					else
+					{
+						onReassignment = Call(Constant(fieldInfo), _setValue, arg0: refValueArg, arg1: tempStore);
+					}
+				}
+				else
+				{
+					onReassignment = Throw(Constant(new CerasException("The reference in the readonly-field '" + fieldInfo.Name + "' would have to be overwritten, but forced overwriting is not enabled in the serializer settings. Either make the field writeable or enable ForcedOverwrite in the ReadonlyFieldHandling-setting.")));
+				}
 				// Did the reference change?
 				block.Add(IfThenElse(
 									 test: ReferenceEqual(tempStore, MakeMemberAccess(refValueArg, fieldInfo)),
@@ -76,14 +130,14 @@
 									));
 			}
 		}
-	
-		
+
+
 		public static MethodInfo ResolveSerializeMethod(this Type formatterType, Type exactTypeGettingFormatted)
 			=> ResolveSerializeMethod(formatterType, exactTypeGettingFormatted, true);
-		
+
 		public static MethodInfo ResolveDeserializeMethod(this Type formatterType, Type exactTypeGettingFormatted)
 			=> ResolveSerializeMethod(formatterType, exactTypeGettingFormatted, false);
-		
+
 		static MethodInfo ResolveSerializeMethod(Type formatterType, Type exactTypeGettingFormatted, bool serialize)
 		{
 			var methods = formatterType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
@@ -94,16 +148,18 @@
 			{
 				var method = methods[i];
 
-				if(method.Name != name) continue;
+				if (method.Name != name)
+					continue;
 
 				var args = method.GetParameters();
-				if(args.Length != 3) continue;
+				if (args.Length != 3)
+					continue;
 
 				var paramType = args[2].ParameterType;
-				if(paramType.IsByRef)
+				if (paramType.IsByRef)
 					paramType = paramType.GetElementType();
 
-				if(paramType == exactTypeGettingFormatted)
+				if (paramType == exactTypeGettingFormatted)
 				{
 					return method;
 				}

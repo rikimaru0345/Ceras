@@ -336,6 +336,15 @@ namespace Ceras.Test
 
 			var ihs = ImmutableHashSet.Create(5, 5, 5, 5, 5, 5, rngInt, rngInt, 1, 2, 3, 4, 5, 6, 7, 8, 9);
 			TestDeepEquality(ihs);
+
+
+			var dict = new ReadOnlyDictionary<string,string>(new Dictionary<string, string>
+			{
+				["a"] = "val a",
+				["asdasdsa"] = "val b",
+				["123"] = "val c",
+			});
+			TestDeepEquality(dict);
 		}
 
 		[Fact]

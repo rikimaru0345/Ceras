@@ -68,9 +68,6 @@ namespace Ceras
 
 			foreach (var parameterInfo in parameters)
 			{
-				// Originally here was a lot of clever code here that tried to match by type, eliminate results, ...
-				// but it turns out it's much better to simply let the user do stuff and throw errors as soon as there's just a hint of ambiguity!
-
 				// Are we still missing a mapping for this member?
 				if (!map.TryGetValue(parameterInfo, out MemberInfo sourceMember))
 				{
@@ -90,7 +87,7 @@ namespace Ceras
 					// We already have a user-provided match, but is it part of the serialization?
 					var sourceMemberConfig = TypeConfig.Members.First(mc => mc.Member == sourceMember);
 					if (!sourceMemberConfig.ComputeFinalInclusionFast())
-						throw new CerasException($"The type construction mode for the type '{TypeConfig.Type.FriendlyName()}' is invalid because the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}' is supposed to be initialized from the member '{sourceMember.FieldOrPropType().FriendlyName()} {sourceMember.Name}', but that member is not part of the serialization, so it will not be available at deserialization-time.");
+						throw new CerasException($"The construction mode for the type '{TypeConfig.Type.FriendlyName()}' is invalid because the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}' is supposed to be initialized from the member '{sourceMember.FieldOrPropType().FriendlyName()} {sourceMember.Name}', but that member is not part of the serialization, so it will not be available at deserialization-time.");
 				}
 			}
 

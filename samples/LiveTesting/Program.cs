@@ -11,11 +11,12 @@ namespace LiveTesting
 	using Ceras.Formatters;
 	using Ceras.Helpers;
 	using Ceras.Resolvers;
+	using Ceras.Test;
 	using Newtonsoft.Json;
 	using System.Buffers;
 	using System.Collections.Generic;
-    using System.Collections.ObjectModel;
-    using System.Diagnostics;
+	using System.Collections.ObjectModel;
+	using System.Diagnostics;
 	using System.IO;
 	using System.Linq;
 	using System.Linq.Expressions;
@@ -32,6 +33,21 @@ namespace LiveTesting
 	partial class Program
 	{
 		static Guid staticGuid = Guid.Parse("39b29409-880f-42a4-a4ae-2752d97886fa");
+
+		public class Wrapper
+		{
+			public readonly TestDec? NullableStruct;
+
+			public Wrapper(TestDec? nullableStruct)
+			{
+				NullableStruct = nullableStruct;
+			}
+		}
+
+		public struct TestDec
+		{
+			public decimal Value;
+		}
 
 
 		public class NullableWrapper
@@ -285,25 +301,11 @@ namespace LiveTesting
 
 			Console.WriteLine();
 		}
-
-		static void ReproReadOnlyDictionary()
-		{
-			var normalDict = new Dictionary<string, string>
-			{
-				["a"] = "val a",
-				["asdasdsa"] = "val b",
-				["123"] = "val c",
-			};
-			var dict = new ReadOnlyDictionary<string,string>(normalDict);
-
-			var ceras = new CerasSerializer();
-			var dictClone = ceras.Advanced.Clone(dict);
-		}
-
+		
 		static unsafe void Main(string[] args)
 		{
-			ReproReadOnlyDictionary();
-
+			new Issue64_ReadonlyStructs().Repro64_v2_ReadonlyStructs_Direct();
+			new Issue64_ReadonlyStructs().Repro64_v2_ReadonlyStructs_Ctor();
 
 			Repro65();
 
@@ -365,19 +367,6 @@ namespace LiveTesting
 
 			//SaveDelegateIL(StructEquality<Test?>.Lambda);
 
-
-			var config = new SerializerConfig { DefaultTargets = TargetMember.AllFields, PreserveReferences = false };
-			config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
-			config.Advanced.SkipCompilerGeneratedFields = false;
-			config.OnConfigNewType = tc => tc.TypeConstruction = TypeConstruction.ByUninitialized();
-
-
-			var ceras = new CerasSerializer(config);
-
-			var obj = new NullableWrapper(new Test { Value = 2.34M, SubStruct = new SubStruct(new NameAge("riki", 5), 6, 7) });
-
-			var data = ceras.Serialize(obj);
-			var clone = ceras.Deserialize<NullableWrapper>(data);
 
 
 
