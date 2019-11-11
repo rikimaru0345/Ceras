@@ -73,7 +73,7 @@
 
 
 			//
-			// Special collection? (Stack, Queue)
+			// Special collection? (Stack, Queue, ReadOnlyDictionary)
 			//
 			var closedStack = ReflectionHelper.FindClosedType(type, typeof(Stack<>));
 			if (closedStack != null)
@@ -88,6 +88,15 @@
 			if (closedQueue != null)
 			{
 				var formatterType = typeof(QueueFormatter<>).MakeGenericType(closedQueue.GetGenericArguments());
+				formatter = (IFormatter)Activator.CreateInstance(formatterType);
+				_formatterInstances[type] = formatter;
+				return formatter;
+			}
+
+			var closedRD = ReflectionHelper.FindClosedType(type, typeof(System.Collections.ObjectModel.ReadOnlyDictionary<,>));
+			if (closedRD != null)
+			{
+				var formatterType = typeof(ReadOnlyDictionaryFormatter<,>).MakeGenericType(closedRD.GetGenericArguments());
 				formatter = (IFormatter)Activator.CreateInstance(formatterType);
 				_formatterInstances[type] = formatter;
 				return formatter;

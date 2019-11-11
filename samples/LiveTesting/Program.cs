@@ -14,7 +14,8 @@ namespace LiveTesting
 	using Newtonsoft.Json;
 	using System.Buffers;
 	using System.Collections.Generic;
-	using System.Diagnostics;
+    using System.Collections.ObjectModel;
+    using System.Diagnostics;
 	using System.IO;
 	using System.Linq;
 	using System.Linq.Expressions;
@@ -24,8 +25,8 @@ namespace LiveTesting
 	using System.Runtime.InteropServices;
 	using System.Runtime.Versioning;
 	using System.Threading;
-    using Tutorial;
-    using Xunit;
+	using Tutorial;
+	using Xunit;
 	using Encoding = System.Text.Encoding;
 
 	partial class Program
@@ -42,7 +43,7 @@ namespace LiveTesting
 				TestStruct = nullableStruct;
 			}
 		}
-		
+
 		public struct Test : IEquatable<Test>
 		{
 			public decimal Value;
@@ -225,8 +226,87 @@ namespace LiveTesting
 			// ret
 		}
 
+
+		internal class PropertyMessage
+		{
+			public ushort Id { get; set; }
+
+			public string Fullpath { get; set; }
+
+			public PropertyValue Property { get; set; }
+		}
+		public class PropertyValue
+		{
+			public string Fullpath { get; set; }
+			public string Subpath { get; set; }
+			public bool IsNetworkObject { get; set; }
+			public bool IsSubobject { get; set; }
+			public ushort Id { get; set; }
+			public ushort SubobjectId { get; set; }
+			public object Object { get; set; }
+			public Type Type { get; set; }
+		}
+
+		class SomethingDifferent
+		{
+			public byte Num1 = 5;
+			public int Num2 = 6;
+			public ushort Num3 = 7;
+			public string Str = "qwer";
+		}
+
+		static void Repro65()
+		{
+			// Write
+			var ceras = new CerasSerializer();
+
+			var obj1 = new PropertyValue
+			{
+				Fullpath = "abc",
+				IsNetworkObject = true,
+				Id = 123,
+				Object = new Person { Name = "a", Health = 100 },
+			};
+			var data1 = ceras.Serialize(obj1);
+
+			var obj2 = new PropertyValue
+			{
+				Fullpath = "second object",
+				IsNetworkObject = true,
+				Id = 4567,
+				Object = new SomethingDifferent { Str = "different object", Num1 = 20 },
+			};
+			var data2 = ceras.Serialize(obj2);
+
+
+			// Try to deserialize data1 into obj2, and data2 into obj1
+			ceras.Deserialize(ref obj1, data2);
+			ceras.Deserialize(ref obj2, data1);
+
+			Console.WriteLine();
+		}
+
+		static void ReproReadOnlyDictionary()
+		{
+			var normalDict = new Dictionary<string, string>
+			{
+				["a"] = "val a",
+				["asdasdsa"] = "val b",
+				["123"] = "val c",
+			};
+			var dict = new ReadOnlyDictionary<string,string>(normalDict);
+
+			var ceras = new CerasSerializer();
+			var dictClone = ceras.Advanced.Clone(dict);
+		}
+
 		static unsafe void Main(string[] args)
 		{
+			ReproReadOnlyDictionary();
+
+
+			Repro65();
+
 			/*
 			var nameAge = new NameAge("riki", null);
 
