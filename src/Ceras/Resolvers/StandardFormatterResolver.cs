@@ -26,9 +26,9 @@
 				typeof(TupleFormatter<,>), // 2
 				typeof(TupleFormatter<,,>), // 3
 				typeof(TupleFormatter<,,,>), // 4
-				typeof(TupleFormatter<,,,,,>), // 5
-				typeof(TupleFormatter<,,,,,,>), // 6
-				typeof(TupleFormatter<,,,,,,,>), // 7
+				typeof(TupleFormatter<,,,,>), // 5
+				typeof(TupleFormatter<,,,,,>), // 6
+				typeof(TupleFormatter<,,,,,,>), // 7
 		};
 
 		static readonly Type[] _valueTupleFormatterTypes = new Type[]
@@ -38,9 +38,9 @@
 				typeof(ValueTupleFormatter<,>), // 2
 				typeof(ValueTupleFormatter<,,>), // 3
 				typeof(ValueTupleFormatter<,,,>), // 4
-				typeof(ValueTupleFormatter<,,,,,>), // 5
-				typeof(ValueTupleFormatter<,,,,,,>), // 6
-				typeof(ValueTupleFormatter<,,,,,,,>), // 7
+				typeof(ValueTupleFormatter<,,,,>), // 5
+				typeof(ValueTupleFormatter<,,,,,>), // 6
+				typeof(ValueTupleFormatter<,,,,,,>), // 7
 		};
 
 		

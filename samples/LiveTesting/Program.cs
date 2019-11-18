@@ -301,11 +301,32 @@ namespace LiveTesting
 
 			Console.WriteLine();
 		}
-		
+
+		class CtorTest
+		{
+			public string Name;
+			public int Age { get; }
+
+			public CtorTest(string name, int age)
+			{
+				Name = name;
+				Age = age;
+			}
+		}
+
+		static void InferConstructor()
+		{
+			var ceras = new CerasSerializer();
+
+			var obj = new CtorTest("riki", 12354);
+			
+			var clone = ceras.Advanced.Clone(obj);
+
+		}
+
 		static unsafe void Main(string[] args)
 		{
-			new Issue64_ReadonlyStructs().Repro64_v2_ReadonlyStructs_Direct();
-			new Issue64_ReadonlyStructs().Repro64_v2_ReadonlyStructs_Ctor();
+			// InferConstructor();
 
 			Repro65();
 
