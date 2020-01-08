@@ -352,7 +352,7 @@ namespace Ceras
 			{
 				var d = new InstanceData();
 				d.CurrentRoot = null;
-				d.ObjectCache = new ObjectCache();
+				d.ObjectCache = new ObjectCache(Config.Advanced.ObjectCacheComparer);
 				d.TypeCache = new TypeCache(_knownTypes);
 				d.EncounteredSchemaTypes = new HashSet<Type>();
 
