@@ -246,6 +246,7 @@
 		bool IAdvancedConfig.RespectNonSerializedAttribute { get; set; } = true;
 		BitmapMode IAdvancedConfig.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
 		AotMode IAdvancedConfig.AotMode { get; set; } = AotMode.None;
+		IEqualityComparer<object> IAdvancedConfig.ObjectCacheComparer { get; set; }
 
 		#endregion
 		
@@ -379,6 +380,12 @@
 		/// On an AoT platforms (for example Unity IL2CPP) Ceras can not use dynamic code generation. When enabled, Ceras will use reflection for everything where it would otherwise use dynamic code generation. This is slow, but it allows for testing and debugging on those platforms until 
 		/// </summary>
 		AotMode AotMode { get; set; }
+
+		/// <summary>
+		/// The <see cref="IEqualityComparer{T}"/> to use for the object cache. If this is <see langword="null"/>, the default <see cref="EqualityComparer{T}"/> for <see cref="object"/> will be used.
+		/// <para>Default: <see langword="null"/></para>
+		/// </summary>
+		IEqualityComparer<object> ObjectCacheComparer { get; set; }
 	}
 
 	public interface ISizeLimitsConfig
