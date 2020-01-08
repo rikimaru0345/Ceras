@@ -8,12 +8,21 @@
     class ObjectCache
 	{
 		// While serializing we add all encountered objects and give them an ID (their index), so when we encounter them again we can just write the index instead.
-		readonly Dictionary<object, int> _serializationCache = new Dictionary<object, int>(64);
+		readonly Dictionary<object, int> _serializationCache;
 
 		// At deserialization-time we keep adding all new objects to this list, so when we find a back-reference we can take it from here.
 		// RefProxy enables us to deserialize even the most complex scenarios (For example: Objects that directly reference themselves, while they're not even fully constructed yet)
 		readonly List<RefProxy> _deserializationCache = new List<RefProxy>(64);
 
+
+		/// <summary>
+		/// Initializes a new instance of the <see cref="ObjectCache"/> class.
+		/// </summary>
+		/// <param name="comparer">The <see cref="IEqualityComparer{T}"/> to use.</param>
+		public ObjectCache(IEqualityComparer<object> comparer = null)
+		{
+			_serializationCache = new Dictionary<object, int>(64, comparer);
+		}
 
 		// Serialization:
 		// If this object was encountered before, retrieve its ID
