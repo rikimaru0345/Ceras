@@ -5,16 +5,46 @@
 	using System.Linq;
 	using Formatters;
 
-	public sealed class ImmutableArrayFormatter<TItem> : CollectionByProxyFormatter<ImmutableArray<TItem>, TItem, ImmutableArray<TItem>.Builder>
+	public sealed class ImmutableArrayFormatter<TItem> : IFormatter<ImmutableArray<TItem>>
 	{
-		protected override ImmutableArray<TItem>.Builder CreateProxy(int knownSize)
-			=> ImmutableArray.CreateBuilder<TItem>(knownSize);
+		IFormatter<TItem> _itemFormatter;
 
-		protected override void AddToProxy(ImmutableArray<TItem>.Builder builder, TItem item)
-			=> builder.Add(item);
+		public ImmutableArrayFormatter()
+		{
+			CerasSerializer.AddFormatterConstructedType(typeof(ImmutableArray<TItem>));
+		}
 
-		protected override void Finalize(ImmutableArray<TItem>.Builder builder, ref ImmutableArray<TItem> collection)
-			=> collection = builder.ToImmutable();
+		public void Serialize(ref byte[] buffer, ref int offset, ImmutableArray<TItem> value)
+		{
+			if (value.IsDefault)
+			{
+				SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, -1, 1);
+				return;
+			}
+			SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, value.Length, 1);
+			var itemFormatter = _itemFormatter; // Cache into local to prevent ram fetches
+			for (int i = 0; i < value.Length; i++)
+				itemFormatter.Serialize(ref buffer, ref offset, value[i]);
+		}
+
+		public void Deserialize(byte[] buffer, ref int offset, ref ImmutableArray<TItem> value)
+		{
+			int length = SerializerBinary.ReadUInt32Bias(buffer, ref offset, 1);
+			if (length == -1)
+			{
+				value = default;
+				return;
+			}
+			var builder = ImmutableArray.CreateBuilder<TItem>(length);
+			var itemFormatter = _itemFormatter; // Cache into local to prevent ram fetches
+			for (int i = 0; i < length; i++)
+			{
+				TItem item = default;
+				itemFormatter.Deserialize(buffer, ref offset, ref item);
+				builder.Add(item);
+			}
+			value = builder.MoveToImmutable();
+		}
 	}
 
 	public sealed class ImmutableDictionaryFormatter<TKey, TValue> :
