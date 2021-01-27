@@ -10,22 +10,35 @@ namespace CerasAotFormatterGenerator
 {
 	static class SourceFormatterGenerator
 	{
-		public static void GenerateAll(List<Type> targets, CerasSerializer ceras, StringBuilder text)
-		{
+		public static void GenerateAll(string ns, List<Type> targets, Dictionary<Type, Type> aotHint,
+            CerasSerializer ceras, StringBuilder text)
+        {
+            text.AppendLine(@"
+// ReSharper disable All
+
+#nullable disable
+#pragma warning disable 649
+");
 			text.AppendLine("using Ceras;");
 			text.AppendLine("using Ceras.Formatters;");
 			text.AppendLine("using Ceras.Formatters.AotGenerator;");
 			text.AppendLine("");
-			text.AppendLine("namespace Ceras.GeneratedFormatters");
+			text.AppendLine($"namespace {ns}");
 			text.AppendLine("{");
 
-			var setCustomFormatters = targets.Select(t => $"\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
+            var setFormattersHint = aotHint.Keys.Select((t, i) => $"\t\t\t{aotHint[t].ToFriendlyName(true)} var{i} = default;\n\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = var{i};");
+            var setCustomFormatters = targets.Select(t => $"\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
 			text.AppendLine(
 $@"	public static class GeneratedFormatters
 	{{
 		public static void UseFormatters(SerializerConfig config)
 		{{
 {string.Join(Environment.NewLine, setCustomFormatters)}
+		}}
+
+        private static void AotHint(SerializerConfig config)
+		{{
+{string.Join(Environment.NewLine, setFormattersHint)}
 		}}
 	}}
 ");
@@ -35,7 +48,10 @@ $@"	public static class GeneratedFormatters
 
 			text.Length -= Environment.NewLine.Length;
 			text.AppendLine("}");
-		}
+            text.AppendLine("#nullable restore");
+            text.AppendLine("#pragma warning restore 649");
+            text.AppendLine();
+        }
 
 		static void Generate(Type type, CerasSerializer ceras, StringBuilder text)
 		{
