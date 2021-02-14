@@ -3,7 +3,7 @@
 namespace Ceras.Formatters
 {
 
-    sealed class ValueTupleFormatter<T1> : IFormatter<ValueTuple<T1>>
+    public sealed class ValueTupleFormatter<T1> : IFormatter<ValueTuple<T1>>
     {
 		IFormatter<T1> _item1Formatter;
 
@@ -23,7 +23,7 @@ namespace Ceras.Formatters
     }
 
 
-    sealed class ValueTupleFormatter<T1, T2> : IFormatter<ValueTuple<T1, T2>>
+    public sealed class ValueTupleFormatter<T1, T2> : IFormatter<ValueTuple<T1, T2>>
     {
 		IFormatter<T1> _item1Formatter;
 		IFormatter<T2> _item2Formatter;
@@ -47,7 +47,7 @@ namespace Ceras.Formatters
     }
 
 
-    sealed class ValueTupleFormatter<T1, T2, T3> : IFormatter<ValueTuple<T1, T2, T3>>
+    public sealed class ValueTupleFormatter<T1, T2, T3> : IFormatter<ValueTuple<T1, T2, T3>>
     {
 		IFormatter<T1> _item1Formatter;
 		IFormatter<T2> _item2Formatter;
@@ -75,7 +75,7 @@ namespace Ceras.Formatters
     }
 
 
-    sealed class ValueTupleFormatter<T1, T2, T3, T4> : IFormatter<ValueTuple<T1, T2, T3, T4>>
+    public sealed class ValueTupleFormatter<T1, T2, T3, T4> : IFormatter<ValueTuple<T1, T2, T3, T4>>
     {
 		IFormatter<T1> _item1Formatter;
 		IFormatter<T2> _item2Formatter;
@@ -107,7 +107,7 @@ namespace Ceras.Formatters
     }
 
 
-    sealed class ValueTupleFormatter<T1, T2, T3, T4, T5> : IFormatter<ValueTuple<T1, T2, T3, T4, T5>>
+    public sealed class ValueTupleFormatter<T1, T2, T3, T4, T5> : IFormatter<ValueTuple<T1, T2, T3, T4, T5>>
     {
 		IFormatter<T1> _item1Formatter;
 		IFormatter<T2> _item2Formatter;
@@ -143,7 +143,7 @@ namespace Ceras.Formatters
     }
 
 
-    sealed class ValueTupleFormatter<T1, T2, T3, T4, T5, T6> : IFormatter<ValueTuple<T1, T2, T3, T4, T5, T6>>
+    public sealed class ValueTupleFormatter<T1, T2, T3, T4, T5, T6> : IFormatter<ValueTuple<T1, T2, T3, T4, T5, T6>>
     {
 		IFormatter<T1> _item1Formatter;
 		IFormatter<T2> _item2Formatter;
@@ -183,7 +183,7 @@ namespace Ceras.Formatters
     }
 
 
-    sealed class ValueTupleFormatter<T1, T2, T3, T4, T5, T6, T7> : IFormatter<ValueTuple<T1, T2, T3, T4, T5, T6, T7>>
+    public sealed class ValueTupleFormatter<T1, T2, T3, T4, T5, T6, T7> : IFormatter<ValueTuple<T1, T2, T3, T4, T5, T6, T7>>
     {
 		IFormatter<T1> _item1Formatter;
 		IFormatter<T2> _item2Formatter;
@@ -227,7 +227,7 @@ namespace Ceras.Formatters
     }
 
 
-    sealed class ValueTupleFormatter<T1, T2, T3, T4, T5, T6, T7, TRest> : IFormatter<ValueTuple<T1, T2, T3, T4, T5, T6, T7, TRest>> where TRest : struct
+    public sealed class ValueTupleFormatter<T1, T2, T3, T4, T5, T6, T7, TRest> : IFormatter<ValueTuple<T1, T2, T3, T4, T5, T6, T7, TRest>> where TRest : struct
     {
 		IFormatter<T1> _item1Formatter;
 		IFormatter<T2> _item2Formatter;

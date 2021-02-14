@@ -7,7 +7,7 @@
 	// parameter count can be merged into the unused bits of bindingData, but so much bit-packing makes things more complicated than they need to be;
 	// it's extremely unlikely that anyone would notice the savings, even if they'd serialize tons of MemberInfos
 
-	class MemberInfoFormatter<T> : IFormatter<T> where T : MemberInfo
+	public class MemberInfoFormatter<T> : IFormatter<T> where T : MemberInfo
 	{
 		IFormatter<string> _stringFormatter;
 		IFormatter<Type> _typeFormatter;

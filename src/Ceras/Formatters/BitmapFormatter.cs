@@ -10,7 +10,7 @@ namespace Ceras.Formatters
 
 	// Color must be serialized by its argb value
 	// We don't want to add nonsense like IsKnownColor here (that's what custom formatters are for, see unit tests)
-	class ColorFormatter : IFormatter<Color>
+	public class ColorFormatter : IFormatter<Color>
 	{
 		public void Serialize(ref byte[] buffer, ref int offset, Color value)
 		{
@@ -26,7 +26,7 @@ namespace Ceras.Formatters
 
 #if NETFRAMEWORK
 
-	class BitmapFormatter : IFormatter<Bitmap>
+	public class BitmapFormatter : IFormatter<Bitmap>
 	{
 		[ThreadStatic]
 		static MemoryStream _sharedMemoryStream;

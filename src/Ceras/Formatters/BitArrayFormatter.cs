@@ -8,7 +8,7 @@ namespace Ceras.Formatters
 {
 	using System.Collections;
 
-	class BitArrayFormatter : IFormatter<BitArray>
+	public class BitArrayFormatter : IFormatter<BitArray>
 	{
 		[CerasNoReference]
 		IFormatter<int[]> _intFormatter;

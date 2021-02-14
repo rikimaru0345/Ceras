@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace Ceras.Formatters
 {
-	class UriFormatter : IFormatter<Uri>
+	public class UriFormatter : IFormatter<Uri>
 	{
 		public UriFormatter()
 		{

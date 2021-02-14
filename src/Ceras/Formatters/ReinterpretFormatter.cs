@@ -10,7 +10,6 @@ namespace Ceras.Formatters
 
 	/// <summary>
 	/// Extremely fast formatter that can be used with all unmanaged types. For example DateTime, int, Vector3, Point, ...
-	/// <para>This formatter always uses native endianness!</para>
 	/// </summary>
 	public sealed unsafe class ReinterpretFormatter<T> : IFormatter<T>, IInlineEmitter where T : unmanaged
 	{
@@ -136,6 +135,9 @@ namespace Ceras.Formatters
 
 		static ReinterpretArrayFormatter()
 		{
+			if (!BitConverter.IsLittleEndian)
+				throw new Exception("ReinterpretArrayFormatter requires little endian environment.");
+
 			var type = typeof(T);
 
 			if (type.IsEnum)

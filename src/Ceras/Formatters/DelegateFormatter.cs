@@ -25,7 +25,7 @@ namespace Ceras.Formatters
 	 */
 
 	// This formatter serializes Delegate, Action, Func, event, ... (with some caveats)
-	class DelegateFormatter<T> : IFormatter<T>
+	public class DelegateFormatter<T> : IFormatter<T>
 			where T : Delegate
 	{
 		readonly IFormatter<MethodInfo> _methodInfoFormatter;

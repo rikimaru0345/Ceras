@@ -18,7 +18,7 @@ namespace Ceras.Formatters
 	var					items				= string.Join(", ", Enumerable.Range(1, i).Select(x => toItemVar(x))); 
 #>
 
-    sealed class ValueTupleFormatter<<#= ts #>> : IFormatter<<#= t #>><#= (t.Contains("TRest") ? " where TRest : struct" : "") #>
+    public sealed class ValueTupleFormatter<<#= ts #>> : IFormatter<<#= t #>><#= (t.Contains("TRest") ? " where TRest : struct" : "") #>
     {
 <# for(var j = 1; j <= i; j++) { #>
 		IFormatter<<#= toT(j) #>> <#= toFormatterName(j) #>Formatter;
