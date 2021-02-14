@@ -32,16 +32,16 @@ namespace CerasAotFormatterGenerator
 	{
 		static readonly Type Marker = typeof(GenerateFormatterAttribute);
 
-		public static void Generate(IEnumerable<Assembly> asms, StringBuilder output)
+		public static void Generate(string ns, IEnumerable<Assembly> asms, StringBuilder output)
 		{
 			if (!_resolverRegistered)
 				throw new InvalidOperationException("please call RegisterAssemblyResolver() first so you can get better error messages when a DLL can't be loaded!");
 
-			var (ceras, targets) = CreateSerializerAndTargets(asms);
-			SourceFormatterGenerator.GenerateAll(targets, ceras, output);
+			var (ceras, targets, aotHint) = CreateSerializerAndTargets(asms);
+			SourceFormatterGenerator.GenerateAll(ns, targets, aotHint, ceras, output);
 		}
 
-		static (CerasSerializer, List<Type>) CreateSerializerAndTargets(IEnumerable<Assembly> asms)
+		static (CerasSerializer, List<Type>, Dictionary<Type, Type>) CreateSerializerAndTargets(IEnumerable<Assembly> asms)
 		{
 			// Find config method and create a SerializerConfig
 			SerializerConfig config = new SerializerConfig();
@@ -65,6 +65,7 @@ namespace CerasAotFormatterGenerator
 
 			// Go through each type, add all the member-types it wants to serialize as well
 			HashSet<Type> processedTypes = new HashSet<Type>();
+			Dictionary<Type, Type> aotHint = new Dictionary<Type, Type>();
 
 			while (newTypes.Any())
 			{
@@ -91,12 +92,26 @@ namespace CerasAotFormatterGenerator
 				foreach (var member in schema.Members)
 					if (!processedTypes.Contains(member.MemberType))
 						newTypes.Add(member.MemberType);
-			}
 
+				var formatter = ceras.GetSpecificFormatter(t);
+				var formatterType = formatter.GetType();
+				var needAot =
+					CerasHelpers.IsDynamicFormatter(formatterType) ||
+					CerasHelpers.IsSchemaDynamicFormatter(formatterType) ||
+					IsMarkedForAot(t);
+
+				if (needAot)
+					continue;
+
+				aotHint[t] = formatterType;
+
+				foreach (var type in formatterType.GenericTypeArguments)
+					if (!processedTypes.Contains(type))
+						newTypes.Add(type);
+			}
 
 			// Only leave things that use DynamicFormatter, or have the marker attribute
 			List<Type> targets = new List<Type>();
-			List<Type> debugIgnoreList = new List<Type>(); // list for types that were ignored
 
 			foreach (var t in processedTypes)
 			{
@@ -106,18 +121,13 @@ namespace CerasAotFormatterGenerator
 				if (t.IsAbstract || t.ContainsGenericParameters)
 					continue; // Abstract or open generics can't have instances...
 
-				var formatter = ceras.GetSpecificFormatter(t);
-				var formatterType = formatter.GetType();
+				if (aotHint.ContainsKey(t))
+					continue;
 
-				if (CerasHelpers.IsDynamicFormatter(formatterType) || CerasHelpers.IsSchemaDynamicFormatter(formatterType))
-					targets.Add(t); // handled by Schema/DynamicFormatter; which definitely won't be available later...
-				else if (IsMarkedForAot(t))
-					targets.Add(t); // explicitly marked by the user
-				else
-					debugIgnoreList.Add(t);
+				targets.Add(t);
 			}
 
-			return (ceras, targets);
+			return (ceras, targets, aotHint);
 			
 			bool IsMarkedForAot(Type t)
 			{
