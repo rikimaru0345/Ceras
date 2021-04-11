@@ -27,7 +27,7 @@ namespace Ceras.Editor
 
 			// Generate source-code for all formatters
 			var sb = new StringBuilder(25 * 1000);
-			Generator.Generate(assemblies, sb);
+			Generator.Generate("AotSerialization", assemblies, sb);
 			var output = sb.ToString();
 
 			// Check if the output is already exactly the same

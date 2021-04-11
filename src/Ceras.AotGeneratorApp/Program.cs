@@ -27,7 +27,7 @@ namespace CerasAotFormatterGenerator
 
 			var asms = inputAssemblies.Select(Assembly.LoadFrom);
 			StringBuilder fullCode = new StringBuilder(25 * 1000);
-			Generator.Generate(asms, fullCode);
+			Generator.Generate("AotSerialization", asms, fullCode);
 
 			Console.WriteLine($"Saving...");
 
