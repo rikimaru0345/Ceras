@@ -16,7 +16,7 @@
     <PackageReference Include="AgileObjects.ReadableExpressions" Version="2.1.1" />
     <PackageReference Include="BenchmarkDotNet" Version="0.11.5" />
     <PackageReference Include="K4os.Compression.LZ4" Version="1.1.1" />
-    <PackageReference Include="MessagePack" Version="1.7.3.4" />
+    <PackageReference Include="MessagePack" Version="1.9.11" />
     <PackageReference Include="NetSerializer" Version="4.1.0" />
     <PackageReference Include="Newtonsoft.Json" Version="12.0.1" />
     <PackageReference Include="protobuf-net" Version="2.4.0" />
