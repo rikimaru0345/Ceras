@@ -1,3 +1,5 @@
+//#define ENHANCED_ASSEMBLY_DEBUG_INFO // Having this enabled kills Unity play-in-editor startup performance
+
 using System;
 
 namespace CerasAotFormatterGenerator
@@ -158,7 +160,9 @@ namespace CerasAotFormatterGenerator
 		{
 			if (_resolverRegistered)
 				return;
+#if ENHANCED_ASSEMBLY_DEBUG_INFO
 			AppDomain.CurrentDomain.AssemblyResolve += ResolveAssembly;
+#endif
 			_resolverRegistered = true;
 		}
 
