@@ -29,6 +29,9 @@ namespace Ceras.Resolvers
 			if (!ReflectionHelper.IsBlittableType(type))
 				return null;
 
+			if (_ceras.IsDuringAOTGeneration && type.IsGenericType)
+				return null; // ReinterpretFormatter's unmanaged constraint on T causes the compiler reject generic types, but runtime doesn't enforce it
+
 			var formatterType = typeof(ReinterpretFormatter<>).MakeGenericType(type);
 
 			return (IFormatter) Activator.CreateInstance(formatterType);

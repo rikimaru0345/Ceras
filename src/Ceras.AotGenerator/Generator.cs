@@ -57,6 +57,7 @@ namespace CerasAotFormatterGenerator
 				config = (SerializerConfig)configMethods[0].Invoke(null, null);
 
 			var ceras = new CerasSerializer(config);
+			ceras.IsDuringAOTGeneration = true;
 
 
 			// Start with KnownTypes and user-marked types...
