@@ -641,7 +641,8 @@
 			}
 			else
 			{
-				return fullName ? type.FullName : type.Name;
+				var name = fullName ? type.FullName : type.Name;
+				return name.Replace("+", ".");
 			}
 		}
 	}
