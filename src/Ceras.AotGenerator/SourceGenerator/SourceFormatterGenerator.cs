@@ -27,7 +27,7 @@ namespace CerasAotFormatterGenerator
 			text.AppendLine($"namespace {ns}");
 			text.AppendLine("{");
 
-            var setFormattersHint = aotHint.Keys.Select((t, i) => $"\t\t\t{aotHint[t].ToFriendlyName(true)} var{i} = default;\n\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = var{i};");
+            var setFormattersHint = aotHint.Keys.Select((t, i) => $"\t\t\t{aotHint[t].ToFriendlyName(true)} var{i} = default;{Environment.NewLine}\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = var{i};");
             var setCustomFormatters = targets.Select(t => $"\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
 			text.AppendLine(
 $@"	public static class GeneratedFormatters
