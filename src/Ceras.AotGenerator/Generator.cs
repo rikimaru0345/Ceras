@@ -91,6 +91,11 @@ namespace CerasAotFormatterGenerator
 					// Skip int, string, Type, ...
 					continue;
 
+				if (t.IsAbstract && asms.Any(x => x.GetTypes().Contains(t)))
+				{
+					newTypes.AddRange(asms.SelectMany(x => x.GetTypes()).Where(y => !y.IsAbstract && y.IsSubclassOf(t) && !processedTypes.Contains(y)));
+				}
+
 				if (t.IsAbstract || t.ContainsGenericParameters)
 					// Can't explore abstract or open generics
 					continue;
