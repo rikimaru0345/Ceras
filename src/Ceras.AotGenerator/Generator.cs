@@ -72,8 +72,17 @@ namespace CerasAotFormatterGenerator
 				// Get first, remove from "to explore" list, and add it to the "done" list.
 				var t = newTypes.First();
 
-				if(t.IsArray)
+				if (t.IsArray)
+				{
+					newTypes.Remove(t);
+					processedTypes.Add(t);
 					t = t.GetElementType();
+
+					if (processedTypes.Contains(t))
+					{
+						continue;
+					}
+				}
 
 				newTypes.Remove(t);
 				processedTypes.Add(t);
