@@ -13,12 +13,13 @@ namespace CerasAotFormatterGenerator
 		public static void GenerateAll(string ns, List<Type> targets, Dictionary<Type, Type> aotHint,
             CerasSerializer ceras, StringBuilder text)
         {
-            text.AppendLine(@"
-// ReSharper disable All
-
-#nullable disable
-#pragma warning disable 649
-");
+	        text.AppendLine("// ReSharper disable All");
+	        text.AppendLine("");
+#if !CSHARP_7_OR_LATER || UNITY_2020_2_OR_NEWER
+	        text.AppendLine("#nullable disable");
+#endif
+	        text.AppendLine("#pragma warning disable 649");
+	        text.AppendLine("");
 			text.AppendLine("using Ceras;");
 			text.AppendLine("using Ceras.Formatters;");
 			text.AppendLine("using Ceras.Formatters.AotGenerator;");
@@ -48,7 +49,9 @@ $@"	public static class GeneratedFormatters
 
 			text.Length -= Environment.NewLine.Length;
 			text.AppendLine("}");
-            text.AppendLine("#nullable restore");
+#if !CSHARP_7_OR_LATER || UNITY_2020_2_OR_NEWER
+			text.AppendLine("#nullable restore");
+#endif
             text.AppendLine("#pragma warning restore 649");
             text.AppendLine();
         }
