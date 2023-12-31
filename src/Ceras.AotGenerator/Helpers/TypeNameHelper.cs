@@ -57,6 +57,12 @@ namespace System
 					+ "_" 
 					+ string.Join("_", type.GetGenericArguments().Select(t => t.ToFriendlyName(false)).ToArray());
 			}
+			else if (type.IsArray)
+			{
+				int rank = type.GetArrayRank();
+				string baseName = name.Split('[')[0];
+				return $"{baseName}_Array{rank}";
+			}
 			else
 			{
 				return name;

@@ -172,7 +172,7 @@
 		}
 
 
-		class KeyValuePairFormatter<TKey, TValue> : IFormatter<KeyValuePair<TKey, TValue>>
+		public class KeyValuePairFormatter<TKey, TValue> : IFormatter<KeyValuePair<TKey, TValue>>
 		{
 			IFormatter<TKey> _keyFormatter;
 			IFormatter<TValue> _valueFormatter;
@@ -196,7 +196,7 @@
 		}
 
 
-		class DateTimeFormatter : IFormatter<DateTime>
+		public class DateTimeFormatter : IFormatter<DateTime>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, DateTime value)
 			{
@@ -211,7 +211,7 @@
 			}
 		}
 
-		class DateTimeOffsetFormatter : IFormatter<DateTimeOffset>
+		public class DateTimeOffsetFormatter : IFormatter<DateTimeOffset>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, DateTimeOffset value)
 			{
@@ -228,7 +228,7 @@
 			}
 		}
 
-		class TimeSpanFormatter : IFormatter<TimeSpan>
+		public class TimeSpanFormatter : IFormatter<TimeSpan>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, TimeSpan value)
 			{
@@ -241,7 +241,7 @@
 			}
 		}
 
-		class BitVector32Formatter : IFormatter<BitVector32>
+		public class BitVector32Formatter : IFormatter<BitVector32>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, BitVector32 value)
 			{
@@ -255,7 +255,7 @@
 			}
 		}
 
-		class BigIntegerFormatter : IFormatter<BigInteger>
+		public class BigIntegerFormatter : IFormatter<BigInteger>
 		{
 			public void Serialize(ref byte[] buffer, ref int offset, BigInteger value)
 			{

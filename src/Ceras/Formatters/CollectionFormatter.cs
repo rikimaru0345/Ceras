@@ -336,7 +336,16 @@
 
 
 			if (value == null)
-				value = _capacityConstructor((int)itemCount);
+			{
+				if (_capacityConstructor != null)
+				{
+					value = _capacityConstructor((int)itemCount);
+				}
+				else
+				{
+					value = Activator.CreateInstance<TCollection>();
+				}
+			}
 			else
 			{
 				if (value.Count > 0)

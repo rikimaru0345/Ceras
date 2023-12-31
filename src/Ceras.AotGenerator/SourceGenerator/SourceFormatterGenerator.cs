@@ -13,12 +13,13 @@ namespace CerasAotFormatterGenerator
 		public static void GenerateAll(string ns, List<Type> targets, Dictionary<Type, Type> aotHint,
             CerasSerializer ceras, StringBuilder text)
         {
-            text.AppendLine(@"
-// ReSharper disable All
-
-#nullable disable
-#pragma warning disable 649
-");
+	        text.AppendLine("// ReSharper disable All");
+	        text.AppendLine("");
+#if !CSHARP_7_OR_LATER || UNITY_2020_2_OR_NEWER
+	        text.AppendLine("#nullable disable");
+#endif
+	        text.AppendLine("#pragma warning disable 649");
+	        text.AppendLine("");
 			text.AppendLine("using Ceras;");
 			text.AppendLine("using Ceras.Formatters;");
 			text.AppendLine("using Ceras.Formatters.AotGenerator;");
@@ -26,7 +27,7 @@ namespace CerasAotFormatterGenerator
 			text.AppendLine($"namespace {ns}");
 			text.AppendLine("{");
 
-            var setFormattersHint = aotHint.Keys.Select((t, i) => $"\t\t\t{aotHint[t].ToFriendlyName(true)} var{i} = default;\n\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = var{i};");
+            var setFormattersHint = aotHint.Keys.Select((t, i) => $"\t\t\t{aotHint[t].ToFriendlyName(true)} var{i} = default;{Environment.NewLine}\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = var{i};");
             var setCustomFormatters = targets.Select(t => $"\t\t\tconfig.ConfigType<{t.ToFriendlyName(true)}>().CustomFormatter = new {t.ToVariableSafeName()}Formatter();");
 			text.AppendLine(
 $@"	public static class GeneratedFormatters
@@ -48,7 +49,9 @@ $@"	public static class GeneratedFormatters
 
 			text.Length -= Environment.NewLine.Length;
 			text.AppendLine("}");
-            text.AppendLine("#nullable restore");
+#if !CSHARP_7_OR_LATER || UNITY_2020_2_OR_NEWER
+			text.AppendLine("#nullable restore");
+#endif
             text.AppendLine("#pragma warning restore 649");
             text.AppendLine();
         }

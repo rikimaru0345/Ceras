@@ -183,6 +183,8 @@ namespace Ceras
 		int _recursionDepth = 0;
 		RecursionMode _mode = RecursionMode.Idle; // while in one mode we cannot enter the others
 
+		internal bool IsDuringAOTGeneration { get; set; } = false;
+
 		/// <summary>
 		/// A "free" property where you can store anything.
 		/// <para>This is useful for scenarios where callbacks like <see cref="OnBeforeSerializeAttribute"/> are used, because the <see cref="CerasSerializer"/> instance is passed to those methods (assuming they take a <see cref="CerasSerializer"/> instance as an argument). That way you can obtain the <see cref="UserContext"/> inside those methods.</para>

@@ -536,9 +536,9 @@
 			}
 
 			// Can't call directly, need to invoke through reflection so T gets casted up/down correctly.
-			var args = new object[3];
 			return (ref byte[] buffer, ref int offset, T value) =>
 			{
+				var args = new object[3];
 				args[0] = buffer;
 				args[1] = offset;
 				args[2] = value;
@@ -559,10 +559,9 @@
 				// return (ref byte[] buffer, ref int offset, T value) => { f.Serialize(ref buffer, ref offset, value); };
 			}
 
-
-			var args = new object[3];
 			return new DeserializeDelegate<T>((byte[] buffer, ref int offset, ref T value) =>
 			{
+				var args = new object[3];
 				args[0] = buffer;
 				args[1] = offset;
 				args[2] = value;

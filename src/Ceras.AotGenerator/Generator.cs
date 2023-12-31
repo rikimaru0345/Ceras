@@ -1,3 +1,5 @@
+//#define ENHANCED_ASSEMBLY_DEBUG_INFO // Having this enabled kills Unity play-in-editor startup performance
+
 using System;
 
 namespace CerasAotFormatterGenerator
@@ -55,6 +57,7 @@ namespace CerasAotFormatterGenerator
 				config = (SerializerConfig)configMethods[0].Invoke(null, null);
 
 			var ceras = new CerasSerializer(config);
+			ceras.IsDuringAOTGeneration = true;
 
 
 			// Start with KnownTypes and user-marked types...
@@ -72,8 +75,17 @@ namespace CerasAotFormatterGenerator
 				// Get first, remove from "to explore" list, and add it to the "done" list.
 				var t = newTypes.First();
 
-				if(t.IsArray)
+				if (t.IsArray)
+				{
+					newTypes.Remove(t);
+					processedTypes.Add(t);
 					t = t.GetElementType();
+
+					if (processedTypes.Contains(t))
+					{
+						continue;
+					}
+				}
 
 				newTypes.Remove(t);
 				processedTypes.Add(t);
@@ -81,6 +93,11 @@ namespace CerasAotFormatterGenerator
 				if (CerasSerializer.IsPrimitiveType(t))
 					// Skip int, string, Type, ...
 					continue;
+
+				if (t.IsAbstract && asms.Any(x => x.GetTypes().Contains(t)))
+				{
+					newTypes.AddRange(asms.SelectMany(x => x.GetTypes()).Where(y => !y.IsAbstract && y.IsSubclassOf(t) && !processedTypes.Contains(y)));
+				}
 
 				if (t.IsAbstract || t.ContainsGenericParameters)
 					// Can't explore abstract or open generics
@@ -144,7 +161,9 @@ namespace CerasAotFormatterGenerator
 		{
 			if (_resolverRegistered)
 				return;
+#if ENHANCED_ASSEMBLY_DEBUG_INFO
 			AppDomain.CurrentDomain.AssemblyResolve += ResolveAssembly;
+#endif
 			_resolverRegistered = true;
 		}
 
