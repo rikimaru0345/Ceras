@@ -259,11 +259,15 @@ namespace Ceras.Formatters.AotGenerator
 	public class AotSerializerConfigAttribute : Attribute
 	{
 	}
+}
 
+namespace Ceras
+{
 	/// <summary>
-	/// Put this attribute on every class/struct you want to serialize when you are using IL2CPP (or any other AOT scenario).
-	/// The formatter generator looks for it and generates formatters only for types with the attribute.
-	/// If a base type (for example 'abstract class NetworkMessage') has this attribute, then all derived types that the tool can find will also have a formatter generated for them.
+	/// Put this attribute on every class/struct you want Ceras to generate a formatter for at compile time.
+	/// The source generator will emit an <c>IFormatter&lt;T&gt;</c> implementation and include it in
+	/// <c>Ceras.Generated.GeneratedFormatters.UseFormatters(config)</c>.
+	/// This replaces the old AotGenerator tool and is required for IL2CPP / AOT platforms.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
 	public class GenerateFormatterAttribute : Attribute

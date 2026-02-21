@@ -82,9 +82,102 @@ The above are just examples, Ceras is made so it can be used in pretty much ever
 
 - If you need human readable output for some reason. For example some file that you want to be able to edit in a text-editor. For those usages JSON or XML are likely better suited.
 
-- ~~You plan to use this on a platform that does not support code generation. Serializers for user-types are created at runtime through code-generation. And if that isn't allowed (for example on iOS) Ceras won't be able to generate arbitrary object-formatters. Built-in types will still work though. There are ways to fix this though... (pre-generating the formatters)~~
-  Ceras now has a dedicated `AotMode` in the config and a [code-generator](https://github.com/rikimaru0345/Ceras/tree/master/src/Ceras.AotGenerator) ([quick guide for it here](https://github.com/rikimaru0345/Ceras/wiki/Unity-IL2CPP-(iOS-and-AOT))) for IL2CPP/Unity/AoT.
+- ~~You plan to use this on a platform that does not support code generation.~~ Ceras supports IL2CPP / AOT platforms via its **compile-time source generator** — see [Source Generator (AOT / IL2CPP)](#source-generator-aot--il2cpp) below.
 
+
+## Source Generator (AOT / IL2CPP)
+
+Ceras ships a **Roslyn C# source generator** (`Ceras.SourceGenerator`) that emits `IFormatter<T>` implementations at **compile time**.
+This replaces the old external AotGenerator tool and works automatically — no separate build step required.
+
+### When do you need it?
+
+| Scenario | DynamicFormatter (default) | Source Generator |
+|---|---|---|
+| Normal .NET desktop/server | ✅ works out of the box | optional (slightly faster startup) |
+| Unity IL2CPP / iOS / AOT | ❌ crashes at runtime | ✅ required |
+| NativeAOT (`dotnet publish`) | ❌ crashes at runtime | ✅ required |
+
+### Quick setup (3 steps)
+
+**1. Reference the source generator in your `.csproj`:**
+
+```xml
+<ItemGroup>
+  <ProjectReference Include="..\Ceras.SourceGenerator\Ceras.SourceGenerator.csproj"
+                    OutputItemType="Analyzer"
+                    ReferenceOutputAssembly="false" />
+</ItemGroup>
+```
+
+> When Ceras is published as a NuGet package, the generator will be included automatically — no manual project reference needed.
+
+**2. Annotate the types you want pre-generated formatters for:**
+
+```csharp
+using Ceras;
+
+[GenerateFormatter]
+public class Player
+{
+    public string Name;
+    public int    Score;
+}
+
+// Use [MemberConfig] to control which members are included
+[GenerateFormatter]
+[MemberConfig(TargetMember.PublicProperties)]
+public class Vec2
+{
+    public float X { get; set; }
+    public float Y { get; set; }
+}
+```
+
+The generator respects `[Include]`, `[Exclude]`, and `[MemberConfig]` just like the runtime serializer.
+
+**3. Register the generated formatters before creating your serializer:**
+
+```csharp
+using Ceras.Generated;
+
+var config = new SerializerConfig();
+GeneratedFormatters.UseFormatters(config);   // registers all [GenerateFormatter] types
+
+var ceras = new CerasSerializer(config);
+```
+
+The generated formatters produce **byte-identical output** to the runtime `DynamicFormatter`, so serialized data is fully interchangeable.
+
+### Enforcing AOT-only mode (no dynamic fallback)
+
+To guarantee that Ceras never falls back to the runtime `DynamicFormatter` — which will crash on AOT platforms — enable `AotMode`:
+
+```csharp
+var config = new SerializerConfig();
+GeneratedFormatters.UseFormatters(config);
+config.Advanced.AotMode = AotMode.Enabled;  // throws if any type lacks a pre-generated formatter
+
+var ceras = new CerasSerializer(config);
+```
+
+With `AotMode.Enabled`, any type that slips through without a `[GenerateFormatter]` annotation will throw an `InvalidOperationException` immediately (at serializer construction time, not silently at runtime on device).
+
+### Polymorphic / runtime-only types
+
+The source generator only sees types that exist at compile time.
+For polymorphic scenarios (serializing an interface or base-class field whose concrete type varies at runtime), annotate **all concrete derived types** with `[GenerateFormatter]`:
+
+```csharp
+[GenerateFormatter] public class Cat : Animal { ... }
+[GenerateFormatter] public class Dog : Animal { ... }
+// Animal itself also needs one if it is ever serialized directly:
+[GenerateFormatter] public abstract class Animal { ... }
+```
+
+If a concrete type is only known at runtime (e.g. loaded from a plugin assembly), it cannot be source-generated. In that case you have two options:
+- Keep `AotMode = AotMode.None` (the default) so `DynamicFormatter` handles those types as a fallback — only viable on JIT platforms.
+- Write a hand-crafted `IFormatter<T>` and register it via `config.ConfigType<T>().CustomFormatter = new MyFormatter();`.
 
 # Support
 - Open an issue

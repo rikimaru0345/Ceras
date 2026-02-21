@@ -1,13 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Ceras.ImmutableCollections\Ceras.ImmutableCollections.csproj" />
     <ProjectReference Include="..\..\src\Ceras\Ceras.csproj" />
+    <!-- Wire up the source generator so it runs when building tests -->
+    <ProjectReference Include="..\..\src\Ceras.SourceGenerator\Ceras.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
     <PackageReference Include="MSTest.TestAdapter" Version="3.1.1" />
     <PackageReference Include="MSTest.TestFramework" Version="3.1.1" />
     <PackageReference Include="xunit" Version="2.7.0" />

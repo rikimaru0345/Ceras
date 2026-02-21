@@ -12,7 +12,6 @@ namespace Ceras
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-	using System.Linq.Expressions;
 	using System.Reflection;
 	using System.Runtime.CompilerServices;
 	using System.Text;
@@ -657,37 +656,19 @@ namespace Ceras
 			meta.SpecificFormatter = f;
 			((DynamicFormatter)f).Initialize();
 
-			/* (ref buffer, ref offset) => 
-			 * {
-			 *    f.Serialize(ref buffer, ref offset, null);
-			 * }
-			 */
-			var serialize = f.GetType().ResolveSerializeMethod(meta.Type);
-			var refBufferArg = Expression.Parameter(typeof(byte[]).MakeByRefType(), "refBuffer");
-			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "refOffset");
+			var helperMethod = typeof(CerasSerializer).GetMethod(nameof(CreateStaticDelegates), BindingFlags.NonPublic | BindingFlags.Static);
+			var createDelegates = helperMethod.MakeGenericMethod(meta.Type);
+			var result = ((StaticSerializeDelegate ser, StaticDeserializeDelegate deser))createDelegates.Invoke(null, new object[] { f });
+			meta.StaticSerialize = result.ser;
+			meta.StaticDeserialize = result.deser;
+		}
 
-			meta.StaticSerialize = Expression.Lambda<StaticSerializeDelegate>(
-				Expression.Call(
-					instance: Expression.Constant(f),
-					method: serialize,
-					arguments: new Expression[] { refBufferArg, refOffsetArg, Expression.Constant(null, meta.Type) }),
-				new ParameterExpression[] { refBufferArg, refOffsetArg }).Compile();
-
-
-			/* (buffer, ref offset) =>
-			 * {
-			 *    f.Deserialize(buffer, ref offset, null);
-			 * }
-			 */
-			var deserialize = f.GetType().ResolveDeserializeMethod(meta.Type);
-			var bufferArg = Expression.Parameter(typeof(byte[]), "buffer");
-
-			meta.StaticDeserialize = Expression.Lambda<StaticDeserializeDelegate>(
-				Expression.Call(
-					instance: Expression.Constant(f),
-					method: deserialize,
-					arguments: new Expression[] { bufferArg, refOffsetArg, Expression.Constant(null, meta.Type) }),
-				new ParameterExpression[] { bufferArg, refOffsetArg }).Compile();
+		static (StaticSerializeDelegate, StaticDeserializeDelegate) CreateStaticDelegates<T>(IFormatter<T> formatter)
+		{
+			T dummy = default;
+			StaticSerializeDelegate ser = (ref byte[] buffer, ref int offset) => formatter.Serialize(ref buffer, ref offset, default);
+			StaticDeserializeDelegate deser = (byte[] buffer, ref int offset) => formatter.Deserialize(buffer, ref offset, ref dummy);
+			return (ser, deser);
 		}
 
 

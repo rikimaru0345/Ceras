@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Source generators MUST target netstandard2.0 -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <!-- Don't ship the generator DLL as a regular reference assembly -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <!-- Enforce rules that keep the generator host-agnostic -->
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

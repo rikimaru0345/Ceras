@@ -17,7 +17,7 @@
 
   <!-- C# Compiler Settings -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
     <!-- Missing XML comment for type... -->
@@ -28,30 +28,5 @@
     <DefineConstants>TRACE;DEBUG</DefineConstants>
   </PropertyGroup>
 
-  <!-- Use T4 Generators -->
-  <ItemGroup>
-    <!-- T4 compilation service -->
-    <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
-
-    <None Update="Formatters\TupleFormatter.tt">
-      <Generator>TextTemplatingFileGenerator</Generator>
-      <LastGenOutput>TupleFormatter.cs</LastGenOutput>
-    </None>
-    <Compile Update="Formatters\TupleFormatter.cs">
-      <DesignTime>True</DesignTime>
-      <AutoGen>True</AutoGen>
-      <DependentUpon>TupleFormatter.tt</DependentUpon>
-    </Compile>
-
-    <None Update="Formatters\ValueTupleFormatter.tt">
-      <Generator>TextTemplatingFileGenerator</Generator>
-      <LastGenOutput>ValueTupleFormatter.cs</LastGenOutput>
-    </None>
-    <Compile Update="Formatters\ValueTupleFormatter.cs">
-      <DesignTime>True</DesignTime>
-      <AutoGen>True</AutoGen>
-      <DependentUpon>ValueTupleFormatter.tt</DependentUpon>
-    </Compile>
-  </ItemGroup>
 
 </Project>

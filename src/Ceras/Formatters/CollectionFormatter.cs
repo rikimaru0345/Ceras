@@ -2,7 +2,6 @@
 {
 	using System;
 	using System.Collections.Generic;
-	using System.Linq.Expressions;
 	using System.Reflection;
 	using Helpers;
 
@@ -293,8 +292,7 @@
 
 				if (ctor != null && serializer.Config.Advanced.AotMode == AotMode.None)
 				{
-					var sizeArg = Expression.Parameter(typeof(int));
-					_capacityConstructor = Expression.Lambda<Func<int, TCollection>>(Expression.New(ctor, sizeArg), sizeArg).Compile();
+					_capacityConstructor = n => (TCollection)ctor.Invoke(new object[] { n });
 
 					CerasSerializer.AddFormatterConstructedType(collectionType);
 				}

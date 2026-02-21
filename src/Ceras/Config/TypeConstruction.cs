@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 namespace Ceras
 {
@@ -178,10 +179,8 @@ namespace Ceras
 		internal override bool HasDataArguments => Constructor.GetParameters().Length > 0;
 		internal override Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen)
 		{
-			if(allowDynamicCodeGen)
-				return Expression.Lambda<Func<object>>(Expression.New(Constructor)).Compile();
-
-			return () => Constructor.Invoke(null);
+			var ctor = Constructor;
+			return () => ctor.Invoke(null);
 		}
 
 		internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
@@ -251,32 +250,18 @@ namespace Ceras
 
 	class UninitializedObject : TypeConstruction
 	{
-		static MethodInfo _getUninitialized;
-
 		// todo: cool ideas:
 		// - after constructing an uninitialized object we can do some trickery to run any ctor on it afterwards
 		// - and maybe after the ctor we'd overwrite some members again (if the ctor messed something up)
 		ConstructorInfo _directConstructor;
 		bool _writeMembersAgain;
 
-		public UninitializedObject()
-		{
-			// We don't want exceptions in static ctors, that's why this is in the normal ctor
-			if (_getUninitialized == null)
-			{
-				Expression<Func<object>> exp = () => System.Runtime.Serialization.FormatterServices.GetUninitializedObject(null);
-				_getUninitialized = ((MethodCallExpression)exp.Body).Method;
-			}
-		}
-
 		internal override bool HasDataArguments => _directConstructor != null && _directConstructor.GetParameters().Length > 0;
 
 		internal override Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen)
 		{
-			// todo: There are a lot of hardcore tricks to improve performance here. But for now it would be wasted time since the feature will (probably) be used very rarely.
 			var t = TypeConfig.Type;
-
-			return Expression.Lambda<Func<object>>(Expression.Call(_getUninitialized, arg0: Expression.Constant(t))).Compile();
+			return () => RuntimeHelpers.GetUninitializedObject(t);
 		}
 
 		internal override void VerifyReturnType()

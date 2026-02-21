@@ -5,7 +5,6 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
-	using System.Linq.Expressions;
 	using System.Runtime.CompilerServices;
 	using System.Threading;
 
@@ -401,48 +400,16 @@
 			if (type == typeof(T))
 				return (SerializeDelegate<T>)Delegate.CreateDelegate(typeof(SerializeDelegate<T>), (IFormatter<T>)specificFormatter, serializeMethod);
 
-
-
-			// What we want to emulate:
-			/*
-			 * (buffer, offset, T value) => {
-			 *	  formatter.Serialize(buffer, offset, (specificType)value);
-			 */
-
-			var refBufferArg = Expression.Parameter(typeof(byte[]).MakeByRefType(), "buffer");
-			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
-			var valueArg = Expression.Parameter(typeof(T), "value");
-
-			Expression convertedValueArg;
-
-			if (typeof(T) == type)
-				// Exact match
-				convertedValueArg = valueArg; // todo: no need to compile a delegate at all
-			else if (!type.IsValueType)
-				// Cast general -> derived
-				convertedValueArg = Expression.TypeAs(valueArg, type);
-			else
-				// Unbox
-				convertedValueArg = Expression.Convert(valueArg, type);
-
-
-			var body = Expression.Block(
-										Expression.Call(Expression.Constant(specificFormatter), serializeMethod,
-														arg0: refBufferArg,
-														arg1: refOffsetArg,
-														arg2: convertedValueArg)
-										);
-
-#if FAST_EXP
-			var f = Expression.Lambda<SerializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).CompileFast(true);
-#else
-			var f = Expression.Lambda<SerializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { refBufferArg, refOffsetArg, valueArg }).Compile();
-#endif
-
-			return f;
+			// Generic helper creates a typed lambda with the necessary cast — no Expression.Compile needed.
+			// MakeGenericMethod is called once at type-registration time, so there's no per-call overhead.
+			var helper = typeof(ReferenceFormatter<T>).GetMethod(nameof(CreateSerializeDispatcherHelper), System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+			return (SerializeDelegate<T>)helper.MakeGenericMethod(type).Invoke(null, new object[] { specificFormatter });
 		}
 
-		// See the comment on GetSpecificSerializerDispatcher
+		static SerializeDelegate<T> CreateSerializeDispatcherHelper<TSpecific>(IFormatter<TSpecific> formatter)
+			=> (ref byte[] buf, ref int off, T value) => formatter.Serialize(ref buf, ref off, (TSpecific)(object)value);
+
+		// See the comment on CreateSpecificSerializerDispatcher
 		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher(Type type, IFormatter specificFormatter)
 		{
 			var deserializeMethod = specificFormatter.GetType().ResolveDeserializeMethod(type);
@@ -451,74 +418,20 @@
 			if (type == typeof(T))
 				return (DeserializeDelegate<T>)Delegate.CreateDelegate(typeof(DeserializeDelegate<T>), (IFormatter<T>)specificFormatter, deserializeMethod);
 
-
-
-			// What we want to emulate:
-			/*
-			 * (buffer, offset, T value) => {
-			 *    (specificType) obj = (specificType)value;
-			 *	  formatter.Deserialize(buffer, offset, ref obj);
-			 *    value = (specificType)obj;
-			 */
-
-			var bufferArg = Expression.Parameter(typeof(byte[]), "buffer");
-			var refOffsetArg = Expression.Parameter(typeof(int).MakeByRefType(), "offset");
-			var refValueArg = Expression.Parameter(typeof(T).MakeByRefType(), "value");
-
-			var valAsSpecific = Expression.Variable(type, "valAsSpecific");
-
-			Expression intro, outro;
-			if (typeof(T) == type)
-			{
-				// Same type, the best case
-				intro = Expression.Assign(valAsSpecific, refValueArg);
-				outro = Expression.Assign(refValueArg, valAsSpecific);
-			}
-			else if (!typeof(T).IsValueType && type.IsValueType)
-			{
-				// valueType = (castToValueType)object;
-
-				// Handle unboxing: we might have a null-value.
-				intro = Expression.IfThenElse(Expression.ReferenceEqual(refValueArg, Expression.Constant(null)),
-											  ifTrue: Expression.Default(type),
-											  ifFalse: Expression.Unbox(refValueArg, type));
-
-				// Box the value type again
-				outro = Expression.Assign(refValueArg, Expression.Convert(valAsSpecific, typeof(T)));
-			}
-			else
-			{
-				// Types are not equal, but there are no value-types involved.
-				// Some kind of casting. Maybe the field type is an interface or 'object'
-				intro = Expression.Assign(valAsSpecific, Expression.TypeAs(refValueArg, type));
-				// No need to up-cast.
-				outro = Expression.Assign(refValueArg, valAsSpecific);
-			}
-
-
-			var body = Expression.Block(variables: new[] { valAsSpecific },
-										expressions: new Expression[]
-										{
-											intro,
-
-											Expression.Call(Expression.Constant(specificFormatter), deserializeMethod,
-															arg0: bufferArg,
-															arg1: refOffsetArg,
-															arg2: valAsSpecific),
-
-											outro
-										});
-
-#if FAST_EXP
-			var f = Expression.Lambda<DeserializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).CompileFast(true);
-#else
-			var f = Expression.Lambda<DeserializeDelegate<T>>(body: body, parameters: new ParameterExpression[] { bufferArg, refOffsetArg, refValueArg }).Compile();
-#endif
-			return f;
+			var helper = typeof(ReferenceFormatter<T>).GetMethod(nameof(CreateDeserializeDispatcherHelper), System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+			return (DeserializeDelegate<T>)helper.MakeGenericMethod(type).Invoke(null, new object[] { specificFormatter });
 		}
 
-
-
+		static DeserializeDelegate<T> CreateDeserializeDispatcherHelper<TSpecific>(IFormatter<TSpecific> formatter)
+		{
+			return (byte[] buf, ref int off, ref T value) =>
+			{
+				// Handles both reference-type casts and value-type unboxing (with null guard for the latter)
+				TSpecific specific = value != null ? (TSpecific)(object)value : default;
+				formatter.Deserialize(buf, ref off, ref specific);
+				value = (T)(object)specific;
+			};
+		}
 		/*
 		 * Dispatching to the concrete formatter in an Aot-Runtime is pretty hard since we can't generate any code.
 		 * For the polymorphic case using 'Invoke' is unavoidable.
