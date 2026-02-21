@@ -384,7 +384,7 @@ namespace Ceras
 		public byte[] Serialize<T>(T obj)
 		{
 			// This method is often used for testing / smaller objects, so we allocate a relatively small buffer
-			byte[] buffer = CerasBufferPool.Pool.RentBuffer(0x1000);
+			byte[] buffer = CerasBufferPool.Rent(0x1000);
 
 			int length = Serialize(obj, ref buffer);
 
@@ -402,7 +402,7 @@ namespace Ceras
 			}
 
 			// Return the rented buffer
-			CerasBufferPool.Pool.Return(buffer);
+			CerasBufferPool.Return(buffer);
 
 			return result;
 		}
@@ -411,7 +411,7 @@ namespace Ceras
 		/// This is the main method you should use.
 		/// <para>The intention is that you reuse the serialization buffer instead of creating a new array for every Serialize() call, this lets you avoid GC-pressure.</para>
 		/// <para>You can pass in <c>null</c> for the buffer to let Ceras allocate a new one.</para>
-		/// <para>If you have set <see cref="CerasBufferPool.Pool"/>, it will be used to create/expand the buffer. Since the whole idea is to keep reusing the serialization buffer as much as possible, this method will *only* return the buffer to the pool when expanding it (so when it will rent a new larger buffer anyway).</para>
+		/// <para>If you have set <see cref="CerasBufferPool"/>, it will be used to create/expand the buffer. Since the whole idea is to keep reusing the serialization buffer as much as possible, this method will *only* return the buffer to the pool when expanding it (so when it will rent a new larger buffer anyway).</para>
 		/// <para>Ceras is fully reentrant to support <see cref="IExternalRootObject"/>, but it is not thread-safe! </para>
 		/// </summary>
 		public int Serialize<T>(T obj, ref byte[] buffer, int offset = 0)
@@ -1360,9 +1360,6 @@ namespace Ceras
 		xxHash _hash = new xxHash();
 		bool _isClosed;
 
-		bool _useDebugString = true;
-		string _debugString = "";
-
 		int _checksum;
 		public int Checksum => _isClosed ? _checksum : throw new InvalidOperationException("not yet computed");
 
@@ -1377,11 +1374,18 @@ namespace Ceras
 			if (_isClosed)
 				throw new InvalidOperationException("IsClosed");
 
-			if (_useDebugString)
-				_debugString += "\r\n" + name;
-
-			var bytes = Encoding.UTF8.GetBytes(name);
-			_hash.Update(bytes, bytes.Length);
+			const int MaxStackBuffer = 512;
+			if (name.Length <= MaxStackBuffer / 3)
+			{
+				Span<byte> bytes = stackalloc byte[MaxStackBuffer];
+				int byteCount = Encoding.UTF8.GetBytes(name, bytes);
+				_hash.Update(bytes.Slice(0, byteCount));
+			}
+			else
+			{
+				var bytes = Encoding.UTF8.GetBytes(name);
+				_hash.Update(bytes);
+			}
 		}
 
 		internal void Finish()

@@ -327,22 +327,51 @@
 				return;
 			}
 
-			// todo: maybe we can replace Encoding.UTF8.GetByteCount with reasonable estimation?
-			// default implementation Encoding.GetByteCount still allocates a new array
-			// but Encoding.UTF8 overrides it with more efficient implementation.
-			// If Encoding.UTF8 will be replaced in future - original implementation
-			// might be even faster.
-
 			var encoding = _utf8Encoding;
 
-			var valueBytesCount = encoding.GetByteCount(value);
-			EnsureCapacity(ref buffer, offset, valueBytesCount + 5); // 5 bytes space for the VarInt
+			const int MaxStackBuffer = 512;
+			if (value.Length <= MaxStackBuffer / 3)
+			{
+				// Short string: one pass into stack buffer, then copy to main buffer
+				Span<byte> stackBuffer = stackalloc byte[MaxStackBuffer];
+				int bytesWritten = encoding.GetBytes(value, stackBuffer);
 
-			// Length
-			WriteUInt32BiasNoCheck(buffer, ref offset, valueBytesCount, 1);
+				EnsureCapacity(ref buffer, offset, bytesWritten + 5);
 
-			var realBytesCount = encoding.GetBytes(value, 0, value.Length, buffer, offset);
-			offset += realBytesCount;
+				// Length
+				WriteUInt32BiasNoCheck(buffer, ref offset, bytesWritten, 1);
+
+				// Data
+				stackBuffer.Slice(0, bytesWritten).CopyTo(buffer.AsSpan(offset));
+				offset += bytesWritten;
+			}
+			else
+			{
+				// Long string: one pass into a rented buffer, then copy to main buffer
+				// (Encoding is more expensive than copying, so we avoid the two-pass GetByteCount + GetBytes)
+				int maxByteCount = encoding.GetMaxByteCount(value.Length);
+				byte[] tempBuffer = System.Buffers.ArrayPool<byte>.Shared.Rent(maxByteCount);
+				try
+				{
+					int bytesWritten = encoding.GetBytes(value, 0, value.Length, tempBuffer, 0);
+
+					EnsureCapacity(ref buffer, offset, bytesWritten + 5);
+
+					// Length
+					WriteUInt32BiasNoCheck(buffer, ref offset, bytesWritten, 1);
+
+					// Data
+					fixed (byte* src = &tempBuffer[0])
+					fixed (byte* dst = &buffer[offset])
+						Unsafe.CopyBlock(dst, src, (uint)bytesWritten);
+
+					offset += bytesWritten;
+				}
+				finally
+				{
+					System.Buffers.ArrayPool<byte>.Shared.Return(tempBuffer);
+				}
+			}
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -485,8 +514,7 @@
 
 
 			// Get a new buffer
-			var pool = CerasBufferPool.Pool;
-			byte[] newBuffer = pool.RentBuffer(newSize);
+			byte[] newBuffer = CerasBufferPool.Rent(newSize);
 
 			// Copy what we've written so far into the new buffer
 			fixed (byte* source = &oldBuffer[0])
@@ -494,7 +522,7 @@
 				Unsafe.CopyBlock(target, source, (uint)oldBuffer.Length);
 
 			// Return the old buffer
-			pool.Return(buffer);
+			CerasBufferPool.Return(buffer);
 
 			// And replace the current buffer reference
 			buffer = newBuffer;

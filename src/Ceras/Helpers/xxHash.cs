@@ -1,4 +1,4 @@
-﻿/*
+/*
 xxHashSharp - A pure C# implementation of xxhash
 Copyright (C) 2014, Seok-Ju, Yun. (https://github.com/noricube/xxHashSharp)
 Original C Implementation Copyright (C) 2012-2014, Yann Collet. (https://code.google.com/p/xxhash/)
@@ -29,11 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 using System;
-using System.IO;
-
+using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
 
 // ReSharper disable once InconsistentNaming
-public unsafe class xxHash
+public sealed class xxHash
 {
 	public struct XXH_State
 	{
@@ -53,21 +53,17 @@ public unsafe class xxHash
 	const uint PRIME32_4 = 668265263U;
 	const uint PRIME32_5 = 374761393U;
 
-	protected XXH_State _state;
+	private XXH_State _state;
+
 	public xxHash()
 	{
-
 	}
 
-	public static uint CalculateHash(byte[] buf, int len = -1, uint seed = 0)
+	public static uint CalculateHash(ReadOnlySpan<byte> buf, uint seed = 0)
 	{
 		uint h32;
 		int index = 0;
-		if (len == -1)
-		{
-			len = buf.Length;
-		}
-
+		int len = buf.Length;
 
 		if (len >= 16)
 		{
@@ -79,13 +75,13 @@ public unsafe class xxHash
 
 			do
 			{
-				v1 = CalcSubHash(v1, buf, index);
+				v1 = CalcSubHash(v1, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
 				index += 4;
-				v2 = CalcSubHash(v2, buf, index);
+				v2 = CalcSubHash(v2, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
 				index += 4;
-				v3 = CalcSubHash(v3, buf, index);
+				v3 = CalcSubHash(v3, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
 				index += 4;
-				v4 = CalcSubHash(v4, buf, index);
+				v4 = CalcSubHash(v4, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
 				index += 4;
 			} while (index <= limit);
 
@@ -100,7 +96,7 @@ public unsafe class xxHash
 
 		while (index <= len - 4)
 		{
-			h32 += BitConverter.ToUInt32(buf, index) * PRIME32_3;
+			h32 += BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)) * PRIME32_3;
 			h32 = RotateLeft(h32, 17) * PRIME32_4;
 			index += 4;
 		}
@@ -121,88 +117,6 @@ public unsafe class xxHash
 		return h32;
 	}
 
-	/*
-	public static uint CalculateHash(Stream stream, long len = -1, uint seed = 0)
-	{
-		uint h32;
-		var index = 0;
-
-		if (!stream.CanRead || !stream.CanSeek)
-			throw new InvalidOperationException("Stream has to be seekable and readable");
-
-		if (len == -1)
-		{
-			len = stream.Length;
-		}
-
-		var streamPosition = stream.Position;
-		stream.Seek(0, SeekOrigin.Begin);
-
-		var buffer = new byte[16];
-		if (len >= 16)
-		{
-			var limit = len - 16;
-			var v1 = seed + PRIME32_1 + PRIME32_2;
-			var v2 = seed + PRIME32_2;
-			var v3 = seed + 0;
-			var v4 = seed - PRIME32_1;
-
-			do
-			{
-				var loopIndex = 0;
-				stream.Read(buffer, 0, buffer.Length);
-
-				v1 = CalcSubHash(v1, buffer, loopIndex);
-				loopIndex += 4;
-				v2 = CalcSubHash(v2, buffer, loopIndex);
-				loopIndex += 4;
-				v3 = CalcSubHash(v3, buffer, loopIndex);
-				loopIndex += 4;
-				v4 = CalcSubHash(v4, buffer, loopIndex);
-				loopIndex += 4;
-
-				index += loopIndex;
-			} while (index <= limit);
-
-			h32 = RotateLeft(v1, 1) + RotateLeft(v2, 7) + RotateLeft(v3, 12) + RotateLeft(v4, 18);
-		}
-		else
-		{
-			h32 = seed + PRIME32_5;
-		}
-
-		h32 += (uint)len;
-
-		buffer = new byte[4];
-		while (index <= len - 4)
-		{
-			stream.Read(buffer, 0, buffer.Length);
-			h32 += BitConverter.ToUInt32(buffer, 0) * PRIME32_3;
-			h32 = RotateLeft(h32, 17) * PRIME32_4;
-			index += 4;
-		}
-
-		buffer = new byte[1];
-		while (index < len)
-		{
-			stream.Read(buffer, 0, buffer.Length);
-			h32 += buffer[0] * PRIME32_5;
-			h32 = RotateLeft(h32, 11) * PRIME32_1;
-			index++;
-		}
-
-		stream.Seek(streamPosition, SeekOrigin.Begin);
-
-		h32 ^= h32 >> 15;
-		h32 *= PRIME32_2;
-		h32 ^= h32 >> 13;
-		h32 *= PRIME32_3;
-		h32 ^= h32 >> 16;
-
-		return h32;
-	}
-*/
-
 	public void Init(uint seed = 0)
 	{
 		_state.seed = seed;
@@ -212,37 +126,34 @@ public unsafe class xxHash
 		_state.v4 = seed - PRIME32_1;
 		_state.total_len = 0;
 		_state.memsize = 0;
-		_state.memory = new byte[16];
+		_state.memory ??= new byte[16];
 	}
 
-	public bool Update(byte[] input, int len)
+	public void Update(ReadOnlySpan<byte> input)
 	{
+		int len = input.Length;
 		int index = 0;
 
-		_state.total_len += (uint)len;
+		_state.total_len += (ulong)len;
 
-		if (_state.memsize + len < 16) // 버퍼 + 입력길이가 16바이트 이하일경우 버퍼에 저장만 해둔다
+		if (_state.memsize + len < 16)
 		{
-			Array.Copy(input, 0, _state.memory, _state.memsize, len);
+			input.CopyTo(_state.memory.AsSpan(_state.memsize));
 			_state.memsize += len;
-
-			return true;
+			return;
 		}
 
-		if (_state.memsize > 0) // 이전데이터가 남아있을경우 먼저 처리한다.
+		if (_state.memsize > 0)
 		{
-			Array.Copy(input, 0, _state.memory, _state.memsize, 16 - _state.memsize);
+			int fill = 16 - _state.memsize;
+			input.Slice(0, fill).CopyTo(_state.memory.AsSpan(_state.memsize));
 
-			_state.v1 = CalcSubHash(_state.v1, _state.memory, index);
-			index += 4;
-			_state.v2 = CalcSubHash(_state.v2, _state.memory, index);
-			index += 4;
-			_state.v3 = CalcSubHash(_state.v3, _state.memory, index);
-			index += 4;
-			_state.v4 = CalcSubHash(_state.v4, _state.memory, index);
-			index += 4;
+			_state.v1 = CalcSubHash(_state.v1, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(0)));
+			_state.v2 = CalcSubHash(_state.v2, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(4)));
+			_state.v3 = CalcSubHash(_state.v3, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(8)));
+			_state.v4 = CalcSubHash(_state.v4, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(12)));
 
-			index = 0;
+			index = fill;
 			_state.memsize = 0;
 		}
 
@@ -256,13 +167,13 @@ public unsafe class xxHash
 
 			do
 			{
-				v1 = CalcSubHash(v1, input, index);
+				v1 = CalcSubHash(v1, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
 				index += 4;
-				v2 = CalcSubHash(v2, input, index);
+				v2 = CalcSubHash(v2, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
 				index += 4;
-				v3 = CalcSubHash(v3, input, index);
+				v3 = CalcSubHash(v3, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
 				index += 4;
-				v4 = CalcSubHash(v4, input, index);
+				v4 = CalcSubHash(v4, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
 				index += 4;
 			} while (index <= limit);
 
@@ -274,10 +185,9 @@ public unsafe class xxHash
 
 		if (index < len)
 		{
-			Array.Copy(input, index, _state.memory, 0, len - index);
+			input.Slice(index).CopyTo(_state.memory.AsSpan(0));
 			_state.memsize = len - index;
 		}
-		return true;
 	}
 
 	public uint Digest()
@@ -293,18 +203,20 @@ public unsafe class xxHash
 			h32 = _state.seed + PRIME32_5;
 		}
 
-		h32 += (UInt32)_state.total_len;
+		h32 += (uint)_state.total_len;
+
+		ReadOnlySpan<byte> mem = _state.memory.AsSpan(0, _state.memsize);
 
 		while (index <= _state.memsize - 4)
 		{
-			h32 += BitConverter.ToUInt32(_state.memory, index) * PRIME32_3;
+			h32 += BinaryPrimitives.ReadUInt32LittleEndian(mem.Slice(index)) * PRIME32_3;
 			h32 = RotateLeft(h32, 17) * PRIME32_4;
 			index += 4;
 		}
 
 		while (index < _state.memsize)
 		{
-			h32 += _state.memory[index] * PRIME32_5;
+			h32 += mem[index] * PRIME32_5;
 			h32 = RotateLeft(h32, 11) * PRIME32_1;
 			index++;
 		}
@@ -318,32 +230,18 @@ public unsafe class xxHash
 		return h32;
 	}
 
-	//static uint CalcSubHashOld(uint value, byte[] buf, int index)
-	//{
-	//	uint read_value = BitConverter.ToUInt32(buf, index);
-	//	value += read_value * PRIME32_2;
-	//	value = RotateLeft(value, 13);
-	//	value *= PRIME32_1;
-	//	return value;
-	//}
-
-	static uint CalcSubHash(uint value, byte[] buf, int index)
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	static uint CalcSubHash(uint value, uint read_value)
 	{
-		uint read_value;
-		fixed (byte* pBuffer = buf)
-		{
-			read_value = *((uint*)(pBuffer + index));
-		}
-
 		value += read_value * PRIME32_2;
 		value = RotateLeft(value, 13);
 		value *= PRIME32_1;
 		return value;
 	}
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	static uint RotateLeft(uint value, int count)
 	{
 		return (value << count) | (value >> (32 - count));
 	}
-
 }

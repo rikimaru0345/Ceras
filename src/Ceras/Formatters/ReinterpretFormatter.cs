@@ -117,9 +117,6 @@ namespace Ceras.Formatters
 			// todo: T must not have any holes, must not have any fixed buffers,
 			// todo: must have the same memory layout as in the meta-data (same offsets using OffsetOf())
 			// todo: must have the same size as we've expected
-
-			if (!BitConverter.IsLittleEndian)
-				throw new Exception("ReinterpretFormatter requires little endian environment. Please turn off " + nameof(SerializerConfig.Advanced.UseReinterpretFormatter));
 		}
 
 	}
@@ -135,9 +132,6 @@ namespace Ceras.Formatters
 
 		static ReinterpretArrayFormatter()
 		{
-			if (!BitConverter.IsLittleEndian)
-				throw new Exception("ReinterpretArrayFormatter requires little endian environment.");
-
 			var type = typeof(T);
 
 			if (type.IsEnum)
