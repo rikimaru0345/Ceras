@@ -483,7 +483,7 @@
 
 				return instantiatedGenericMethod;
 			}
-			catch
+			catch (Exception)
 			{
 				// Can't instantiate generic with those type-arguments
 				return null;

@@ -102,7 +102,7 @@
 		static void ReadLastDimension6D(byte[] buffer, ref int offset, IFormatter<TItem> formatter, TItem[,,,,,] array, int[] index, int max)
 		{
 			for (int i = 0; i < max; i++)
-				formatter.Deserialize(buffer, ref offset, ref array[index[0], index[1], index[2], index[2], index[4], i]);
+				formatter.Deserialize(buffer, ref offset, ref array[index[0], index[1], index[2], index[3], index[4], i]);
 		}
 
 
