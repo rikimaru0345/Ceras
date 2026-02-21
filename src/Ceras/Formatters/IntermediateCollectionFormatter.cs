@@ -24,21 +24,8 @@ namespace Ceras.Formatters
 
 			var itemFormatter = _itemFormatter;
 
-			// Manual enumeration to prevent boxing
-
-			// ReSharper disable once SuggestVarOrType_Elsewhere
-			IEnumerator<TItem> e = value.GetEnumerator();
-			try
-			{
-				while (e.MoveNext())
-				{
-					itemFormatter.Serialize(ref buffer, ref offset, e.Current);
-				}
-			}
-			finally
-			{
-				e.Dispose();
-			}
+			foreach (var item in value)
+				itemFormatter.Serialize(ref buffer, ref offset, item);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref TCollection value)

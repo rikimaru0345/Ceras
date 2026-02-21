@@ -84,6 +84,49 @@
 		}
 	}
 
+	class NoLockFactoryPool<T> : IFactoryPool
+	{
+		readonly Func<T> _factoryMethod;
+		readonly Stack<T> _objects = new Stack<T>();
+
+		public int StartSize { get; }
+		public int Capacity { get; set; }
+		public int Available => _objects.Count;
+		public Type ElementType => typeof(T);
+
+		public NoLockFactoryPool(Func<T> factoryMethod, int startSize = 0)
+		{
+			_factoryMethod = factoryMethod;
+			StartSize = startSize;
+			for (int i = 0; i < startSize; i++)
+				ReturnObject(factoryMethod());
+		}
+
+		public T RentObject()
+		{
+			if (_objects.Count > 0)
+				return _objects.Pop();
+
+			var obj = _factoryMethod();
+			Capacity++;
+			return obj;
+		}
+
+		public void ReturnObject(T objectToReturn)
+		{
+			_objects.Push(objectToReturn);
+		}
+
+		public void TrimPool()
+		{
+			while (_objects.Count > StartSize)
+			{
+				_objects.Pop();
+				Capacity--;
+			}
+		}
+	}
+
 	interface IFactoryPool
 	{
 		int StartSize { get; }

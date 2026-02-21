@@ -174,7 +174,7 @@ namespace Ceras
 
 		readonly TypeDictionary<TypeMetaData> _metaData = new TypeDictionary<TypeMetaData>();
 		readonly TypeDictionary<TypeMetaData> _staticMetaData = new TypeDictionary<TypeMetaData>();
-		readonly FactoryPool<InstanceData> _instanceDataPool;
+		readonly NoLockFactoryPool<InstanceData> _instanceDataPool;
 
 		internal readonly Action<object> DiscardObjectMethod;
 
@@ -348,7 +348,7 @@ namespace Ceras
 
 			//
 			// Finally we need "instance data"
-			_instanceDataPool = new FactoryPool<InstanceData>(() =>
+			_instanceDataPool = new NoLockFactoryPool<InstanceData>(() =>
 			{
 				var d = new InstanceData();
 				d.CurrentRoot = null;

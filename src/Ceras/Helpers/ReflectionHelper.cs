@@ -293,34 +293,7 @@
 			if (!IsBlittableType(type))
 				return -1;
 
-
-			lock (_typeToBlittableSize)
-			{
-				if (_typeToBlittableSize.TryGetValue(type, out int size))
-					return size;
-
-				if (!type.IsGenericType)
-				{
-					size = Marshal.SizeOf(type);
-				}
-				else
-				{
-					var inst = Activator.CreateInstance(type);
-					size = Marshal.SizeOf(inst);
-				}
-
-				// Special handling for some types where Marshal.SizeOf reports
-				if (type == typeof(bool))
-					size = 1;
-
-				// Verify that the size matches!
-				int unsafeSize = UnsafeGetSize(type);
-				if (unsafeSize != size)
-					throw new CerasException($"Marshal.SizeOf() != Unsafe.SizeOf<>() for type '{type.FullName}'. This is a bug, please report it on GitHub!");
-
-				_typeToBlittableSize.Add(type, size);
-				return size;
-			}
+			return UnsafeGetSize(type);
 		}
 
 
