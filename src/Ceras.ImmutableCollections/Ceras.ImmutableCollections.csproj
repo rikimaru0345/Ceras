@@ -1,22 +1,17 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;net45;net47</TargetFrameworks>
-
+    <TargetFramework>net8.0</TargetFramework>
     <IsPackable>true</IsPackable>
     <Title>Ceras extension for System.Collections.Immutable</Title>
     <Description>This package adds formatters for all the types in the System.Collections.Immutable namespace. For example ImmutableArray, ImmutableSet, ImmutableDictionary, ...</Description>
-
     <PackageTags>utility, ceras, serialization, binary, serializer, formatter, unity, unity3d, network, networking, immutable</PackageTags>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="System.Collections.Immutable" Version="1.5.0" />
-  </ItemGroup>
+  <!-- System.Collections.Immutable is included in the .NET 8 runtime -->
 
   <ItemGroup>
     <ProjectReference Include="..\Ceras\Ceras.csproj" />
   </ItemGroup>
-
 
 </Project>

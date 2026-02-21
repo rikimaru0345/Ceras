@@ -182,6 +182,8 @@ namespace Ceras.Test
 			global::System.Console.WriteLine("Testing FastCopy on NET47.x");
 #elif NETSTANDARD2_0 || NETCOREAPP2_0 || NETCOREAPP2_1 || NETCOREAPP2_2
 			global::System.Console.WriteLine("Testing FastCopy on NET STANDARD 2.0 / NETCOREAPP2_x");
+#elif NET5_0_OR_GREATER
+			global::System.Console.WriteLine("Testing FastCopy on NET5+");
 #else
 
 #error Unknown compiler version

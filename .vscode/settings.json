@@ -18,5 +18,6 @@
     "[msbuild]": {
         "editor.tabSize": 2
     },
-    "omnisharp.defaultLaunchSolution": "../Ceras.sln"
+    "dotnet.defaultSolution": "../Ceras.sln",
+    "dotnet.preferCSharpExtension": true
 }

@@ -11,7 +11,6 @@ namespace LiveTesting
 	using BenchmarkDotNet.Loggers;
 	using BenchmarkDotNet.Mathematics;
 	using BenchmarkDotNet.Order;
-	using BenchmarkDotNet.Toolchains.CsProj;
 	using Ceras;
 	using Ceras.Formatters;
 	using MessagePack;
@@ -31,24 +30,15 @@ namespace LiveTesting
 
 	class CerasGlobalBenchmarkConfig : ManualConfig
 	{
-		// .With(CsProjClassicNetToolchain.Net472).With(new MonoRuntime("Mono x64", @"C:\Program Files\Mono\bin\mono.exe"))
+		public static CerasGlobalBenchmarkConfig Short => new CerasGlobalBenchmarkConfig(Job.ShortRun);
 
-		// .With(CsProjCoreToolchain.NetCoreApp22).With(Runtime.Core));
-		// .With(CsProjCoreToolchain.NetCoreApp30).With(Runtime.Core));
-
-
-		public static CerasGlobalBenchmarkConfig Short => new CerasGlobalBenchmarkConfig(Job.ShortRun
-			.With(CsProjCoreToolchain.NetCoreApp22).With(Runtime.Core));
-
-		public static CerasGlobalBenchmarkConfig Medium => new CerasGlobalBenchmarkConfig(Job.MediumRun
-			.With(CsProjCoreToolchain.NetCoreApp22).With(Runtime.Core));
+		public static CerasGlobalBenchmarkConfig Medium => new CerasGlobalBenchmarkConfig(Job.MediumRun);
 
 		public CerasGlobalBenchmarkConfig(Job baseJob)
 		{
 			Orderer = new DefaultOrderer(SummaryOrderPolicy.FastestToSlowest);
 
 			baseJob = baseJob
-				.WithOutlierMode(OutlierMode.OnlyUpper)
 				.With(Platform.X64)
 				.WithLaunchCount(1);
 

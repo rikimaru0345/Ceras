@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.Net.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <!-- NuGet Package -->
   <PropertyGroup>
@@ -15,14 +15,9 @@
     <PackageTags>utility, ceras, serialization, binary, serializer, formatter, unity, unity3d, network, networking, immutable, il2cpp, aot</PackageTags>
   </PropertyGroup>
 
-
-
-
-  <!--    -->
   <!-- C# Compiler Settings -->
-  <!--    -->
   <PropertyGroup>
-    <LangVersion>7.3</LangVersion>
+    <TargetFramework>net8.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
     <!-- Missing XML comment for type... -->
@@ -33,38 +28,7 @@
     <DefineConstants>TRACE;DEBUG</DefineConstants>
   </PropertyGroup>
 
-
-
-  <!--    -->
-  <!-- Target Framework -->
-  <!--    -->
-  <PropertyGroup Condition=" '$(OS)' != 'Windows_NT' ">
-    <!-- Linux & Mac don't have .NET Framework -->
-    <TargetFramework>netstandard2.0</TargetFramework>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(OS)' == 'Windows_NT' ">
-    <TargetFrameworks>net45;net47;netstandard2.0;</TargetFrameworks>
-  </PropertyGroup>
-
-
-  <!--    -->
-  <!-- References -->
-  <!-- ValueTuple, Buffers -->
-  <!--    -->
-  <ItemGroup Condition="'$(TargetFramework)' == 'net45'">
-    <PackageReference Include="System.ValueTuple" Version="4.5.0" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' != 'net45'">
-    <PackageReference Include="System.Buffers" Version="4.5.0" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="4.5.2" />
-  </ItemGroup>
-
-
-  <!--    -->
   <!-- Use T4 Generators -->
-  <!--    -->
   <ItemGroup>
     <!-- T4 compilation service -->
     <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
@@ -89,6 +53,5 @@
       <DependentUpon>ValueTupleFormatter.tt</DependentUpon>
     </Compile>
   </ItemGroup>
-
 
 </Project>

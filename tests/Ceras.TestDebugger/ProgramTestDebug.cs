@@ -4,7 +4,9 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
+#if NETFRAMEWORK
 	using System.Drawing;
+#endif
     using System.IO;
     using System.Runtime.CompilerServices;
     using Test;
@@ -29,6 +31,8 @@
 			global::System.Console.WriteLine("Running on NET4.7.2");
 #elif NETSTANDARD2_0
 			global::System.Console.WriteLine("Running on NET STANDARD 2.0");
+#elif NET5_0_OR_GREATER
+			global::System.Console.WriteLine($"Running on NET5+");
 #else
 #error Unhandled framework version!
 #endif
@@ -44,7 +48,9 @@
 			new Blitting().BlittableTypesUseCorrectFormatter();
 			new Blitting().CouldCopyValueTupleDirectly();
 			new Internals().FastCopy();
+#if NETFRAMEWORK
 			new BuiltInTypes().Bitmap();
+#endif
 
 			
 			
@@ -67,6 +73,7 @@
 		#endif
 		*/
 
+#if NETFRAMEWORK
 		static void TestBitmapFormatter()
 		{
 			var config = new SerializerConfig();
@@ -125,5 +132,6 @@
 				img.Dispose();
 
 		}
+#endif
 	}
 }
