@@ -120,15 +120,9 @@
 		}
 
 
-		[ThreadStatic]
-		static HashSet<string> _propertyNames; // used by EnumerateMembers to discard properties that have already been found
-
 		static IEnumerable<MemberInfo> EnumerateMembers(this Type type)
 		{
-			var names = _propertyNames;
-			if (names == null)
-				names = _propertyNames = new HashSet<string>();
-			names.Clear();
+			var names = new HashSet<string>();
 
 			var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
@@ -160,8 +154,6 @@
 
 				type = type.BaseType;
 			}
-
-			names.Clear();
 		}
 
 

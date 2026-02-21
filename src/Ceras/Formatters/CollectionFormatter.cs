@@ -311,19 +311,9 @@
 
 			// Write each item
 			var f = _itemFormatter;
-			// Guarantee no boxing
-			IEnumerator<TItem> e = value.GetEnumerator();
-			try
-			{
-				while (e.MoveNext())
-				{
-					f.Serialize(ref buffer, ref offset, e.Current);
-				}
-			}
-			finally
-			{
-				e.Dispose();
-			}
+
+			foreach (var item in value)
+				f.Serialize(ref buffer, ref offset, item);
 		}
 
 		public void Deserialize(byte[] buffer, ref int offset, ref TCollection value)
