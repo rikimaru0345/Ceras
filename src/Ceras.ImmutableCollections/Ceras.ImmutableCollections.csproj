@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <IsPackable>true</IsPackable>
     <Title>Ceras extension for System.Collections.Immutable</Title>
     <Description>This package adds formatters for all the types in the System.Collections.Immutable namespace. For example ImmutableArray, ImmutableSet, ImmutableDictionary, ...</Description>
