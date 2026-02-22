@@ -180,11 +180,16 @@ namespace Ceras.Savegame
             ulong currentFingerprint = SavegameSchemaRegistry.ComputeFingerprint();
             if (schemaFingerprint != currentFingerprint)
             {
-                // Phase 5 will implement the migration engine
-                throw new NotSupportedException(
-                    "Schema fingerprint mismatch — the save file was created with a different " +
-                    "version of the type schema. Schema migration (slow path) is not yet " +
-                    "implemented and will be added in Phase 5.");
+                // Slow path: schema changed — use migration engine
+                int schemaOffset = HeaderSize; // schema section immediately follows header
+                var oldSchemas   = SchemaSection.Read(data, ref schemaOffset);
+
+                int dataOffset = (int)dataSectionOffset;
+                // Skip root type ID
+                SchemaSection.ReadLeb128(data, ref dataOffset);
+
+                var engine = new SchemaTraversalEngine(oldSchemas, table, saveGameVersion);
+                return engine.ReadRoot<T>(data, ref dataOffset);
             }
 
             // 7. Fast path: skip to data section, deserialize

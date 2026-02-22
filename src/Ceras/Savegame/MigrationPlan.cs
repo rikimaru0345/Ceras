@@ -1,0 +1,191 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using Ceras;
+
+namespace Ceras.Savegame
+{
+    enum CoercionKind
+    {
+        None = 0,
+        Int32ToInt64,
+        Int16ToInt32,
+        Int32ToSingle,
+        Int32ToDouble,
+        SingleToDouble,
+    }
+
+    struct FieldMapping
+    {
+        public OldFieldSchema OldField;
+        public FieldInfo      NewField;  // null = removed (skip)
+        public CoercionKind   Coercion;
+    }
+
+    sealed class TypeMigrationPlan
+    {
+        public Type           CurrentType;
+        public FieldMapping[] Mappings;
+        public string[]       AddedFieldNames;
+        public bool           HasChanges;
+        public MethodInfo     OnAfterDeserialize; // method taking MigrationContext, or null
+    }
+
+    static class MigrationPlanBuilder
+    {
+        public static Dictionary<string, TypeMigrationPlan> BuildAll(
+            Dictionary<string, OldTypeSchema> oldByName)
+        {
+            var result = new Dictionary<string, TypeMigrationPlan>(StringComparer.Ordinal);
+
+            foreach (var kv in oldByName)
+            {
+                var old = kv.Value;
+                // Only index by the canonical stable name (not aliases)
+                if (kv.Key != old.StableName) continue;
+                if (result.ContainsKey(old.StableName)) continue;
+                if (old.Kind == SchemaTypeKind.Enum || old.Kind == SchemaTypeKind.GenericInstantiation)
+                    continue;
+
+                result[old.StableName] = BuildOne(old);
+            }
+
+            return result;
+        }
+
+        static TypeMigrationPlan BuildOne(OldTypeSchema old)
+        {
+            SavegameSchemaRegistry.TryResolveType(old.StableName, out Type currentType);
+
+            var plan = new TypeMigrationPlan { CurrentType = currentType };
+
+            if (currentType == null)
+            {
+                plan.Mappings        = BuildSkipAllMappings(old);
+                plan.AddedFieldNames = Array.Empty<string>();
+                plan.HasChanges      = true;
+                return plan;
+            }
+
+            var currentFieldMap   = BuildCurrentFieldMap(currentType);
+            var mappedStableNames = new HashSet<string>(StringComparer.Ordinal);
+
+            plan.Mappings = new FieldMapping[old.Fields.Length];
+            for (int i = 0; i < old.Fields.Length; i++)
+            {
+                var      oldField = old.Fields[i];
+                FieldInfo newField = FindCurrentField(oldField, currentFieldMap);
+                CoercionKind coerce = CoercionKind.None;
+
+                if (newField != null)
+                {
+                    coerce = DetectCoercion(oldField.TypeId, newField.FieldType);
+                    bool compatible = coerce != CoercionKind.None
+                        || TypeIdsCompatible(oldField.TypeId, newField.FieldType);
+                    if (!compatible)
+                        newField = null;
+                    else
+                    {
+                        var sa = newField.GetCustomAttribute<SerializedAsAttribute>();
+                        mappedStableNames.Add(sa?.Name ?? newField.Name);
+                    }
+                }
+
+                plan.Mappings[i] = new FieldMapping
+                    { OldField = oldField, NewField = newField, Coercion = coerce };
+            }
+
+            // Determine added fields (in current schema but not matched from old)
+            if (SavegameSchemaRegistry.TryGetInfo(currentType, out var currentInfo))
+            {
+                var added = new List<string>();
+                foreach (var fi in currentInfo.Fields)
+                    if (!mappedStableNames.Contains(fi.StableName))
+                        added.Add(fi.StableName);
+                plan.AddedFieldNames = added.ToArray();
+            }
+            else
+            {
+                plan.AddedFieldNames = Array.Empty<string>();
+            }
+
+            plan.HasChanges = plan.AddedFieldNames.Length > 0
+                || Array.Exists(plan.Mappings, m => m.NewField == null);
+
+            plan.OnAfterDeserialize = FindMigrationCallback(currentType);
+            return plan;
+        }
+
+        static FieldMapping[] BuildSkipAllMappings(OldTypeSchema old)
+        {
+            var m = new FieldMapping[old.Fields.Length];
+            for (int i = 0; i < old.Fields.Length; i++)
+                m[i] = new FieldMapping { OldField = old.Fields[i] };
+            return m;
+        }
+
+        static Dictionary<string, FieldInfo> BuildCurrentFieldMap(Type type)
+        {
+            var map = new Dictionary<string, FieldInfo>(StringComparer.Ordinal);
+            foreach (var f in type.GetFields(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+            {
+                var sa = f.GetCustomAttribute<SerializedAsAttribute>();
+                string stableName = sa?.Name ?? f.Name;
+                map.TryAdd(stableName, f);
+
+                foreach (var pn in f.GetCustomAttributes<PreviousNameAttribute>())
+                {
+                    if (pn.Name != null)
+                        map.TryAdd(pn.Name, f);
+                    foreach (var alt in pn.AlternativeNames)
+                        if (alt != null)
+                            map.TryAdd(alt, f);
+                }
+            }
+            return map;
+        }
+
+        static FieldInfo FindCurrentField(
+            OldFieldSchema old,
+            Dictionary<string, FieldInfo> currentFieldMap)
+        {
+            if (currentFieldMap.TryGetValue(old.StableName, out var fi))
+                return fi;
+            foreach (var prev in old.PreviousNames)
+                if (currentFieldMap.TryGetValue(prev, out fi))
+                    return fi;
+            return null;
+        }
+
+        static CoercionKind DetectCoercion(int oldTypeId, Type newFieldType)
+        {
+            if (oldTypeId == WellKnownTypes.Int32  && newFieldType == typeof(long))   return CoercionKind.Int32ToInt64;
+            if (oldTypeId == WellKnownTypes.Int16  && newFieldType == typeof(int))    return CoercionKind.Int16ToInt32;
+            if (oldTypeId == WellKnownTypes.Int32  && newFieldType == typeof(float))  return CoercionKind.Int32ToSingle;
+            if (oldTypeId == WellKnownTypes.Int32  && newFieldType == typeof(double)) return CoercionKind.Int32ToDouble;
+            if (oldTypeId == WellKnownTypes.Single && newFieldType == typeof(double)) return CoercionKind.SingleToDouble;
+            return CoercionKind.None;
+        }
+
+        static bool TypeIdsCompatible(int oldTypeId, Type newFieldType)
+        {
+            if (WellKnownTypes.TryGetId(newFieldType, out int newId))
+                return oldTypeId == newId;
+            return SavegameSchemaRegistry.TryGetId(newFieldType, out _);
+        }
+
+        static MethodInfo FindMigrationCallback(Type type)
+        {
+            foreach (var m in type.GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+            {
+                if (m.GetCustomAttribute<OnAfterDeserializeAttribute>() == null) continue;
+                var ps = m.GetParameters();
+                if (ps.Length == 1 && ps[0].ParameterType == typeof(MigrationContext))
+                    return m;
+            }
+            return null;
+        }
+    }
+}

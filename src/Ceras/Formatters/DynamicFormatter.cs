@@ -5,6 +5,7 @@ namespace Ceras.Formatters
 {
     using Helpers;
     using System;
+using Ceras.Savegame;
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.Linq;
@@ -418,7 +419,13 @@ namespace Ceras.Formatters
             if (method.GetParameters().Length == 0)
                 call = Call(value, method);
             else
-                call = Call(value, method, Constant(ceras));
+            {
+                var paramType = method.GetParameters()[0].ParameterType;
+                if (paramType == typeof(CerasSerializer))
+                    call = Call(value, method, Constant(ceras));
+                else // MigrationContext
+                    call = Call(value, method, Constant(MigrationContext.None, typeof(MigrationContext)));
+            }
 
             if (checkIfObjectIsNull)
             {
@@ -447,9 +454,18 @@ namespace Ceras.Formatters
                     throw new InvalidOperationException($"Method '{objectType.Name}.{m.Name}' is marked as '{attributeType.Name}' so it must return 'void'. But it currently returns '{m.ReturnType.FriendlyName(true)}'. ");
 
                 var parameters = m.GetParameters();
-                if ((parameters.Length == 1 && parameters[0].ParameterType != typeof(CerasSerializer))
-                    || parameters.Length >= 2)
-                    throw new InvalidOperationException($"Method '{objectType.Name}.{m.Name}' must either take a '{nameof(CerasSerializer)}' or zero arguments.");
+                if (parameters.Length == 1)
+                {
+                    var pt = parameters[0].ParameterType;
+                    if (pt != typeof(CerasSerializer) && pt != typeof(MigrationContext))
+                        throw new InvalidOperationException(
+                            $"Method '{objectType.Name}.{m.Name}' must take zero arguments, a '{nameof(CerasSerializer)}', or a '{nameof(MigrationContext)}'.");
+                }
+                else if (parameters.Length >= 2)
+                {
+                    throw new InvalidOperationException(
+                        $"Method '{objectType.Name}.{m.Name}' must take zero arguments, a '{nameof(CerasSerializer)}', or a '{nameof(MigrationContext)}'.");
+                }
 
                 if (method == null)
                     method = m;

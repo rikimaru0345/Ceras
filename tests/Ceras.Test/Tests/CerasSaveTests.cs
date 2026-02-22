@@ -228,15 +228,20 @@ namespace Ceras.Test
         }
 
         [Fact]
-        public void Load_FingerprintMismatch_ThrowsNotSupported()
+        public void Load_FingerprintMismatch_TriggersSlowPath_AndSucceeds()
         {
-            byte[] data = CerasSave.Save(new Hero(), gameVersion: 1, _ceras);
+            var hero = new Hero { Name = "V", Level = 1, Hp = 1f };
+            byte[] data = CerasSave.Save(hero, gameVersion: 1, _ceras);
 
-            // Corrupt the fingerprint in the header
+            // Corrupt the fingerprint in the header to force slow path
             BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(CerasSave.OffsetFingerprint), 0xDEADBEEFCAFEBABEul);
 
-            Assert.Throws<NotSupportedException>(
-                () => CerasSave.Load<Hero>(data, currentGameVersion: 1, _ceras));
+            // Slow path: schema section in the file matches current schema exactly
+            // -> migration plan has no changes -> values are read correctly
+            Hero clone = CerasSave.Load<Hero>(data, currentGameVersion: 1, _ceras);
+            Assert.Equal(hero.Name,  clone.Name);
+            Assert.Equal(hero.Level, clone.Level);
+            Assert.Equal(hero.Hp,    clone.Hp);
         }
 
         // ── ConfigureSavegame ─────────────────────────────────────────────────
