@@ -32,6 +32,16 @@ namespace Ceras.Savegame
         public SchemaEnumValueInfo[] EnumValues { get; }
 
         /// <summary>
+        /// For enums: the CLR full name of the underlying integer type (e.g. "System.Int32").
+        /// For generic instantiations: the CLR full name of the open generic definition (e.g. "System.Collections.Generic.List`1").
+        /// Empty otherwise.
+        /// </summary>
+        public string UnderlyingTypeName { get; }
+
+        /// <summary>Type-ID arguments for generic instantiations. Null / empty otherwise.</summary>
+        public string[] ArgTypeNames { get; }
+
+        /// <summary>
         /// Exact byte size of one instance in the data section, or 0 if variable.
         /// A type is fixed-size iff all fields (recursively) are primitives, enums,
         /// fixed-size structs, or strings (which are always a 4-byte table index).
@@ -40,19 +50,23 @@ namespace Ceras.Savegame
         public int FixedByteSize { get; }
 
         public SchemaTypeInfo(
-            string              stableName,
-            string[]            previousTypeNames,
-            SchemaTypeKind      kind,
-            SchemaFieldInfo[]   fields,
-            int                 fixedByteSize,
-            SchemaEnumValueInfo[] enumValues = null)
+            string                stableName,
+            string[]              previousTypeNames,
+            SchemaTypeKind        kind,
+            SchemaFieldInfo[]     fields,
+            int                   fixedByteSize,
+            SchemaEnumValueInfo[] enumValues         = null,
+            string                underlyingTypeName = null,
+            string[]              argTypeNames       = null)
         {
-            StableName        = stableName        ?? throw new ArgumentNullException(nameof(stableName));
-            PreviousTypeNames = previousTypeNames  ?? Array.Empty<string>();
-            Kind              = kind;
-            Fields            = fields             ?? Array.Empty<SchemaFieldInfo>();
-            EnumValues        = enumValues         ?? Array.Empty<SchemaEnumValueInfo>();
-            FixedByteSize     = fixedByteSize;
+            StableName         = stableName         ?? throw new ArgumentNullException(nameof(stableName));
+            PreviousTypeNames  = previousTypeNames   ?? Array.Empty<string>();
+            Kind               = kind;
+            Fields             = fields              ?? Array.Empty<SchemaFieldInfo>();
+            EnumValues         = enumValues          ?? Array.Empty<SchemaEnumValueInfo>();
+            UnderlyingTypeName = underlyingTypeName  ?? string.Empty;
+            ArgTypeNames       = argTypeNames        ?? Array.Empty<string>();
+            FixedByteSize      = fixedByteSize;
         }
     }
 

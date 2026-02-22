@@ -363,9 +363,19 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         }
 
         // Type kind
-        string kind = type.IsValueType
-            ? "global::Ceras.Savegame.SchemaTypeKind.Struct"
-            : "global::Ceras.Savegame.SchemaTypeKind.Class";
+        string kind;
+        string underlyingType = null;
+        if (type.TypeKind == TypeKind.Enum)
+        {
+            kind = "global::Ceras.Savegame.SchemaTypeKind.Enum";
+            underlyingType = type.EnumUnderlyingType?.ToDisplayString(SortKeyFormat);
+        }
+        else
+        {
+            kind = type.IsValueType
+                ? "global::Ceras.Savegame.SchemaTypeKind.Struct"
+                : "global::Ceras.Savegame.SchemaTypeKind.Class";
+        }
 
         // Fixed byte size
         int fixedSize = ComputeFixedByteSize(type);
@@ -389,7 +399,28 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             sb.AppendLine($"),");
         }
         sb.AppendLine($"                }},");
-        sb.AppendLine($"                fixedByteSize: {fixedSize}");
+        sb.AppendLine($"                fixedByteSize: {fixedSize},");
+
+        if (type.TypeKind == TypeKind.Enum)
+        {
+            sb.AppendLine($"                enumValues: new global::Ceras.Savegame.SchemaEnumValueInfo[]");
+            sb.AppendLine($"                {{");
+            foreach (var member in type.GetMembers())
+            {
+                if (member is IFieldSymbol field && field.HasConstantValue)
+                {
+                    sb.AppendLine($"                    new global::Ceras.Savegame.SchemaEnumValueInfo({QuoteString(field.Name)}, {field.ConstantValue}),");
+                }
+            }
+            sb.AppendLine($"                }},");
+            sb.AppendLine($"                underlyingTypeName: {QuoteString(underlyingType ?? "System.Int32")}");
+        }
+        else
+        {
+            sb.AppendLine($"                enumValues: null,");
+            sb.AppendLine($"                underlyingTypeName: null");
+        }
+
         sb.AppendLine($"            );");
         sb.AppendLine();
     }

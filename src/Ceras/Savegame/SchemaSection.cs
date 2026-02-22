@@ -155,9 +155,9 @@ namespace Ceras.Savegame
                 switch (info.Kind)
                 {
                     case SchemaTypeKind.Enum:
-                        // underlying type — default to Int32 (we don't store the underlying
-                        // type in SchemaTypeInfo yet; Int32 covers most practical enums)
-                        WriteLeb128(ref buffer, ref offset, (uint)WellKnownTypes.Int32);
+                        int underlyingId = ResolveFieldTypeId(info.UnderlyingTypeName, clrNameToId);
+                        if (underlyingId == WellKnownTypes.Null) underlyingId = WellKnownTypes.Int32;
+                        WriteLeb128(ref buffer, ref offset, (uint)underlyingId);
                         WriteLeb128(ref buffer, ref offset, (uint)info.EnumValues.Length);
                         foreach (var ev in info.EnumValues)
                         {
@@ -189,10 +189,14 @@ namespace Ceras.Savegame
                         break;
 
                     case SchemaTypeKind.GenericInstantiation:
-                        // GenericInstantiation entries not yet produced by the source generator;
-                        // write a minimal placeholder that round-trips cleanly.
-                        WriteLeb128(ref buffer, ref offset, 0u); // definition_type_id
-                        WriteLeb128(ref buffer, ref offset, 0u); // arg_count
+                        int defId = ResolveFieldTypeId(info.UnderlyingTypeName, clrNameToId);
+                        WriteLeb128(ref buffer, ref offset, (uint)defId);
+                        WriteLeb128(ref buffer, ref offset, (uint)info.ArgTypeNames.Length);
+                        foreach (var argName in info.ArgTypeNames)
+                        {
+                            int argId = ResolveFieldTypeId(argName, clrNameToId);
+                            WriteLeb128(ref buffer, ref offset, (uint)argId);
+                        }
                         break;
                 }
             }

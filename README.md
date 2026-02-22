@@ -35,8 +35,74 @@ var bytes = ceras.Serialize(p);
 - **Full** support for reference persistence (including circular references!)
 - **Full** support for polymorphism / inheritance / interfaces
 - Can serialize objects into parts as "ExtenalObjects" (useful in many many scenarios)
+- **New: Specialized Savegame Format** with version-tolerance, string interning, and schema-based migration.
 - Automatic version-tolerance, no need to place any attributes on your classes!
 - ***[full feature list (and planned features)](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)***
+
+## Savegame Format (Version Tolerant)
+
+Ceras now includes a specialized **savegame format** designed for persistent storage that must survive game updates. It adds a self-describing schema section to each file, allowing you to add, remove, or rename fields without breaking compatibility.
+
+### Why use it?
+- **Robust Versioning**: Safely add/remove fields or rename classes between game versions.
+- **Fast Path**: Zero overhead when the schema matches (uses generated formatters directly).
+- **AOT-Safe Migration**: The migration engine works on all platforms (including Unity IL2CPP) without `Expression.Compile`.
+- **Space Efficient**: Includes built-in **string interning** (duplicate strings are stored only once).
+
+### Quick start (3 steps)
+
+**1. Annotate your save types with `VersionTolerant = true`:**
+
+```csharp
+[GenerateFormatter(VersionTolerant = true)]
+public class Player
+{
+    [SerializedAs("Hp")]  // stable wire name
+    public float HitPoints;
+
+    [PreviousName("Experience")]
+    public int Level;
+}
+```
+
+**2. Configure your serializer once at startup:**
+
+```csharp
+var config = new SerializerConfig();
+GeneratedFormatters.UseFormatters(config);
+CerasSave.ConfigureSavegame(config);
+
+var ceras = new CerasSerializer(config);
+```
+
+**3. Use the `CerasSave` API:**
+
+```csharp
+uint currentGameVersion = 1;
+
+// Save
+byte[] data = CerasSave.Save(myPlayer, currentGameVersion, ceras);
+
+// Load (automatically migrates if the save was from an older version)
+var player = CerasSave.Load<Player>(data, currentGameVersion, ceras);
+```
+
+### Advanced Migration
+
+You can receive details about the migration by adding a method with `[OnAfterDeserialize]`:
+
+```csharp
+[OnAfterDeserialize]
+void OnMigrated(MigrationContext ctx)
+{
+    if (ctx.WasMigrated)
+    {
+        Console.WriteLine($"Loaded save from game version {ctx.OldGameVersion}");
+        foreach (var field in ctx.AddedFields)   /* ... init defaults ... */ ;
+        foreach (var field in ctx.SkippedFields) /* ... log warnings ... */ ;
+    }
+}
+```
 
 ## Performance benchmarks
 Ceras generally ranks at the top end of the performance spectrum, together with NetSerializer and MessagePack-CSharp.

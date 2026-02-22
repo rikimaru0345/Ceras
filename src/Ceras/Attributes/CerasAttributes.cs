@@ -274,7 +274,7 @@ namespace Ceras
     /// If omitted, defaults to the simple class name (no namespace).
     /// Set this once and the C# class can be freely renamed without needing <see cref="PreviousTypeNameAttribute"/>.
     /// </param>
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum)]
     public class GenerateFormatterAttribute : Attribute
     {
         /// <summary>The stable name used in the binary schema. Defaults to the simple class name.</summary>
