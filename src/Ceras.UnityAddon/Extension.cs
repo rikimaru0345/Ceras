@@ -112,29 +112,29 @@ namespace Ceras
         IFormatter<Keyframe> _keyframeFormatter = default;
         ReinterpretFormatter<WrapMode> _wrapModeFormatter = default;
 
-        public void Serialize(ref byte[] buffer, ref int offset, AnimationCurve value)
+        public void Serialize(IBufferWriter<byte> writer, AnimationCurve value)
         {
             var keys = value.keys;
 
             // Length
-            SerializerBinary.WriteInt32(ref buffer, ref offset, keys.Length);
+            SerializerBinary.WriteInt32(writer, keys.Length);
             // Keyframes
             for (int i = 0; i < keys.Length; i++)
-                _keyframeFormatter.Serialize(ref buffer, ref offset, keys[i]);
+                _keyframeFormatter.Serialize(writer, keys[i]);
 
-            _wrapModeFormatter.Serialize(ref buffer, ref offset, value.preWrapMode);
-            _wrapModeFormatter.Serialize(ref buffer, ref offset, value.postWrapMode);
+            _wrapModeFormatter.Serialize(writer, value.preWrapMode);
+            _wrapModeFormatter.Serialize(writer, value.postWrapMode);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref AnimationCurve value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref AnimationCurve value)
         {
             // Read length
-            var length = SerializerBinary.ReadInt32(buffer, ref offset);
+            var length = SerializerBinary.ReadInt32(ref reader);
 
             // Deserialize individual keyframes again
             var keys = new Keyframe[length];
             for (int i = 0; i < length; i++)
-                _keyframeFormatter.Deserialize(buffer, ref offset, ref keys[i]);
+                _keyframeFormatter.Deserialize(ref reader, ref keys[i]);
 
             // Create or update the given AnimationCurve
             if (value == null)
@@ -145,10 +145,10 @@ namespace Ceras
             // Set the wrap modes
             var wrap = default(WrapMode);
 
-            _wrapModeFormatter.Deserialize(buffer, ref offset, ref wrap);
+            _wrapModeFormatter.Deserialize(ref reader, ref wrap);
             value.preWrapMode = wrap;
 
-            _wrapModeFormatter.Deserialize(buffer, ref offset, ref wrap);
+            _wrapModeFormatter.Deserialize(ref reader, ref wrap);
             value.postWrapMode = wrap;
         }
     }
@@ -156,20 +156,20 @@ namespace Ceras
     // RectOffset is a class, it can't be blitted.
     class RectOffsetFormatter : IFormatter<RectOffset>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, RectOffset value)
+        public void Serialize(IBufferWriter<byte> writer, RectOffset value)
         {
-            SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, value.left);
-            SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, value.right);
-            SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, value.top);
-            SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, value.bottom);
+            SerializerBinary.WriteInt32Fixed(writer, value.left);
+            SerializerBinary.WriteInt32Fixed(writer, value.right);
+            SerializerBinary.WriteInt32Fixed(writer, value.top);
+            SerializerBinary.WriteInt32Fixed(writer, value.bottom);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref RectOffset value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref RectOffset value)
         {
-            value.left = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
-            value.right = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
-            value.top = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
-            value.bottom = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
+            value.left = SerializerBinary.ReadInt32Fixed(ref reader);
+            value.right = SerializerBinary.ReadInt32Fixed(ref reader);
+            value.top = SerializerBinary.ReadInt32Fixed(ref reader);
+            value.bottom = SerializerBinary.ReadInt32Fixed(ref reader);
         }
     }
     
@@ -180,39 +180,39 @@ namespace Ceras
         IFormatter<GradientColorKey[]> _colorKeysFormatter = default;
         ReinterpretFormatter<GradientMode> _gradientModeFormatter = default;
 
-        public void Serialize(ref byte[] buffer, ref int offset, Gradient value)
+        public void Serialize(IBufferWriter<byte> writer, Gradient value)
         {
-            _alphaKeysFormatter.Serialize(ref buffer, ref offset, value.alphaKeys);
-            _colorKeysFormatter.Serialize(ref buffer, ref offset, value.colorKeys);
-            _gradientModeFormatter.Serialize(ref buffer, ref offset, value.mode);
+            _alphaKeysFormatter.Serialize(writer, value.alphaKeys);
+            _colorKeysFormatter.Serialize(writer, value.colorKeys);
+            _gradientModeFormatter.Serialize(writer, value.mode);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref Gradient value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref Gradient value)
         {
             GradientAlphaKey[] alphaKeys = value.alphaKeys;
-            _alphaKeysFormatter.Deserialize(buffer, ref offset, ref alphaKeys);
+            _alphaKeysFormatter.Deserialize(ref reader, ref alphaKeys);
             value.alphaKeys = alphaKeys;
 
             GradientColorKey[] colorKeys = value.colorKeys;
-            _colorKeysFormatter.Deserialize(buffer, ref offset, ref colorKeys);
+            _colorKeysFormatter.Deserialize(ref reader, ref colorKeys);
             value.colorKeys = colorKeys;
 
             var mode = value.mode;
-            _gradientModeFormatter.Deserialize(buffer, ref offset, ref mode);
+            _gradientModeFormatter.Deserialize(ref reader, ref mode);
             value.mode = mode;
         }
     }
 
     class LayerMaskFormatter : IFormatter<LayerMask>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, LayerMask value)
+        public void Serialize(IBufferWriter<byte> writer, LayerMask value)
         {
-            SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, value.value);
+            SerializerBinary.WriteInt32Fixed(writer, value.value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref LayerMask value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref LayerMask value)
         {
-            value.value = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
+            value.value = SerializerBinary.ReadInt32Fixed(ref reader);
         }
     }
 

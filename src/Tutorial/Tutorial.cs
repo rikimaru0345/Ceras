@@ -9,6 +9,7 @@ namespace Tutorial
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.Buffers;
 
     class Person
     {
@@ -648,13 +649,13 @@ namespace Tutorial
         public IFormatter<Person> PersonFormatter;
 
 
-        public void Serialize(ref byte[] buffer, ref int offset, Person value)
+        public void Serialize(IBufferWriter<byte> writer, Person value)
         {
-            SerializerBinary.WriteString(ref buffer, ref offset, value.Name);
-            SerializerBinary.WriteInt32(ref buffer, ref offset, value.Health);
+            SerializerBinary.WriteString(writer, value.Name);
+            SerializerBinary.WriteInt32(writer, value.Health);
 
             // !! Important - Read below!
-            PersonFormatter.Serialize(ref buffer, ref offset, value.BestFriend);
+            PersonFormatter.Serialize(writer, value.BestFriend);
 
             // You might be tempted to just recursively call your own Serialize method (this method) again for 'BestFriend', but that won't work!
             // That won't work because Ceras does many things behind the scenes to make reference-loops work.
@@ -672,18 +673,18 @@ namespace Tutorial
             // The actual object Ceras injects into our 'PersonFormatter' field is 'ReferenceFormatter<Person>', which does all the magic to make references and object identity (and many other things) work.
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref Person value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref Person value)
         {
             // Nothing interesting here, all the important stuff is explained in 'Serialize()'
-            value.Name = SerializerBinary.ReadString(buffer, ref offset);
-            value.Health = SerializerBinary.ReadInt32(buffer, ref offset);
-            PersonFormatter.Deserialize(buffer, ref offset, ref value.BestFriend);
+            value.Name = SerializerBinary.ReadString(ref reader);
+            value.Health = SerializerBinary.ReadInt32(ref reader);
+            PersonFormatter.Deserialize(ref reader, ref value.BestFriend);
 
             // You can try changing 'BestFriend' into a property.
             // If you do, you have to modify this last line a bit:
             /*
             var f = value.BestFriend;
-            PersonFormatter.Deserialize(buffer, ref offset, ref f);
+            PersonFormatter.Deserialize(ref reader, ref f);
             value.BestFriend = f;
             */
         }

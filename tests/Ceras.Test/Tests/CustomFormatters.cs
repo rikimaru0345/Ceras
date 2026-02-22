@@ -9,6 +9,7 @@ namespace Ceras.Test
     using System.Drawing;
     using Formatters;
     using Xunit;
+    using System.Buffers;
 
     public class CustomFormatters : TestBase
     {
@@ -43,35 +44,35 @@ namespace Ceras.Test
     // A formatter that keeps the names (and thus "identity") of the colors it serializes
     class ColorFormatter : IFormatter<Color>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, Color value)
+        public void Serialize(IBufferWriter<byte> writer, Color value)
         {
             bool isKnown = value.IsKnownColor;
-            SerializerBinary.WriteByte(ref buffer, ref offset, isKnown ? (byte)1 : (byte)0);
+            SerializerBinary.WriteByte(writer, isKnown ? (byte)1 : (byte)0);
 
             if (isKnown)
             {
                 int knownColor = (int)value.ToKnownColor();
-                SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, knownColor);
+                SerializerBinary.WriteInt32Fixed(writer, knownColor);
             }
             else
             {
-                SerializerBinary.WriteInt32Fixed(ref buffer, ref offset, value.ToArgb());
+                SerializerBinary.WriteInt32Fixed(writer, value.ToArgb());
             }
 
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref Color value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref Color value)
         {
-            bool isKnownColor = SerializerBinary.ReadByte(buffer, ref offset) != 0;
+            bool isKnownColor = SerializerBinary.ReadByte(ref reader) != 0;
 
             if (isKnownColor)
             {
-                int knownColor = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
+                int knownColor = SerializerBinary.ReadInt32Fixed(ref reader);
                 value = Color.FromKnownColor((KnownColor)knownColor);
             }
             else
             {
-                var argb = SerializerBinary.ReadInt32Fixed(buffer, ref offset);
+                var argb = SerializerBinary.ReadInt32Fixed(ref reader);
                 value = Color.FromArgb(argb);
             }
         }

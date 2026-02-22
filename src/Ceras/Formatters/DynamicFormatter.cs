@@ -14,15 +14,35 @@ namespace Ceras.Formatters
     abstract class DynamicFormatter
     {
         internal abstract void Initialize();
+        internal abstract void DeserializeToMember(ref SequenceReader<byte> reader, object container, MemberInfo member);
     }
 
-    sealed class DynamicFormatter<T> : DynamicFormatter, IFormatter<T>
+    sealed class DynamicFormatter<T> : FormatterBase<T>, ISchemaTaintedFormatter
     {
         readonly CerasSerializer _ceras;
         SerializeDelegate<T> _serializer;
-        DeserializeDelegate<T> _deserializer;
         readonly bool _isStatic;
-        readonly Schema _schema;
+        Schema _schema;
+
+        internal override void DeserializeToMember(ref SequenceReader<byte> reader, object container, MemberInfo member)
+        {
+            T value = default;
+
+            if (member is FieldInfo f)
+            {
+                var existing = f.GetValue(container);
+                if (existing is T t) value = t;
+                Deserialize(ref reader, ref value);
+                f.SetValue(container, value);
+            }
+            else if (member is PropertyInfo p)
+            {
+                var existing = p.GetValue(container);
+                if (existing is T t) value = t;
+                Deserialize(ref reader, ref value);
+                p.SetValue(container, value);
+            }
+        }
 
         public DynamicFormatter(CerasSerializer serializer, bool isStatic)
         {
@@ -39,17 +59,60 @@ namespace Ceras.Formatters
         internal override void Initialize()
         {
             if (_serializer != null) return;
-            _serializer = GenerateSerializer(_ceras, _schema, false, _isStatic).Compile();
-            _deserializer = (ref SequenceReader<byte> reader, ref T value) => 
-            {
-                // SequenceReader is a ref struct, so we can't box it or use it in reflection easily.
-                // For the JIT path, we'd need a specialized interpreter.
-                throw new NotSupportedException("DynamicFormatter JIT path requires Source Generator for SequenceReader.");
-            };
+            if (_ceras.Config.Advanced.AotMode == AotMode.None)
+                _serializer = GenerateSerializer(_ceras, _schema, false, _isStatic).Compile();
+            else
+                _serializer = GenerateSerializer_Aot(_ceras, _schema, _isStatic);
         }
 
-        public void Serialize(IBufferWriter<byte> writer, T value) => _serializer(writer, value);
-        public void Deserialize(ref SequenceReader<byte> reader, ref T value) => _deserializer(ref reader, ref value);
+        public override void Serialize(IBufferWriter<byte> writer, T value) => _serializer(writer, value);
+
+        public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
+        {
+            var members = _schema.Members;
+            for (int i = 0; i < members.Count; i++)
+            {
+                var member = members[i];
+                if (member.IsSkip) continue;
+
+                var formatter = _ceras.GetReferenceFormatter(member.MemberType);
+                formatter.DeserializeUntyped(ref reader, value, member.MemberInfo);
+            }
+        }
+
+        public void OnSchemaChanged(TypeMetaData meta)
+        {
+            _schema = meta.CurrentSchema;
+            // In AOT mode we don't need to re-generate anything because the interpreter uses _schema directly
+            if (_ceras.Config.Advanced.AotMode == AotMode.None)
+                _serializer = GenerateSerializer(_ceras, _schema, false, _isStatic).Compile();
+            else
+                _serializer = GenerateSerializer_Aot(_ceras, _schema, _isStatic);
+        }
+
+        internal static SerializeDelegate<T> GenerateSerializer_Aot(CerasSerializer ceras, Schema schema, bool isStatic)
+        {
+            var members = schema.Members;
+            var typeToFormatter = new Dictionary<Type, IFormatter>();
+            foreach (var m in members.Where(m => !m.IsSkip).DistinctBy(m => m.MemberType))
+                typeToFormatter.Add(m.MemberType, ceras.GetReferenceFormatter(m.MemberType));
+
+            return (writer, value) =>
+            {
+                foreach (var member in members)
+                {
+                    if (member.IsSkip) continue;
+                    var formatter = typeToFormatter[member.MemberType];
+                    object memberValue = null;
+                    if (member.MemberInfo is FieldInfo f) memberValue = f.GetValue(value);
+                    else if (member.MemberInfo is PropertyInfo p) memberValue = p.GetValue(value);
+                    
+                    // We can't use a generic call easily here without reflection.
+                    // But we can add SerializeUntyped to IFormatter too!
+                    formatter.SerializeUntyped(writer, memberValue);
+                }
+            };
+        }
 
         internal static Expression<SerializeDelegate<T>> GenerateSerializer(CerasSerializer ceras, Schema schema, bool isSchemaFormatter, bool isStatic)
         {

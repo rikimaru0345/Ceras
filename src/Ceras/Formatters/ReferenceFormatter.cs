@@ -32,6 +32,30 @@ namespace Ceras.Formatters
             _allowReferences = _ceras.Config.PreserveReferences;
         }
 
+        public void SerializeUntyped(IBufferWriter<byte> writer, object value)
+        {
+            Serialize(writer, (T)value);
+        }
+
+        public void DeserializeUntyped(ref SequenceReader<byte> reader, object container, MemberInfo member)
+        {
+            T value = default;
+            if (member is FieldInfo f)
+            {
+                var existing = f.GetValue(container);
+                if (existing is T t) value = t;
+                Deserialize(ref reader, ref value);
+                f.SetValue(container, value);
+            }
+            else if (member is PropertyInfo p)
+            {
+                var existing = p.GetValue(container);
+                if (existing is T t) value = t;
+                Deserialize(ref reader, ref value);
+                p.SetValue(container, value);
+            }
+        }
+
         public void Serialize(IBufferWriter<byte> writer, T value)
         {
             if (ReferenceEquals(value, null)) { SerializerBinary.WriteUInt32Bias(writer, Null, Bias); return; }
@@ -97,6 +121,31 @@ namespace Ceras.Formatters
         const int Null = -1, NewValueSameType = -3, Bias = 5;
         readonly CerasSerializer _ceras; readonly bool _allowReferences; readonly IFormatter<T> _formatter; readonly Func<T> _constructor;
         public ReferenceFormatter_KnownSealedType(CerasSerializer ceras) { _ceras = ceras; if (typeof(T).IsStatic()) throw new InvalidOperationException("static"); if (!typeof(T).IsSealed) throw new InvalidOperationException("Not sealed"); _allowReferences = _ceras.Config.PreserveReferences; _formatter = (IFormatter<T>)ceras.GetSpecificFormatter(typeof(T)); _constructor = (Func<T>)_ceras.Config.GetTypeConfig(typeof(T), false).TypeConstruction.GetRefFormatterConstructor(_ceras.Config.Advanced.AotMode == AotMode.None); }
+        
+        public void SerializeUntyped(IBufferWriter<byte> writer, object value)
+        {
+            Serialize(writer, (T)value);
+        }
+
+        public void DeserializeUntyped(ref SequenceReader<byte> reader, object container, MemberInfo member)
+        {
+            T value = default;
+            if (member is FieldInfo f)
+            {
+                var existing = f.GetValue(container);
+                if (existing is T t) value = t;
+                Deserialize(ref reader, ref value);
+                f.SetValue(container, value);
+            }
+            else if (member is PropertyInfo p)
+            {
+                var existing = p.GetValue(container);
+                if (existing is T t) value = t;
+                Deserialize(ref reader, ref value);
+                p.SetValue(container, value);
+            }
+        }
+        
         public void Serialize(IBufferWriter<byte> writer, T value) { if (ReferenceEquals(value, null)) { SerializerBinary.WriteUInt32Bias(writer, Null, Bias); return; } if (_allowReferences) { if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id)) SerializerBinary.WriteUInt32Bias(writer, id, Bias); else { _ceras.InstanceData.ObjectCache.RegisterObject(value); SerializerBinary.WriteUInt32Bias(writer, NewValueSameType, Bias); _formatter.Serialize(writer, value); } } else { SerializerBinary.WriteUInt32Bias(writer, NewValueSameType, Bias); _formatter.Serialize(writer, value); } }
         public void Deserialize(ref SequenceReader<byte> reader, ref T value) { var objId = SerializerBinary.ReadUInt32Bias(ref reader, Bias); if (objId == Null) { if (value != null) _ceras.DiscardObjectMethod?.Invoke(value); value = default; return; } if (objId >= 0) { value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId); return; } if (value == null) value = _constructor(); if (!_allowReferences) { _formatter.Deserialize(ref reader, ref value); return; } var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>(); objectProxy.Value = value; _formatter.Deserialize(ref reader, ref objectProxy.Value); value = objectProxy.Value; }
     }

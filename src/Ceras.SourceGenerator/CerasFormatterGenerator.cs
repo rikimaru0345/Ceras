@@ -40,8 +40,18 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 transform: static (ctx, _) => (INamedTypeSymbol)ctx.TargetSymbol)
             .WithComparer(SymbolEqualityComparer.Default);
 
+        IncrementalValuesProvider<INamedTypeSymbol> genericTypes = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (s, _) => s is TypeDeclarationSyntax or CompilationUnitSyntax,
+                transform: static (ctx, _) => GetGenericGenerateFormatterTargets(ctx))
+            .SelectMany(static (x, _) => x)
+            .WithComparer(SymbolEqualityComparer.Default);
+
+        var allTypes = types.Collect().Combine(genericTypes.Collect())
+            .Select(static (pair, _) => pair.Left.AddRange(pair.Right).Distinct(SymbolEqualityComparer.Default).Cast<INamedTypeSymbol>().ToImmutableArray());
+
         IncrementalValueProvider<(Compilation, ImmutableArray<INamedTypeSymbol>)> combined =
-            context.CompilationProvider.Combine(types.Collect());
+            context.CompilationProvider.Combine(allTypes);
 
         context.RegisterSourceOutput(combined, static (spc, pair) =>
         {
@@ -50,6 +60,31 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 return;
             Execute(spc, compilation, targetTypes);
         });
+    }
+
+    static ImmutableArray<INamedTypeSymbol> GetGenericGenerateFormatterTargets(GeneratorSyntaxContext ctx)
+    {
+        var results = ImmutableArray.CreateBuilder<INamedTypeSymbol>();
+        var attributes = ctx.Node switch
+        {
+            TypeDeclarationSyntax tds => ctx.SemanticModel.GetDeclaredSymbol(tds)?.GetAttributes(),
+            CompilationUnitSyntax cus => ctx.SemanticModel.Compilation.Assembly.GetAttributes(),
+            _ => null
+        };
+
+        if (attributes == null) return results.ToImmutable();
+
+        foreach (var attr in attributes)
+        {
+            if (attr.AttributeClass is { IsGenericType: true } &&
+                attr.AttributeClass.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).StartsWith("global::Ceras.GenerateFormatterAttribute<"))
+            {
+                if (attr.AttributeClass.TypeArguments[0] is INamedTypeSymbol target)
+                    results.Add(target);
+            }
+        }
+
+        return results.ToImmutable();
     }
 
     // -------------------------------------------------------------------------
@@ -304,6 +339,34 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         if (vt)
             WriteSchemaDescriptor(sb, type, members, attrs);
 
+        // --- SerializeUntyped --------------------------------------------------
+        sb.AppendLine($"        public void SerializeUntyped(IBufferWriter<byte> writer, object value)");
+        sb.AppendLine("        {");
+        sb.AppendLine($"            Serialize(writer, ({typeFqn})value);");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // --- DeserializeUntyped ------------------------------------------------
+        sb.AppendLine($"        public void DeserializeUntyped(ref SequenceReader<byte> reader, object container, global::System.Reflection.MemberInfo member)");
+        sb.AppendLine("        {");
+        sb.AppendLine($"            {typeFqn} value = default;");
+        sb.AppendLine("            if (member is global::System.Reflection.FieldInfo f)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                var existing = f.GetValue(container);");
+        sb.AppendLine($"                if (existing is {typeFqn} t) value = t;");
+        sb.AppendLine("                Deserialize(ref reader, ref value);");
+        sb.AppendLine("                f.SetValue(container, value);");
+        sb.AppendLine("            }");
+        sb.AppendLine("            else if (member is global::System.Reflection.PropertyInfo p)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                var existing = p.GetValue(container);");
+        sb.AppendLine($"                if (existing is {typeFqn} t) value = t;");
+        sb.AppendLine("                Deserialize(ref reader, ref value);");
+        sb.AppendLine("                p.SetValue(container, value);");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
         // --- Serialize ---------------------------------------------------------
         sb.AppendLine($"        public void Serialize(IBufferWriter<byte> writer, {typeFqn} value)");
         sb.AppendLine("        {");
@@ -432,15 +495,35 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
     static bool IsVersionTolerant(INamedTypeSymbol type, INamedTypeSymbol? generateFmtAttr)
     {
-        if (generateFmtAttr == null) return false;
-        foreach (var attr in type.GetAttributes())
+        // Check standard attribute on the type
+        if (generateFmtAttr != null)
         {
-            if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, generateFmtAttr))
-                continue;
-            foreach (var na in attr.NamedArguments)
-                if (na.Key == "VersionTolerant" && na.Value.Value is bool b)
-                    return b;
+            foreach (var attr in type.GetAttributes())
+            {
+                if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, generateFmtAttr))
+                    continue;
+                foreach (var na in attr.NamedArguments)
+                    if (na.Key == "VersionTolerant" && na.Value.Value is bool b)
+                        return b;
+            }
         }
+
+        // Check generic attribute on assembly or other types
+        var assemblyAttrs = type.ContainingAssembly.GetAttributes();
+        foreach (var attr in assemblyAttrs)
+        {
+            if (attr.AttributeClass is { IsGenericType: true } &&
+                attr.AttributeClass.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).StartsWith("global::Ceras.GenerateFormatterAttribute<"))
+            {
+                if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass.TypeArguments[0], type))
+                {
+                    foreach (var na in attr.NamedArguments)
+                        if (na.Key == "VersionTolerant" && na.Value.Value is bool b)
+                            return b;
+                }
+            }
+        }
+
         return false;
     }
 
@@ -458,6 +541,23 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                     return sn;
             }
         }
+
+        var assemblyAttrs = type.ContainingAssembly.GetAttributes();
+        foreach (var attr in assemblyAttrs)
+        {
+            if (attr.AttributeClass is { IsGenericType: true } &&
+                attr.AttributeClass.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).StartsWith("global::Ceras.GenerateFormatterAttribute<"))
+            {
+                if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass.TypeArguments[0], type))
+                {
+                    if (attr.ConstructorArguments.Length > 0 &&
+                        attr.ConstructorArguments[0].Value is string sn &&
+                        !string.IsNullOrEmpty(sn))
+                        return sn;
+                }
+            }
+        }
+
         return type.Name; // simple class name without namespace
     }
 

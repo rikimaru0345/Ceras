@@ -3,20 +3,20 @@ namespace Ceras.Formatters
     using System;
     using System.Buffers;
 
-    public sealed class StringFormatter : IFormatter<string>
+    public sealed class StringFormatter : FormatterBase<string>
     {
-        public void Serialize(IBufferWriter<byte> writer, string value)
+        public override void Serialize(IBufferWriter<byte> writer, string value)
         {
             SerializerBinary.WriteString(writer, value);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref string value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref string value)
         {
             value = SerializerBinary.ReadString(ref reader);
         }
     }
 
-    public sealed class MaxSizeStringFormatter : IFormatter<string>
+    public sealed class MaxSizeStringFormatter : FormatterBase<string>
     {
         readonly uint _maxLength;
 
@@ -25,12 +25,12 @@ namespace Ceras.Formatters
             _maxLength = maxLength;
         }
 
-        public void Serialize(IBufferWriter<byte> writer, string value)
+        public override void Serialize(IBufferWriter<byte> writer, string value)
         {
             SerializerBinary.WriteString(writer, value);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref string value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref string value)
         {
             value = SerializerBinary.ReadStringLimited(ref reader, _maxLength);
         }

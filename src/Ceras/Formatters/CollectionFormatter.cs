@@ -6,7 +6,7 @@ namespace Ceras.Formatters
     using System.Reflection;
     using Helpers;
 
-    public sealed class ArrayFormatter<TItem> : IFormatter<TItem[]>
+    public sealed class ArrayFormatter<TItem> : FormatterBase<TItem[]>
     {
         readonly IFormatter<TItem> _itemFormatter;
         readonly uint _maxCount;
@@ -17,7 +17,7 @@ namespace Ceras.Formatters
             _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(typeof(TItem));
         }
 
-        public void Serialize(IBufferWriter<byte> writer, TItem[] ar)
+        public override void Serialize(IBufferWriter<byte> writer, TItem[] ar)
         {
             if (ar == null)
             {
@@ -31,7 +31,7 @@ namespace Ceras.Formatters
                 f.Serialize(writer, ar[i]);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref TItem[] ar)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref TItem[] ar)
         {
             int length = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (length == -1)
@@ -50,7 +50,7 @@ namespace Ceras.Formatters
     }
 
     public sealed class MultiDimensionalArrayFormatter<TItem> :
-        IFormatter<Array>,
+        FormatterBase<Array>,
         IFormatter<TItem[,]>,
         IFormatter<TItem[,,]>,
         IFormatter<TItem[,,,]>
@@ -64,7 +64,7 @@ namespace Ceras.Formatters
             _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(typeof(TItem));
         }
 
-        public void Serialize(IBufferWriter<byte> writer, Array baseAr)
+        public override void Serialize(IBufferWriter<byte> writer, Array baseAr)
         {
             int dimensions = baseAr.Rank;
             SerializerBinary.WriteUInt32(writer, (uint)dimensions);
@@ -76,7 +76,7 @@ namespace Ceras.Formatters
                 f.Serialize(writer, (TItem)item);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref Array baseAr)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref Array baseAr)
         {
             int dimensions = (int)SerializerBinary.ReadUInt32(ref reader);
             var dimensionSizes = new int[dimensions];
@@ -123,9 +123,13 @@ namespace Ceras.Formatters
         public void Deserialize(ref SequenceReader<byte> reader, ref TItem[,,] ar) { Array a = ar; Deserialize(ref reader, ref a); ar = (TItem[,,])a; }
         public void Serialize(IBufferWriter<byte> writer, TItem[,,,] ar) => Serialize(writer, (Array)ar);
         public void Deserialize(ref SequenceReader<byte> reader, ref TItem[,,,] ar) { Array a = ar; Deserialize(ref reader, ref a); ar = (TItem[,,,])a; }
+
+        public void Serialize(IBufferWriter<byte> writer, TItem[,] value) => Serialize(writer, (Array)value);
+        public void Serialize(IBufferWriter<byte> writer, TItem[,,] value) => Serialize(writer, (Array)value);
+        public void Serialize(IBufferWriter<byte> writer, TItem[,,,] value) => Serialize(writer, (Array)value);
     }
 
-    public class CollectionFormatter<TCollection, TItem> : IFormatter<TCollection>
+    public class CollectionFormatter<TCollection, TItem> : FormatterBase<TCollection>
         where TCollection : ICollection<TItem>
     {
         readonly IFormatter<TItem> _itemFormatter;
@@ -150,14 +154,14 @@ namespace Ceras.Formatters
             if (_capacityConstructor == null) _capacityConstructor = _ => (TCollection)Activator.CreateInstance(collectionType);
         }
 
-        public void Serialize(IBufferWriter<byte> writer, TCollection value)
+        public override void Serialize(IBufferWriter<byte> writer, TCollection value)
         {
             SerializerBinary.WriteUInt32(writer, (uint)value.Count);
             var f = _itemFormatter;
             foreach (var item in value) f.Serialize(writer, item);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref TCollection value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref TCollection value)
         {
             var itemCount = SerializerBinary.ReadUInt32(ref reader);
             if (itemCount > _maxSize) throw new InvalidOperationException("Max size exceeded");

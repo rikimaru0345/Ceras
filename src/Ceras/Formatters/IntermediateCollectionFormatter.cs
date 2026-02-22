@@ -4,20 +4,20 @@ using System.Collections.Generic;
 
 namespace Ceras.Formatters
 {
-    public abstract class CollectionByProxyFormatter<TCollection, TItem, TProxyCollection> : IFormatter<TCollection>
+    public abstract class CollectionByProxyFormatter<TCollection, TItem, TProxyCollection> : FormatterBase<TCollection>
             where TCollection : ICollection<TItem>
     {
         protected IFormatter<TItem> _itemFormatter;
         protected CollectionByProxyFormatter() { CerasSerializer.AddFormatterConstructedType(typeof(TCollection)); }
 
-        public void Serialize(IBufferWriter<byte> writer, TCollection value)
+        public override void Serialize(IBufferWriter<byte> writer, TCollection value)
         {
             SerializerBinary.WriteUInt32(writer, (uint)value.Count);
             var itemFormatter = _itemFormatter;
             foreach (var item in value) itemFormatter.Serialize(writer, item);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref TCollection value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref TCollection value)
         {
             int count = (int)SerializerBinary.ReadUInt32(ref reader);
             var builder = CreateProxy(count);

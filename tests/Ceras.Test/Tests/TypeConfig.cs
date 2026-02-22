@@ -5,6 +5,7 @@ namespace Ceras.Test
 {
     using Formatters;
     using Xunit;
+    using System.Buffers;
 
     public class TypeConfig : TestBase
     {
@@ -114,21 +115,21 @@ namespace Ceras.Test
 
     class DayOfWeekFormatter : IFormatter<DayOfWeek>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, DayOfWeek value)
+        public void Serialize(IBufferWriter<byte> writer, DayOfWeek value)
         {
-            SerializerBinary.WriteUInt64(ref buffer, ref offset, (ulong)value);
+            SerializerBinary.WriteUInt64(writer, (ulong)value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref DayOfWeek value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref DayOfWeek value)
         {
-            value = (DayOfWeek)SerializerBinary.ReadUInt64(buffer, ref offset);
+            value = (DayOfWeek)SerializerBinary.ReadUInt64(ref reader);
         }
     }
 
     class ErrorFormatter<T> : IFormatter<T>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, T value) => Throw();
-        public void Deserialize(byte[] buffer, ref int offset, ref T value) => Throw();
+        public void Serialize(IBufferWriter<byte> writer, T value) => Throw();
+        public void Deserialize(ref SequenceReader<byte> reader, ref T value) => Throw();
 
         void Throw() => throw new InvalidOperationException("This shouldn't happen");
     }

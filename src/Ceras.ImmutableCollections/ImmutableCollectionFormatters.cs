@@ -5,6 +5,7 @@
     using System.Collections.Generic;
     using System.Collections.Immutable;
     using System.Linq;
+    using System.Buffers;
     using Formatters;
 
     public sealed class ImmutableArrayFormatter<TItem> : IFormatter<ImmutableArray<TItem>>
@@ -16,22 +17,22 @@
             CerasSerializer.AddFormatterConstructedType(typeof(ImmutableArray<TItem>));
         }
 
-        public void Serialize(ref byte[] buffer, ref int offset, ImmutableArray<TItem> value)
+        public void Serialize(IBufferWriter<byte> writer, ImmutableArray<TItem> value)
         {
             if (value.IsDefault)
             {
-                SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, -1, 1);
+                SerializerBinary.WriteUInt32Bias(writer, -1, 1);
                 return;
             }
-            SerializerBinary.WriteUInt32Bias(ref buffer, ref offset, value.Length, 1);
+            SerializerBinary.WriteUInt32Bias(writer, value.Length, 1);
             var itemFormatter = _itemFormatter; // Cache into local to prevent ram fetches
             for (int i = 0; i < value.Length; i++)
-                itemFormatter.Serialize(ref buffer, ref offset, value[i]);
+                itemFormatter.Serialize(writer, value[i]);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref ImmutableArray<TItem> value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref ImmutableArray<TItem> value)
         {
-            int length = SerializerBinary.ReadUInt32Bias(buffer, ref offset, 1);
+            int length = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (length == -1)
             {
                 value = default;
@@ -42,7 +43,7 @@
             for (int i = 0; i < length; i++)
             {
                 TItem item = default;
-                itemFormatter.Deserialize(buffer, ref offset, ref item);
+                itemFormatter.Deserialize(ref reader, ref item);
                 builder.Add(item);
             }
             value = builder.MoveToImmutable();
@@ -95,16 +96,16 @@
             CerasSerializer.AddFormatterConstructedType(typeof(ImmutableQueue<TItem>));
         }
 
-        public void Serialize(ref byte[] buffer, ref int offset, ImmutableQueue<TItem> value)
+        public void Serialize(IBufferWriter<byte> writer, ImmutableQueue<TItem> value)
         {
             var array = value.ToArray();
-            _itemsFormatter.Serialize(ref buffer, ref offset, array);
+            _itemsFormatter.Serialize(writer, array);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref ImmutableQueue<TItem> value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref ImmutableQueue<TItem> value)
         {
             TItem[] array = null;
-            _itemsFormatter.Deserialize(buffer, ref offset, ref array);
+            _itemsFormatter.Deserialize(ref reader, ref array);
             value = ImmutableQueue.CreateRange(array);
         }
     }
@@ -143,16 +144,16 @@
             CerasSerializer.AddFormatterConstructedType(typeof(ImmutableStack<TItem>));
         }
         
-        public void Serialize(ref byte[] buffer, ref int offset, ImmutableStack<TItem> value)
+        public void Serialize(IBufferWriter<byte> writer, ImmutableStack<TItem> value)
         {
             var array = value.ToArray();
-            _itemsFormatter.Serialize(ref buffer, ref offset, array);
+            _itemsFormatter.Serialize(writer, array);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref ImmutableStack<TItem> value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref ImmutableStack<TItem> value)
         {
             TItem[] array = null;
-            _itemsFormatter.Deserialize(buffer, ref offset, ref array);
+            _itemsFormatter.Deserialize(ref reader, ref array);
             value = ImmutableStack.CreateRange(array.Reverse());
         }
     }

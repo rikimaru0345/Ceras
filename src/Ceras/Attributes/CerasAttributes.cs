@@ -289,6 +289,18 @@ namespace Ceras
     }
 
     /// <summary>
+    /// Generic version of <see cref="GenerateFormatterAttribute"/> for better type safety.
+    /// Can be used on any type or the assembly itself to generate a formatter for the specified type <typeparamref name="T"/>.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Assembly, AllowMultiple = true)]
+    public class GenerateFormatterAttribute<T> : GenerateFormatterAttribute
+    {
+        public GenerateFormatterAttribute(string stableName = null) : base(stableName)
+        {
+        }
+    }
+
+    /// <summary>
     /// Declares a previous CLR type name for this class/struct so that the savegame migration
     /// engine can map old binary data (written under the old name) to the current type.
     /// Can be applied multiple times if the type has been renamed more than once.

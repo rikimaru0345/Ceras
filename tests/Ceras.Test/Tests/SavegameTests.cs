@@ -7,6 +7,7 @@ using Ceras;
 using Ceras.Formatters;
 using Ceras.Generated;
 using Xunit;
+using System.Buffers;
 
 // ---------------------------------------------------------------------------
 // Savegame scenario tests for the Ceras source generator.
@@ -509,20 +510,20 @@ namespace Ceras.Test
         IFormatter<ItemRarity> _rarityFormatter;
         IFormatter<float>      _floatFormatter;
 
-        public void Serialize(ref byte[] buffer, ref int offset, Item value)
+        public void Serialize(IBufferWriter<byte> writer, Item value)
         {
-            _stringFormatter.Serialize(ref buffer, ref offset, value.Name);
-            _intFormatter.Serialize(ref buffer, ref offset, value.Quantity);
-            _rarityFormatter.Serialize(ref buffer, ref offset, value.Rarity);
-            _floatFormatter.Serialize(ref buffer, ref offset, value.Weight);
+            _stringFormatter.Serialize(writer, value.Name);
+            _intFormatter.Serialize(writer, value.Quantity);
+            _rarityFormatter.Serialize(writer, value.Rarity);
+            _floatFormatter.Serialize(writer, value.Weight);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref Item value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref Item value)
         {
-            _stringFormatter.Deserialize(buffer, ref offset, ref value.Name);
-            _intFormatter.Deserialize(buffer, ref offset, ref value.Quantity);
-            _rarityFormatter.Deserialize(buffer, ref offset, ref value.Rarity);
-            _floatFormatter.Deserialize(buffer, ref offset, ref value.Weight);
+            _stringFormatter.Deserialize(ref reader, ref value.Name);
+            _intFormatter.Deserialize(ref reader, ref value.Quantity);
+            _rarityFormatter.Deserialize(ref reader, ref value.Rarity);
+            _floatFormatter.Deserialize(ref reader, ref value.Weight);
         }
     }
 }

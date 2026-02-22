@@ -6,7 +6,7 @@ namespace Ceras.Formatters
     using System.Runtime.CompilerServices;
     using System.Runtime.InteropServices;
 
-    public sealed class ReinterpretFormatter<T> : IFormatter<T>
+    public sealed class ReinterpretFormatter<T> : FormatterBase<T>
         where T : struct
     {
         readonly int _size;
@@ -16,14 +16,14 @@ namespace Ceras.Formatters
             _size = Unsafe.SizeOf<T>();
         }
 
-        public void Serialize(IBufferWriter<byte> writer, T value)
+        public override void Serialize(IBufferWriter<byte> writer, T value)
         {
             var span = writer.GetSpan(_size);
             Unsafe.WriteUnaligned(ref MemoryMarshal.GetReference(span), value);
             writer.Advance(_size);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref T value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
         {
             if (reader.UnreadSpan.Length >= _size)
             {
@@ -40,7 +40,7 @@ namespace Ceras.Formatters
         }
     }
 
-    public sealed class ReinterpretArrayFormatter<T> : IFormatter<T[]>
+    public sealed class ReinterpretArrayFormatter<T> : FormatterBase<T[]>
         where T : struct
     {
         readonly int _elementSize;
@@ -50,7 +50,7 @@ namespace Ceras.Formatters
             _elementSize = Unsafe.SizeOf<T>();
         }
 
-        public void Serialize(IBufferWriter<byte> writer, T[] value)
+        public override void Serialize(IBufferWriter<byte> writer, T[] value)
         {
             if (value == null)
             {
@@ -65,7 +65,7 @@ namespace Ceras.Formatters
             writer.Advance(totalSize);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref T[] value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref T[] value)
         {
             int length = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (length == -1)

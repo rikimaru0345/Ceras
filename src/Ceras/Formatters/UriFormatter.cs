@@ -3,14 +3,14 @@ namespace Ceras.Formatters
     using System;
     using System.Buffers;
 
-    sealed class UriFormatter : IFormatter<Uri>
+    sealed class UriFormatter : FormatterBase<Uri>
     {
-        public void Serialize(IBufferWriter<byte> writer, Uri value)
+        public override void Serialize(IBufferWriter<byte> writer, Uri value)
         {
             SerializerBinary.WriteString(writer, value?.OriginalString);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref Uri value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref Uri value)
         {
             var str = SerializerBinary.ReadString(ref reader);
             if (str == null)

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 namespace Ceras.Formatters
 {
-    public sealed class QueueFormatter<TItem> : IFormatter<Queue<TItem>>
+    public sealed class QueueFormatter<TItem> : FormatterBase<Queue<TItem>>
     {
         IFormatter<int> _intFormatter;
         IFormatter<TItem> _itemFormatter;
@@ -14,14 +14,14 @@ namespace Ceras.Formatters
             CerasSerializer.AddFormatterConstructedType(typeof(Queue<TItem>));
         }
 
-        public void Serialize(IBufferWriter<byte> writer, Queue<TItem> value)
+        public override void Serialize(IBufferWriter<byte> writer, Queue<TItem> value)
         {
             _intFormatter.Serialize(writer, value.Count);
             foreach (var item in value)
                 _itemFormatter.Serialize(writer, item);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref Queue<TItem> value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref Queue<TItem> value)
         {
             int count = 0;
             _intFormatter.Deserialize(ref reader, ref count);

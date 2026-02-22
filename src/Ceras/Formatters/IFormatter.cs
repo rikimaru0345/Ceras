@@ -4,7 +4,11 @@ using System.Buffers;
 
 namespace Ceras.Formatters
 {
-    public interface IFormatter { }
+    public interface IFormatter 
+    {
+        void SerializeUntyped(IBufferWriter<byte> writer, object value);
+        void DeserializeUntyped(ref SequenceReader<byte> reader, object container, System.Reflection.MemberInfo member);
+    }
 
     public interface IFormatter<T> : IFormatter
     {

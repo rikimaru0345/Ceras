@@ -261,7 +261,7 @@
         bool IAdvancedConfig.UseReinterpretFormatter { get; set; } = true;
         bool IAdvancedConfig.RespectNonSerializedAttribute { get; set; } = true;
         BitmapMode IAdvancedConfig.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
-        AotMode IAdvancedConfig.AotMode { get; set; } = AotMode.None;
+        AotMode IAdvancedConfig.AotMode { get; set; } = AotMode.Enabled;
         IEqualityComparer<object> IAdvancedConfig.ObjectCacheComparer { get; set; }
 
         #endregion

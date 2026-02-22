@@ -3,7 +3,7 @@ namespace Ceras.Formatters
     using System;
     using System.Buffers;
 
-    sealed class TypeFormatter : IFormatter<Type>
+    sealed class TypeFormatter : FormatterBase<Type>
     {
         readonly CerasSerializer _ceras;
         readonly ITypeBinder _typeBinder;
@@ -21,7 +21,7 @@ namespace Ceras.Formatters
             _typeBinder = ceras.TypeBinder;
         }
 
-        public void Serialize(IBufferWriter<byte> writer, Type type)
+        public override void Serialize(IBufferWriter<byte> writer, Type type)
         {
             if (type == null)
             {
@@ -58,7 +58,7 @@ namespace Ceras.Formatters
             }
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref Type type)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref Type type)
         {
             int mode = SerializerBinary.ReadUInt32Bias(ref reader, Bias);
             if (mode == Null)

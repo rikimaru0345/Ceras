@@ -125,6 +125,17 @@ namespace Ceras
             _resolvers.Add(new ExpressionFormatterResolver(this));
 
             _knownTypes = Config.KnownTypes.ToArray();
+
+            // Try to find and call the source-generated registration helper
+            var generatedType = Type.GetType("Ceras.Generated.GeneratedFormatters, Ceras.Generated") ??
+                                Type.GetType("Ceras.Generated.GeneratedFormatters");
+
+            if (generatedType != null)
+            {
+                var method = generatedType.GetMethod("UseFormatters", BindingFlags.Static | BindingFlags.Public);
+                method?.Invoke(null, new object[] { Config });
+            }
+
             foreach (var t in _knownTypes) ProtocolChecksum.Add(t.FullName); ProtocolChecksum.Finish();
             foreach (var t in _knownTypes) if (!t.ContainsGenericParameters) GetReferenceFormatter(t);
 
