@@ -224,7 +224,7 @@ namespace Ceras.Savegame
                     // Skip root type ID
                     SchemaSection.ReadLeb128(data, ref dataOffset);
 
-                    var engine = new SchemaTraversalEngine(fileSchemas, table, saveGameVersion);
+                    var engine = new SchemaTraversalEngine(fileSchemas, table, saveGameVersion, ceras);
                     return engine.ReadRoot<T>(data, ref dataOffset);
                 }
 

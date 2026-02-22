@@ -592,9 +592,60 @@ namespace Ceras.Test.Migration
             Assert.Equal(5,      hero.Level);
             Assert.Equal("Test", hero.Name);
         }
+
+        [Fact]
+        public void Migration_Dictionary_Basic()
+        {
+            var ceras = CreateSerializer();
+            var oldFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
+            {
+                ("Data", Array.Empty<string>(), 201 /* Dict id */, true),
+            };
+
+            var strings = new StringInternTable();
+            var dataBuf = new byte[256];
+            int dataOff = 0;
+            dataBuf[dataOff++] = 0x02; // HeroWithDict NewValueSameType
+            SerializerBinary.WriteUInt32(ref dataBuf, ref dataOff, 2); // Count
+            // Entry 1
+            strings.WriteIndex(ref dataBuf, ref dataOff, "Key1");
+            SerializerBinary.WriteInt32(ref dataBuf, ref dataOff, 100);
+            // Entry 2
+            strings.WriteIndex(ref dataBuf, ref dataOff, "Key2");
+            SerializerBinary.WriteInt32(ref dataBuf, ref dataOff, 200);
+            byte[] dataBytes = dataBuf[..dataOff];
+
+            var heroSchema = new SchemaTypeInfo(
+                "HeroWithDict", Array.Empty<string>(), SchemaTypeKind.Class,
+                new[] { new SchemaFieldInfo("Data", Array.Empty<string>(), "System.Collections.Generic.Dictionary`2[[System.String],[System.Int32]]", true) }, 0);
+            SavegameSchemaRegistry.Register(typeof(HeroWithDict), heroSchema);
+
+            byte[] save = OldSaveBuilder.Build(
+                gameVersion: 1,
+                types: new[]
+                {
+                    OldSaveBuilder.ClassType("HeroWithDict", Array.Empty<string>(), oldFields, typeId: 200),
+                    OldSaveBuilder.GenericType("Dict", Array.Empty<string>(), WellKnownTypes.Dictionary, new[] { WellKnownTypes.String, WellKnownTypes.Int32 }, typeId: 201)
+                },
+                currentRegisteredTypes: new[] { typeof(HeroWithDict) },
+                dataBytes: dataBytes,
+                strings: strings);
+
+            HeroWithDict h = CerasSave.Load<HeroWithDict>(save, currentGameVersion: 1, ceras);
+            Assert.NotNull(h.Data);
+            Assert.Equal(2, h.Data.Count);
+            Assert.Equal(100, h.Data["Key1"]);
+            Assert.Equal(200, h.Data["Key2"]);
+        }
     }
 
     // ── Test-only model types ─────────────────────────────────────────────────
+    [GenerateFormatter("HeroWithDict", VersionTolerant = true)]
+    public class HeroWithDict
+    {
+        public Dictionary<string, int> Data;
+    }
+
 
     [GenerateFormatter("HeroWithList", VersionTolerant = true)]
     [MemberConfig(TargetMember.PublicFields)]

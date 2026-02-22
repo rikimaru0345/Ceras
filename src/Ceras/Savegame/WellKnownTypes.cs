@@ -56,7 +56,8 @@ namespace Ceras.Savegame
         public const int DateTime = 37;  // 8 bytes (Ticks)
         public const int TimeSpan = 38;  // 8 bytes
         public const int Guid     = 39;  // 16 bytes
-        // 40–127 reserved for future well-known types
+        public const int Type     = 40;  // System.Type
+        // 41–127 reserved for future well-known types
         public const int UserTypeBase = 128;
 
         // ── Fixed byte sizes (0 = variable or not applicable) ─────────────────
@@ -103,6 +104,7 @@ namespace Ceras.Savegame
             [typeof(DateTime)] = DateTime,
             [typeof(TimeSpan)] = TimeSpan,
             [typeof(Guid)]     = Guid,
+            [typeof(Type)]     = Type,
         };
 
         static readonly Dictionary<Type, int> GenericDefToId = new()

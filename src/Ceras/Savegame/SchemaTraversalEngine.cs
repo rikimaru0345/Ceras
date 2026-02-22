@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Ceras;
+using Ceras.Helpers;
 
 namespace Ceras.Savegame
 {
@@ -13,22 +14,27 @@ namespace Ceras.Savegame
         const int RefNull             = -1;
         const int RefNewValue         = -2;
         const int RefNewValueSameType = -3;
+        const int RefExternalObject   = -4;
+        const int RefInlineType       = -5;
 
         readonly Dictionary<string, OldTypeSchema>     _oldByName;
         readonly Dictionary<int, OldTypeSchema>        _oldById;
         readonly Dictionary<string, TypeMigrationPlan> _plans;
         readonly string[]                              _stringTable;
         readonly uint                                  _saveGameVersion;
+        readonly CerasSerializer                       _serializer;
         readonly List<object>                          _objectCache = new();
 
         public SchemaTraversalEngine(
             Dictionary<string, OldTypeSchema> oldSchemas,
             string[]                          stringTable,
-            uint                              saveGameVersion)
+            uint                              saveGameVersion,
+            CerasSerializer                   serializer = null)
         {
             _oldByName       = oldSchemas;
             _stringTable     = stringTable;
             _saveGameVersion = saveGameVersion;
+            _serializer      = serializer;
 
             _oldById = new Dictionary<int, OldTypeSchema>();
             foreach (var s in oldSchemas.Values)
@@ -128,6 +134,20 @@ namespace Ceras.Savegame
                     var g = new Guid(data.AsSpan(offset, 16));
                     offset += 16; return g;
                 }
+                case WellKnownTypes.Type:
+                {
+                    uint id = SchemaSection.ReadLeb128(data, ref offset);
+                    if (id == WellKnownTypes.Null) return null;
+                    if (_serializer?.Config.Advanced.AotMode == AotMode.None)
+                    {
+                        // Standard TypeFormatter uses its own logic, but CerasSave
+                        // replaces it with SavegameTypeFormatter which uses LEB128 IDs.
+                    }
+                    var idToType = SavegameContext.IdToType;
+                    if (idToType != null && idToType.TryGetValue((int)id, out var t))
+                        return t;
+                    return null;
+                }
                 case WellKnownTypes.Object:
                     return ReadPolymorphicValue(targetType, data, ref offset);
                 default:
@@ -150,6 +170,22 @@ namespace Ceras.Savegame
             {
                 // Back-reference
                 return marker < _objectCache.Count ? _objectCache[marker] : null;
+            }
+
+            if (marker == RefExternalObject)
+            {
+                int externalId = SerializerBinary.ReadInt32(data, ref offset);
+                if (_serializer?.Config.ExternalObjectResolver != null)
+                {
+                    _serializer.Config.ExternalObjectResolver.Resolve(externalId, out object obj);
+                    return obj;
+                }
+                return null;
+            }
+
+            if (marker == RefInlineType)
+            {
+                return ReadValue(WellKnownTypes.Type, typeof(Type), data, ref offset);
             }
 
             // NewValue or NewValueSameType
@@ -234,6 +270,14 @@ namespace Ceras.Savegame
                 return ReadArray(oldSchema, targetType, data, ref offset);
             if (oldSchema.DefinitionTypeId == WellKnownTypes.List)
                 return ReadList(oldSchema, targetType, data, ref offset);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)
+                return ReadDictionary(oldSchema, targetType, data, ref offset);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.HashSet)
+                return ReadHashSet(oldSchema, targetType, data, ref offset);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Queue)
+                return ReadQueue(oldSchema, targetType, data, ref offset);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Stack)
+                return ReadStack(oldSchema, targetType, data, ref offset);
             
             return null;
         }
@@ -262,12 +306,7 @@ namespace Ceras.Savegame
         object ReadList(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
         {
             uint count = SerializerBinary.ReadUInt32(data, ref offset);
-            Type elementType = null;
-            if (targetType?.IsGenericType == true)
-            {
-                var args = targetType.GetGenericArguments();
-                if (args.Length == 1) elementType = args[0];
-            }
+            Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
 
             if (elementType == null || oldElemTypeId == null) 
@@ -283,6 +322,108 @@ namespace Ceras.Savegame
                 list.Add(val);
             }
             return list;
+        }
+
+        object ReadDictionary(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        {
+            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            Type keyType = targetType?.FindClosedArg(typeof(IDictionary<,>), 0);
+            Type valType = targetType?.FindClosedArg(typeof(IDictionary<,>), 1);
+            int? oldKeyTid = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+            int? oldValTid = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
+
+            if (keyType == null || valType == null || oldKeyTid == null || oldValTid == null)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    SkipValue(oldKeyTid ?? WellKnownTypes.Object, data, ref offset);
+                    SkipValue(oldValTid ?? WellKnownTypes.Object, data, ref offset);
+                }
+                return null;
+            }
+
+            var dict = (System.Collections.IDictionary)Activator.CreateInstance(targetType);
+            for (int i = 0; i < count; i++)
+            {
+                object k = ReadValue(oldKeyTid.Value, keyType, data, ref offset);
+                object v = ReadValue(oldValTid.Value, valType, data, ref offset);
+                dict.Add(k, v);
+            }
+            return dict;
+        }
+
+        object ReadHashSet(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        {
+            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
+            int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+
+            if (elementType == null || oldElemTypeId == null)
+            {
+                SkipElements(count, oldElemTypeId, data, ref offset);
+                return null;
+            }
+
+            // HashSet<T> doesn't implement IList, we need to use reflection for 'Add'
+            var set = Activator.CreateInstance(targetType);
+            var addMethod = targetType.GetMethod("Add", new[] { elementType });
+            for (int i = 0; i < count; i++)
+            {
+                object val = ReadValue(oldElemTypeId.Value, elementType, data, ref offset);
+                addMethod.Invoke(set, new[] { val });
+            }
+            return set;
+        }
+
+        object ReadQueue(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        {
+            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
+            int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+
+            if (elementType == null || oldElemTypeId == null)
+            {
+                SkipElements(count, oldElemTypeId, data, ref offset);
+                return null;
+            }
+
+            var queue = Activator.CreateInstance(targetType);
+            var enqueueMethod = targetType.GetMethod("Enqueue", new[] { elementType });
+            for (int i = 0; i < count; i++)
+            {
+                object val = ReadValue(oldElemTypeId.Value, elementType, data, ref offset);
+                enqueueMethod.Invoke(queue, new[] { val });
+            }
+            return queue;
+        }
+
+        object ReadStack(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        {
+            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
+            int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+
+            if (elementType == null || oldElemTypeId == null)
+            {
+                SkipElements(count, oldElemTypeId, data, ref offset);
+                return null;
+            }
+
+            // Ceras serializes Stack by writing elements in the order they are yielded by foreach.
+            // For Stack<T>, this is top-to-bottom.
+            // When reading back, if we 'Push' them one by one, the first one pushed ends up at the bottom.
+            // So we need to read them all into a list and push them in reverse, or just read and push if Ceras's StackFormatter does it differently.
+            // Let's check StackFormatter.
+            var values = new object[count];
+            for (int i = 0; i < count; i++)
+                values[i] = ReadValue(oldElemTypeId.Value, elementType, data, ref offset);
+
+            var stack = Activator.CreateInstance(targetType);
+            var pushMethod = targetType.GetMethod("Push", new[] { elementType });
+            for (int i = (int)count - 1; i >= 0; i--)
+                pushMethod.Invoke(stack, new[] { values[i] });
+
+            return stack;
         }
 
         void SkipElements(uint count, int? elemTypeId, byte[] data, ref int offset)
@@ -359,6 +500,18 @@ namespace Ceras.Savegame
             int marker = SerializerBinary.ReadUInt32Bias(data, ref offset, RefBias);
             if (marker == RefNull) return;
             if (marker >= 0)      return; 
+
+            if (marker == RefExternalObject)
+            {
+                SerializerBinary.ReadInt32(data, ref offset);
+                return;
+            }
+
+            if (marker == RefInlineType)
+            {
+                SkipValue(WellKnownTypes.Type, data, ref offset);
+                return;
+            }
 
             int typeId;
             if (marker == RefNewValue)
