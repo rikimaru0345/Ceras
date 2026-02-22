@@ -55,13 +55,17 @@ Ceras now includes a specialized **savegame format** designed for persistent sto
 
 ```csharp
 [GenerateFormatter(VersionTolerant = true)]
+[PreviousTypeName("PlayerEntity")] // Handle class renames
 public class Player
 {
-    [SerializedAs("Hp")]  // stable wire name
+    [SerializedAs("Hp")]  // Stable wire name
     public float HitPoints;
 
-    [PreviousName("Experience")]
+    [PreviousName("Experience")] // Handle field renames
     public int Level;
+
+    [Monomorphic] // Optimization: promise this field is always exactly 'object' (or whatever type is declared)
+    public object Extra;
 }
 ```
 
@@ -88,6 +92,12 @@ var player = CerasSave.Load<Player>(data, currentGameVersion, ceras);
 ```
 
 ### Advanced Migration
+
+- **Field Mapping**: Fields are matched by their `[SerializedAs]` name, then by `[PreviousName]` aliases, and finally by their C# name.
+- **Type Mapping**: Classes and structs are matched by their `StableName` (from `[GenerateFormatter]`), then by `[PreviousTypeName]` aliases.
+- **Enum Migration**: Enums are automatically mapped by **name** rather than integer value. This allows you to reorder enum members or change their underlying values safely. If a value in the save file no longer exists in the current enum, it is reset to the default (0).
+- **Numeric Coercion**: The engine automatically handles common numeric upgrades (e.g. `int` -> `long`, `float` -> `double`) during migration.
+- **Monomorphic Optimization**: The source generator automatically detects sealed types and value types to skip unnecessary type-ID overhead. You can use `[Monomorphic]` or `[Polymorphic]` to override this behavior manually.
 
 You can receive details about the migration by adding a method with `[OnAfterDeserialize]`:
 

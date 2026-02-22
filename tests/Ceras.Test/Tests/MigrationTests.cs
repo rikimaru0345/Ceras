@@ -7,7 +7,7 @@ using Ceras.Generated;
 using Ceras.Savegame;
 using Xunit;
 
-namespace Ceras.Test
+namespace Ceras.Test.Migration
 {
     /// <summary>
     /// Phase 5: migration engine tests. Each test builds a savegame binary that
@@ -16,14 +16,13 @@ namespace Ceras.Test
     /// </summary>
     public class MigrationTests : TestBase
     {
-        static readonly CerasSerializer _ceras;
-
-        static MigrationTests()
+        CerasSerializer CreateSerializer()
         {
+            SavegameSchemaRegistry.Clear();
             var config = new SerializerConfig();
             GeneratedFormatters.UseFormatters(config);
             CerasSave.ConfigureSavegame(config);
-            _ceras = new CerasSerializer(config);
+            return new CerasSerializer(config);
         }
 
         // ── Schema migration scenario: field removed ──────────────────────────
@@ -31,6 +30,7 @@ namespace Ceras.Test
         [Fact]
         public void Migration_RemovedField_OldDataSkipped()
         {
+            var ceras = CreateSerializer();
             var oldHeroFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
             {
                 ("Hp",     Array.Empty<string>(), WellKnownTypes.Single, true),
@@ -56,7 +56,7 @@ namespace Ceras.Test
                 dataBytes: dataBytes,
                 strings: strings);
 
-            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, _ceras);
+            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, ceras);
 
             Assert.Equal(5.0f,    hero.Hp);
             Assert.Equal(7,       hero.Level);
@@ -68,6 +68,7 @@ namespace Ceras.Test
         [Fact]
         public void Migration_AddedField_DefaultsToZero()
         {
+            var ceras = CreateSerializer();
             var oldHeroFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
             {
                 ("Level", Array.Empty<string>(), WellKnownTypes.Int32,  true),
@@ -89,7 +90,7 @@ namespace Ceras.Test
                 dataBytes: dataBytes,
                 strings: strings);
 
-            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, _ceras);
+            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, ceras);
 
             Assert.Equal(12,    hero.Level);
             Assert.Equal("Aria", hero.Name);
@@ -101,6 +102,7 @@ namespace Ceras.Test
         [Fact]
         public void Migration_RenamedField_PreviousName_MapsCorrectly()
         {
+            var ceras = CreateSerializer();
             var oldHeroFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
             {
                 ("Hp",  Array.Empty<string>(), WellKnownTypes.Single, true),
@@ -133,7 +135,7 @@ namespace Ceras.Test
                 dataBytes: dataBytes,
                 strings: strings);
 
-            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, _ceras);
+            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, ceras);
 
             Assert.Equal(3.0f,  hero.Hp);
             Assert.Equal(8,     hero.Level);
@@ -145,6 +147,7 @@ namespace Ceras.Test
         [Fact]
         public void Migration_NumericCoercion_Int32ToInt64()
         {
+            var ceras = CreateSerializer();
             var oldFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
             {
                 ("Score", Array.Empty<string>(), WellKnownTypes.Int32, true),
@@ -164,7 +167,7 @@ namespace Ceras.Test
                 dataBytes: dataBytes,
                 strings: strings);
 
-            HeroLong h = CerasSave.Load<HeroLong>(save, currentGameVersion: 1, _ceras);
+            HeroLong h = CerasSave.Load<HeroLong>(save, currentGameVersion: 1, ceras);
             Assert.Equal(42L, h.Score);
         }
 
@@ -173,6 +176,7 @@ namespace Ceras.Test
         [Fact]
         public void Migration_OnAfterDeserialize_ReceivesMigrationContext()
         {
+            var ceras = CreateSerializer();
             var oldFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
             {
                 ("Level", Array.Empty<string>(), WellKnownTypes.Int32, true),
@@ -193,7 +197,7 @@ namespace Ceras.Test
                 strings: strings);
 
             MigratableHero.LastContext = null;
-            MigratableHero h = CerasSave.Load<MigratableHero>(save, currentGameVersion: 2, _ceras);
+            MigratableHero h = CerasSave.Load<MigratableHero>(save, currentGameVersion: 2, ceras);
 
             Assert.Equal(5, h.Level);
             Assert.NotNull(MigratableHero.LastContext);
@@ -210,6 +214,7 @@ namespace Ceras.Test
         [Fact]
         public void Migration_RenamedType_PreviousTypeName_Resolves()
         {
+            var ceras = CreateSerializer();
             var oldFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
             {
                 ("Level", Array.Empty<string>(), WellKnownTypes.Int32, true),
@@ -236,7 +241,7 @@ namespace Ceras.Test
                 dataBytes: dataBytes,
                 strings: strings);
 
-            RenamedHero hero = CerasSave.Load<RenamedHero>(save, currentGameVersion: 1, _ceras);
+            RenamedHero hero = CerasSave.Load<RenamedHero>(save, currentGameVersion: 1, ceras);
 
             Assert.Equal(9,        hero.Level);
             Assert.Equal("legacy", hero.Tag);
@@ -250,6 +255,7 @@ namespace Ceras.Test
         [Fact]
         public void Migration_DeletedFieldType_SkippedViaOldSchema()
         {
+            var ceras = CreateSerializer();
             // Old schema for the deleted nested struct
             var ghostFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
             {
@@ -285,7 +291,7 @@ namespace Ceras.Test
                 dataBytes: dataBytes,
                 strings: strings);
 
-            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, _ceras);
+            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, ceras);
 
             Assert.Equal(3,       hero.Level);
             Assert.Equal("Ghost", hero.Name);
@@ -298,6 +304,7 @@ namespace Ceras.Test
         [Fact]
         public void Migration_NullRoot_ReturnsNull()
         {
+            var ceras = CreateSerializer();
             var oldHeroFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
             {
                 ("Level", Array.Empty<string>(), WellKnownTypes.Int32, true),
@@ -313,7 +320,7 @@ namespace Ceras.Test
                 dataBytes: dataBuf,
                 strings: strings);
 
-            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, _ceras);
+            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, ceras);
             Assert.Null(hero);
         }
 
@@ -322,6 +329,7 @@ namespace Ceras.Test
         [Fact]
         public void Migration_Enum_Basic()
         {
+            var ceras = CreateSerializer();
             var enumVals = new List<(string name, long value)>
             {
                 ("Off", 0),
@@ -375,13 +383,14 @@ namespace Ceras.Test
                 dataBytes: dataBytes,
                 strings: strings);
 
-            HeroWithEnum h = CerasSave.Load<HeroWithEnum>(save, currentGameVersion: 1, _ceras);
+            HeroWithEnum h = CerasSave.Load<HeroWithEnum>(save, currentGameVersion: 1, ceras);
             Assert.Equal(StateEnum.On, h.State);
         }
 
         [Fact]
         public void Migration_Enum_DeletedValue()
         {
+            var ceras = CreateSerializer();
             var enumVals = new List<(string name, long value)>
             {
                 ("Off", 0),
@@ -436,23 +445,74 @@ namespace Ceras.Test
                 strings: strings);
 
             // In .NET, you can set an out-of-range value to an enum field.
-            // Ceras doesn't currently strictly validate this during migration.
-            HeroWithEnum h = CerasSave.Load<HeroWithEnum>(save, currentGameVersion: 1, _ceras);
-            Assert.Equal((StateEnum)2, h.State);
+            // But for the Savegame format, we now validate it against the current enum names.
+            HeroWithEnum h = CerasSave.Load<HeroWithEnum>(save, currentGameVersion: 1, ceras);
+            Assert.Equal((StateEnum)0, h.State); // Should be Off (0) because "Maybe" was deleted
+        }
+
+        [Fact]
+        public void Migration_Enum_ReorderedValues_MapsByName()
+        {
+            var ceras = CreateSerializer();
+            var enumVals = new List<(string name, long value)>
+            {
+                ("Off", 1),
+                ("On",  0), // Reordered: old Off=1, On=0
+            };
+
+            var oldFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
+            {
+                ("State", Array.Empty<string>(), 201, true),
+            };
+
+            var strings = new StringInternTable();
+            var dataBuf = new byte[64];
+            int dataOff = 0;
+            dataBuf[dataOff++] = 0x02;
+            SerializerBinary.WriteInt32(ref dataBuf, ref dataOff, 0); // "On" in old schema
+            byte[] dataBytes = dataBuf[..dataOff];
+
+            // Manual registration of current types (Off=0, On=1)
+            var stateEnumSchema = new SchemaTypeInfo(
+                "StateEnum", Array.Empty<string>(), SchemaTypeKind.Enum, Array.Empty<SchemaFieldInfo>(), 4,
+                new[] { new SchemaEnumValueInfo("Off", 0), new SchemaEnumValueInfo("On", 1) }, "System.Int32");
+            SavegameSchemaRegistry.Register(typeof(StateEnum), stateEnumSchema);
+
+            var heroSchema = new SchemaTypeInfo(
+                "HeroWithEnum", Array.Empty<string>(), SchemaTypeKind.Class,
+                new[] { new SchemaFieldInfo("State", Array.Empty<string>(), "Ceras.Test.StateEnum", true) }, 0);
+            SavegameSchemaRegistry.Register(typeof(HeroWithEnum), heroSchema);
+
+            byte[] save = OldSaveBuilder.Build(
+                gameVersion: 1,
+                types: new[]
+                {
+                    OldSaveBuilder.ClassType("HeroWithEnum", Array.Empty<string>(), oldFields, typeId: 200),
+                    OldSaveBuilder.EnumType("StateEnum", Array.Empty<string>(), enumVals, WellKnownTypes.Int32, typeId: 201),
+                },
+                currentRegisteredTypes: new[] { typeof(HeroWithEnum) },
+                dataBytes: dataBytes,
+                strings: strings);
+
+            HeroWithEnum h = CerasSave.Load<HeroWithEnum>(save, currentGameVersion: 1, ceras);
+            // Even though old value for "On" was 0, and current is 1, it should map by name to 1
+            Assert.Equal(StateEnum.On, h.State);
+            Assert.Equal(1, (int)h.State);
         }
 
         [Fact]
         public void Migration_Collection_Basic()
         {
+            var ceras = CreateSerializer();
             var oldFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
             {
-                ("Scores", Array.Empty<string>(), WellKnownTypes.List, true),
+                ("Scores", Array.Empty<string>(), 201 /* List<int> id */, true),
             };
 
             var strings = new StringInternTable();
             var dataBuf = new byte[256];
             int dataOff = 0;
-            dataBuf[dataOff++] = 0x02; // NewValueSameType
+            dataBuf[dataOff++] = 0x02; // NewValueSameType for HeroWithList
             SerializerBinary.WriteUInt32(ref dataBuf, ref dataOff, 3); // Count
             SerializerBinary.WriteInt32(ref dataBuf, ref dataOff, 10);
             SerializerBinary.WriteInt32(ref dataBuf, ref dataOff, 20);
@@ -470,12 +530,16 @@ namespace Ceras.Test
 
             byte[] save = OldSaveBuilder.Build(
                 gameVersion: 1,
-                types: new[] { OldSaveBuilder.ClassType("HeroWithList", Array.Empty<string>(), oldFields, typeId: 200) },
+                types: new[] 
+                { 
+                    OldSaveBuilder.ClassType("HeroWithList", Array.Empty<string>(), oldFields, typeId: 200),
+                    OldSaveBuilder.GenericType("List<int>", Array.Empty<string>(), WellKnownTypes.List, new[] { WellKnownTypes.Int32 }, typeId: 201)
+                },
                 currentRegisteredTypes: new[] { typeof(HeroWithList) },
                 dataBytes: dataBytes,
                 strings: strings);
 
-            HeroWithList h = CerasSave.Load<HeroWithList>(save, currentGameVersion: 1, _ceras);
+            HeroWithList h = CerasSave.Load<HeroWithList>(save, currentGameVersion: 1, ceras);
             Assert.NotNull(h.Scores);
             Assert.Equal(3, h.Scores.Count);
             Assert.Equal(10, h.Scores[0]);
@@ -486,6 +550,7 @@ namespace Ceras.Test
         [Fact]
         public void Migration_DeletedClassField_Skipped()
         {
+            var ceras = CreateSerializer();
             // Old schema for deleted class
             var deletedClassFields = new List<(string name, string[] prevNames, int typeId, bool mono)>
             {
@@ -522,7 +587,7 @@ namespace Ceras.Test
                 dataBytes: dataBytes,
                 strings: strings);
 
-            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, _ceras);
+            Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, ceras);
 
             Assert.Equal(5,      hero.Level);
             Assert.Equal("Test", hero.Name);
@@ -536,6 +601,23 @@ namespace Ceras.Test
     public class HeroWithList
     {
         public List<int> Scores;
+    }
+
+    [GenerateFormatter("Hero", VersionTolerant = true)]
+    [MemberConfig(TargetMember.PublicFields)]
+    public class Hero
+    {
+        [SerializedAs("Name")]
+        public string Name;
+
+        [SerializedAs("Level")]
+        public int Level;
+
+        [SerializedAs("Hp")]
+        public float Hp;
+
+        [Exclude]
+        public float CachedDps;
     }
 
     [GenerateFormatter("StateEnum", VersionTolerant = true)]
@@ -624,6 +706,17 @@ namespace Ceras.Test
                 underlyingTypeId, evs);
         }
 
+        public static OldTypeSchema GenericType(
+            string   stableName,
+            string[] prevTypeNames,
+            int      defTypeId,
+            int[]    argTypeIds,
+            int      typeId = 200)
+        {
+            return new OldTypeSchema(typeId, stableName, prevTypeNames ?? Array.Empty<string>(),
+                defTypeId, argTypeIds);
+        }
+
         static OldTypeSchema BuildUserType(
             string                                                             stableName,
             string[]                                                           prevTypeNames,
@@ -675,7 +768,7 @@ namespace Ceras.Test
 
             long stringTableOffset = strings.Flush(ref buf, ref offset);
 
-            PatchHeader(buf, gameVersion, dataSectionOffset, stringTableOffset);
+            PatchHeader(buf, offset, gameVersion, dataSectionOffset, stringTableOffset);
 
             return buf[..offset];
         }
@@ -706,6 +799,13 @@ namespace Ceras.Test
                         BinaryPrimitives.WriteInt64LittleEndian(buf.AsSpan(offset), ev.Value);
                         offset += 8;
                     }
+                }
+                else if (t.Kind == SchemaTypeKind.GenericInstantiation)
+                {
+                    SchemaSection.WriteLeb128(ref buf, ref offset, (uint)t.DefinitionTypeId);
+                    SchemaSection.WriteLeb128(ref buf, ref offset, (uint)t.ArgTypeIds.Length);
+                    foreach (var argId in t.ArgTypeIds)
+                        SchemaSection.WriteLeb128(ref buf, ref offset, (uint)argId);
                 }
                 else
                 {
@@ -739,19 +839,24 @@ namespace Ceras.Test
             BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(offset), gameVersion);
             offset += 4;
             offset += 8;  // fingerprint placeholder
-            buf[offset++] = 0; // flags
+            buf[offset++] = 1; // flags (has checksum)
             offset += 8;  // data section placeholder
             offset += 8;  // string table placeholder
             offset += 4;  // checksum placeholder
         }
 
-        static void PatchHeader(byte[] buf, uint gameVersion, long dataSectionOffset, long stringTableOffset)
+        static void PatchHeader(byte[] buf, int totalLength, uint gameVersion, long dataSectionOffset, long stringTableOffset)
         {
             // Use a fingerprint that differs from the current one to force slow path
             ulong fakeFp = SavegameSchemaRegistry.ComputeFingerprint() ^ 0xDEAD_BEEF_CAFE_BABEul;
             BinaryPrimitives.WriteUInt64LittleEndian(buf.AsSpan(CerasSave.OffsetFingerprint), fakeFp);
             BinaryPrimitives.WriteInt64LittleEndian(buf.AsSpan(CerasSave.OffsetDataSection), dataSectionOffset);
             BinaryPrimitives.WriteInt64LittleEndian(buf.AsSpan(CerasSave.OffsetStringTable), stringTableOffset);
+
+            // CRC32
+            BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(CerasSave.OffsetChecksum), 0);
+            uint crc = Helpers.HashHelpers.CalculateCrc32(buf.AsSpan(0, totalLength));
+            BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(CerasSave.OffsetChecksum), crc);
         }
 
         static void WriteInlineString(ref byte[] buf, ref int offset, string s)

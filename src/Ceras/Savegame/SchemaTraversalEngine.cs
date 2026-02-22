@@ -7,14 +7,6 @@ using Ceras;
 
 namespace Ceras.Savegame
 {
-    // ReferenceFormatter constants (Bias=5)
-    //   Null             = -1  →  wire uint 4
-    //   NewValue         = -2  →  wire uint 3
-    //   NewValueSameType = -3  →  wire uint 2
-    //   ExternalObject   = -4  →  wire uint 1
-    //   InlineType       = -5  →  wire uint 0
-    //   BackRef(N)        = N  →  wire uint N+5
-
     sealed class SchemaTraversalEngine
     {
         const int RefBias             = 5;
@@ -50,13 +42,11 @@ namespace Ceras.Savegame
         public T ReadRoot<T>(byte[] data, ref int offset)
         {
             string stableName = ResolveOldStableName(typeof(T));
-            object obj = ReadClassValue(stableName, typeof(T), data, ref offset);
+            object obj = ReadUserTypeByStableName(stableName, typeof(T), data, ref offset);
             if (obj == null) return default;
             return (T)obj;
         }
 
-        // Finds the key in _oldByName that corresponds to the current CLR type T.
-        // Checks: registered stable name, previous type names, then simple type name.
         string ResolveOldStableName(Type t)
         {
             if (SavegameSchemaRegistry.TryGetInfo(t, out var info))
@@ -67,7 +57,7 @@ namespace Ceras.Savegame
                     if (_oldByName.ContainsKey(prev))
                         return prev;
             }
-            return t.Name; // best-effort fallback
+            return t.Name; 
         }
 
         // ── Core dispatch ─────────────────────────────────────────────────────
@@ -138,10 +128,8 @@ namespace Ceras.Savegame
                     var g = new Guid(data.AsSpan(offset, 16));
                     offset += 16; return g;
                 }
-                case WellKnownTypes.Array:
-                    return ReadArray(targetType, data, ref offset);
-                case WellKnownTypes.List:
-                    return ReadList(targetType, data, ref offset);
+                case WellKnownTypes.Object:
+                    return ReadPolymorphicValue(targetType, data, ref offset);
                 default:
                 {
                     if (typeId >= WellKnownTypes.UserTypeBase)
@@ -152,186 +140,7 @@ namespace Ceras.Savegame
             }
         }
 
-        object ReadArray(Type targetType, byte[] data, ref int offset)
-        {
-            uint count = SerializerBinary.ReadUInt32(data, ref offset);
-            Type elementType = targetType?.IsArray == true ? targetType.GetElementType() : null;
-            if (elementType == null) { SkipElements(count, null, data, ref offset); return null; }
-
-            var arr = Array.CreateInstance(elementType, (int)count);
-            int elemTypeId = GetCurrentWellKnownOrUserTypeId(elementType);
-
-            for (int i = 0; i < count; i++)
-            {
-                object val = ReadValue(elemTypeId, elementType, data, ref offset);
-                arr.SetValue(val, i);
-            }
-            return arr;
-        }
-
-        object ReadList(Type targetType, byte[] data, ref int offset)
-        {
-            uint count = SerializerBinary.ReadUInt32(data, ref offset);
-            Type elementType = null;
-            if (targetType?.IsGenericType == true)
-            {
-                var args = targetType.GetGenericArguments();
-                if (args.Length == 1) elementType = args[0];
-            }
-            if (elementType == null) { SkipElements(count, null, data, ref offset); return null; }
-
-            var list = (System.Collections.IList)Activator.CreateInstance(targetType);
-            int elemTypeId = GetCurrentWellKnownOrUserTypeId(elementType);
-
-            for (int i = 0; i < count; i++)
-            {
-                object val = ReadValue(elemTypeId, elementType, data, ref offset);
-                list.Add(val);
-            }
-            return list;
-        }
-
-        void SkipElements(uint count, int? elemTypeId, byte[] data, ref int offset)
-        {
-            if (elemTypeId == null) { /* cannot skip safely without knowing type */ return; }
-            for (int i = 0; i < count; i++)
-                SkipValue(elemTypeId.Value, data, ref offset);
-        }
-
-        int GetCurrentWellKnownOrUserTypeId(Type type)
-        {
-            if (WellKnownTypes.TryGetId(type, out int id)) return id;
-            if (SavegameSchemaRegistry.TryGetId(type, out id)) return id;
-            return WellKnownTypes.Null;
-        }
-
-        void SkipValue(int typeId, byte[] data, ref int offset)
-        {
-            // Varint types: must read-and-discard, cannot use fixed byte offset
-            switch (typeId)
-            {
-                case WellKnownTypes.Int32:
-                    SerializerBinary.ReadInt32(data, ref offset);
-                    return;
-                case WellKnownTypes.UInt32:
-                    SerializerBinary.ReadUInt32(data, ref offset);
-                    return;
-                case WellKnownTypes.Int64:
-                    SerializerBinary.ReadInt64(data, ref offset);
-                    return;
-                case WellKnownTypes.UInt64:
-                    SerializerBinary.ReadUInt64(data, ref offset);
-                    return;
-            }
-
-            // Truly fixed-size types: advance by known byte count
-            int fixedSize = WellKnownTypes.GetFixedSize(typeId);
-            if (fixedSize > 0) { offset += fixedSize; return; }
-
-            switch (typeId)
-            {
-                case WellKnownTypes.Object:
-                    SkipClassRef(data, ref offset);
-                    return;
-                default:
-                    if (typeId >= WellKnownTypes.UserTypeBase)
-                        SkipUserType(typeId, data, ref offset);
-                    return;
-            }
-        }
-
-        // ── User type dispatch ────────────────────────────────────────────────
-
-        object ReadUserType(int typeId, Type targetType, byte[] data, ref int offset)
-        {
-            if (!_oldById.TryGetValue(typeId, out var oldSchema))
-                return null;
-
-            return oldSchema.Kind switch
-            {
-                SchemaTypeKind.Struct => ReadStructValue(oldSchema, data, ref offset),
-                SchemaTypeKind.Class  => ReadClassValue(oldSchema.StableName, targetType, data, ref offset),
-                SchemaTypeKind.Enum   => ReadEnumValue(oldSchema, data, ref offset),
-                _                     => null,
-            };
-        }
-
-        void SkipUserType(int typeId, byte[] data, ref int offset)
-        {
-            if (!_oldById.TryGetValue(typeId, out var oldSchema)) return;
-
-            switch (oldSchema.Kind)
-            {
-                case SchemaTypeKind.Struct: SkipStructFields(oldSchema, data, ref offset); break;
-                case SchemaTypeKind.Class:  SkipClassRefWithSchema(oldSchema, data, ref offset); break;
-                case SchemaTypeKind.Enum:   SkipEnumValue(oldSchema, data, ref offset);    break;
-            }
-        }
-
-        void SkipClassRefWithSchema(OldTypeSchema oldSchema, byte[] data, ref int offset)
-        {
-            int marker = SerializerBinary.ReadUInt32Bias(data, ref offset, RefBias);
-            if (marker == RefNull) return;
-            if (marker >= 0)      return; // back-ref
-
-            if (marker == RefNewValue)
-                SkipTypeInfo(data, ref offset);
-
-            // Even if it was a deleted type, we can skip its fields because we have the old schema!
-            foreach (var f in oldSchema.Fields)
-                SkipValue(f.TypeId, data, ref offset);
-        }
-
-        // ── Enum ─────────────────────────────────────────────────────────────
-
-        object ReadEnumValue(OldTypeSchema oldSchema, byte[] data, ref int offset)
-        {
-            int underlying = oldSchema.DefinitionTypeId == 0
-                ? WellKnownTypes.Int32 : oldSchema.DefinitionTypeId;
-            // For enums we don't pass targetType to ReadValue because we know it's a primitive
-            return ReadValue(underlying, null, data, ref offset);
-        }
-
-        void SkipEnumValue(OldTypeSchema oldSchema, byte[] data, ref int offset)
-        {
-            int underlying = oldSchema.DefinitionTypeId == 0
-                ? WellKnownTypes.Int32 : oldSchema.DefinitionTypeId;
-            SkipValue(underlying, data, ref offset);
-        }
-
-        // ── Struct ───────────────────────────────────────────────────────────
-
-        object ReadStructValue(OldTypeSchema oldSchema, byte[] data, ref int offset)
-        {
-            _plans.TryGetValue(oldSchema.StableName, out var plan);
-            Type currentType = plan?.CurrentType;
-
-            object obj = currentType != null
-                ? RuntimeHelpers.GetUninitializedObject(currentType)
-                : null;
-
-            ReadAndApplyFields(oldSchema, plan, obj, data, ref offset);
-
-            if (plan != null && plan.HasChanges && plan.OnAfterDeserialize != null && obj != null)
-                FireCallback(obj, plan, plan.AddedFieldNames, CollectSkippedFields(plan));
-
-            return obj;
-        }
-
-        void SkipStructFields(OldTypeSchema oldSchema, byte[] data, ref int offset)
-        {
-            foreach (var f in oldSchema.Fields)
-                SkipValue(f.TypeId, data, ref offset);
-        }
-
-        // ── Class (with ref marker) ───────────────────────────────────────────
-
-        object ReadClassValue(string stableName, Type targetType, byte[] data, ref int offset)
-        {
-            return ReadClassValueByStableName(stableName, targetType, data, ref offset);
-        }
-
-        object ReadClassValueByStableName(string stableName, Type targetType, byte[] data, ref int offset)
+        object ReadPolymorphicValue(Type targetType, byte[] data, ref int offset)
         {
             int marker = SerializerBinary.ReadUInt32Bias(data, ref offset, RefBias);
 
@@ -344,22 +153,72 @@ namespace Ceras.Savegame
             }
 
             // NewValue or NewValueSameType
+            int typeId;
             if (marker == RefNewValue)
-                SkipTypeInfo(data, ref offset);
+            {
+                // Polymorphic: read type-ID
+                typeId = (int)SchemaSection.ReadLeb128(data, ref offset);
+            }
+            else
+            {
+                // Monomorphic (same as target type)
+                typeId = GetOldTypeId(targetType);
+            }
 
-            _oldByName.TryGetValue(stableName, out var oldSchema);
-            _plans.TryGetValue(stableName, out var plan);
+            if (!_oldById.TryGetValue(typeId, out var oldSchema))
+            {
+                // Unknown type-ID, we might be able to skip if we were in skip mode
+                return null;
+            }
 
+            return ReadUserTypeInstance(oldSchema, targetType, data, ref offset);
+        }
+
+        object ReadUserType(int typeId, Type targetType, byte[] data, ref int offset)
+        {
+            if (!_oldById.TryGetValue(typeId, out var oldSchema))
+                return null;
+
+            if (oldSchema.Kind == SchemaTypeKind.Enum)
+            {
+                _plans.TryGetValue(oldSchema.StableName, out var plan);
+                return ReadEnumValue(oldSchema, plan, data, ref offset);
+            }
+
+            if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
+                return ReadGenericInstantiation(oldSchema, targetType, data, ref offset);
+
+            return ReadPolymorphicValue(targetType ?? GetCurrentType(oldSchema.StableName), data, ref offset);
+        }
+
+        object ReadUserTypeByStableName(string stableName, Type targetType, byte[] data, ref int offset)
+        {
+            if (stableName != null && _oldByName.TryGetValue(stableName, out var oldSchema))
+                return ReadUserType(oldSchema.TypeId, targetType, data, ref offset);
+
+            // Cannot find schema for this type, best we can do is try to skip it if we knew the type-ID
+            // But we don't. This is a critical failure for the root object.
+            return null;
+        }
+
+        object ReadUserTypeInstance(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        {
+            _plans.TryGetValue(oldSchema.StableName, out var plan);
             Type currentType = plan?.CurrentType ?? targetType;
-            object obj = currentType != null
-                ? RuntimeHelpers.GetUninitializedObject(currentType)
-                : null;
 
+            if (oldSchema.Kind == SchemaTypeKind.Struct)
+            {
+                object structObj = currentType != null ? RuntimeHelpers.GetUninitializedObject(currentType) : null;
+                ReadAndApplyFields(oldSchema, plan, structObj, data, ref offset);
+                return structObj;
+            }
+
+            // Class
+            object obj = currentType != null ? RuntimeHelpers.GetUninitializedObject(currentType) : null;
             int cacheIndex = _objectCache.Count;
             _objectCache.Add(obj);
 
-            if (oldSchema != null)
-                ReadAndApplyFields(oldSchema, plan, obj, data, ref offset);
+            ReadAndApplyFields(oldSchema, plan, obj, data, ref offset);
 
             _objectCache[cacheIndex] = obj;
 
@@ -369,25 +228,219 @@ namespace Ceras.Savegame
             return obj;
         }
 
-        void SkipClassRef(byte[] data, ref int offset)
+        object ReadGenericInstantiation(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        {
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Array)
+                return ReadArray(oldSchema, targetType, data, ref offset);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.List)
+                return ReadList(oldSchema, targetType, data, ref offset);
+            
+            return null;
+        }
+
+        object ReadArray(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        {
+            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            Type elementType = targetType?.IsArray == true ? targetType.GetElementType() : null;
+            int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+
+            if (elementType == null || oldElemTypeId == null) 
+            { 
+                SkipElements(count, oldElemTypeId, data, ref offset); 
+                return null; 
+            }
+
+            var arr = Array.CreateInstance(elementType, (int)count);
+            for (int i = 0; i < count; i++)
+            {
+                object val = ReadValue(oldElemTypeId.Value, elementType, data, ref offset);
+                arr.SetValue(val, i);
+            }
+            return arr;
+        }
+
+        object ReadList(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        {
+            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            Type elementType = null;
+            if (targetType?.IsGenericType == true)
+            {
+                var args = targetType.GetGenericArguments();
+                if (args.Length == 1) elementType = args[0];
+            }
+            int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+
+            if (elementType == null || oldElemTypeId == null) 
+            { 
+                SkipElements(count, oldElemTypeId, data, ref offset); 
+                return null; 
+            }
+
+            var list = (System.Collections.IList)Activator.CreateInstance(targetType);
+            for (int i = 0; i < count; i++)
+            {
+                object val = ReadValue(oldElemTypeId.Value, elementType, data, ref offset);
+                list.Add(val);
+            }
+            return list;
+        }
+
+        void SkipElements(uint count, int? elemTypeId, byte[] data, ref int offset)
+        {
+            if (elemTypeId == null) return;
+            for (int i = 0; i < count; i++)
+                SkipValue(elemTypeId.Value, data, ref offset);
+        }
+
+        void SkipValue(int typeId, byte[] data, ref int offset)
+        {
+            if (_oldById.TryGetValue(typeId, out var s) && s.FixedByteSize > 0)
+            {
+                offset += s.FixedByteSize;
+                return;
+            }
+
+            int fixedSize = WellKnownTypes.GetFixedSize(typeId);
+            if (fixedSize > 0) { offset += fixedSize; return; }
+
+            switch (typeId)
+            {
+                case WellKnownTypes.Bool:
+                case WellKnownTypes.Int32:
+                    SerializerBinary.ReadInt32(data, ref offset);
+                    return;
+                case WellKnownTypes.UInt32:
+                    SerializerBinary.ReadUInt32(data, ref offset);
+                    return;
+                case WellKnownTypes.Object:
+                    SkipPolymorphicValue(WellKnownTypes.Object, data, ref offset);
+                    return;
+                default:
+                    if (typeId >= WellKnownTypes.UserTypeBase)
+                        SkipUserType(typeId, data, ref offset);
+                    return;
+            }
+        }
+
+        void SkipUserType(int typeId, byte[] data, ref int offset)
+        {
+            if (!_oldById.TryGetValue(typeId, out var oldSchema)) return;
+
+            if (oldSchema.FixedByteSize > 0)
+            {
+                offset += oldSchema.FixedByteSize;
+                return;
+            }
+
+            switch (oldSchema.Kind)
+            {
+                case SchemaTypeKind.Struct:
+                    foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, data, ref offset);
+                    break;
+                case SchemaTypeKind.Class:
+                    SkipPolymorphicValue(typeId, data, ref offset);
+                    break;
+                case SchemaTypeKind.Enum:
+                    SkipEnumValue(oldSchema, data, ref offset);
+                    break;
+                case SchemaTypeKind.GenericInstantiation:
+                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Array || oldSchema.DefinitionTypeId == WellKnownTypes.List)
+                    {
+                        uint count = SerializerBinary.ReadUInt32(data, ref offset);
+                        int? elemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+                        SkipElements(count, elemTypeId, data, ref offset);
+                    }
+                    break;
+            }
+        }
+
+        void SkipPolymorphicValue(int expectedTypeId, byte[] data, ref int offset)
         {
             int marker = SerializerBinary.ReadUInt32Bias(data, ref offset, RefBias);
             if (marker == RefNull) return;
-            if (marker >= 0)      return; // back-ref
+            if (marker >= 0)      return; 
 
+            int typeId;
             if (marker == RefNewValue)
-                SkipTypeInfo(data, ref offset);
-            // Cannot skip fields without knowing the type — best-effort
+                typeId = (int)SchemaSection.ReadLeb128(data, ref offset);
+            else
+                typeId = expectedTypeId;
+
+            if (_oldById.TryGetValue(typeId, out var oldSchema))
+            {
+                _objectCache.Add(null);
+                if (oldSchema.Kind == SchemaTypeKind.Enum)
+                {
+                    SkipEnumValue(oldSchema, data, ref offset);
+                }
+                else if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
+                {
+                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Array || oldSchema.DefinitionTypeId == WellKnownTypes.List)
+                    {
+                        uint count = SerializerBinary.ReadUInt32(data, ref offset);
+                        int? elemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+                        SkipElements(count, elemTypeId, data, ref offset);
+                    }
+                }
+                else
+                {
+                    foreach (var f in oldSchema.Fields)
+                        SkipValue(f.TypeId, data, ref offset);
+                }
+            }
+        }
+
+        int GetOldTypeId(Type type)
+        {
+            if (type == null) return WellKnownTypes.Null;
+            if (WellKnownTypes.TryGetId(type, out int id)) return id;
+
+            if (SavegameSchemaRegistry.TryGetInfo(type, out var info))
+            {
+                if (_oldByName.TryGetValue(info.StableName, out var s))
+                    return s.TypeId;
+                foreach (var prev in info.PreviousTypeNames)
+                    if (_oldByName.TryGetValue(prev, out s))
+                        return s.TypeId;
+            }
+            return WellKnownTypes.Null;
+        }
+
+        Type GetCurrentType(string stableName)
+        {
+            SavegameSchemaRegistry.TryResolveType(stableName, out var t);
+            return t;
+        }
+
+        // ── Enum ─────────────────────────────────────────────────────────────
+
+        object ReadEnumValue(OldTypeSchema oldSchema, TypeMigrationPlan plan, byte[] data, ref int offset)
+        {
+            int underlyingId = oldSchema.DefinitionTypeId == 0 ? WellKnownTypes.Int32 : oldSchema.DefinitionTypeId;
+            object rawValue = ReadValue(underlyingId, null, data, ref offset);
+
+            if (plan?.EnumValueMap != null && plan.CurrentType != null)
+            {
+                long val = Convert.ToInt64(rawValue);
+                if (plan.EnumValueMap.TryGetValue(val, out long mapped))
+                    return Enum.ToObject(plan.CurrentType, mapped);
+                
+                // Value no longer exists in current enum. Return default (0).
+                return Enum.ToObject(plan.CurrentType, 0L);
+            }
+
+            return rawValue;
+        }
+
+        void SkipEnumValue(OldTypeSchema oldSchema, byte[] data, ref int offset)
+        {
+            int underlying = oldSchema.DefinitionTypeId == 0 ? WellKnownTypes.Int32 : oldSchema.DefinitionTypeId;
+            SkipValue(underlying, data, ref offset);
         }
 
         // ── Field read/skip ───────────────────────────────────────────────────
 
-        void ReadAndApplyFields(
-            OldTypeSchema     oldSchema,
-            TypeMigrationPlan plan,
-            object            target,
-            byte[]            data,
-            ref int           offset)
+        void ReadAndApplyFields(OldTypeSchema oldSchema, TypeMigrationPlan plan, object target, byte[] data, ref int offset)
         {
             var mappings = plan?.Mappings ?? BuildSkipMappings(oldSchema);
             foreach (var mapping in mappings)
@@ -416,8 +469,6 @@ namespace Ceras.Savegame
             return m;
         }
 
-        // ── Coercion ─────────────────────────────────────────────────────────
-
         static object Coerce(object value, CoercionKind kind, Type targetType)
         {
             if (kind == CoercionKind.None) return value;
@@ -432,32 +483,11 @@ namespace Ceras.Savegame
             };
         }
 
-        // ── Type info skipping ────────────────────────────────────────────────
-
-        void SkipTypeInfo(byte[] data, ref int offset)
-        {
-            int mode = SerializerBinary.ReadUInt32Bias(data, ref offset, 5);
-            if (mode == -2) // NewSingle: type name follows
-                SerializerBinary.ReadString(data, ref offset);
-            else if (mode == -3) // NewGeneric
-            {
-                SkipTypeInfo(data, ref offset); // base type
-                byte argCount = SerializerBinary.ReadByte(data, ref offset);
-                for (int i = 0; i < argCount; i++)
-                    SkipTypeInfo(data, ref offset);
-            }
-        }
-
-        // ── String table ─────────────────────────────────────────────────────
-
         string ReadStringFromTable(int index)
         {
-            // _stringTable is 1-based (index 0 = null, from StringTable.Load)
             if (index == 0) return null;
             return (uint)index < (uint)_stringTable.Length ? _stringTable[index] : null;
         }
-
-        // ── OnAfterDeserialize callback ───────────────────────────────────────
 
         static HashSet<string> CollectSkippedFields(TypeMigrationPlan plan)
         {
@@ -468,21 +498,11 @@ namespace Ceras.Savegame
             return set;
         }
 
-        void FireCallback(
-            object            obj,
-            TypeMigrationPlan plan,
-            string[]          addedFields,
-            HashSet<string>   skippedFields)
+        void FireCallback(object obj, TypeMigrationPlan plan, string[] addedFields, HashSet<string> skippedFields)
         {
             if (plan.OnAfterDeserialize == null) return;
-
-            var addedSet = new HashSet<string>(addedFields, StringComparer.Ordinal);
-            var ctx = new MigrationContext(
-                wasMigrated:    true,
-                oldGameVersion: _saveGameVersion,
-                skippedFields:  skippedFields,
-                addedFields:    addedSet);
-
+            var addedSet = new HashSet<string>(addedFields ?? Array.Empty<string>(), StringComparer.Ordinal);
+            var ctx = new MigrationContext(true, _saveGameVersion, skippedFields, addedSet);
             plan.OnAfterDeserialize.Invoke(obj, new object[] { ctx });
         }
     }

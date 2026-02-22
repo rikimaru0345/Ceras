@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Ceras;
 using Ceras.Generated;
 using Ceras.Savegame;
+using Ceras.Test.Migration;
 using Xunit;
 
 namespace Ceras.Test
@@ -13,6 +14,7 @@ namespace Ceras.Test
 
         static SavegameFormatTests()
         {
+            SavegameSchemaRegistry.Clear();
             var config = new SerializerConfig();
             GeneratedFormatters.UseFormatters(config);
             CerasSave.ConfigureSavegame(config);
@@ -22,6 +24,7 @@ namespace Ceras.Test
         [Fact]
         public void Savegame_Enum_RoundTrip()
         {
+            SavegameSchemaRegistry.Clear();
             var hero = new HeroWithEnum { State = StateEnum.On };
             
             // Manual registration for test-only type
@@ -41,6 +44,7 @@ namespace Ceras.Test
         [Fact]
         public void Savegame_List_RoundTrip()
         {
+            SavegameSchemaRegistry.Clear();
             var hero = new HeroWithList { Scores = new List<int> { 1, 2, 3 } };
 
             // Manual registration
@@ -59,6 +63,7 @@ namespace Ceras.Test
         [Fact]
         public void Savegame_Polymorphic_RoundTrip()
         {
+            SavegameSchemaRegistry.Clear();
             var hero = new HeroWithPolymorphic { Extra = new ExtraInfo { Note = "Special" } };
 
             // Manual registration

@@ -64,14 +64,11 @@ namespace Ceras.Savegame
 
         static WellKnownTypes()
         {
-            FixedSizes[Bool]     = 1;
             FixedSizes[Byte]     = 1;
             FixedSizes[SByte]    = 1;
             FixedSizes[Char]     = 2;
             FixedSizes[Int16]    = 2;
             FixedSizes[UInt16]   = 2;
-            FixedSizes[Int32]    = 4;
-            FixedSizes[UInt32]   = 4;
             FixedSizes[Single]   = 4;
             FixedSizes[String]   = 4;  // string-table index
             FixedSizes[Int64]    = 8;
@@ -81,7 +78,7 @@ namespace Ceras.Savegame
             FixedSizes[TimeSpan] = 8;
             FixedSizes[Decimal]  = 16;
             FixedSizes[Guid]     = 16;
-            // Collections, Object, Nullable, Tuples: 0 (variable)
+            // Bool, Int32, UInt32, Object, Collections: 0 (variable)
         }
 
         // ── Type → ID lookup ──────────────────────────────────────────────────

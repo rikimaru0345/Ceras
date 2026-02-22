@@ -10,9 +10,9 @@ namespace Ceras.Test
 {
     // ── Additional save-test models ───────────────────────────────────────────
 
-    [GenerateFormatter("Hero", VersionTolerant = true)]
+    [GenerateFormatter("SaveHero", VersionTolerant = true)]
     [MemberConfig(TargetMember.PublicFields)]
-    public class Hero
+    public class SaveHero
     {
         [SerializedAs("Name")]
         public string Name;
@@ -61,9 +61,9 @@ namespace Ceras.Test
         [Fact]
         public void Save_ThenLoad_RoundTrips_SimpleObject()
         {
-            var hero = new Hero { Name = "Aria", Level = 12, Hp = 98.5f };
+            var hero = new SaveHero { Name = "Aria", Level = 12, Hp = 98.5f };
             byte[] data  = CerasSave.Save(hero, gameVersion: 1, _ceras);
-            Hero   clone = CerasSave.Load<Hero>(data, currentGameVersion: 1, _ceras);
+            SaveHero   clone = CerasSave.Load<SaveHero>(data, currentGameVersion: 1, _ceras);
 
             Assert.Equal(hero.Name,  clone.Name);
             Assert.Equal(hero.Level, clone.Level);
@@ -73,9 +73,9 @@ namespace Ceras.Test
         [Fact]
         public void Save_ThenLoad_NullString_RoundTrips()
         {
-            var hero = new Hero { Name = null, Level = 5, Hp = 10f };
+            var hero = new SaveHero { Name = null, Level = 5, Hp = 10f };
             byte[] data  = CerasSave.Save(hero, gameVersion: 1, _ceras);
-            Hero   clone = CerasSave.Load<Hero>(data, currentGameVersion: 1, _ceras);
+            SaveHero   clone = CerasSave.Load<SaveHero>(data, currentGameVersion: 1, _ceras);
 
             Assert.Null(clone.Name);
         }
@@ -83,9 +83,9 @@ namespace Ceras.Test
         [Fact]
         public void Save_ThenLoad_ExcludedField_IsDefault()
         {
-            var hero = new Hero { Name = "X", Level = 1, Hp = 1f, CachedDps = 999f };
+            var hero = new SaveHero { Name = "X", Level = 1, Hp = 1f, CachedDps = 999f };
             byte[] data  = CerasSave.Save(hero, gameVersion: 1, _ceras);
-            Hero   clone = CerasSave.Load<Hero>(data, currentGameVersion: 1, _ceras);
+            SaveHero   clone = CerasSave.Load<SaveHero>(data, currentGameVersion: 1, _ceras);
 
             Assert.Equal(0f, clone.CachedDps);
         }
@@ -106,7 +106,7 @@ namespace Ceras.Test
         [Fact]
         public void Header_MagicBytes_Are_CERA()
         {
-            byte[] data = CerasSave.Save(new Hero(), gameVersion: 1, _ceras);
+            byte[] data = CerasSave.Save(new SaveHero(), gameVersion: 1, _ceras);
             Assert.Equal((byte)'C', data[0]);
             Assert.Equal((byte)'E', data[1]);
             Assert.Equal((byte)'R', data[2]);
@@ -116,14 +116,14 @@ namespace Ceras.Test
         [Fact]
         public void Header_FormatVersion_IsOne()
         {
-            byte[] data = CerasSave.Save(new Hero(), gameVersion: 1, _ceras);
+            byte[] data = CerasSave.Save(new SaveHero(), gameVersion: 1, _ceras);
             Assert.Equal(CerasSave.FormatVersion, data[CerasSave.OffsetFormatVersion]);
         }
 
         [Fact]
         public void Header_GameVersion_RoundTrips()
         {
-            byte[] data = CerasSave.Save(new Hero(), gameVersion: 42u, _ceras);
+            byte[] data = CerasSave.Save(new SaveHero(), gameVersion: 42u, _ceras);
             uint gv = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(CerasSave.OffsetGameVersion));
             Assert.Equal(42u, gv);
         }
@@ -131,7 +131,7 @@ namespace Ceras.Test
         [Fact]
         public void Header_Fingerprint_MatchesRegistry()
         {
-            byte[]  data = CerasSave.Save(new Hero(), gameVersion: 1, _ceras);
+            byte[]  data = CerasSave.Save(new SaveHero(), gameVersion: 1, _ceras);
             ulong   fp   = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(CerasSave.OffsetFingerprint));
             Assert.Equal(SavegameSchemaRegistry.ComputeFingerprint(), fp);
         }
@@ -139,7 +139,7 @@ namespace Ceras.Test
         [Fact]
         public void Header_DataOffset_IsAfterSchemaSection()
         {
-            byte[] data = CerasSave.Save(new Hero(), gameVersion: 1, _ceras);
+            byte[] data = CerasSave.Save(new SaveHero(), gameVersion: 1, _ceras);
             long dataOff = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(CerasSave.OffsetDataSection));
             Assert.True(dataOff > CerasSave.HeaderSize,
                 $"Data section offset ({dataOff}) should be after the header ({CerasSave.HeaderSize}).");
@@ -148,7 +148,7 @@ namespace Ceras.Test
         [Fact]
         public void Header_StringTableOffset_IsAfterDataSection()
         {
-            byte[] data = CerasSave.Save(new Hero(), gameVersion: 1, _ceras);
+            byte[] data = CerasSave.Save(new SaveHero(), gameVersion: 1, _ceras);
             long dataOff   = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(CerasSave.OffsetDataSection));
             long tableOff  = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(CerasSave.OffsetStringTable));
             Assert.True(tableOff > dataOff,
@@ -158,7 +158,7 @@ namespace Ceras.Test
         [Fact]
         public void TotalLength_IsAtLeastHeaderSize()
         {
-            byte[] data = CerasSave.Save(new Hero(), gameVersion: 1, _ceras);
+            byte[] data = CerasSave.Save(new SaveHero(), gameVersion: 1, _ceras);
             Assert.True(data.Length >= CerasSave.HeaderSize);
         }
 
@@ -189,25 +189,25 @@ namespace Ceras.Test
         [Fact]
         public void Load_BadMagic_Throws()
         {
-            byte[] data = CerasSave.Save(new Hero(), gameVersion: 1, _ceras);
+            byte[] data = CerasSave.Save(new SaveHero(), gameVersion: 1, _ceras);
             data[0] = (byte)'X'; // corrupt magic
             Assert.Throws<InvalidOperationException>(
-                () => CerasSave.Load<Hero>(data, currentGameVersion: 1, _ceras));
+                () => CerasSave.Load<SaveHero>(data, currentGameVersion: 1, _ceras));
         }
 
         [Fact]
         public void Load_SaveVersionNewerThanCurrent_Throws()
         {
-            byte[] data = CerasSave.Save(new Hero(), gameVersion: 10, _ceras);
+            byte[] data = CerasSave.Save(new SaveHero(), gameVersion: 10, _ceras);
             Assert.Throws<InvalidOperationException>(
-                () => CerasSave.Load<Hero>(data, currentGameVersion: 5, _ceras));
+                () => CerasSave.Load<SaveHero>(data, currentGameVersion: 5, _ceras));
         }
 
         [Fact]
         public void Load_SaveVersionEqualsCurrentVersion_Succeeds()
         {
-            byte[] data  = CerasSave.Save(new Hero { Name = "V", Level = 1, Hp = 1 }, gameVersion: 7, _ceras);
-            Hero   clone = CerasSave.Load<Hero>(data, currentGameVersion: 7, _ceras);
+            byte[] data  = CerasSave.Save(new SaveHero { Name = "V", Level = 1, Hp = 1 }, gameVersion: 7, _ceras);
+            SaveHero   clone = CerasSave.Load<SaveHero>(data, currentGameVersion: 7, _ceras);
             Assert.Equal("V", clone.Name);
         }
 
@@ -215,8 +215,8 @@ namespace Ceras.Test
         public void Load_SaveVersionOlderThanCurrent_Succeeds()
         {
             // Same schema — no migration needed, just an older game version
-            byte[] data  = CerasSave.Save(new Hero { Name = "Old", Level = 3, Hp = 5 }, gameVersion: 1, _ceras);
-            Hero   clone = CerasSave.Load<Hero>(data, currentGameVersion: 99, _ceras);
+            byte[] data  = CerasSave.Save(new SaveHero { Name = "Old", Level = 3, Hp = 5 }, gameVersion: 1, _ceras);
+            SaveHero   clone = CerasSave.Load<SaveHero>(data, currentGameVersion: 99, _ceras);
             Assert.Equal("Old", clone.Name);
         }
 
@@ -224,21 +224,26 @@ namespace Ceras.Test
         public void Load_TooShort_Throws()
         {
             Assert.Throws<InvalidOperationException>(
-                () => CerasSave.Load<Hero>(new byte[4], currentGameVersion: 1, _ceras));
+                () => CerasSave.Load<SaveHero>(new byte[4], currentGameVersion: 1, _ceras));
         }
 
         [Fact]
         public void Load_FingerprintMismatch_TriggersSlowPath_AndSucceeds()
         {
-            var hero = new Hero { Name = "V", Level = 1, Hp = 1f };
+            var hero = new SaveHero { Name = "V", Level = 1, Hp = 1f };
             byte[] data = CerasSave.Save(hero, gameVersion: 1, _ceras);
 
             // Corrupt the fingerprint in the header to force slow path
             BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(CerasSave.OffsetFingerprint), 0xDEADBEEFCAFEBABEul);
 
+            // Recalculate checksum
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(CerasSave.OffsetChecksum), 0);
+            uint crc = Helpers.HashHelpers.CalculateCrc32(data);
+            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(CerasSave.OffsetChecksum), crc);
+
             // Slow path: schema section in the file matches current schema exactly
             // -> migration plan has no changes -> values are read correctly
-            Hero clone = CerasSave.Load<Hero>(data, currentGameVersion: 1, _ceras);
+            SaveHero clone = CerasSave.Load<SaveHero>(data, currentGameVersion: 1, _ceras);
             Assert.Equal(hero.Name,  clone.Name);
             Assert.Equal(hero.Level, clone.Level);
             Assert.Equal(hero.Hp,    clone.Hp);

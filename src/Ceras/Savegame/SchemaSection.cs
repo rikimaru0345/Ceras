@@ -1,51 +1,31 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace Ceras.Savegame
 {
     // ── Old-schema data model (used by migration engine) ─────────────────────
 
-    /// <summary>
-    /// Describes a single type as found in a save file's schema section.
-    /// All names are stored as plain strings — the type may no longer exist in
-    /// the current codebase. No type resolution is performed during reading.
-    /// </summary>
     public sealed class OldTypeSchema
     {
         public int            TypeId        { get; }
         public string         StableName    { get; }
         public string[]       PreviousNames { get; }
         public SchemaTypeKind Kind          { get; }
-
-        /// <summary>Struct/class fields. Empty for enums and generic instantiations.</summary>
         public OldFieldSchema[] Fields      { get; }
-
-        /// <summary>Enum name→value pairs. Empty for structs/classes.</summary>
         public OldEnumValue[] EnumValues    { get; }
-
-        /// <summary>Fixed byte size written in the schema (0 = variable).</summary>
         public int FixedByteSize            { get; }
-
-        /// <summary>
-        /// For <see cref="SchemaTypeKind.Enum"/>: the well-known type-ID of the
-        /// underlying integer type.
-        /// For <see cref="SchemaTypeKind.GenericInstantiation"/>: the type-ID of
-        /// the open generic definition.
-        /// </summary>
         public int DefinitionTypeId { get; }
-
-        /// <summary>Type-ID arguments for generic instantiations. Empty otherwise.</summary>
         public int[] ArgTypeIds { get; }
 
-        /// <summary>Struct or class constructor.</summary>
         internal OldTypeSchema(int typeId, string stableName, string[] previousNames,
             SchemaTypeKind kind, OldFieldSchema[] fields, int fixedByteSize)
         {
             TypeId        = typeId;
-            StableName    = stableName;
-            PreviousNames = previousNames;
+            StableName    = stableName ?? "";
+            PreviousNames = previousNames ?? Array.Empty<string>();
             Kind          = kind;
             Fields        = fields   ?? Array.Empty<OldFieldSchema>();
             EnumValues    = Array.Empty<OldEnumValue>();
@@ -53,27 +33,25 @@ namespace Ceras.Savegame
             FixedByteSize = fixedByteSize;
         }
 
-        /// <summary>Enum constructor.</summary>
         internal OldTypeSchema(int typeId, string stableName, string[] previousNames,
             int underlyingTypeId, OldEnumValue[] enumValues)
         {
             TypeId          = typeId;
-            StableName      = stableName;
-            PreviousNames   = previousNames;
+            StableName      = stableName ?? "";
+            PreviousNames   = previousNames ?? Array.Empty<string>();
             Kind            = SchemaTypeKind.Enum;
             DefinitionTypeId = underlyingTypeId;
             EnumValues      = enumValues ?? Array.Empty<OldEnumValue>();
             Fields          = Array.Empty<OldFieldSchema>();
-            ArgTypeIds      = Array.Empty<int>();
+            ArgTypeIds       = Array.Empty<int>();
         }
 
-        /// <summary>Generic instantiation constructor.</summary>
         internal OldTypeSchema(int typeId, string stableName, string[] previousNames,
             int definitionTypeId, int[] argTypeIds)
         {
             TypeId           = typeId;
-            StableName       = stableName;
-            PreviousNames    = previousNames;
+            StableName       = stableName ?? "";
+            PreviousNames    = previousNames ?? Array.Empty<string>();
             Kind             = SchemaTypeKind.GenericInstantiation;
             DefinitionTypeId = definitionTypeId;
             ArgTypeIds       = argTypeIds ?? Array.Empty<int>();
@@ -82,7 +60,6 @@ namespace Ceras.Savegame
         }
     }
 
-    /// <summary>Describes one field from an <see cref="OldTypeSchema"/>.</summary>
     public sealed class OldFieldSchema
     {
         public string   StableName    { get; }
@@ -92,62 +69,48 @@ namespace Ceras.Savegame
 
         internal OldFieldSchema(string stableName, string[] previousNames, int typeId, bool isMonomorphic)
         {
-            StableName    = stableName;
+            StableName    = stableName ?? "";
             PreviousNames = previousNames ?? Array.Empty<string>();
             TypeId        = typeId;
             IsMonomorphic = isMonomorphic;
         }
     }
 
-    /// <summary>One name→value entry from an enum type's schema.</summary>
     public sealed class OldEnumValue
     {
         public string Name  { get; }
         public long   Value { get; }
-        internal OldEnumValue(string name, long value) { Name = name; Value = value; }
+        internal OldEnumValue(string name, long value) { Name = name ?? ""; Value = value; }
     }
 
-    // ── Schema section binary writer/reader ───────────────────────────────────
-
-    /// <summary>
-    /// Writes and reads the schema section of a Ceras savegame file.
-    ///
-    /// The schema section is a self-describing binary block that records every
-    /// version-tolerant user type, its fields, and the fixed-byte-size annotation
-    /// needed for O(1) skipping. It uses only inline (non-string-table) UTF-8
-    /// strings because it is a one-time parse during migration.
-    ///
-    /// Wire format — see docs/SAVEGAME_FORMAT.md for the authoritative spec.
-    /// </summary>
     public static class SchemaSection
     {
-        // ── Write ─────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Serializes all types currently registered in <see cref="SavegameSchemaRegistry"/>
-        /// into <paramref name="buffer"/> at <paramref name="offset"/>.
-        /// The buffer is grown as needed (standard Ceras convention).
-        /// </summary>
-        public static void Write(ref byte[] buffer, ref int offset)
+        public static Dictionary<Type, int> Write(ref byte[] buffer, ref int offset)
         {
-            // Snapshot and sort by type-ID for deterministic output
-            var entries = new List<(Type type, int id, SchemaTypeInfo info)>(
-                SavegameSchemaRegistry.All());
-            entries.Sort((a, b) => a.id.CompareTo(b.id));
+            var registered = new List<(Type type, int id, SchemaTypeInfo info)>(SavegameSchemaRegistry.All());
+            var typeToId = new Dictionary<Type, int>();
+            var clrNameToId = new Dictionary<string, int>(StringComparer.Ordinal);
+            
+            foreach (var (type, id, _) in registered)
+            {
+                if (type == null) continue;
+                typeToId[type] = id;
+                clrNameToId[type.FullName ?? type.Name] = id;
+            }
 
-            // Build a CLR-name → type-ID map for field type resolution
-            var clrNameToId = BuildClrNameToIdMap(entries);
+            WriteLeb128(ref buffer, ref offset, (uint)registered.Count);
 
-            WriteLeb128(ref buffer, ref offset, (uint)entries.Count);
-
-            foreach (var (_, id, info) in entries)
+            foreach (var (type, id, info) in registered)
             {
                 WriteLeb128(ref buffer, ref offset, (uint)id);
                 WriteInlineString(ref buffer, ref offset, info.StableName);
 
-                WriteLeb128(ref buffer, ref offset, (uint)info.PreviousTypeNames.Length);
-                foreach (var prev in info.PreviousTypeNames)
-                    WriteInlineString(ref buffer, ref offset, prev);
+                WriteLeb128(ref buffer, ref offset, (uint)(info.PreviousTypeNames?.Length ?? 0));
+                if (info.PreviousTypeNames != null)
+                {
+                    foreach (var prev in info.PreviousTypeNames)
+                        WriteInlineString(ref buffer, ref offset, prev);
+                }
 
                 EnsureCapacity(ref buffer, offset + 1);
                 buffer[offset++] = (byte)info.Kind;
@@ -158,32 +121,41 @@ namespace Ceras.Savegame
                         int underlyingId = ResolveFieldTypeId(info.UnderlyingTypeName, clrNameToId);
                         if (underlyingId == WellKnownTypes.Null) underlyingId = WellKnownTypes.Int32;
                         WriteLeb128(ref buffer, ref offset, (uint)underlyingId);
-                        WriteLeb128(ref buffer, ref offset, (uint)info.EnumValues.Length);
-                        foreach (var ev in info.EnumValues)
+                        WriteLeb128(ref buffer, ref offset, (uint)(info.EnumValues?.Length ?? 0));
+                        if (info.EnumValues != null)
                         {
-                            WriteInlineString(ref buffer, ref offset, ev.Name);
-                            EnsureCapacity(ref buffer, offset + 8);
-                            BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(offset), ev.Value);
-                            offset += 8;
+                            foreach (var ev in info.EnumValues)
+                            {
+                                WriteInlineString(ref buffer, ref offset, ev.Name);
+                                EnsureCapacity(ref buffer, offset + 8);
+                                BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(offset), ev.Value);
+                                offset += 8;
+                            }
                         }
                         break;
 
                     case SchemaTypeKind.Struct:
                     case SchemaTypeKind.Class:
-                        WriteLeb128(ref buffer, ref offset, (uint)info.Fields.Length);
-                        foreach (var field in info.Fields)
+                        WriteLeb128(ref buffer, ref offset, (uint)(info.Fields?.Length ?? 0));
+                        if (info.Fields != null)
                         {
-                            WriteInlineString(ref buffer, ref offset, field.StableName);
+                            foreach (var field in info.Fields)
+                            {
+                                WriteInlineString(ref buffer, ref offset, field.StableName);
 
-                            WriteLeb128(ref buffer, ref offset, (uint)field.PreviousNames.Length);
-                            foreach (var pn in field.PreviousNames)
-                                WriteInlineString(ref buffer, ref offset, pn);
+                                WriteLeb128(ref buffer, ref offset, (uint)(field.PreviousNames?.Length ?? 0));
+                                if (field.PreviousNames != null)
+                                {
+                                    foreach (var pn in field.PreviousNames)
+                                        WriteInlineString(ref buffer, ref offset, pn);
+                                }
 
-                            int fieldTypeId = ResolveFieldTypeId(field.TypeName, clrNameToId);
-                            WriteLeb128(ref buffer, ref offset, (uint)fieldTypeId);
+                                int fieldTypeId = ResolveFieldTypeId(field.TypeName, clrNameToId);
+                                WriteLeb128(ref buffer, ref offset, (uint)fieldTypeId);
 
-                            EnsureCapacity(ref buffer, offset + 1);
-                            buffer[offset++] = (byte)(field.IsMonomorphic ? 1 : 0);
+                                EnsureCapacity(ref buffer, offset + 1);
+                                buffer[offset++] = (byte)(field.IsMonomorphic ? 1 : 0);
+                            }
                         }
                         WriteLeb128(ref buffer, ref offset, (uint)info.FixedByteSize);
                         break;
@@ -191,26 +163,62 @@ namespace Ceras.Savegame
                     case SchemaTypeKind.GenericInstantiation:
                         int defId = ResolveFieldTypeId(info.UnderlyingTypeName, clrNameToId);
                         WriteLeb128(ref buffer, ref offset, (uint)defId);
-                        WriteLeb128(ref buffer, ref offset, (uint)info.ArgTypeNames.Length);
-                        foreach (var argName in info.ArgTypeNames)
+                        WriteLeb128(ref buffer, ref offset, (uint)(info.ArgTypeNames?.Length ?? 0));
+                        if (info.ArgTypeNames != null)
                         {
-                            int argId = ResolveFieldTypeId(argName, clrNameToId);
-                            WriteLeb128(ref buffer, ref offset, (uint)argId);
+                            foreach (var argName in info.ArgTypeNames)
+                            {
+                                int argId = ResolveFieldTypeId(argName, clrNameToId);
+                                WriteLeb128(ref buffer, ref offset, (uint)argId);
+                            }
                         }
                         break;
                 }
             }
+
+            return typeToId;
         }
 
-        // ── Read ──────────────────────────────────────────────────────────────
+        static int ResolveWellKnownId(string typeName)
+        {
+            if (typeName == null) return -1;
+            return typeName switch
+            {
+                "System.Boolean"  => WellKnownTypes.Bool,
+                "System.Byte"     => WellKnownTypes.Byte,
+                "System.SByte"    => WellKnownTypes.SByte,
+                "System.Char"     => WellKnownTypes.Char,
+                "System.Int16"    => WellKnownTypes.Int16,
+                "System.UInt16"   => WellKnownTypes.UInt16,
+                "System.Int32"    => WellKnownTypes.Int32,
+                "System.UInt32"   => WellKnownTypes.UInt32,
+                "System.Single"   => WellKnownTypes.Single,
+                "System.Int64"    => WellKnownTypes.Int64,
+                "System.UInt64"   => WellKnownTypes.UInt64,
+                "System.Double"   => WellKnownTypes.Double,
+                "System.Decimal"  => WellKnownTypes.Decimal,
+                "System.String"   => WellKnownTypes.String,
+                "System.Object"   => WellKnownTypes.Object,
+                "System.DateTime" => WellKnownTypes.DateTime,
+                "System.TimeSpan" => WellKnownTypes.TimeSpan,
+                "System.Guid"     => WellKnownTypes.Guid,
+                "System.Array"    => WellKnownTypes.Array,
+                "System.Collections.Generic.List`1" => WellKnownTypes.List,
+                _                 => -1,
+            };
+        }
 
-        /// <summary>
-        /// Deserializes the schema section from <paramref name="buffer"/> and
-        /// returns a dictionary keyed by stable name (and all previous names).
-        ///
-        /// No type resolution is performed — types that have been deleted from the
-        /// codebase are still represented in the returned map.
-        /// </summary>
+        static int ResolveFieldTypeId(string typeName, Dictionary<string, int> clrNameToId)
+        {
+            int wk = ResolveWellKnownId(typeName);
+            if (wk >= 0) return wk;
+
+            if (typeName != null && clrNameToId.TryGetValue(typeName, out int id))
+                return id;
+
+            return WellKnownTypes.Null;
+        }
+
         public static Dictionary<string, OldTypeSchema> Read(byte[] buffer, ref int offset)
         {
             var byName = new Dictionary<string, OldTypeSchema>(StringComparer.Ordinal);
@@ -288,68 +296,14 @@ namespace Ceras.Savegame
 
                 byName[stableName] = schema;
                 foreach (var pn in prevNames)
-                    byName.TryAdd(pn, schema);
+                    if (pn != null) byName[pn] = schema;
             }
 
             return byName;
         }
 
-        // ── Private helpers ───────────────────────────────────────────────────
-
-        /// <summary>
-        /// Builds a CLR full-name → type-ID map from the current registry entries.
-        /// Used during <see cref="Write"/> to resolve field type names to IDs.
-        /// </summary>
-        static Dictionary<string, int> BuildClrNameToIdMap(
-            List<(Type type, int id, SchemaTypeInfo info)> entries)
-        {
-            var map = new Dictionary<string, int>(entries.Count, StringComparer.Ordinal);
-            foreach (var (type, id, _) in entries)
-                map.TryAdd(type.FullName, id);
-            return map;
-        }
-
-        static int ResolveFieldTypeId(string typeName, Dictionary<string, int> userTypeMap)
-        {
-            // Well-known CLR names
-            int wk = typeName switch
-            {
-                "System.Boolean"  => WellKnownTypes.Bool,
-                "System.Byte"     => WellKnownTypes.Byte,
-                "System.SByte"    => WellKnownTypes.SByte,
-                "System.Char"     => WellKnownTypes.Char,
-                "System.Int16"    => WellKnownTypes.Int16,
-                "System.UInt16"   => WellKnownTypes.UInt16,
-                "System.Int32"    => WellKnownTypes.Int32,
-                "System.UInt32"   => WellKnownTypes.UInt32,
-                "System.Single"   => WellKnownTypes.Single,
-                "System.Int64"    => WellKnownTypes.Int64,
-                "System.UInt64"   => WellKnownTypes.UInt64,
-                "System.Double"   => WellKnownTypes.Double,
-                "System.Decimal"  => WellKnownTypes.Decimal,
-                "System.String"   => WellKnownTypes.String,
-                "System.Object"   => WellKnownTypes.Object,
-                "System.DateTime" => WellKnownTypes.DateTime,
-                "System.TimeSpan" => WellKnownTypes.TimeSpan,
-                "System.Guid"     => WellKnownTypes.Guid,
-                _                 => -1,
-            };
-            if (wk >= 0)
-                return wk;
-
-            // User-defined type registered in the current session
-            if (userTypeMap.TryGetValue(typeName, out int userId))
-                return userId;
-
-            // Unknown — write 0 (Null); the migration engine will handle accordingly
-            return WellKnownTypes.Null;
-        }
-
-        // ── LEB128 ────────────────────────────────────────────────────────────
-
         internal static void WriteLeb128(ref byte[] buffer, ref int offset, uint value)
         {
-            // At most 5 bytes for uint32
             EnsureCapacity(ref buffer, offset + 5);
             while (value >= 0x80)
             {
@@ -375,9 +329,7 @@ namespace Ceras.Savegame
             }
         }
 
-        // ── Inline strings (length-prefixed UTF-8) ────────────────────────────
-
-        static void WriteInlineString(ref byte[] buffer, ref int offset, string s)
+        internal static void WriteInlineString(ref byte[] buffer, ref int offset, string s)
         {
             if (s is null) s = string.Empty;
             int byteCount = Encoding.UTF8.GetByteCount(s);
@@ -387,15 +339,13 @@ namespace Ceras.Savegame
             offset += byteCount;
         }
 
-        static string ReadInlineString(byte[] buffer, ref int offset)
+        internal static string ReadInlineString(byte[] buffer, ref int offset)
         {
             uint byteCount = ReadLeb128(buffer, ref offset);
             var  s         = Encoding.UTF8.GetString(buffer, offset, (int)byteCount);
             offset += (int)byteCount;
             return s;
         }
-
-        // ── Buffer growth ─────────────────────────────────────────────────────
 
         static void EnsureCapacity(ref byte[] buffer, int required)
         {

@@ -59,6 +59,7 @@ namespace Ceras.Savegame
 
             config.Advanced.EmbedChecksum = false;
             config.ConfigType<string>().CustomFormatter = new SavegameStringFormatter();
+            config.ConfigType<Type>().CustomFormatter   = new SavegameTypeFormatter();
         }
 
         // ── Save ──────────────────────────────────────────────────────────────
@@ -94,7 +95,7 @@ namespace Ceras.Savegame
             // offset == HeaderSize
 
             // 2. Schema section (immediately after header)
-            SchemaSection.Write(ref buffer, ref offset);
+            var typeToId = SchemaSection.Write(ref buffer, ref offset);
 
             // 3. Root type ID + data section
             int dataStart = offset;
@@ -103,7 +104,7 @@ namespace Ceras.Savegame
             SchemaSection.WriteLeb128(ref buffer, ref offset, (uint)rootTypeId);
 
             var internTable = new StringInternTable();
-            SavegameContext.BeginWrite(internTable);
+            SavegameContext.BeginWrite(internTable, typeToId);
             try
             {
                 int bytesWritten = ceras.Serialize(rootObject, ref buffer, offset);
@@ -117,8 +118,8 @@ namespace Ceras.Savegame
             // 4. String table
             int stringTableStart = internTable.Flush(ref buffer, ref offset);
 
-            // 5. Patch header with real offsets + fingerprint
-            PatchHeader(buffer, gameVersion, dataStart, stringTableStart);
+            // 5. Patch header with real offsets + fingerprint + checksum
+            PatchHeader(buffer, offset, gameVersion, dataStart, stringTableStart);
 
             return buffer[..offset];
         }
@@ -168,48 +169,79 @@ namespace Ceras.Savegame
                     $"Save file was written by game version {saveGameVersion} but the " +
                     $"current version is {currentGameVersion}. Please update the game.");
 
-            // 4. Read offsets from header
+            // 4. Validate checksum (if present)
+            byte flags = data[OffsetFlags];
+            if ((flags & 1) != 0)
+            {
+                uint savedCrc = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetChecksum));
+                // Temporarily zero out checksum for calculation
+                BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(OffsetChecksum), 0);
+                uint actualCrc = Helpers.HashHelpers.CalculateCrc32(data);
+                BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(OffsetChecksum), savedCrc); // restore
+
+                if (savedCrc != actualCrc)
+                    throw new InvalidOperationException("Savegame checksum validation failed. The file may be corrupted.");
+            }
+
+            // 5. Read offsets from header
             ulong schemaFingerprint  = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(OffsetFingerprint));
             long  dataSectionOffset  = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetDataSection));
             long  stringTableOffset  = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetStringTable));
 
-            // 5. Load string table (needed by both fast and slow paths)
+            // 6. Load string table (needed by both fast and slow paths)
             var table = StringTable.Load(data, (int)stringTableOffset);
 
             // 6. Fast path vs slow path
             ulong currentFingerprint = SavegameSchemaRegistry.ComputeFingerprint();
-            if (schemaFingerprint != currentFingerprint)
+            
+            // Build IdToType map from schema in file (always needed for SavegameTypeFormatter)
+            int schemaOffset = HeaderSize;
+            var fileSchemas = SchemaSection.Read(data, ref schemaOffset);
+            var idToType = new System.Collections.Generic.Dictionary<int, Type>();
+            
+            // 1. Well-known types
+            for (int i = 0; i < 128; i++)
             {
-                // Slow path: schema changed — use migration engine
-                int schemaOffset = HeaderSize; // schema section immediately follows header
-                var oldSchemas   = SchemaSection.Read(data, ref schemaOffset);
-
-                int dataOffset = (int)dataSectionOffset;
-                // Skip root type ID
-                SchemaSection.ReadLeb128(data, ref dataOffset);
-
-                var engine = new SchemaTraversalEngine(oldSchemas, table, saveGameVersion);
-                return engine.ReadRoot<T>(data, ref dataOffset);
+                // We need a helper to get well-known Type by ID
+                Type wkType = GetWellKnownType(i);
+                if (wkType != null) idToType[i] = wkType;
             }
 
-            // 7. Fast path: skip to data section, deserialize
-            int offset = (int)dataSectionOffset;
+            // 2. File types
+            foreach (var s in fileSchemas.Values)
+            {
+                if (SavegameSchemaRegistry.TryResolveType(s.StableName, out var type))
+                    idToType[s.TypeId] = type;
+            }
 
-            // Skip root type ID (written by Save; on fast path we don't need it)
-            SchemaSection.ReadLeb128(data, ref offset);
-
-            SavegameContext.BeginRead(table);
-            T value = default;
+            SavegameContext.BeginRead(table, idToType);
             try
             {
+                if (schemaFingerprint != currentFingerprint)
+                {
+                    // Slow path: schema changed — use migration engine
+                    int dataOffset = (int)dataSectionOffset;
+                    // Skip root type ID
+                    SchemaSection.ReadLeb128(data, ref dataOffset);
+
+                    var engine = new SchemaTraversalEngine(fileSchemas, table, saveGameVersion);
+                    return engine.ReadRoot<T>(data, ref dataOffset);
+                }
+
+                // Fast path: skip to data section, deserialize
+                int offset = (int)dataSectionOffset;
+
+                // Skip root type ID (written by Save; on fast path we don't need it)
+                SchemaSection.ReadLeb128(data, ref offset);
+
+                T value = default;
                 ceras.Deserialize(ref value, data, ref offset);
+                return value;
             }
             finally
             {
                 SavegameContext.End();
             }
-
-            return value;
         }
 
         // ── Header helpers ────────────────────────────────────────────────────
@@ -234,8 +266,8 @@ namespace Ceras.Savegame
             // Fingerprint — zero placeholder (patched in PatchHeader)
             offset += 8;
 
-            // Flags — zero (no checksum by default)
-            buffer[offset++] = 0;
+            // Flags — bit 0: has checksum (always true for now)
+            buffer[offset++] = 1;
 
             // Data section offset — zero placeholder
             offset += 8;
@@ -249,7 +281,7 @@ namespace Ceras.Savegame
             // Assert offset == HeaderSize
         }
 
-        static void PatchHeader(byte[] buffer, uint gameVersion, long dataSectionOffset, long stringTableOffset)
+        static void PatchHeader(byte[] buffer, int totalLength, uint gameVersion, long dataSectionOffset, long stringTableOffset)
         {
             // Fingerprint
             ulong fp = SavegameSchemaRegistry.ComputeFingerprint();
@@ -261,8 +293,10 @@ namespace Ceras.Savegame
             // String table offset
             BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(OffsetStringTable), stringTableOffset);
 
-            // Checksum: 0 for now (Phase 6 adds CRC32)
+            // Checksum (calculated with checksum field = 0)
             BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(OffsetChecksum), 0);
+            uint crc = Helpers.HashHelpers.CalculateCrc32(buffer.AsSpan(0, totalLength));
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(OffsetChecksum), crc);
         }
 
         // ── Type-ID resolution ────────────────────────────────────────────────
@@ -274,6 +308,32 @@ namespace Ceras.Savegame
             if (SavegameSchemaRegistry.TryGetId(type, out id))
                 return id;
             return WellKnownTypes.Null;
+        }
+
+        static Type GetWellKnownType(int id)
+        {
+            return id switch
+            {
+                WellKnownTypes.Bool     => typeof(bool),
+                WellKnownTypes.Byte     => typeof(byte),
+                WellKnownTypes.SByte    => typeof(sbyte),
+                WellKnownTypes.Char     => typeof(char),
+                WellKnownTypes.Int16    => typeof(short),
+                WellKnownTypes.UInt16   => typeof(ushort),
+                WellKnownTypes.Int32    => typeof(int),
+                WellKnownTypes.UInt32   => typeof(uint),
+                WellKnownTypes.Single   => typeof(float),
+                WellKnownTypes.Int64    => typeof(long),
+                WellKnownTypes.UInt64   => typeof(ulong),
+                WellKnownTypes.Double   => typeof(double),
+                WellKnownTypes.Decimal  => typeof(decimal),
+                WellKnownTypes.String   => typeof(string),
+                WellKnownTypes.Object   => typeof(object),
+                WellKnownTypes.DateTime => typeof(DateTime),
+                WellKnownTypes.TimeSpan => typeof(TimeSpan),
+                WellKnownTypes.Guid     => typeof(Guid),
+                _                       => null,
+            };
         }
 
         // ── Buffer growth ─────────────────────────────────────────────────────

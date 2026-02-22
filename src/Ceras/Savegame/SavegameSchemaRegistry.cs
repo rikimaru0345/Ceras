@@ -24,6 +24,20 @@ namespace Ceras.Savegame
         static ulong? _fingerprint = null;
         static readonly object _lock = new();
 
+        /// <summary>
+        /// Clears all registered types. Used for testing.
+        /// </summary>
+        internal static void Clear()
+        {
+            lock (_lock)
+            {
+                ByType.Clear();
+                ByStableName.Clear();
+                _nextId = WellKnownTypes.UserTypeBase;
+                _fingerprint = null;
+            }
+        }
+
         // ── Registration ─────────────────────────────────────────────────────
 
         /// <summary>
@@ -84,8 +98,13 @@ namespace Ceras.Savegame
         /// <summary>Enumerates all registered entries in registration order.</summary>
         public static IEnumerable<(Type type, int id, SchemaTypeInfo info)> All()
         {
-            foreach (var kv in ByType)
-                yield return (kv.Key, kv.Value.Id, kv.Value.Info);
+            lock (_lock)
+            {
+                var copy = new List<(Type type, int id, SchemaTypeInfo info)>(ByType.Count);
+                foreach (var kv in ByType)
+                    copy.Add((kv.Key, kv.Value.Id, kv.Value.Info));
+                return copy;
+            }
         }
 
         // ── Fingerprint ───────────────────────────────────────────────────────
@@ -101,31 +120,42 @@ namespace Ceras.Savegame
                 if (_fingerprint.HasValue)
                     return _fingerprint.Value;
 
-            // Canonical order: sort entries by stable name for determinism
-            var sorted = new List<Entry>(ByType.Count);
-            foreach (var e in ByType.Values)
-                sorted.Add(e);
-            sorted.Sort((a, b) => string.Compare(
-                a.Info.StableName, b.Info.StableName, StringComparison.Ordinal));
+                var sorted = new List<Entry>(ByType.Count);
+                foreach (var e in ByType.Values)
+                    sorted.Add(e);
+                sorted.Sort((a, b) => string.Compare(
+                    a.Info.StableName, b.Info.StableName, StringComparison.Ordinal));
 
-            // Build a canonical byte stream and hash it with xxHash
-            // Using two combined uint hashes to give a 64-bit result
-            uint h1 = 0, h2 = 0x9e3779b9u;
-            foreach (var entry in sorted)
-            {
-                var info = entry.Info;
-                h1 = Combine(h1, Hash(info.StableName));
-                foreach (var f in info.Fields)
+                uint h1 = 0, h2 = 0x9e3779b9u;
+                foreach (var entry in sorted)
                 {
-                    h1 = Combine(h1, Hash(f.StableName));
-                    h2 = Combine(h2, Hash(f.TypeName));
-                    h2 = Combine(h2, (uint)(f.IsMonomorphic ? 1 : 0));
+                    var info = entry.Info;
+                    h1 = Combine(h1, Hash(info.StableName));
+                    h2 = Combine(h2, (uint)info.Kind);
+                    
+                    if (info.Fields != null)
+                    {
+                        foreach (var f in info.Fields)
+                        {
+                            h1 = Combine(h1, Hash(f.StableName));
+                            h2 = Combine(h2, Hash(f.TypeName));
+                            h2 = Combine(h2, (uint)(f.IsMonomorphic ? 1 : 0));
+                        }
+                    }
+
+                    if (info.EnumValues != null)
+                    {
+                        foreach (var ev in info.EnumValues)
+                        {
+                            h1 = Combine(h1, Hash(ev.Name));
+                            h2 = Combine(h2, (uint)ev.Value);
+                        }
+                    }
                 }
-            }
 
                 _fingerprint = ((ulong)h1 << 32) | h2;
-            return _fingerprint.Value;
-            } // lock
+                return _fingerprint.Value;
+            } 
         }
 
         static uint Hash(string s)

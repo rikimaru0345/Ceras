@@ -29,6 +29,7 @@ namespace Ceras.Savegame
         public string[]       AddedFieldNames;
         public bool           HasChanges;
         public MethodInfo     OnAfterDeserialize; // method taking MigrationContext, or null
+        public Dictionary<long, long> EnumValueMap;
     }
 
     static class MigrationPlanBuilder
@@ -37,6 +38,8 @@ namespace Ceras.Savegame
             Dictionary<string, OldTypeSchema> oldByName)
         {
             var result = new Dictionary<string, TypeMigrationPlan>(StringComparer.Ordinal);
+            var oldById = new Dictionary<int, OldTypeSchema>();
+            foreach (var s in oldByName.Values) oldById.TryAdd(s.TypeId, s);
 
             foreach (var kv in oldByName)
             {
@@ -44,20 +47,27 @@ namespace Ceras.Savegame
                 // Only index by the canonical stable name (not aliases)
                 if (kv.Key != old.StableName) continue;
                 if (result.ContainsKey(old.StableName)) continue;
-                if (old.Kind == SchemaTypeKind.Enum || old.Kind == SchemaTypeKind.GenericInstantiation)
+                if (old.Kind == SchemaTypeKind.GenericInstantiation)
                     continue;
 
-                result[old.StableName] = BuildOne(old);
+                result[old.StableName] = BuildOne(old, oldById);
             }
 
             return result;
         }
 
-        static TypeMigrationPlan BuildOne(OldTypeSchema old)
+        static TypeMigrationPlan BuildOne(OldTypeSchema old, Dictionary<int, OldTypeSchema> oldById)
         {
             SavegameSchemaRegistry.TryResolveType(old.StableName, out Type currentType);
 
             var plan = new TypeMigrationPlan { CurrentType = currentType };
+
+            if (old.Kind == SchemaTypeKind.Enum)
+            {
+                if (currentType != null && currentType.IsEnum)
+                    plan.EnumValueMap = BuildEnumMap(old, currentType);
+                return plan;
+            }
 
             if (currentType == null)
             {
@@ -81,7 +91,7 @@ namespace Ceras.Savegame
                 {
                     coerce = DetectCoercion(oldField.TypeId, newField.FieldType);
                     bool compatible = coerce != CoercionKind.None
-                        || TypeIdsCompatible(oldField.TypeId, newField.FieldType);
+                        || TypeIdsCompatible(oldField.TypeId, newField.FieldType, oldById);
                     if (!compatible)
                         newField = null;
                     else
@@ -168,11 +178,32 @@ namespace Ceras.Savegame
             return CoercionKind.None;
         }
 
-        static bool TypeIdsCompatible(int oldTypeId, Type newFieldType)
+        static bool TypeIdsCompatible(int oldTypeId, Type newFieldType, Dictionary<int, OldTypeSchema> oldById)
         {
+            // 1. Well-known ID match
             if (WellKnownTypes.TryGetId(newFieldType, out int newId))
-                return oldTypeId == newId;
-            return SavegameSchemaRegistry.TryGetId(newFieldType, out _);
+            {
+                if (oldTypeId == newId) return true;
+
+                // Generic case: old List<int> (201) vs current List<int> (newId=17)
+                if (oldById.TryGetValue(oldTypeId, out var old) && old.Kind == SchemaTypeKind.GenericInstantiation)
+                    return old.DefinitionTypeId == newId;
+
+                return false;
+            }
+
+            // 2. User type case: Match by stable name
+            if (oldById.TryGetValue(oldTypeId, out var oldSchema))
+            {
+                if (SavegameSchemaRegistry.TryGetInfo(newFieldType, out var currentInfo))
+                {
+                    if (currentInfo.StableName == oldSchema.StableName) return true;
+                    foreach (var prev in currentInfo.PreviousTypeNames)
+                        if (prev == oldSchema.StableName) return true;
+                }
+            }
+
+            return false;
         }
 
         static MethodInfo FindMigrationCallback(Type type)
@@ -186,6 +217,25 @@ namespace Ceras.Savegame
                     return m;
             }
             return null;
+        }
+
+        static Dictionary<long, long> BuildEnumMap(OldTypeSchema old, Type currentType)
+        {
+            var map = new Dictionary<long, long>();
+            var currentNames = Enum.GetNames(currentType);
+            var currentValues = Enum.GetValues(currentType);
+
+            var nameToCurrentValue = new Dictionary<string, long>(StringComparer.Ordinal);
+            for (int i = 0; i < currentNames.Length; i++)
+                nameToCurrentValue[currentNames[i]] = Convert.ToInt64(currentValues.GetValue(i));
+
+            foreach (var oldEv in old.EnumValues)
+            {
+                if (nameToCurrentValue.TryGetValue(oldEv.Name, out long currentVal))
+                    map[oldEv.Value] = currentVal;
+                // If not found, it's missing from the map, which ReadEnumValue will handle
+            }
+            return map;
         }
     }
 }
