@@ -244,9 +244,14 @@ namespace Ceras
             // Array, List, Dictionary, ICollection<T>, ...
             _resolvers.Add(new CollectionFormatterResolver(this));
 
-            // String Formatter should never be wrapped in a RefFormatter, that's too slow and not necessary
+            // String Formatter should never be wrapped in a RefFormatter, that's too slow and not necessary.
+            // If the user explicitly registered a CustomFormatter for string (e.g. SavegameStringFormatter),
+            // use that instead of the built-in StringFormatter.
             IFormatter stringFormatter;
-            if (Config.Advanced.SizeLimits.MaxStringLength < uint.MaxValue)
+            var stringTypeConfig = Config.GetExistingTypeConfig(typeof(string), false);
+            if (stringTypeConfig?.CustomFormatter != null)
+                stringFormatter = stringTypeConfig.CustomFormatter;
+            else if (Config.Advanced.SizeLimits.MaxStringLength < uint.MaxValue)
                 stringFormatter = new MaxSizeStringFormatter(Config.Advanced.SizeLimits.MaxStringLength);
             else
                 stringFormatter = new StringFormatter();
@@ -761,14 +766,9 @@ namespace Ceras
 
 
             // 2.) TypeConfig - Custom Formatter, Custom Resolver
-            // CustomFormatter is respected even for "primitive" types (e.g. string) so that
-            // callers can explicitly replace built-in formatters (e.g. SavegameStringFormatter).
-            // For primitives, meta.TypeConfig is null — query Config directly.
-            var explicitCustomFormatter = meta.TypeConfig?.CustomFormatter
-                ?? (meta.IsPrimitive ? Config.GetTypeConfig(type, false)?.CustomFormatter : null);
-            if (explicitCustomFormatter != null)
+            if (!meta.IsPrimitive && meta.TypeConfig.CustomFormatter != null)
             {
-                meta.SpecificFormatter = explicitCustomFormatter;
+                meta.SpecificFormatter = meta.TypeConfig.CustomFormatter;
                 FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type);
                 PrepareFormatter(meta.SpecificFormatter);
                 return meta.SpecificFormatter;

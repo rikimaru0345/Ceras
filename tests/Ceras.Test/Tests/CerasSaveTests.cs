@@ -164,17 +164,7 @@ namespace Ceras.Test
 
         // ── String table deduplication ────────────────────────────────────────
 
-        [Fact]
-        public void Debug_StringTableContents()
-        {
-            var inv = new SavegameInventory { Gold = 0, Tag = "duplicate", Note = "duplicate" };
-            byte[] data = CerasSave.Save(inv, gameVersion: 1, _ceras);
-            long tableOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(CerasSave.OffsetStringTable));
-            var table = StringTable.Load(data, (int)tableOff);
-            Assert.True(false, "Table length=" + table.Length + " entries: " + string.Join(", ", table.Select((s,i) => i + "=" + (s ?? "null"))));
-        }
-
-        [Fact]
+             [Fact]
         public void DuplicateStrings_WriteOnlyOnce_InStringTable()
         {
             // Tag == Note == "duplicate" → should be interned once

@@ -154,6 +154,15 @@
             return typeConfig;
         }
 
+        // Returns a pre-existing TypeConfig without creating one or firing callbacks.
+        // Used when we only want to check for explicit user configuration (no side effects).
+        internal TypeConfig GetExistingTypeConfig(Type type, bool isStatic)
+        {
+            var configDict = isStatic ? _staticConfigEntries : _configEntries;
+            configDict.TryGetValue(type, out var typeConfig);
+            return typeConfig;
+        }
+
         // Get a TypeConfig for usage, meaning if by now the type has not been configured then
         // use 'OnConfigNewType' as a last chance (or if no callback is set just use the defaults)
         internal TypeConfig GetTypeConfig(Type type, bool isStatic)
