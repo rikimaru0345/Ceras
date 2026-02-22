@@ -1,60 +1,36 @@
+using System;
+using System.Collections.Generic;
+
 namespace Ceras.Savegame
 {
-    /// <summary>
-    /// Thread-local context that bridges <see cref="SavegameStringFormatter"/> to
-    /// the active <see cref="StringInternTable"/> (write) or loaded <c>string[]</c>
-    /// table (read).
-    ///
-    /// Set before calling <c>CerasSerializer.Serialize/Deserialize</c> and cleared
-    /// in a <c>finally</c> block immediately after.  Not thread-safe between
-    /// concurrent save/load operations on the same thread, which is fine — game
-    /// saves are always single-threaded per serializer instance.
-    /// </summary>
-    internal static class SavegameContext
+    static class SavegameContext
     {
-        [System.ThreadStatic]
-        static StringInternTable _writeTable;
+        [ThreadStatic]
+        static ContextData _current;
 
-        [System.ThreadStatic]
-        static string[] _readTable;
+        public static StringInternTable InternTable => _current?.InternTable;
+        public static string[] StringTable => _current?.StringTable;
+        public static Dictionary<Type, int> TypeToId => _current?.TypeToId;
+        public static Dictionary<int, Type> IdToType => _current?.IdToType;
 
-        [System.ThreadStatic]
-        static System.Collections.Generic.Dictionary<System.Type, int> _typeToId;
-
-        [System.ThreadStatic]
-        static System.Collections.Generic.Dictionary<int, System.Type> _idToType;
-
-        /// <summary>The active intern table for the current write operation, or <c>null</c>.</summary>
-        internal static StringInternTable WriteTable => _writeTable;
-
-        /// <summary>The loaded string table for the current read operation, or <c>null</c>.</summary>
-        internal static string[] ReadTable => _readTable;
-
-        internal static System.Collections.Generic.Dictionary<System.Type, int> TypeToId => _typeToId;
-        internal static System.Collections.Generic.Dictionary<int, System.Type> IdToType => _idToType;
-
-        internal static void BeginWrite(StringInternTable table, System.Collections.Generic.Dictionary<System.Type, int> typeToId)
+        public static void BeginWrite(StringInternTable internTable, Dictionary<Type, int> typeToId)
         {
-            _writeTable = table;
-            _typeToId   = typeToId;
-            _readTable  = null;
-            _idToType   = null;
+            _current = new ContextData { InternTable = internTable, TypeToId = typeToId };
         }
 
-        internal static void BeginRead(string[] table, System.Collections.Generic.Dictionary<int, System.Type> idToType)
+        public static void BeginRead(string[] stringTable, Dictionary<int, Type> idToType)
         {
-            _readTable  = table;
-            _idToType   = idToType;
-            _writeTable = null;
-            _typeToId   = null;
+            _current = new ContextData { StringTable = stringTable, IdToType = idToType };
         }
 
-        internal static void End()
+        public static void End() { _current = null; }
+
+        class ContextData
         {
-            _writeTable = null;
-            _readTable  = null;
-            _typeToId   = null;
-            _idToType   = null;
+            public StringInternTable InternTable;
+            public string[] StringTable;
+            public Dictionary<Type, int> TypeToId;
+            public Dictionary<int, Type> IdToType;
         }
     }
 }

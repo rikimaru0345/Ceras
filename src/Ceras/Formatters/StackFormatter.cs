@@ -1,15 +1,9 @@
-﻿using System;
+using System;
+using System.Buffers;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Ceras.Formatters
 {
-#pragma warning disable 0649 // Field is never assigned to (Ceras dependency injection)
-
-    using System.Collections;
-
     public sealed class StackFormatter<TItem> : IFormatter<Stack<TItem>>
     {
         IFormatter<int> _intFormatter;
@@ -20,30 +14,23 @@ namespace Ceras.Formatters
             CerasSerializer.AddFormatterConstructedType(typeof(Stack<TItem>));
         }
 
-        public void Serialize(ref byte[] buffer, ref int offset, Stack<TItem> value)
+        public void Serialize(IBufferWriter<byte> writer, Stack<TItem> value)
         {
-            _intFormatter.Serialize(ref buffer, ref offset, value.Count);
-
-            var itemFormatter = _itemFormatter;
+            _intFormatter.Serialize(writer, value.Count);
             foreach (var item in value)
-                itemFormatter.Serialize(ref buffer, ref offset, item);
+                _itemFormatter.Serialize(writer, item);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref Stack<TItem> value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref Stack<TItem> value)
         {
-            var itemFormatter = _itemFormatter;
-
             int count = 0;
-            _intFormatter.Deserialize(buffer, ref offset, ref count);
+            _intFormatter.Deserialize(ref reader, ref count);
 
-            value = new Stack<TItem>(count);
-            
-            // Deserialize into temporary array
             var ar = new TItem[count];
             for (int i = 0; i < count; i++)
-                itemFormatter.Deserialize(buffer, ref offset, ref ar[i]);
+                _itemFormatter.Deserialize(ref reader, ref ar[i]);
 
-            // Push in reverse order to restore the original stack
+            value = new Stack<TItem>(count);
             for (int i = count - 1; i >= 0; i--)
                 value.Push(ar[i]);
         }

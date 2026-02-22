@@ -80,6 +80,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("using Ceras;");
         sb.AppendLine("using Ceras.Formatters;");
+        sb.AppendLine("using System.Buffers;");
         sb.AppendLine();
         sb.AppendLine("namespace Ceras.Generated");
         sb.AppendLine("{");
@@ -104,7 +105,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
             if (vt)
             {
-                sb.AppendLine($"            global::Ceras.Savegame.SavegameSchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
+                sb.AppendLine($"            config.Savegame.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
             }
         }
 
@@ -304,18 +305,18 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             WriteSchemaDescriptor(sb, type, members, attrs);
 
         // --- Serialize ---------------------------------------------------------
-        sb.AppendLine($"        public void Serialize(ref byte[] buffer, ref int offset, {typeFqn} value)");
+        sb.AppendLine($"        public void Serialize(IBufferWriter<byte> writer, {typeFqn} value)");
         sb.AppendLine("        {");
         foreach (var m in members)
         {
             string fieldName = MakeFormatterFieldName(m.Type);
-            sb.AppendLine($"            {fieldName}.Serialize(ref buffer, ref offset, value.{m.Name});");
+            sb.AppendLine($"            {fieldName}.Serialize(writer, value.{m.Name});");
         }
         sb.AppendLine("        }");
         sb.AppendLine();
 
         // --- Deserialize -------------------------------------------------------
-        sb.AppendLine($"        public void Deserialize(byte[] buffer, ref int offset, ref {typeFqn} value)");
+        sb.AppendLine($"        public void Deserialize(ref SequenceReader<byte> reader, ref {typeFqn} value)");
         sb.AppendLine("        {");
         foreach (var m in members)
         {
@@ -324,13 +325,13 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
             if (m.IsField)
             {
-                sb.AppendLine($"            {fieldName}.Deserialize(buffer, ref offset, ref value.{m.Name});");
+                sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref value.{m.Name});");
             }
             else
             {
                 string tmp = "_tmp" + m.Name;
                 sb.AppendLine($"            {memberTypeFqn} {tmp} = value.{m.Name};");
-                sb.AppendLine($"            {fieldName}.Deserialize(buffer, ref offset, ref {tmp});");
+                sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
                 sb.AppendLine($"            value.{m.Name} = {tmp};");
             }
         }

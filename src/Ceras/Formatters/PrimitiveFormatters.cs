@@ -1,96 +1,97 @@
-﻿using System;
+using System;
+using System.Buffers;
 using System.Linq.Expressions;
 
 namespace Ceras.Formatters
 {
     sealed class ByteFormatter : IFormatter<byte>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, byte value)
+        public void Serialize(IBufferWriter<byte> writer, byte value)
         {
-            SerializerBinary.WriteByte(ref buffer, ref offset, value);
+            SerializerBinary.WriteByte(writer, value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref byte value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref byte value)
         {
-            value = SerializerBinary.ReadByte(buffer, ref offset);
+            value = SerializerBinary.ReadByte(ref reader);
         }
     }
 
     sealed class SByteFormatter : IFormatter<sbyte>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, sbyte value)
+        public void Serialize(IBufferWriter<byte> writer, sbyte value)
         {
-            SerializerBinary.WriteByte(ref buffer, ref offset, (byte)value);
+            SerializerBinary.WriteByte(writer, (byte)value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref sbyte value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref sbyte value)
         {
-            value = (sbyte)SerializerBinary.ReadByte(buffer, ref offset);
+            value = (sbyte)SerializerBinary.ReadByte(ref reader);
         }
     }
 
     sealed class BoolFormatter : IFormatter<bool>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, bool value)
+        public void Serialize(IBufferWriter<byte> writer, bool value)
         {
-            SerializerBinary.WriteInt32(ref buffer, ref offset, value ? 1 : 0);
+            SerializerBinary.WriteInt32(writer, value ? 1 : 0);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref bool value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref bool value)
         {
-            value = SerializerBinary.ReadInt32(buffer, ref offset) != 0;
+            value = SerializerBinary.ReadInt32(ref reader) != 0;
         }
     }
 
     sealed class CharFormatter : IFormatter<char>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, char value)
+        public void Serialize(IBufferWriter<byte> writer, char value)
         {
-            SerializerBinary.WriteInt16Fixed(ref buffer, ref offset, (short)value);
+            SerializerBinary.WriteInt16Fixed(writer, (short)value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref char value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref char value)
         {
-            value = (char)SerializerBinary.ReadInt16Fixed(buffer, ref offset);
+            value = (char)SerializerBinary.ReadInt16Fixed(ref reader);
         }
     }
 
     sealed class Int16Formatter : IFormatter<short>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, short value)
+        public void Serialize(IBufferWriter<byte> writer, short value)
         {
-            SerializerBinary.WriteInt16Fixed(ref buffer, ref offset, value);
+            SerializerBinary.WriteInt16Fixed(writer, value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref short value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref short value)
         {
-            value = SerializerBinary.ReadInt16Fixed(buffer, ref offset);
+            value = SerializerBinary.ReadInt16Fixed(ref reader);
         }
     }
 
     sealed class UInt16Formatter : IFormatter<ushort>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, ushort value)
+        public void Serialize(IBufferWriter<byte> writer, ushort value)
         {
-            SerializerBinary.WriteInt16Fixed(ref buffer, ref offset, (short)value);
+            SerializerBinary.WriteInt16Fixed(writer, (short)value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref ushort value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref ushort value)
         {
-            value = (ushort)SerializerBinary.ReadInt16Fixed(buffer, ref offset);
+            value = (ushort)SerializerBinary.ReadInt16Fixed(ref reader);
         }
     }
 
     sealed class Int32Formatter : IFormatter<int>, IInlineEmitter
     {
-        public void Serialize(ref byte[] buffer, ref int offset, int value)
+        public void Serialize(IBufferWriter<byte> writer, int value)
         {
-            SerializerBinary.WriteInt32(ref buffer, ref offset, value);
+            SerializerBinary.WriteInt32(writer, value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref int value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref int value)
         {
-            value = SerializerBinary.ReadInt32(buffer, ref offset);
+            value = SerializerBinary.ReadInt32(ref reader);
         }
 
 
@@ -103,99 +104,98 @@ namespace Ceras.Formatters
         public Expression EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize)
         {
             readSize = 4;
-
             return null;
         }
     }
 
     sealed class UInt32Formatter : IFormatter<uint>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, uint value)
+        public void Serialize(IBufferWriter<byte> writer, uint value)
         {
-            SerializerBinary.WriteUInt32(ref buffer, ref offset, value);
+            SerializerBinary.WriteUInt32(writer, value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref uint value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref uint value)
         {
-            value = SerializerBinary.ReadUInt32(buffer, ref offset);
+            value = SerializerBinary.ReadUInt32(ref reader);
         }
     }
 
     sealed class FloatFormatter : IFormatter<float>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, float value)
+        public void Serialize(IBufferWriter<byte> writer, float value)
         {
-            SerializerBinary.WriteFloat32Fixed(ref buffer, ref offset, value);
+            SerializerBinary.WriteFloat32Fixed(writer, value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref float value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref float value)
         {
-            value = SerializerBinary.ReadFloat32Fixed(buffer, ref offset);
+            value = SerializerBinary.ReadFloat32Fixed(ref reader);
         }
     }
 
     sealed class DoubleFormatter : IFormatter<double>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, double value)
+        public void Serialize(IBufferWriter<byte> writer, double value)
         {
-            SerializerBinary.WriteDouble64Fixed(ref buffer, ref offset, value);
+            SerializerBinary.WriteDouble64Fixed(writer, value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref double value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref double value)
         {
-            value = SerializerBinary.ReadDouble64Fixed(buffer, ref offset);
+            value = SerializerBinary.ReadDouble64Fixed(ref reader);
         }
     }
 
     sealed class Int64Formatter : IFormatter<long>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, long value)
+        public void Serialize(IBufferWriter<byte> writer, long value)
         {
-            SerializerBinary.WriteInt64Fixed(ref buffer, ref offset, value);
+            SerializerBinary.WriteInt64Fixed(writer, value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref long value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref long value)
         {
-            value = SerializerBinary.ReadInt64Fixed(buffer, ref offset);
+            value = SerializerBinary.ReadInt64Fixed(ref reader);
         }
     }
 
     sealed class UInt64Formatter : IFormatter<ulong>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, ulong value)
+        public void Serialize(IBufferWriter<byte> writer, ulong value)
         {
-            SerializerBinary.WriteInt64Fixed(ref buffer, ref offset, (long)value);
+            SerializerBinary.WriteInt64Fixed(writer, (long)value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref ulong value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref ulong value)
         {
-            value = (ulong)SerializerBinary.ReadInt64Fixed(buffer, ref offset);
+            value = (ulong)SerializerBinary.ReadInt64Fixed(ref reader);
         }
     }
 
     sealed class IntPtrFormatter : IFormatter<IntPtr>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, IntPtr IntPtr)
+        public void Serialize(IBufferWriter<byte> writer, IntPtr IntPtr)
         {
-            SerializerBinary.WriteInt64Fixed(ref buffer, ref offset, IntPtr.ToInt64());
+            SerializerBinary.WriteInt64Fixed(writer, IntPtr.ToInt64());
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref IntPtr value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref IntPtr value)
         {
-            value = new IntPtr(SerializerBinary.ReadInt64Fixed(buffer, ref offset));
+            value = new IntPtr(SerializerBinary.ReadInt64Fixed(ref reader));
         }
     }
 
     sealed class UIntPtrFormatter : IFormatter<UIntPtr>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, UIntPtr IntPtr)
+        public void Serialize(IBufferWriter<byte> writer, UIntPtr IntPtr)
         {
-            SerializerBinary.WriteInt64Fixed(ref buffer, ref offset, (long)IntPtr.ToUInt64());
+            SerializerBinary.WriteInt64Fixed(writer, (long)IntPtr.ToUInt64());
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref UIntPtr value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref UIntPtr value)
         {
-            value = new UIntPtr((ulong)SerializerBinary.ReadInt64Fixed(buffer, ref offset));
+            value = new UIntPtr((ulong)SerializerBinary.ReadInt64Fixed(ref reader));
         }
     }
 

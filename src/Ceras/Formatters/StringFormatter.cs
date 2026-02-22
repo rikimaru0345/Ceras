@@ -1,19 +1,22 @@
-﻿namespace Ceras.Formatters
+namespace Ceras.Formatters
 {
-    sealed class StringFormatter : IFormatter<string>
+    using System;
+    using System.Buffers;
+
+    public sealed class StringFormatter : IFormatter<string>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, string value)
+        public void Serialize(IBufferWriter<byte> writer, string value)
         {
-            SerializerBinary.WriteString(ref buffer, ref offset, value);
+            SerializerBinary.WriteString(writer, value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref string value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref string value)
         {
-            value = SerializerBinary.ReadString(buffer, ref offset);
+            value = SerializerBinary.ReadString(ref reader);
         }
     }
 
-    sealed class MaxSizeStringFormatter : IFormatter<string>
+    public sealed class MaxSizeStringFormatter : IFormatter<string>
     {
         readonly uint _maxLength;
 
@@ -22,14 +25,14 @@
             _maxLength = maxLength;
         }
 
-        public void Serialize(ref byte[] buffer, ref int offset, string value)
+        public void Serialize(IBufferWriter<byte> writer, string value)
         {
-            SerializerBinary.WriteString(ref buffer, ref offset, value);
+            SerializerBinary.WriteString(writer, value);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref string value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref string value)
         {
-            value = SerializerBinary.ReadStringLimited(buffer, ref offset, _maxLength);
+            value = SerializerBinary.ReadStringLimited(ref reader, _maxLength);
         }
     }
 }

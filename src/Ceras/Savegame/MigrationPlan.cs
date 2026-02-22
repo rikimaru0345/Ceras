@@ -35,7 +35,7 @@ namespace Ceras.Savegame
     static class MigrationPlanBuilder
     {
         public static Dictionary<string, TypeMigrationPlan> BuildAll(
-            Dictionary<string, OldTypeSchema> oldByName)
+            Dictionary<string, OldTypeSchema> oldByName, SchemaRegistry registry)
         {
             var result = new Dictionary<string, TypeMigrationPlan>(StringComparer.Ordinal);
             var oldById = new Dictionary<int, OldTypeSchema>();
@@ -50,15 +50,15 @@ namespace Ceras.Savegame
                 if (old.Kind == SchemaTypeKind.GenericInstantiation)
                     continue;
 
-                result[old.StableName] = BuildOne(old, oldById);
+                result[old.StableName] = BuildOne(old, oldById, registry);
             }
 
             return result;
         }
 
-        static TypeMigrationPlan BuildOne(OldTypeSchema old, Dictionary<int, OldTypeSchema> oldById)
+        static TypeMigrationPlan BuildOne(OldTypeSchema old, Dictionary<int, OldTypeSchema> oldById, SchemaRegistry registry)
         {
-            SavegameSchemaRegistry.TryResolveType(old.StableName, out Type currentType);
+            registry.TryResolveType(old.StableName, out Type currentType);
 
             var plan = new TypeMigrationPlan { CurrentType = currentType };
 
@@ -91,7 +91,7 @@ namespace Ceras.Savegame
                 {
                     coerce = DetectCoercion(oldField.TypeId, newField.FieldType);
                     bool compatible = coerce != CoercionKind.None
-                        || TypeIdsCompatible(oldField.TypeId, newField.FieldType, oldById);
+                        || TypeIdsCompatible(oldField.TypeId, newField.FieldType, oldById, registry);
                     if (!compatible)
                         newField = null;
                     else
@@ -106,7 +106,7 @@ namespace Ceras.Savegame
             }
 
             // Determine added fields (in current schema but not matched from old)
-            if (SavegameSchemaRegistry.TryGetInfo(currentType, out var currentInfo))
+            if (registry.TryGetInfo(currentType, out var currentInfo))
             {
                 var added = new List<string>();
                 foreach (var fi in currentInfo.Fields)
@@ -178,7 +178,7 @@ namespace Ceras.Savegame
             return CoercionKind.None;
         }
 
-        static bool TypeIdsCompatible(int oldTypeId, Type newFieldType, Dictionary<int, OldTypeSchema> oldById)
+        static bool TypeIdsCompatible(int oldTypeId, Type newFieldType, Dictionary<int, OldTypeSchema> oldById, SchemaRegistry registry)
         {
             // 1. Well-known ID match
             if (WellKnownTypes.TryGetId(newFieldType, out int newId))
@@ -195,7 +195,7 @@ namespace Ceras.Savegame
             // 2. User type case: Match by stable name
             if (oldById.TryGetValue(oldTypeId, out var oldSchema))
             {
-                if (SavegameSchemaRegistry.TryGetInfo(newFieldType, out var currentInfo))
+                if (registry.TryGetInfo(newFieldType, out var currentInfo))
                 {
                     if (currentInfo.StableName == oldSchema.StableName) return true;
                     foreach (var prev in currentInfo.PreviousTypeNames)

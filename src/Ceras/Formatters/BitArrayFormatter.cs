@@ -1,48 +1,33 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
 namespace Ceras.Formatters
 {
-#pragma warning disable 0649 // Field is never assigned to (Ceras dependency injection)
-
+    using System;
+    using System.Buffers;
     using System.Collections;
 
-    public class BitArrayFormatter : IFormatter<BitArray>
+    public sealed class BitArrayFormatter : IFormatter<BitArray>
     {
-        [CerasNoReference]
-        IFormatter<int[]> _intFormatter;
-
         public BitArrayFormatter()
         {
             CerasSerializer.AddFormatterConstructedType(typeof(BitArray));
         }
 
-        public void Serialize(ref byte[] buffer, ref int offset, BitArray value)
+        public void Serialize(IBufferWriter<byte> writer, BitArray value)
         {
-            int bits = value.Count;
-
-            SerializerBinary.WriteUInt32(ref buffer, ref offset, (uint)bits);
-
-            var ints = (bits / 32) + 1;
-
-            int[] ar = new int[ints];
-            value.CopyTo(ar, 0);
-
-            _intFormatter.Serialize(ref buffer, ref offset, ar);
+            SerializerBinary.WriteInt32(writer, value.Length);
+            byte[] bytes = new byte[(value.Length + 7) / 8];
+            value.CopyTo(bytes, 0);
+            writer.Write(bytes);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref BitArray value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref BitArray value)
         {
-            int bits = (int)SerializerBinary.ReadUInt32(buffer, ref offset);
-
-            int[] ar = null;
-            _intFormatter.Deserialize(buffer, ref offset, ref ar);
-
-            value = new BitArray(ar);
-            value.Length = bits;
+            int length = SerializerBinary.ReadInt32(ref reader);
+            int byteCount = (length + 7) / 8;
+            byte[] bytes = new byte[byteCount];
+            if (!reader.TryCopyTo(bytes)) throw new InvalidOperationException("End of sequence");
+            reader.Advance(byteCount);
+            value = new BitArray(bytes);
+            value.Length = length;
         }
     }
 }

@@ -1,164 +1,47 @@
-﻿namespace Ceras.Formatters
+using System;
+using System.Buffers;
+using System.Collections.Generic;
+using System.Linq.Expressions;
+
+namespace Ceras.Formatters
 {
-#pragma warning disable 0649 // Field is never assigned to (Ceras dependency injection)
-
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Linq.Expressions;
-    using System.Reflection;
-
-    class LabelTargetFormatter : IFormatter<LabelTarget>
+    public class LabelTargetFormatter : IFormatter<LabelTarget>
     {
-        IFormatter<string> _stringFormatter;
         IFormatter<Type> _typeFormatter;
-
-        public LabelTargetFormatter()
-        {
-            CerasSerializer.AddFormatterConstructedType(typeof(LabelTarget));
-        }
-
-        public void Serialize(ref byte[] buffer, ref int offset, LabelTarget exp)
-        {
-            _stringFormatter.Serialize(ref buffer, ref offset, exp.Name);
-            _typeFormatter.Serialize(ref buffer, ref offset, exp.Type);
-        }
-
-        public void Deserialize(byte[] buffer, ref int offset, ref LabelTarget exp)
-        {
-            string name = null;
-            _stringFormatter.Deserialize(buffer, ref offset, ref name);
-
-            Type type = null;
-            _typeFormatter.Deserialize(buffer, ref offset, ref type);
-
-            if (exp != null)
-                if (exp.Name == name && exp.Type == type)
-                    return; // Existing object already exactly matches what we want
-
-            exp = Expression.Label(type, name);
-        }
+        public LabelTargetFormatter(CerasSerializer ceras) { _typeFormatter = ceras.GetFormatter<Type>(); }
+        public void Serialize(IBufferWriter<byte> writer, LabelTarget value) { _typeFormatter.Serialize(writer, value.Type); SerializerBinary.WriteString(writer, value.Name); }
+        public void Deserialize(ref SequenceReader<byte> reader, ref LabelTarget value) { Type t = null; _typeFormatter.Deserialize(ref reader, ref t); string name = SerializerBinary.ReadString(ref reader); value = Expression.Label(t, name); }
     }
 
-    class LabelFormatter : IFormatter<LabelExpression>
+    public class LabelFormatter : IFormatter<LabelExpression>
     {
-        IFormatter<LabelTarget> _labelTargetFormatter;
-        IFormatter<Expression> _expressionFormatter;
-
-        public LabelFormatter()
-        {
-            CerasSerializer.AddFormatterConstructedType(typeof(LabelExpression));
-        }
-
-        public void Serialize(ref byte[] buffer, ref int offset, LabelExpression label)
-        {
-            _labelTargetFormatter.Serialize(ref buffer, ref offset, label.Target);
-            _expressionFormatter.Serialize(ref buffer, ref offset, label.DefaultValue);
-        }
-
-        public void Deserialize(byte[] buffer, ref int offset, ref LabelExpression label)
-        {
-            LabelTarget labelTarget = null;
-            _labelTargetFormatter.Deserialize(buffer, ref offset, ref labelTarget);
-
-            Expression defaultValue = null;
-            _expressionFormatter.Deserialize(buffer, ref offset, ref defaultValue);
-
-            label = Expression.Label(labelTarget, defaultValue);
-        }
+        IFormatter<LabelTarget> _targetFormatter; IFormatter<Expression> _defaultValueFormatter;
+        public LabelFormatter(CerasSerializer ceras) { _targetFormatter = ceras.GetFormatter<LabelTarget>(); _defaultValueFormatter = ceras.GetFormatter<Expression>(); }
+        public void Serialize(IBufferWriter<byte> writer, LabelExpression value) { _targetFormatter.Serialize(writer, value.Target); _defaultValueFormatter.Serialize(writer, value.DefaultValue); }
+        public void Deserialize(ref SequenceReader<byte> reader, ref LabelExpression value) { LabelTarget target = null; _targetFormatter.Deserialize(ref reader, ref target); Expression defaultValue = null; _defaultValueFormatter.Deserialize(ref reader, ref defaultValue); value = Expression.Label(target, defaultValue); }
     }
 
-    class MemberAssignmentFormatter : IFormatter<MemberAssignment>
+    public class MemberAssignmentFormatter : IFormatter<MemberAssignment>
     {
-        IFormatter<MemberInfo> _memberInfoFormatter;
-        IFormatter<Expression> _expressionFormatter;
-
-        public MemberAssignmentFormatter()
-        {
-            CerasSerializer.AddFormatterConstructedType(typeof(MemberAssignment));
-        }
-
-        public void Serialize(ref byte[] buffer, ref int offset, MemberAssignment binding)
-        {
-            _memberInfoFormatter.Serialize(ref buffer, ref offset, binding.Member);
-            _expressionFormatter.Serialize(ref buffer, ref offset, binding.Expression);
-        }
-
-        public void Deserialize(byte[] buffer, ref int offset, ref MemberAssignment binding)
-        {
-            MemberInfo memberInfo = null;
-            _memberInfoFormatter.Deserialize(buffer, ref offset, ref memberInfo);
-
-            Expression expression = null;
-            _expressionFormatter.Deserialize(buffer, ref offset, ref expression);
-
-            binding = Expression.Bind(memberInfo, expression);
-        }
+        IFormatter<System.Reflection.MemberInfo> _memberFormatter; IFormatter<Expression> _expressionFormatter;
+        public MemberAssignmentFormatter(CerasSerializer ceras) { _memberFormatter = ceras.GetFormatter<System.Reflection.MemberInfo>(); _expressionFormatter = ceras.GetFormatter<Expression>(); }
+        public void Serialize(IBufferWriter<byte> writer, MemberAssignment value) { _memberFormatter.Serialize(writer, value.Member); _expressionFormatter.Serialize(writer, value.Expression); }
+        public void Deserialize(ref SequenceReader<byte> reader, ref MemberAssignment value) { System.Reflection.MemberInfo member = null; _memberFormatter.Deserialize(ref reader, ref member); Expression expression = null; _expressionFormatter.Deserialize(ref reader, ref expression); value = Expression.Bind(member, expression); }
     }
 
-    class MemberListBindingFormatter : IFormatter<MemberListBinding>
+    public class MemberListBindingFormatter : IFormatter<MemberListBinding>
     {
-        IFormatter<MemberInfo> _memberInfoFormatter;
-        IFormatter<ElementInit[]> _initArFormatter;
-
-        public MemberListBindingFormatter()
-        {
-            CerasSerializer.AddFormatterConstructedType(typeof(MemberListBinding));
-        }
-
-        public void Serialize(ref byte[] buffer, ref int offset, MemberListBinding binding)
-        {
-            _memberInfoFormatter.Serialize(ref buffer, ref offset, binding.Member);
-
-            var inits = binding.Initializers;
-            var initAr = new ElementInit[inits.Count];
-            inits.CopyTo(initAr, 0);
-
-            _initArFormatter.Serialize(ref buffer, ref offset, initAr);
-        }
-
-        public void Deserialize(byte[] buffer, ref int offset, ref MemberListBinding binding)
-        {
-            MemberInfo memberInfo = null;
-            _memberInfoFormatter.Deserialize(buffer, ref offset, ref memberInfo);
-
-            ElementInit[] initializers = null;
-            _initArFormatter.Deserialize(buffer, ref offset, ref initializers);
-
-            binding = Expression.ListBind(memberInfo, initializers);
-        }
+        IFormatter<System.Reflection.MemberInfo> _memberFormatter; IFormatter<IEnumerable<ElementInit>> _elementsFormatter;
+        public MemberListBindingFormatter(CerasSerializer ceras) { _memberFormatter = ceras.GetFormatter<System.Reflection.MemberInfo>(); _elementsFormatter = ceras.GetFormatter<IEnumerable<ElementInit>>(); }
+        public void Serialize(IBufferWriter<byte> writer, MemberListBinding value) { _memberFormatter.Serialize(writer, value.Member); _elementsFormatter.Serialize(writer, value.Initializers); }
+        public void Deserialize(ref SequenceReader<byte> reader, ref MemberListBinding value) { System.Reflection.MemberInfo member = null; _memberFormatter.Deserialize(ref reader, ref member); IEnumerable<ElementInit> initializers = null; _elementsFormatter.Deserialize(ref reader, ref initializers); value = Expression.ListBind(member, initializers); }
     }
 
-    class MemberMemberBindingFormatter : IFormatter<MemberMemberBinding>
+    public class MemberMemberBindingFormatter : IFormatter<MemberMemberBinding>
     {
-        IFormatter<MemberInfo> _memberInfoFormatter;
-        IFormatter<MemberBinding[]> _bindingsArFormatter;
-
-        public MemberMemberBindingFormatter()
-        {
-            CerasSerializer.AddFormatterConstructedType(typeof(MemberMemberBinding));
-        }
-
-        public void Serialize(ref byte[] buffer, ref int offset, MemberMemberBinding binding)
-        {
-            _memberInfoFormatter.Serialize(ref buffer, ref offset, binding.Member);
-
-            var bindings = binding.Bindings;
-            var bindingsAr = new MemberBinding[bindings.Count];
-            bindings.CopyTo(bindingsAr, 0);
-
-            _bindingsArFormatter.Serialize(ref buffer, ref offset, bindingsAr);
-        }
-
-        public void Deserialize(byte[] buffer, ref int offset, ref MemberMemberBinding binding)
-        {
-            MemberInfo memberInfo = null;
-            _memberInfoFormatter.Deserialize(buffer, ref offset, ref memberInfo);
-
-            MemberBinding[] bindings = null;
-            _bindingsArFormatter.Deserialize(buffer, ref offset, ref bindings);
-
-            binding = Expression.MemberBind(memberInfo, bindings);
-        }
+        IFormatter<System.Reflection.MemberInfo> _memberFormatter; IFormatter<IEnumerable<MemberBinding>> _bindingsFormatter;
+        public MemberMemberBindingFormatter(CerasSerializer ceras) { _memberFormatter = ceras.GetFormatter<System.Reflection.MemberInfo>(); _bindingsFormatter = ceras.GetFormatter<IEnumerable<MemberBinding>>(); }
+        public void Serialize(IBufferWriter<byte> writer, MemberMemberBinding value) { _memberFormatter.Serialize(writer, value.Member); _bindingsFormatter.Serialize(writer, value.Bindings); }
+        public void Deserialize(ref SequenceReader<byte> reader, ref MemberMemberBinding value) { System.Reflection.MemberInfo member = null; _memberFormatter.Deserialize(ref reader, ref member); IEnumerable<MemberBinding> bindings = null; _bindingsFormatter.Deserialize(ref reader, ref bindings); value = Expression.MemberBind(member, bindings); }
     }
 }

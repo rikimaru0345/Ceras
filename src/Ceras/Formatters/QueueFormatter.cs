@@ -1,52 +1,38 @@
-﻿using System;
+using System;
+using System.Buffers;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Ceras.Formatters
 {
-#pragma warning disable 0649 // Field is never assigned to (Ceras dependency injection)
-
-    using System.Collections;
-
     public sealed class QueueFormatter<TItem> : IFormatter<Queue<TItem>>
     {
         IFormatter<int> _intFormatter;
         IFormatter<TItem> _itemFormatter;
-
 
         public QueueFormatter()
         {
             CerasSerializer.AddFormatterConstructedType(typeof(Queue<TItem>));
         }
 
-        public void Serialize(ref byte[] buffer, ref int offset, Queue<TItem> value)
+        public void Serialize(IBufferWriter<byte> writer, Queue<TItem> value)
         {
-            _intFormatter.Serialize(ref buffer, ref offset, value.Count);
-
-            var itemFormatter = _itemFormatter;
+            _intFormatter.Serialize(writer, value.Count);
             foreach (var item in value)
-                itemFormatter.Serialize(ref buffer, ref offset, item);
+                _itemFormatter.Serialize(writer, item);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref Queue<TItem> value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref Queue<TItem> value)
         {
-            var itemFormatter = _itemFormatter;
-
             int count = 0;
-            _intFormatter.Deserialize(buffer, ref offset, ref count);
+            _intFormatter.Deserialize(ref reader, ref count);
 
             value = new Queue<TItem>(count);
-            
-            // Deserialize elements directly into the queue
             for (int i = 0; i < count; i++)
             {
                 TItem item = default;
-                itemFormatter.Deserialize(buffer, ref offset, ref item);
+                _itemFormatter.Deserialize(ref reader, ref item);
                 value.Enqueue(item);
             }
-
         }
     }
 }

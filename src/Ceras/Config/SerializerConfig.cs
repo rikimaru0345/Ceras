@@ -4,6 +4,7 @@
     using Resolvers;
     using System;
     using System.Collections.Generic;
+    using Ceras.Savegame;
     using Exceptions;
     using Helpers;
 
@@ -22,7 +23,7 @@
     /// You shouldn't share a single instance of a SerializerConfig either
     /// </para>
     /// </summary>
-    public class SerializerConfig : IAdvancedConfig, ISizeLimitsConfig, IVersionToleranceConfig, IWarningConfig
+    public class SerializerConfig : IAdvancedConfig, ISizeLimitsConfig, IVersionToleranceConfig, IWarningConfig, ISavegameConfig
     {
         bool _isSealed; // todo
         internal bool IsSealed => _isSealed;
@@ -40,6 +41,14 @@
 
 
         #region Basic Settings
+
+        /// <summary>
+        /// Savegame format specific configuration.
+        /// </summary>
+        public ISavegameConfig Savegame => this;
+
+        SavegameConfig _savegameConfig = new SavegameConfig();
+        SchemaRegistry ISavegameConfig.SchemaRegistry => _savegameConfig.SchemaRegistry;
 
         /// <summary>
         /// If you want to, you can add all the types you want to serialize to this collection.
@@ -562,5 +571,18 @@
         /// Enable AoT mode, which disables all dynamic code-gen and instead uses fallback methods.
         /// </summary>
         Enabled,
+    }
+
+    public interface ISavegameConfig
+    {
+        /// <summary>
+        /// The registry containing all version-tolerant type schemas.
+        /// </summary>
+        SchemaRegistry SchemaRegistry { get; }
+    }
+
+    internal class SavegameConfig
+    {
+        public readonly SchemaRegistry SchemaRegistry = new SchemaRegistry();
     }
 }

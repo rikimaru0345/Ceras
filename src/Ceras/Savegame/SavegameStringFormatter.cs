@@ -1,29 +1,40 @@
+using System;
+using System.Buffers;
 using Ceras.Formatters;
 
 namespace Ceras.Savegame
 {
-    /// <summary>
-    /// Replaces the default Ceras string formatter for savegame serialization.
-    ///
-    /// On write: interns the string into the active <see cref="StringInternTable"/>
-    /// (via <see cref="SavegameContext"/>) and writes a 4-byte LE index inline.
-    ///
-    /// On read: reads a 4-byte LE index and resolves it against the loaded
-    /// <c>string[]</c> table (via <see cref="SavegameContext"/>).
-    ///
-    /// Register via <see cref="CerasSave.ConfigureSavegame"/> before building
-    /// the <see cref="CerasSerializer"/>.
-    /// </summary>
-    public sealed class SavegameStringFormatter : IFormatter<string>
+    sealed class SavegameStringFormatter : IFormatter<string>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, string value)
+        public void Serialize(IBufferWriter<byte> writer, string value)
         {
-            SavegameContext.WriteTable.WriteIndex(ref buffer, ref offset, value);
+            if (value == null)
+            {
+                SerializerBinary.WriteInt32Fixed(writer, 0);
+                return;
+            }
+
+            var table = SavegameContext.InternTable;
+            if (table == null) throw new InvalidOperationException("SavegameContext not active");
+
+            int index = table.GetIndex(value);
+            SerializerBinary.WriteInt32Fixed(writer, index);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref string value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref string value)
         {
-            value = StringTable.ReadString(buffer, ref offset, SavegameContext.ReadTable);
+            int index = SerializerBinary.ReadInt32Fixed(ref reader);
+            if (index == 0)
+            {
+                value = null;
+                return;
+            }
+
+            var table = SavegameContext.StringTable;
+            if (table == null) throw new InvalidOperationException("SavegameContext not active");
+
+            if (index < 0 || index >= table.Length) throw new InvalidOperationException("Invalid string table index");
+            value = table[index];
         }
     }
 }

@@ -7,9 +7,8 @@ namespace Ceras.Savegame
     /// <summary>
     /// Runtime registry of all types registered via <c>[GenerateFormatter(VersionTolerant = true)]</c>.
     /// Populated during startup by <c>GeneratedFormatters.UseFormatters(config)</c>.
-    /// Thread-safety: registration happens once at startup before any serialization — no locking needed.
     /// </summary>
-    public static class SavegameSchemaRegistry
+    public sealed class SchemaRegistry
     {
         sealed class Entry
         {
@@ -18,21 +17,21 @@ namespace Ceras.Savegame
             public Type           Type;
         }
 
-        static readonly Dictionary<Type,   Entry>  ByType       = new();
-        static readonly Dictionary<string, Entry>  ByStableName = new();
-        static int    _nextId      = WellKnownTypes.UserTypeBase;
-        static ulong? _fingerprint = null;
-        static readonly object _lock = new();
+        readonly Dictionary<Type,   Entry>  _byType       = new();
+        readonly Dictionary<string, Entry>  _byStableName = new();
+        int    _nextId      = WellKnownTypes.UserTypeBase;
+        ulong? _fingerprint = null;
+        readonly object _lock = new();
 
         /// <summary>
-        /// Clears all registered types. Used for testing.
+        /// Clears all registered types. Internal use only.
         /// </summary>
-        internal static void Clear()
+        internal void InternalClear()
         {
             lock (_lock)
             {
-                ByType.Clear();
-                ByStableName.Clear();
+                _byType.Clear();
+                _byStableName.Clear();
                 _nextId = WellKnownTypes.UserTypeBase;
                 _fingerprint = null;
             }
@@ -45,24 +44,24 @@ namespace Ceras.Savegame
         /// <c>[GenerateFormatter(VersionTolerant = true)]</c> type.
         /// Safe to call multiple times with the same type (idempotent).
         /// </summary>
-        public static void Register(Type type, SchemaTypeInfo info)
+        public void Register(Type type, SchemaTypeInfo info)
         {
             if (type == null) throw new ArgumentNullException(nameof(type));
             if (info == null) throw new ArgumentNullException(nameof(info));
 
             lock (_lock)
             {
-                if (ByType.ContainsKey(type))
+                if (_byType.ContainsKey(type))
                     return; // idempotent
 
                 var entry = new Entry { Id = _nextId++, Info = info, Type = type };
 
-                ByType[type] = entry;
+                _byType[type] = entry;
 
-                ByStableName[info.StableName] = entry;
+                _byStableName[info.StableName] = entry;
 
                 foreach (var prev in info.PreviousTypeNames)
-                    ByStableName.TryAdd(prev, entry);
+                    _byStableName.TryAdd(prev, entry);
 
                 _fingerprint = null; // invalidate
             }
@@ -70,31 +69,34 @@ namespace Ceras.Savegame
 
         // ── Lookup ────────────────────────────────────────────────────────────
 
-        public static bool TryGetId(Type type, out int id)
+        public bool TryGetId(Type type, out int id)
         {
-            if (ByType.TryGetValue(type, out var e)) { id = e.Id; return true; }
-            
-            // Automatic registration for types encountered at runtime (e.g. generic instantiations)
-            if (type != null && !WellKnownTypes.IsWellKnown(type))
+            lock (_lock)
             {
-                EnsureRegistered(type);
-                if (ByType.TryGetValue(type, out e)) { id = e.Id; return true; }
-            }
+                if (_byType.TryGetValue(type, out var e)) { id = e.Id; return true; }
+                
+                // Automatic registration for types encountered at runtime (e.g. generic instantiations)
+                if (type != null && !WellKnownTypes.IsWellKnown(type))
+                {
+                    EnsureRegisteredRecursive(type);
+                    if (_byType.TryGetValue(type, out e)) { id = e.Id; return true; }
+                }
 
-            id = -1;
-            return false;
+                id = -1;
+                return false;
+            }
         }
 
-        static void EnsureRegistered(Type type)
+        void EnsureRegisteredRecursive(Type type)
         {
-            if (type == null || WellKnownTypes.IsWellKnown(type) || ByType.ContainsKey(type))
+            if (type == null || WellKnownTypes.IsWellKnown(type) || _byType.ContainsKey(type))
                 return;
 
             if (type.IsGenericType && !type.IsGenericTypeDefinition)
             {
                 // Register arguments first
                 foreach (var arg in type.GetGenericArguments())
-                    EnsureRegistered(arg);
+                    EnsureRegisteredRecursive(arg);
 
                 // Create and register schema for this instantiation
                 var info = CreateSchemaForGeneric(type);
@@ -121,31 +123,37 @@ namespace Ceras.Savegame
                 argTypeNames: argNames);
         }
 
-        public static bool TryGetInfo(Type type, out SchemaTypeInfo info)
+        public bool TryGetInfo(Type type, out SchemaTypeInfo info)
         {
-            if (ByType.TryGetValue(type, out var e)) { info = e.Info; return true; }
-            info = null;
-            return false;
+            lock (_lock)
+            {
+                if (_byType.TryGetValue(type, out var e)) { info = e.Info; return true; }
+                info = null;
+                return false;
+            }
         }
 
         /// <summary>
         /// Resolves a stable name (or previous type name) to the current registered <see cref="Type"/>.
         /// Used by the migration engine when reading old schema sections.
         /// </summary>
-        public static bool TryResolveType(string stableName, out Type type)
-        {
-            if (ByStableName.TryGetValue(stableName, out var e)) { type = e.Type; return true; }
-            type = null;
-            return false;
-        }
-
-        /// <summary>Enumerates all registered entries in registration order.</summary>
-        public static IEnumerable<(Type type, int id, SchemaTypeInfo info)> All()
+        public bool TryResolveType(string stableName, out Type type)
         {
             lock (_lock)
             {
-                var copy = new List<(Type type, int id, SchemaTypeInfo info)>(ByType.Count);
-                foreach (var kv in ByType)
+                if (_byStableName.TryGetValue(stableName, out var e)) { type = e.Type; return true; }
+                type = null;
+                return false;
+            }
+        }
+
+        /// <summary>Enumerates all registered entries in registration order.</summary>
+        public IEnumerable<(Type type, int id, SchemaTypeInfo info)> All()
+        {
+            lock (_lock)
+            {
+                var copy = new List<(Type type, int id, SchemaTypeInfo info)>(_byType.Count);
+                foreach (var kv in _byType)
                     copy.Add((kv.Key, kv.Value.Id, kv.Value.Info));
                 return copy;
             }
@@ -157,15 +165,15 @@ namespace Ceras.Savegame
         /// Computes a stable fingerprint over all registered schemas.
         /// Cached after the first call. Invalidated whenever a new type is registered.
         /// </summary>
-        public static ulong ComputeFingerprint()
+        public ulong ComputeFingerprint()
         {
             lock (_lock)
             {
                 if (_fingerprint.HasValue)
                     return _fingerprint.Value;
 
-                var sorted = new List<Entry>(ByType.Count);
-                foreach (var e in ByType.Values)
+                var sorted = new List<Entry>(_byType.Count);
+                foreach (var e in _byType.Values)
                     sorted.Add(e);
                 sorted.Sort((a, b) => string.Compare(
                     a.Info.StableName, b.Info.StableName, StringComparison.Ordinal));
@@ -208,7 +216,6 @@ namespace Ceras.Savegame
             return xxHash.CalculateHash(bytes);
         }
 
-        // Rotate-XOR mix — simple but sufficient for a schema fingerprint
         static uint Combine(uint h, uint v)
         {
             h ^= v;

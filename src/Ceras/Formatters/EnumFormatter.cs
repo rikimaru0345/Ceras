@@ -1,10 +1,8 @@
-﻿namespace Ceras.Resolvers
+namespace Ceras.Resolvers
 {
-#pragma warning disable 0649 // Field is never assigned to (Ceras dependency injection)
-
     using System;
+    using System.Buffers;
     using Formatters;
-    using System.Runtime.CompilerServices;
 
     /// <summary>
     /// This formatter uses enum.ToString() and Enum.Parse(). It is not used by default, but you can activate through the type config if you want to.
@@ -13,17 +11,16 @@
     {
         ISizeLimitsConfig _sizeLimits;
 
-        public void Serialize(ref byte[] buffer, ref int offset, T value)
+        public void Serialize(IBufferWriter<byte> writer, T value)
         {
             var str = value.ToString();
-            SerializerBinary.WriteString(ref buffer, ref offset, str);
+            SerializerBinary.WriteString(writer, str);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref T value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref T value)
         {
             var maxStrLen = _sizeLimits.MaxStringLength;
-            var str = SerializerBinary.ReadStringLimited(buffer, ref offset, maxStrLen);
-
+            var str = SerializerBinary.ReadStringLimited(ref reader, maxStrLen);
             value = (T)System.Enum.Parse(typeof(T), str);
         }
     }

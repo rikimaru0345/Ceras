@@ -1,31 +1,25 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
 namespace Ceras.Formatters
 {
-    public class UriFormatter : IFormatter<Uri>
+    using System;
+    using System.Buffers;
+
+    sealed class UriFormatter : IFormatter<Uri>
     {
-        public UriFormatter()
+        public void Serialize(IBufferWriter<byte> writer, Uri value)
         {
-            CerasSerializer.AddFormatterConstructedType(typeof(Uri));
+            SerializerBinary.WriteString(writer, value?.OriginalString);
         }
 
-        public void Serialize(ref byte[] buffer, ref int offset, Uri value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref Uri value)
         {
-            SerializerBinary.WriteString(ref buffer, ref offset, value.OriginalString);
-        }
-
-        public void Deserialize(byte[] buffer, ref int offset, ref Uri value)
-        {
-            var uri = SerializerBinary.ReadString(buffer, ref offset);
-
-            if (uri == null)
+            var str = SerializerBinary.ReadString(ref reader);
+            if (str == null)
+            {
                 value = null;
-            else
-                value = new Uri(uri, UriKind.RelativeOrAbsolute);
+                return;
+            }
+
+            value = new Uri(str);
         }
     }
 }

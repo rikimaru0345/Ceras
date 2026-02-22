@@ -46,65 +46,67 @@ namespace Ceras.Test
 
     public class SchemaRegistryTests : TestBase
     {
-        static SchemaRegistryTests()
+        readonly SchemaRegistry _registry;
+
+        public SchemaRegistryTests()
         {
-            // Register once for all tests in this class
             var config = new SerializerConfig();
             GeneratedFormatters.UseFormatters(config);
+            _registry = config.Savegame.SchemaRegistry;
         }
 
         [Fact]
         public void VersionTolerantType_IsRegistered()
         {
-            Assert.True(SavegameSchemaRegistry.TryGetInfo(typeof(Weapon), out var info));
+            Assert.True(_registry.TryGetInfo(typeof(Weapon), out var info));
             Assert.NotNull(info);
         }
 
         [Fact]
         public void NonVersionTolerantType_IsNotRegistered()
         {
-            Assert.False(SavegameSchemaRegistry.TryGetInfo(typeof(NoSchemaType), out _));
+            Assert.False(_registry.TryGetInfo(typeof(NoSchemaType), out _));
         }
 
         [Fact]
         public void StableName_FromAttribute()
         {
-            SavegameSchemaRegistry.TryGetInfo(typeof(Weapon), out var info);
+            _registry.TryGetInfo(typeof(Weapon), out var info);
             Assert.Equal("Weapon", info.StableName);
         }
 
         [Fact]
         public void StableName_DefaultsToClassName()
         {
-            SavegameSchemaRegistry.TryGetInfo(typeof(Vec2Struct), out var info);
+            _registry.TryGetInfo(typeof(Vec2Struct), out var info);
             Assert.Equal("Vec2Struct", info.StableName);
         }
 
         [Fact]
         public void PreviousTypeName_IsIncluded()
         {
-            SavegameSchemaRegistry.TryGetInfo(typeof(Weapon), out var info);
+            _registry.TryGetInfo(typeof(Weapon), out var info);
             Assert.Contains("Ceras.Test.OldWeapon", info.PreviousTypeNames);
         }
 
         [Fact]
         public void PreviousTypeName_ResolvesToCurrentType()
         {
-            Assert.True(SavegameSchemaRegistry.TryResolveType("Ceras.Test.OldWeapon", out var type));
+            Assert.True(_registry.TryResolveType("Ceras.Test.OldWeapon", out var type));
             Assert.Equal(typeof(Weapon), type);
         }
 
         [Fact]
         public void StableName_ResolvesToCurrentType()
         {
-            Assert.True(SavegameSchemaRegistry.TryResolveType("Weapon", out var type));
+            Assert.True(_registry.TryResolveType("Weapon", out var type));
             Assert.Equal(typeof(Weapon), type);
         }
 
         [Fact]
         public void TypeId_IsAtLeast128()
         {
-            Assert.True(SavegameSchemaRegistry.TryGetId(typeof(Weapon), out int id));
+            Assert.True(_registry.TryGetId(typeof(Weapon), out int id));
             Assert.True(id >= WellKnownTypes.UserTypeBase,
                 $"Expected id >= {WellKnownTypes.UserTypeBase}, got {id}");
         }
@@ -117,7 +119,7 @@ namespace Ceras.Test
             //   float Weight     → "System.SingleWeight..."
             //   string Name      → "System.StringName..."
             // (excluded: CachedStat)
-            SavegameSchemaRegistry.TryGetInfo(typeof(Weapon), out var info);
+            _registry.TryGetInfo(typeof(Weapon), out var info);
             var names = info.Fields.Select(f => f.TypeName + f.StableName).ToArray();
             var sorted = names.OrderBy(x => x, StringComparer.Ordinal).ToArray();
             Assert.Equal(sorted, names);
@@ -126,7 +128,7 @@ namespace Ceras.Test
         [Fact]
         public void Field_StableName_FromSerializedAs()
         {
-            SavegameSchemaRegistry.TryGetInfo(typeof(Weapon), out var info);
+            _registry.TryGetInfo(typeof(Weapon), out var info);
             var dmg = info.Fields.FirstOrDefault(f => f.StableName == "Damage");
             Assert.NotNull(dmg);
             Assert.Equal("System.Int32", dmg.TypeName);
@@ -135,7 +137,7 @@ namespace Ceras.Test
         [Fact]
         public void Field_PreviousName_IsIncluded()
         {
-            SavegameSchemaRegistry.TryGetInfo(typeof(Weapon), out var info);
+            _registry.TryGetInfo(typeof(Weapon), out var info);
             var name = info.Fields.FirstOrDefault(f => f.StableName == "Name");
             Assert.NotNull(name);
             Assert.Contains("OldName", name.PreviousNames);
@@ -144,7 +146,7 @@ namespace Ceras.Test
         [Fact]
         public void Field_Monomorphic_ExplicitAttribute()
         {
-            SavegameSchemaRegistry.TryGetInfo(typeof(Weapon), out var info);
+            _registry.TryGetInfo(typeof(Weapon), out var info);
             var weight = info.Fields.FirstOrDefault(f => f.StableName == "Weight");
             Assert.NotNull(weight);
             Assert.True(weight.IsMonomorphic);
@@ -153,7 +155,7 @@ namespace Ceras.Test
         [Fact]
         public void ExcludedField_NotInSchema()
         {
-            SavegameSchemaRegistry.TryGetInfo(typeof(Weapon), out var info);
+            _registry.TryGetInfo(typeof(Weapon), out var info);
             Assert.DoesNotContain(info.Fields, f => f.StableName == "CachedStat");
         }
 
@@ -161,7 +163,7 @@ namespace Ceras.Test
         public void Struct_HasCorrectFixedByteSize()
         {
             // Vec2Struct: float X (4) + float Y (4) = 8
-            SavegameSchemaRegistry.TryGetInfo(typeof(Vec2Struct), out var info);
+            _registry.TryGetInfo(typeof(Vec2Struct), out var info);
             Assert.Equal(8, info.FixedByteSize);
         }
 
@@ -169,15 +171,15 @@ namespace Ceras.Test
         public void Class_HasZeroFixedByteSize()
         {
             // Classes are always variable (reference marker + fields)
-            SavegameSchemaRegistry.TryGetInfo(typeof(Weapon), out var info);
+            _registry.TryGetInfo(typeof(Weapon), out var info);
             Assert.Equal(0, info.FixedByteSize);
         }
 
         [Fact]
         public void Fingerprint_IsStable()
         {
-            ulong fp1 = SavegameSchemaRegistry.ComputeFingerprint();
-            ulong fp2 = SavegameSchemaRegistry.ComputeFingerprint();
+            ulong fp1 = _registry.ComputeFingerprint();
+            ulong fp2 = _registry.ComputeFingerprint();
             Assert.Equal(fp1, fp2);
         }
 

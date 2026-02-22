@@ -33,19 +33,20 @@ namespace Ceras.Test
 
     public class SchemaSectionTests : TestBase
     {
-        static SchemaSectionTests()
+        SchemaRegistry CreateRegistry()
         {
             var config = new SerializerConfig();
             GeneratedFormatters.UseFormatters(config);
+            return config.Savegame.SchemaRegistry;
         }
 
         // ── Round-trip helpers ────────────────────────────────────────────────
 
-        static Dictionary<string, OldTypeSchema> RoundTrip()
+        static Dictionary<string, OldTypeSchema> RoundTrip(SchemaRegistry registry)
         {
-            var buffer = new byte[256];
+            var buffer = new byte[1024];
             int offset = 0;
-            SchemaSection.Write(ref buffer, ref offset);
+            SchemaSection.Write(ref buffer, ref offset, registry);
 
             int readOffset = 0;
             return SchemaSection.Read(buffer, ref readOffset);
@@ -56,10 +57,11 @@ namespace Ceras.Test
         [Fact]
         public void Write_ThenRead_ContainsAllRegisteredTypes()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
 
             // Every VT type registered via GeneratedFormatters should appear
-            foreach (var (_, _, info) in SavegameSchemaRegistry.All())
+            foreach (var (_, _, info) in registry.All())
                 Assert.True(map.ContainsKey(info.StableName),
                     $"Missing stable name '{info.StableName}' after round-trip.");
         }
@@ -67,7 +69,8 @@ namespace Ceras.Test
         [Fact]
         public void NonVersionTolerantType_NotInSectionMap()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
             // NoSchemaType (from SchemaRegistryTests.cs) has no stable name in the registry
             Assert.False(map.ContainsKey(nameof(NoSchemaType)));
         }
@@ -77,8 +80,9 @@ namespace Ceras.Test
         [Fact]
         public void TypeId_RoundTrips()
         {
-            SavegameSchemaRegistry.TryGetId(typeof(Weapon), out int expectedId);
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            registry.TryGetId(typeof(Weapon), out int expectedId);
+            var map = RoundTrip(registry);
             Assert.Equal(expectedId, map["Weapon"].TypeId);
         }
 
@@ -87,7 +91,8 @@ namespace Ceras.Test
         [Fact]
         public void StableName_RoundTrips()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
             Assert.True(map.ContainsKey("Potion"));
             Assert.Equal("Potion", map["Potion"].StableName);
         }
@@ -95,7 +100,8 @@ namespace Ceras.Test
         [Fact]
         public void PreviousTypeName_RoundTrips()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
             // "Ceras.Test.OldPotion" is a previous name for Potion
             Assert.True(map.ContainsKey("Ceras.Test.OldPotion"),
                 "Previous type name should be an alias key in the map.");
@@ -107,14 +113,16 @@ namespace Ceras.Test
         [Fact]
         public void ClassKind_RoundTrips()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
             Assert.Equal(SchemaTypeKind.Class, map["Weapon"].Kind);
         }
 
         [Fact]
         public void StructKind_RoundTrips()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
             Assert.Equal(SchemaTypeKind.Struct, map["Point2"].Kind);
         }
 
@@ -123,22 +131,25 @@ namespace Ceras.Test
         [Fact]
         public void FieldCount_RoundTrips()
         {
-            SavegameSchemaRegistry.TryGetInfo(typeof(Weapon), out var info);
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            registry.TryGetInfo(typeof(Weapon), out var info);
+            var map = RoundTrip(registry);
             Assert.Equal(info.Fields.Length, map["Weapon"].Fields.Length);
         }
 
         [Fact]
         public void FieldStableName_RoundTrips()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
             Assert.Contains(map["Weapon"].Fields, f => f.StableName == "Damage");
         }
 
         [Fact]
         public void FieldPreviousName_RoundTrips()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
             var nameField = map["Weapon"].Fields.FirstOrDefault(f => f.StableName == "Name");
             Assert.NotNull(nameField);
             Assert.Contains("OldName", nameField.PreviousNames);
@@ -147,7 +158,8 @@ namespace Ceras.Test
         [Fact]
         public void FieldIsMonomorphic_RoundTrips()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
             var weight = map["Weapon"].Fields.FirstOrDefault(f => f.StableName == "Weight");
             Assert.NotNull(weight);
             Assert.True(weight.IsMonomorphic);
@@ -156,7 +168,8 @@ namespace Ceras.Test
         [Fact]
         public void FieldTypeId_WellKnown_RoundTrips()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
             var dmg = map["Weapon"].Fields.First(f => f.StableName == "Damage");
             Assert.Equal(WellKnownTypes.Int32, dmg.TypeId);
         }
@@ -164,7 +177,8 @@ namespace Ceras.Test
         [Fact]
         public void FieldTypeId_String_RoundTrips()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
             var label = map["Potion"].Fields.First(f => f.StableName == "Label");
             Assert.Equal(WellKnownTypes.String, label.TypeId);
         }
@@ -174,15 +188,17 @@ namespace Ceras.Test
         [Fact]
         public void FixedByteSize_Struct_RoundTrips()
         {
-            SavegameSchemaRegistry.TryGetInfo(typeof(Vec2Struct), out var info);
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            registry.TryGetInfo(typeof(Vec2Struct), out var info);
+            var map = RoundTrip(registry);
             Assert.Equal(info.FixedByteSize, map["Vec2Struct"].FixedByteSize);
         }
 
         [Fact]
         public void FixedByteSize_Class_IsZero()
         {
-            var map = RoundTrip();
+            var registry = CreateRegistry();
+            var map = RoundTrip(registry);
             Assert.Equal(0, map["Weapon"].FixedByteSize);
         }
 
@@ -231,9 +247,10 @@ namespace Ceras.Test
         [Fact]
         public void Write_WithTinyInitialBuffer_GrowsAndSucceeds()
         {
+            var registry = CreateRegistry();
             var buffer = new byte[1]; // far too small
             int offset = 0;
-            SchemaSection.Write(ref buffer, ref offset); // must not throw
+            SchemaSection.Write(ref buffer, ref offset, registry); // must not throw
             Assert.True(offset > 0);
         }
 
@@ -242,17 +259,18 @@ namespace Ceras.Test
         [Fact]
         public void WriteReadWrite_ProducesIdenticalBytes()
         {
-            var buf1 = new byte[512];
+            var registry = CreateRegistry();
+            var buf1 = new byte[1024];
             int off1 = 0;
-            SchemaSection.Write(ref buf1, ref off1);
+            SchemaSection.Write(ref buf1, ref off1, registry);
 
             // Read back, then write again
             int rOff = 0;
             SchemaSection.Read(buf1, ref rOff); // consume exactly off1 bytes
 
-            var buf2 = new byte[512];
+            var buf2 = new byte[1024];
             int off2 = 0;
-            SchemaSection.Write(ref buf2, ref off2);
+            SchemaSection.Write(ref buf2, ref off2, registry);
 
             Assert.Equal(off1, off2);
             Assert.Equal(buf1[..off1], buf2[..off2]);

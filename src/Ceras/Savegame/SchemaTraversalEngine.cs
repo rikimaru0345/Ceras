@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Reflection;
@@ -23,39 +24,52 @@ namespace Ceras.Savegame
         readonly string[]                              _stringTable;
         readonly uint                                  _saveGameVersion;
         readonly CerasSerializer                       _serializer;
+        readonly SchemaRegistry                        _registry;
         readonly List<object>                          _objectCache = new();
 
         public SchemaTraversalEngine(
             Dictionary<string, OldTypeSchema> oldSchemas,
             string[]                          stringTable,
             uint                              saveGameVersion,
-            CerasSerializer                   serializer = null)
+            CerasSerializer                   serializer)
         {
             _oldByName       = oldSchemas;
             _stringTable     = stringTable;
             _saveGameVersion = saveGameVersion;
             _serializer      = serializer;
+            _registry        = serializer.Config.Savegame.SchemaRegistry;
 
             _oldById = new Dictionary<int, OldTypeSchema>();
             foreach (var s in oldSchemas.Values)
                 _oldById.TryAdd(s.TypeId, s);
 
-            _plans = MigrationPlanBuilder.BuildAll(oldSchemas);
+            _plans = MigrationPlanBuilder.BuildAll(oldSchemas, _registry);
         }
 
         // ── Public entry point ────────────────────────────────────────────────
 
         public T ReadRoot<T>(byte[] data, ref int offset)
         {
+            var sequence = new ReadOnlySequence<byte>(data, offset, data.Length - offset);
+            var reader = new SequenceReader<byte>(sequence);
+            
+            T result = ReadRoot<T>(ref reader);
+            
+            offset += (int)reader.Consumed;
+            return result;
+        }
+
+        public T ReadRoot<T>(ref SequenceReader<byte> reader)
+        {
             string stableName = ResolveOldStableName(typeof(T));
-            object obj = ReadUserTypeByStableName(stableName, typeof(T), data, ref offset);
+            object obj = ReadUserTypeByStableName(stableName, typeof(T), ref reader);
             if (obj == null) return default;
             return (T)obj;
         }
 
         string ResolveOldStableName(Type t)
         {
-            if (SavegameSchemaRegistry.TryGetInfo(t, out var info))
+            if (_registry.TryGetInfo(t, out var info))
             {
                 if (_oldByName.ContainsKey(info.StableName))
                     return info.StableName;
@@ -68,113 +82,76 @@ namespace Ceras.Savegame
 
         // ── Core dispatch ─────────────────────────────────────────────────────
 
-        object ReadValue(int typeId, Type targetType, byte[] data, ref int offset)
+        object ReadValue(int typeId, Type targetType, ref SequenceReader<byte> reader)
         {
             switch (typeId)
             {
                 case WellKnownTypes.Null:    return null;
-                case WellKnownTypes.Bool:    { bool v = data[offset] != 0; offset += 1; return v; }
-                case WellKnownTypes.Byte:    { byte v = data[offset]; offset += 1; return v; }
-                case WellKnownTypes.SByte:   { sbyte v = (sbyte)data[offset]; offset += 1; return v; }
-                case WellKnownTypes.Char:
-                {
-                    char v = (char)BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset));
-                    offset += 2; return v;
-                }
-                case WellKnownTypes.Int16:
-                {
-                    short v = BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(offset));
-                    offset += 2; return v;
-                }
-                case WellKnownTypes.UInt16:
-                {
-                    ushort v = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset));
-                    offset += 2; return v;
-                }
-                case WellKnownTypes.Int32:   return SerializerBinary.ReadInt32(data, ref offset);
-                case WellKnownTypes.UInt32:  return SerializerBinary.ReadUInt32(data, ref offset);
-                case WellKnownTypes.Single:  return SerializerBinary.ReadFloat32Fixed(data, ref offset);
-                case WellKnownTypes.Int64:   return SerializerBinary.ReadInt64(data, ref offset);
-                case WellKnownTypes.UInt64:  return SerializerBinary.ReadUInt64(data, ref offset);
-                case WellKnownTypes.Double:
-                {
-                    double v = BitConverter.Int64BitsToDouble(
-                        BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(offset)));
-                    offset += 8; return v;
-                }
+                case WellKnownTypes.Bool:    return SerializerBinary.ReadByte(ref reader) != 0;
+                case WellKnownTypes.Byte:    return SerializerBinary.ReadByte(ref reader);
+                case WellKnownTypes.SByte:   return (sbyte)SerializerBinary.ReadByte(ref reader);
+                case WellKnownTypes.Char:    return (char)SerializerBinary.ReadInt16Fixed(ref reader);
+                case WellKnownTypes.Int16:   return SerializerBinary.ReadInt16Fixed(ref reader);
+                case WellKnownTypes.UInt16:  return (ushort)SerializerBinary.ReadInt16Fixed(ref reader);
+                case WellKnownTypes.Int32:   return SerializerBinary.ReadInt32(ref reader);
+                case WellKnownTypes.UInt32:  return SerializerBinary.ReadUInt32(ref reader);
+                case WellKnownTypes.Single:  return SerializerBinary.ReadFloat32Fixed(ref reader);
+                case WellKnownTypes.Int64:   return SerializerBinary.ReadInt64Fixed(ref reader);
+                case WellKnownTypes.UInt64:  return (ulong)SerializerBinary.ReadInt64Fixed(ref reader);
+                case WellKnownTypes.Double:  return SerializerBinary.ReadDouble64Fixed(ref reader);
                 case WellKnownTypes.Decimal:
                 {
-                    int lo  = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(offset));
-                    int mid = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(offset + 4));
-                    int hi  = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(offset + 8));
-                    int fl  = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(offset + 12));
-                    offset += 16;
+                    int lo = SerializerBinary.ReadInt32Fixed(ref reader);
+                    int mid = SerializerBinary.ReadInt32Fixed(ref reader);
+                    int hi = SerializerBinary.ReadInt32Fixed(ref reader);
+                    int fl = SerializerBinary.ReadInt32Fixed(ref reader);
                     return new decimal(new[] { lo, mid, hi, fl });
                 }
                 case WellKnownTypes.String:
                 {
-                    int idx = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(offset));
-                    offset += 4;
+                    int idx = SerializerBinary.ReadInt32Fixed(ref reader);
                     return ReadStringFromTable(idx);
                 }
                 case WellKnownTypes.DateTime:
-                {
-                    long ticks = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(offset));
-                    offset += 8;
-                    return new DateTime(ticks, DateTimeKind.Utc);
-                }
+                    return new DateTime(SerializerBinary.ReadInt64Fixed(ref reader), DateTimeKind.Utc);
                 case WellKnownTypes.TimeSpan:
-                {
-                    long ticks = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(offset));
-                    offset += 8;
-                    return new TimeSpan(ticks);
-                }
+                    return new TimeSpan(SerializerBinary.ReadInt64Fixed(ref reader));
                 case WellKnownTypes.Guid:
                 {
-                    var g = new Guid(data.AsSpan(offset, 16));
-                    offset += 16; return g;
+                    byte[] b = new byte[16];
+                    reader.TryCopyTo(b);
+                    reader.Advance(16);
+                    return new Guid(b);
                 }
                 case WellKnownTypes.Type:
                 {
-                    uint id = SchemaSection.ReadLeb128(data, ref offset);
+                    uint id = SchemaSection.ReadLeb128(ref reader);
                     if (id == WellKnownTypes.Null) return null;
-                    if (_serializer?.Config.Advanced.AotMode == AotMode.None)
-                    {
-                        // Standard TypeFormatter uses its own logic, but CerasSave
-                        // replaces it with SavegameTypeFormatter which uses LEB128 IDs.
-                    }
                     var idToType = SavegameContext.IdToType;
-                    if (idToType != null && idToType.TryGetValue((int)id, out var t))
-                        return t;
+                    if (idToType != null && idToType.TryGetValue((int)id, out var t)) return t;
                     return null;
                 }
                 case WellKnownTypes.Object:
-                    return ReadPolymorphicValue(targetType, data, ref offset);
+                    return ReadPolymorphicValue(targetType, ref reader);
                 default:
                 {
                     if (typeId >= WellKnownTypes.UserTypeBase)
-                        return ReadUserType(typeId, targetType, data, ref offset);
-                    SkipValue(typeId, data, ref offset);
+                        return ReadUserType(typeId, targetType, ref reader);
+                    SkipValue(typeId, ref reader);
                     return null;
                 }
             }
         }
 
-        object ReadPolymorphicValue(Type targetType, byte[] data, ref int offset)
+        object ReadPolymorphicValue(Type targetType, ref SequenceReader<byte> reader)
         {
-            int marker = SerializerBinary.ReadUInt32Bias(data, ref offset, RefBias);
-
+            int marker = SerializerBinary.ReadUInt32Bias(ref reader, RefBias);
             if (marker == RefNull) return null;
-
-            if (marker >= 0)
-            {
-                // Back-reference
-                return marker < _objectCache.Count ? _objectCache[marker] : null;
-            }
+            if (marker >= 0) return marker < _objectCache.Count ? _objectCache[marker] : null;
 
             if (marker == RefExternalObject)
             {
-                int externalId = SerializerBinary.ReadInt32(data, ref offset);
+                int externalId = SerializerBinary.ReadInt32Fixed(ref reader);
                 if (_serializer?.Config.ExternalObjectResolver != null)
                 {
                     _serializer.Config.ExternalObjectResolver.Resolve(externalId, out object obj);
@@ -185,59 +162,41 @@ namespace Ceras.Savegame
 
             if (marker == RefInlineType)
             {
-                return ReadValue(WellKnownTypes.Type, typeof(Type), data, ref offset);
+                return ReadValue(WellKnownTypes.Type, typeof(Type), ref reader);
             }
 
-            // NewValue or NewValueSameType
             int typeId;
             if (marker == RefNewValue)
-            {
-                // Polymorphic: read type-ID
-                typeId = (int)SchemaSection.ReadLeb128(data, ref offset);
-            }
+                typeId = (int)SchemaSection.ReadLeb128(ref reader);
             else
-            {
-                // Monomorphic (same as target type)
                 typeId = GetOldTypeId(targetType);
-            }
 
-            if (!_oldById.TryGetValue(typeId, out var oldSchema))
-            {
-                // Unknown type-ID, we might be able to skip if we were in skip mode
-                return null;
-            }
-
-            return ReadUserTypeInstance(oldSchema, targetType, data, ref offset);
+            if (!_oldById.TryGetValue(typeId, out var oldSchema)) return null;
+            return ReadUserTypeInstance(oldSchema, targetType, ref reader);
         }
 
-        object ReadUserType(int typeId, Type targetType, byte[] data, ref int offset)
+        object ReadUserType(int typeId, Type targetType, ref SequenceReader<byte> reader)
         {
-            if (!_oldById.TryGetValue(typeId, out var oldSchema))
-                return null;
-
+            if (!_oldById.TryGetValue(typeId, out var oldSchema)) return null;
             if (oldSchema.Kind == SchemaTypeKind.Enum)
             {
                 _plans.TryGetValue(oldSchema.StableName, out var plan);
-                return ReadEnumValue(oldSchema, plan, data, ref offset);
+                return ReadEnumValue(oldSchema, plan, ref reader);
             }
-
             if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
-                return ReadGenericInstantiation(oldSchema, targetType, data, ref offset);
+                return ReadGenericInstantiation(oldSchema, targetType, ref reader);
 
-            return ReadPolymorphicValue(targetType ?? GetCurrentType(oldSchema.StableName), data, ref offset);
+            return ReadPolymorphicValue(targetType ?? GetCurrentType(oldSchema.StableName), ref reader);
         }
 
-        object ReadUserTypeByStableName(string stableName, Type targetType, byte[] data, ref int offset)
+        object ReadUserTypeByStableName(string stableName, Type targetType, ref SequenceReader<byte> reader)
         {
             if (stableName != null && _oldByName.TryGetValue(stableName, out var oldSchema))
-                return ReadUserType(oldSchema.TypeId, targetType, data, ref offset);
-
-            // Cannot find schema for this type, best we can do is try to skip it if we knew the type-ID
-            // But we don't. This is a critical failure for the root object.
+                return ReadUserType(oldSchema.TypeId, targetType, ref reader);
             return null;
         }
 
-        object ReadUserTypeInstance(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        object ReadUserTypeInstance(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
             _plans.TryGetValue(oldSchema.StableName, out var plan);
             Type currentType = plan?.CurrentType ?? targetType;
@@ -245,17 +204,14 @@ namespace Ceras.Savegame
             if (oldSchema.Kind == SchemaTypeKind.Struct)
             {
                 object structObj = currentType != null ? RuntimeHelpers.GetUninitializedObject(currentType) : null;
-                ReadAndApplyFields(oldSchema, plan, structObj, data, ref offset);
+                ReadAndApplyFields(oldSchema, plan, structObj, ref reader);
                 return structObj;
             }
 
-            // Class
             object obj = currentType != null ? RuntimeHelpers.GetUninitializedObject(currentType) : null;
             int cacheIndex = _objectCache.Count;
             _objectCache.Add(obj);
-
-            ReadAndApplyFields(oldSchema, plan, obj, data, ref offset);
-
+            ReadAndApplyFields(oldSchema, plan, obj, ref reader);
             _objectCache[cacheIndex] = obj;
 
             if (plan != null && plan.HasChanges && plan.OnAfterDeserialize != null && obj != null)
@@ -264,69 +220,44 @@ namespace Ceras.Savegame
             return obj;
         }
 
-        object ReadGenericInstantiation(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        object ReadGenericInstantiation(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Array)
-                return ReadArray(oldSchema, targetType, data, ref offset);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.List)
-                return ReadList(oldSchema, targetType, data, ref offset);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)
-                return ReadDictionary(oldSchema, targetType, data, ref offset);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.HashSet)
-                return ReadHashSet(oldSchema, targetType, data, ref offset);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Queue)
-                return ReadQueue(oldSchema, targetType, data, ref offset);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Stack)
-                return ReadStack(oldSchema, targetType, data, ref offset);
-            
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Array) return ReadArray(oldSchema, targetType, ref reader);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.List) return ReadList(oldSchema, targetType, ref reader);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary) return ReadDictionary(oldSchema, targetType, ref reader);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.HashSet) return ReadHashSet(oldSchema, targetType, ref reader);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Queue) return ReadQueue(oldSchema, targetType, ref reader);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Stack) return ReadStack(oldSchema, targetType, ref reader);
             return null;
         }
 
-        object ReadArray(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        object ReadArray(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
-            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            uint count = SerializerBinary.ReadUInt32(ref reader);
             Type elementType = targetType?.IsArray == true ? targetType.GetElementType() : null;
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-
-            if (elementType == null || oldElemTypeId == null) 
-            { 
-                SkipElements(count, oldElemTypeId, data, ref offset); 
-                return null; 
-            }
+            if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
 
             var arr = Array.CreateInstance(elementType, (int)count);
-            for (int i = 0; i < count; i++)
-            {
-                object val = ReadValue(oldElemTypeId.Value, elementType, data, ref offset);
-                arr.SetValue(val, i);
-            }
+            for (int i = 0; i < count; i++) arr.SetValue(ReadValue(oldElemTypeId.Value, elementType, ref reader), i);
             return arr;
         }
 
-        object ReadList(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        object ReadList(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
-            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            uint count = SerializerBinary.ReadUInt32(ref reader);
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-
-            if (elementType == null || oldElemTypeId == null) 
-            { 
-                SkipElements(count, oldElemTypeId, data, ref offset); 
-                return null; 
-            }
+            if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
 
             var list = (System.Collections.IList)Activator.CreateInstance(targetType);
-            for (int i = 0; i < count; i++)
-            {
-                object val = ReadValue(oldElemTypeId.Value, elementType, data, ref offset);
-                list.Add(val);
-            }
+            for (int i = 0; i < count; i++) list.Add(ReadValue(oldElemTypeId.Value, elementType, ref reader));
             return list;
         }
 
-        object ReadDictionary(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        object ReadDictionary(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
-            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            uint count = SerializerBinary.ReadUInt32(ref reader);
             Type keyType = targetType?.FindClosedArg(typeof(IDictionary<,>), 0);
             Type valType = targetType?.FindClosedArg(typeof(IDictionary<,>), 1);
             int? oldKeyTid = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
@@ -334,212 +265,138 @@ namespace Ceras.Savegame
 
             if (keyType == null || valType == null || oldKeyTid == null || oldValTid == null)
             {
-                for (int i = 0; i < count; i++)
-                {
-                    SkipValue(oldKeyTid ?? WellKnownTypes.Object, data, ref offset);
-                    SkipValue(oldValTid ?? WellKnownTypes.Object, data, ref offset);
-                }
+                for (int i = 0; i < count; i++) { SkipValue(oldKeyTid ?? WellKnownTypes.Object, ref reader); SkipValue(oldValTid ?? WellKnownTypes.Object, ref reader); }
                 return null;
             }
 
             var dict = (System.Collections.IDictionary)Activator.CreateInstance(targetType);
-            for (int i = 0; i < count; i++)
-            {
-                object k = ReadValue(oldKeyTid.Value, keyType, data, ref offset);
-                object v = ReadValue(oldValTid.Value, valType, data, ref offset);
-                dict.Add(k, v);
-            }
+            for (int i = 0; i < count; i++) dict.Add(ReadValue(oldKeyTid.Value, keyType, ref reader), ReadValue(oldValTid.Value, valType, ref reader));
             return dict;
         }
 
-        object ReadHashSet(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        object ReadHashSet(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
-            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            uint count = SerializerBinary.ReadUInt32(ref reader);
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+            if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
 
-            if (elementType == null || oldElemTypeId == null)
-            {
-                SkipElements(count, oldElemTypeId, data, ref offset);
-                return null;
-            }
-
-            // HashSet<T> doesn't implement IList, we need to use reflection for 'Add'
             var set = Activator.CreateInstance(targetType);
             var addMethod = targetType.GetMethod("Add", new[] { elementType });
-            for (int i = 0; i < count; i++)
-            {
-                object val = ReadValue(oldElemTypeId.Value, elementType, data, ref offset);
-                addMethod.Invoke(set, new[] { val });
-            }
+            for (int i = 0; i < count; i++) addMethod.Invoke(set, new[] { ReadValue(oldElemTypeId.Value, elementType, ref reader) });
             return set;
         }
 
-        object ReadQueue(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        object ReadQueue(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
-            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            uint count = SerializerBinary.ReadUInt32(ref reader);
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-
-            if (elementType == null || oldElemTypeId == null)
-            {
-                SkipElements(count, oldElemTypeId, data, ref offset);
-                return null;
-            }
+            if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
 
             var queue = Activator.CreateInstance(targetType);
             var enqueueMethod = targetType.GetMethod("Enqueue", new[] { elementType });
-            for (int i = 0; i < count; i++)
-            {
-                object val = ReadValue(oldElemTypeId.Value, elementType, data, ref offset);
-                enqueueMethod.Invoke(queue, new[] { val });
-            }
+            for (int i = 0; i < count; i++) enqueueMethod.Invoke(queue, new[] { ReadValue(oldElemTypeId.Value, elementType, ref reader) });
             return queue;
         }
 
-        object ReadStack(OldTypeSchema oldSchema, Type targetType, byte[] data, ref int offset)
+        object ReadStack(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
-            uint count = SerializerBinary.ReadUInt32(data, ref offset);
+            uint count = SerializerBinary.ReadUInt32(ref reader);
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+            if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
 
-            if (elementType == null || oldElemTypeId == null)
-            {
-                SkipElements(count, oldElemTypeId, data, ref offset);
-                return null;
-            }
-
-            // Ceras serializes Stack by writing elements in the order they are yielded by foreach.
-            // For Stack<T>, this is top-to-bottom.
-            // When reading back, if we 'Push' them one by one, the first one pushed ends up at the bottom.
-            // So we need to read them all into a list and push them in reverse, or just read and push if Ceras's StackFormatter does it differently.
-            // Let's check StackFormatter.
             var values = new object[count];
-            for (int i = 0; i < count; i++)
-                values[i] = ReadValue(oldElemTypeId.Value, elementType, data, ref offset);
-
+            for (int i = 0; i < count; i++) values[i] = ReadValue(oldElemTypeId.Value, elementType, ref reader);
             var stack = Activator.CreateInstance(targetType);
             var pushMethod = targetType.GetMethod("Push", new[] { elementType });
-            for (int i = (int)count - 1; i >= 0; i--)
-                pushMethod.Invoke(stack, new[] { values[i] });
-
+            for (int i = (int)count - 1; i >= 0; i--) pushMethod.Invoke(stack, new[] { values[i] });
             return stack;
         }
 
-        void SkipElements(uint count, int? elemTypeId, byte[] data, ref int offset)
+        void SkipElements(uint count, int? elemTypeId, ref SequenceReader<byte> reader)
         {
             if (elemTypeId == null) return;
-            for (int i = 0; i < count; i++)
-                SkipValue(elemTypeId.Value, data, ref offset);
+            for (int i = 0; i < count; i++) SkipValue(elemTypeId.Value, ref reader);
         }
 
-        void SkipValue(int typeId, byte[] data, ref int offset)
+        void SkipValue(int typeId, ref SequenceReader<byte> reader)
         {
-            if (_oldById.TryGetValue(typeId, out var s) && s.FixedByteSize > 0)
-            {
-                offset += s.FixedByteSize;
-                return;
-            }
-
+            if (_oldById.TryGetValue(typeId, out var s) && s.FixedByteSize > 0) { reader.Advance(s.FixedByteSize); return; }
             int fixedSize = WellKnownTypes.GetFixedSize(typeId);
-            if (fixedSize > 0) { offset += fixedSize; return; }
+            if (fixedSize > 0) { reader.Advance(fixedSize); return; }
 
             switch (typeId)
             {
                 case WellKnownTypes.Bool:
-                case WellKnownTypes.Int32:
-                    SerializerBinary.ReadInt32(data, ref offset);
-                    return;
-                case WellKnownTypes.UInt32:
-                    SerializerBinary.ReadUInt32(data, ref offset);
-                    return;
-                case WellKnownTypes.Object:
-                    SkipPolymorphicValue(WellKnownTypes.Object, data, ref offset);
-                    return;
+                case WellKnownTypes.Int32: SerializerBinary.ReadInt32(ref reader); return;
+                case WellKnownTypes.UInt32: SerializerBinary.ReadUInt32(ref reader); return;
+                case WellKnownTypes.Object: SkipPolymorphicValue(WellKnownTypes.Object, ref reader); return;
                 default:
-                    if (typeId >= WellKnownTypes.UserTypeBase)
-                        SkipUserType(typeId, data, ref offset);
+                    if (typeId >= WellKnownTypes.UserTypeBase) SkipUserType(typeId, ref reader);
                     return;
             }
         }
 
-        void SkipUserType(int typeId, byte[] data, ref int offset)
+        void SkipUserType(int typeId, ref SequenceReader<byte> reader)
         {
             if (!_oldById.TryGetValue(typeId, out var oldSchema)) return;
-
-            if (oldSchema.FixedByteSize > 0)
-            {
-                offset += oldSchema.FixedByteSize;
-                return;
-            }
+            if (oldSchema.FixedByteSize > 0) { reader.Advance(oldSchema.FixedByteSize); return; }
 
             switch (oldSchema.Kind)
             {
-                case SchemaTypeKind.Struct:
-                    foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, data, ref offset);
-                    break;
-                case SchemaTypeKind.Class:
-                    SkipPolymorphicValue(typeId, data, ref offset);
-                    break;
-                case SchemaTypeKind.Enum:
-                    SkipEnumValue(oldSchema, data, ref offset);
-                    break;
+                case SchemaTypeKind.Struct: foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, ref reader); break;
+                case SchemaTypeKind.Class: SkipPolymorphicValue(typeId, ref reader); break;
+                case SchemaTypeKind.Enum: SkipEnumValue(oldSchema, ref reader); break;
                 case SchemaTypeKind.GenericInstantiation:
-                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Array || oldSchema.DefinitionTypeId == WellKnownTypes.List)
+                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Array || oldSchema.DefinitionTypeId == WellKnownTypes.List || 
+                        oldSchema.DefinitionTypeId == WellKnownTypes.HashSet || oldSchema.DefinitionTypeId == WellKnownTypes.Queue || 
+                        oldSchema.DefinitionTypeId == WellKnownTypes.Stack)
                     {
-                        uint count = SerializerBinary.ReadUInt32(data, ref offset);
+                        uint count = SerializerBinary.ReadUInt32(ref reader);
                         int? elemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                        SkipElements(count, elemTypeId, data, ref offset);
+                        SkipElements(count, elemTypeId, ref reader);
+                    }
+                    else if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)
+                    {
+                        uint count = SerializerBinary.ReadUInt32(ref reader);
+                        int? kId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+                        int? vId = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
+                        for (int i = 0; i < count; i++) { if (kId.HasValue) SkipValue(kId.Value, ref reader); if (vId.HasValue) SkipValue(vId.Value, ref reader); }
                     }
                     break;
             }
         }
 
-        void SkipPolymorphicValue(int expectedTypeId, byte[] data, ref int offset)
+        void SkipPolymorphicValue(int expectedTypeId, ref SequenceReader<byte> reader)
         {
-            int marker = SerializerBinary.ReadUInt32Bias(data, ref offset, RefBias);
-            if (marker == RefNull) return;
-            if (marker >= 0)      return; 
+            int marker = SerializerBinary.ReadUInt32Bias(ref reader, RefBias);
+            if (marker == RefNull || marker >= 0) return;
+            if (marker == RefExternalObject) { SerializerBinary.ReadInt32Fixed(ref reader); return; }
+            if (marker == RefInlineType) { SkipValue(WellKnownTypes.Type, ref reader); return; }
 
-            if (marker == RefExternalObject)
-            {
-                SerializerBinary.ReadInt32(data, ref offset);
-                return;
-            }
-
-            if (marker == RefInlineType)
-            {
-                SkipValue(WellKnownTypes.Type, data, ref offset);
-                return;
-            }
-
-            int typeId;
-            if (marker == RefNewValue)
-                typeId = (int)SchemaSection.ReadLeb128(data, ref offset);
-            else
-                typeId = expectedTypeId;
-
+            int typeId = marker == RefNewValue ? (int)SchemaSection.ReadLeb128(ref reader) : expectedTypeId;
             if (_oldById.TryGetValue(typeId, out var oldSchema))
             {
                 _objectCache.Add(null);
-                if (oldSchema.Kind == SchemaTypeKind.Enum)
-                {
-                    SkipEnumValue(oldSchema, data, ref offset);
-                }
+                if (oldSchema.Kind == SchemaTypeKind.Enum) SkipEnumValue(oldSchema, ref reader);
                 else if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
                 {
-                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Array || oldSchema.DefinitionTypeId == WellKnownTypes.List)
+                    uint count = SerializerBinary.ReadUInt32(ref reader);
+                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)
                     {
-                        uint count = SerializerBinary.ReadUInt32(data, ref offset);
+                        int? kId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+                        int? vId = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
+                        for (int i = 0; i < count; i++) { if (kId.HasValue) SkipValue(kId.Value, ref reader); if (vId.HasValue) SkipValue(vId.Value, ref reader); }
+                    }
+                    else
+                    {
                         int? elemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                        SkipElements(count, elemTypeId, data, ref offset);
+                        SkipElements(count, elemTypeId, ref reader);
                     }
                 }
-                else
-                {
-                    foreach (var f in oldSchema.Fields)
-                        SkipValue(f.TypeId, data, ref offset);
-                }
+                else foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, ref reader);
             }
         }
 
@@ -547,69 +404,44 @@ namespace Ceras.Savegame
         {
             if (type == null) return WellKnownTypes.Null;
             if (WellKnownTypes.TryGetId(type, out int id)) return id;
-
-            if (SavegameSchemaRegistry.TryGetInfo(type, out var info))
+            if (_registry.TryGetInfo(type, out var info))
             {
-                if (_oldByName.TryGetValue(info.StableName, out var s))
-                    return s.TypeId;
-                foreach (var prev in info.PreviousTypeNames)
-                    if (_oldByName.TryGetValue(prev, out s))
-                        return s.TypeId;
+                if (_oldByName.TryGetValue(info.StableName, out var s)) return s.TypeId;
+                foreach (var prev in info.PreviousTypeNames) if (_oldByName.TryGetValue(prev, out s)) return s.TypeId;
             }
             return WellKnownTypes.Null;
         }
 
-        Type GetCurrentType(string stableName)
-        {
-            SavegameSchemaRegistry.TryResolveType(stableName, out var t);
-            return t;
-        }
+        Type GetCurrentType(string stableName) { _registry.TryResolveType(stableName, out var t); return t; }
 
-        // ── Enum ─────────────────────────────────────────────────────────────
-
-        object ReadEnumValue(OldTypeSchema oldSchema, TypeMigrationPlan plan, byte[] data, ref int offset)
+        object ReadEnumValue(OldTypeSchema oldSchema, TypeMigrationPlan plan, ref SequenceReader<byte> reader)
         {
             int underlyingId = oldSchema.DefinitionTypeId == 0 ? WellKnownTypes.Int32 : oldSchema.DefinitionTypeId;
-            object rawValue = ReadValue(underlyingId, null, data, ref offset);
-
+            object rawValue = ReadValue(underlyingId, null, ref reader);
             if (plan?.EnumValueMap != null && plan.CurrentType != null)
             {
                 long val = Convert.ToInt64(rawValue);
-                if (plan.EnumValueMap.TryGetValue(val, out long mapped))
-                    return Enum.ToObject(plan.CurrentType, mapped);
-                
-                // Value no longer exists in current enum. Return default (0).
-                return Enum.ToObject(plan.CurrentType, 0L);
+                return plan.EnumValueMap.TryGetValue(val, out long mapped) ? Enum.ToObject(plan.CurrentType, mapped) : Enum.ToObject(plan.CurrentType, 0L);
             }
-
             return rawValue;
         }
 
-        void SkipEnumValue(OldTypeSchema oldSchema, byte[] data, ref int offset)
+        void SkipEnumValue(OldTypeSchema oldSchema, ref SequenceReader<byte> reader)
         {
             int underlying = oldSchema.DefinitionTypeId == 0 ? WellKnownTypes.Int32 : oldSchema.DefinitionTypeId;
-            SkipValue(underlying, data, ref offset);
+            SkipValue(underlying, ref reader);
         }
 
-        // ── Field read/skip ───────────────────────────────────────────────────
-
-        void ReadAndApplyFields(OldTypeSchema oldSchema, TypeMigrationPlan plan, object target, byte[] data, ref int offset)
+        void ReadAndApplyFields(OldTypeSchema oldSchema, TypeMigrationPlan plan, object target, ref SequenceReader<byte> reader)
         {
             var mappings = plan?.Mappings ?? BuildSkipMappings(oldSchema);
             foreach (var mapping in mappings)
             {
-                if (mapping.NewField == null)
-                {
-                    SkipValue(mapping.OldField.TypeId, data, ref offset);
-                }
+                if (mapping.NewField == null) SkipValue(mapping.OldField.TypeId, ref reader);
                 else
                 {
-                    object value = ReadValue(mapping.OldField.TypeId, mapping.NewField.FieldType, data, ref offset);
-                    if (target != null)
-                    {
-                        object coerced = Coerce(value, mapping.Coercion, mapping.NewField.FieldType);
-                        mapping.NewField.SetValue(target, coerced);
-                    }
+                    object value = ReadValue(mapping.OldField.TypeId, mapping.NewField.FieldType, ref reader);
+                    if (target != null) mapping.NewField.SetValue(target, Coerce(value, mapping.Coercion, mapping.NewField.FieldType));
                 }
             }
         }
@@ -617,8 +449,7 @@ namespace Ceras.Savegame
         static FieldMapping[] BuildSkipMappings(OldTypeSchema old)
         {
             var m = new FieldMapping[old.Fields.Length];
-            for (int i = 0; i < old.Fields.Length; i++)
-                m[i] = new FieldMapping { OldField = old.Fields[i] };
+            for (int i = 0; i < old.Fields.Length; i++) m[i] = new FieldMapping { OldField = old.Fields[i] };
             return m;
         }
 
@@ -627,35 +458,28 @@ namespace Ceras.Savegame
             if (kind == CoercionKind.None) return value;
             return kind switch
             {
-                CoercionKind.Int32ToInt64   => value is int i  ? (object)(long)i    : value,
-                CoercionKind.Int16ToInt32   => value is short s ? (object)(int)s    : value,
-                CoercionKind.Int32ToSingle  => value is int i2  ? (object)(float)i2 : value,
-                CoercionKind.Int32ToDouble  => value is int i3  ? (object)(double)i3 : value,
-                CoercionKind.SingleToDouble => value is float f  ? (object)(double)f : value,
-                _                           => value,
+                CoercionKind.Int32ToInt64 => value is int i ? (object)(long)i : value,
+                CoercionKind.Int16ToInt32 => value is short s ? (object)(int)s : value,
+                CoercionKind.Int32ToSingle => value is int i2 ? (object)(float)i2 : value,
+                CoercionKind.Int32ToDouble => value is int i3 ? (object)(double)i3 : value,
+                CoercionKind.SingleToDouble => value is float f ? (object)(double)f : value,
+                _ => value,
             };
         }
 
-        string ReadStringFromTable(int index)
-        {
-            if (index == 0) return null;
-            return (uint)index < (uint)_stringTable.Length ? _stringTable[index] : null;
-        }
+        string ReadStringFromTable(int index) => (index == 0) ? null : ((uint)index < (uint)_stringTable.Length ? _stringTable[index] : null);
 
         static HashSet<string> CollectSkippedFields(TypeMigrationPlan plan)
         {
             var set = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var m in plan.Mappings)
-                if (m.NewField == null && m.OldField != null)
-                    set.Add(m.OldField.StableName);
+            foreach (var m in plan.Mappings) if (m.NewField == null && m.OldField != null) set.Add(m.OldField.StableName);
             return set;
         }
 
         void FireCallback(object obj, TypeMigrationPlan plan, string[] addedFields, HashSet<string> skippedFields)
         {
             if (plan.OnAfterDeserialize == null) return;
-            var addedSet = new HashSet<string>(addedFields ?? Array.Empty<string>(), StringComparer.Ordinal);
-            var ctx = new MigrationContext(true, _saveGameVersion, skippedFields, addedSet);
+            var ctx = new MigrationContext(true, _saveGameVersion, skippedFields, new HashSet<string>(addedFields ?? Array.Empty<string>(), StringComparer.Ordinal));
             plan.OnAfterDeserialize.Invoke(obj, new object[] { ctx });
         }
     }
