@@ -7,6 +7,7 @@ namespace Ceras
     using System.Runtime.CompilerServices;
     using System.Text;
     using Ceras.Helpers;
+    using System.Numerics;
 
     using System.Runtime.InteropServices;
     using System.Runtime.Intrinsics;
@@ -72,10 +73,16 @@ namespace Ceras
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void WriteInt32(IBufferWriter<byte> writer, int value)
+        public static void WriteInt32<TWriter>(TWriter writer, int value) where TWriter : IBufferWriter<byte>
         {
             var zigZag = EncodeZigZag32((long)value);
             WriteVarInt(writer, (ulong)zigZag);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteInt32(IBufferWriter<byte> writer, int value)
+        {
+            WriteInt32<IBufferWriter<byte>>(writer, value);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -105,9 +112,15 @@ namespace Ceras
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void WriteUInt32(IBufferWriter<byte> writer, uint value)
+        public static void WriteUInt32<TWriter>(TWriter writer, uint value) where TWriter : IBufferWriter<byte>
         {
             WriteVarInt(writer, (ulong)value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteUInt32(IBufferWriter<byte> writer, uint value)
+        {
+            WriteUInt32<IBufferWriter<byte>>(writer, value);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -118,6 +131,12 @@ namespace Ceras
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteInt64(IBufferWriter<byte> writer, long value)
+        {
+            WriteInt64<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteInt64<TWriter>(TWriter writer, long value) where TWriter : IBufferWriter<byte>
         {
             var zigZag = EncodeZigZag64((long)value);
             WriteVarInt(writer, (ulong)zigZag);
@@ -132,6 +151,12 @@ namespace Ceras
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteUInt64(IBufferWriter<byte> writer, ulong value)
+        {
+            WriteUInt64<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteUInt64<TWriter>(TWriter writer, ulong value) where TWriter : IBufferWriter<byte>
         {
             WriteVarInt(writer, value);
         }
@@ -160,22 +185,70 @@ namespace Ceras
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static void WriteVarInt(IBufferWriter<byte> writer, ulong value)
+        public static void Write<TWriter>(TWriter writer, ReadOnlySpan<byte> data) where TWriter : IBufferWriter<byte>
         {
-            var span = writer.GetSpan(10); 
-            int written = 0;
-            while (value >= 0x80)
+            var span = writer.GetSpan(data.Length);
+            data.CopyTo(span);
+            writer.Advance(data.Length);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void WriteVarInt<TWriter>(TWriter writer, ulong value) where TWriter : IBufferWriter<byte>
+        {
+            // Determine how many bytes we need
+            // each byte stores 7 bits.
+            // 0..127 -> 1 byte (lzcnt 57..64)
+            // 128..16383 -> 2 bytes (lzcnt 50..56)
+            // ...
+            
+            int lzcnt = BitOperations.LeadingZeroCount(value | 1); // | 1 to handle 0
+            int bits = 64 - lzcnt;
+            int bytesNeeded = (bits + 6) / 7;
+            if (bytesNeeded == 0) bytesNeeded = 1;
+
+            var span = writer.GetSpan(bytesNeeded);
+            
+            // Unrolled loop for common cases
+            if (bytesNeeded == 1)
             {
-                span[written++] = (byte)((value & 0x7F) | 0x80);
-                value >>= 7;
+                span[0] = (byte)value;
             }
-            span[written++] = (byte)value;
-            writer.Advance(written);
+            else if (bytesNeeded == 2)
+            {
+                span[0] = (byte)((value & 0x7F) | 0x80);
+                span[1] = (byte)(value >> 7);
+            }
+            else if (bytesNeeded == 3)
+            {
+                span[0] = (byte)((value & 0x7F) | 0x80);
+                span[1] = (byte)((value >> 7 & 0x7F) | 0x80);
+                span[2] = (byte)(value >> 14);
+            }
+            else
+            {
+                // Fallback for large values
+                int written = 0;
+                while (value >= 0x80)
+                {
+                    span[written++] = (byte)((value & 0x7F) | 0x80);
+                    value >>= 7;
+                }
+                span[written++] = (byte)value;
+            }
+            
+            writer.Advance(bytesNeeded);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static ulong ReadVarInt(ref SequenceReader<byte> reader, int bits)
         {
+            // Fast path for 1-byte values
+            if (reader.TryPeek(out byte b) && b < 0x80)
+            {
+                reader.Advance(1);
+                return b;
+            }
+
             int shift = 0;
             ulong result = 0;
 
@@ -204,6 +277,12 @@ namespace Ceras
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteUInt32Bias(IBufferWriter<byte> writer, int value, int bias)
         {
+            WriteUInt32Bias<IBufferWriter<byte>>(writer, value, bias);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteUInt32Bias<TWriter>(TWriter writer, int value, int bias) where TWriter : IBufferWriter<byte>
+        {
             WriteVarInt(writer, (ulong)((long)value + bias));
         }
 
@@ -231,6 +310,12 @@ namespace Ceras
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteByte(IBufferWriter<byte> writer, byte value)
         {
+            WriteByte<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteByte<TWriter>(TWriter writer, byte value) where TWriter : IBufferWriter<byte>
+        {
             var span = writer.GetSpan(1);
             span[0] = value;
             writer.Advance(1);
@@ -255,6 +340,12 @@ namespace Ceras
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteInt16Fixed(IBufferWriter<byte> writer, short value)
         {
+            WriteInt16Fixed<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteInt16Fixed<TWriter>(TWriter writer, short value) where TWriter : IBufferWriter<byte>
+        {
             var span = writer.GetSpan(2);
             BinaryPrimitives.WriteInt16LittleEndian(span, value);
             writer.Advance(2);
@@ -277,6 +368,12 @@ namespace Ceras
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteInt32Fixed(IBufferWriter<byte> writer, int value)
+        {
+            WriteInt32Fixed<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteInt32Fixed<TWriter>(TWriter writer, int value) where TWriter : IBufferWriter<byte>
         {
             var span = writer.GetSpan(4);
             BinaryPrimitives.WriteInt32LittleEndian(span, value);
@@ -309,6 +406,12 @@ namespace Ceras
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteUInt32Fixed(IBufferWriter<byte> writer, uint value)
         {
+            WriteUInt32Fixed<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteUInt32Fixed<TWriter>(TWriter writer, uint value) where TWriter : IBufferWriter<byte>
+        {
             var span = writer.GetSpan(4);
             BinaryPrimitives.WriteUInt32LittleEndian(span, value);
             writer.Advance(4);
@@ -331,6 +434,12 @@ namespace Ceras
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteInt64Fixed(IBufferWriter<byte> writer, long value)
+        {
+            WriteInt64Fixed<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteInt64Fixed<TWriter>(TWriter writer, long value) where TWriter : IBufferWriter<byte>
         {
             var span = writer.GetSpan(8);
             BinaryPrimitives.WriteInt64LittleEndian(span, value);
@@ -364,6 +473,12 @@ namespace Ceras
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteFloat32Fixed(IBufferWriter<byte> writer, float value)
         {
+            WriteFloat32Fixed<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteFloat32Fixed<TWriter>(TWriter writer, float value) where TWriter : IBufferWriter<byte>
+        {
             var span = writer.GetSpan(4);
             BinaryPrimitives.WriteSingleLittleEndian(span, value);
             writer.Advance(4);
@@ -386,6 +501,12 @@ namespace Ceras
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteDouble64Fixed(IBufferWriter<byte> writer, double value)
+        {
+            WriteDouble64Fixed<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteDouble64Fixed<TWriter>(TWriter writer, double value) where TWriter : IBufferWriter<byte>
         {
             var span = writer.GetSpan(8);
             BinaryPrimitives.WriteDoubleLittleEndian(span, value);
@@ -424,6 +545,12 @@ namespace Ceras
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteString(IBufferWriter<byte> writer, string value)
+        {
+            WriteString<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteString<TWriter>(TWriter writer, string value) where TWriter : IBufferWriter<byte>
         {
             if (value == null)
             {

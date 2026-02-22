@@ -327,6 +327,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         var seenFieldNames = new HashSet<string>();
         foreach (var m in members)
         {
+            if (IsPrimitive(m.Type)) continue;
+
             string fieldName = MakeFormatterFieldName(m.Type);
             if (!seenFieldNames.Add(fieldName)) continue;
 
@@ -370,10 +372,27 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         // --- Serialize ---------------------------------------------------------
         sb.AppendLine($"        public void Serialize(IBufferWriter<byte> writer, {typeFqn} value)");
         sb.AppendLine("        {");
+        sb.AppendLine("            Serialize<IBufferWriter<byte>>(writer, value);");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine($"        public void Serialize<TWriter>(TWriter writer, {typeFqn} value) where TWriter : IBufferWriter<byte>");
+        sb.AppendLine("        {");
         foreach (var m in members)
         {
             string fieldName = MakeFormatterFieldName(m.Type);
-            sb.AppendLine($"            {fieldName}.Serialize(writer, value.{m.Name});");
+            if (IsPrimitive(m.Type))
+            {
+                string writeMethod = GetPrimitiveWriteMethod(m.Type);
+                string valueExp = $"value.{m.Name}";
+                if (m.Type.SpecialType == SpecialType.System_Boolean) valueExp = $"{valueExp} ? 1 : 0";
+                sb.AppendLine($"            SerializerBinary.{writeMethod}(writer, {valueExp});");
+            }
+            else
+            {
+                // We can't easily call a generic Serialize on another formatter because we only have IFormatter<T>
+                // For now, non-primitive formatters still use the interface call.
+                sb.AppendLine($"            {fieldName}.Serialize(writer, value.{m.Name});");
+            }
         }
         sb.AppendLine("        }");
         sb.AppendLine();
@@ -386,22 +405,94 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             string fieldName     = MakeFormatterFieldName(m.Type);
             string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-            if (m.IsField)
+            if (IsPrimitive(m.Type))
             {
-                sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref value.{m.Name});");
+                string readMethod = GetPrimitiveReadMethod(m.Type);
+                sb.AppendLine($"            value.{m.Name} = SerializerBinary.{readMethod};");
             }
             else
             {
-                string tmp = "_tmp" + m.Name;
-                sb.AppendLine($"            {memberTypeFqn} {tmp} = value.{m.Name};");
-                sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
-                sb.AppendLine($"            value.{m.Name} = {tmp};");
+                if (m.IsField)
+                {
+                    sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref value.{m.Name});");
+                }
+                else
+                {
+                    string tmp = "_tmp" + m.Name;
+                    sb.AppendLine($"            {memberTypeFqn} {tmp} = value.{m.Name};");
+                    sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
+                    sb.AppendLine($"            value.{m.Name} = {tmp};");
+                }
             }
         }
         sb.AppendLine("        }");
 
         sb.AppendLine("    }");
         sb.AppendLine();
+    }
+
+    static bool IsPrimitive(ITypeSymbol type)
+    {
+        switch (type.SpecialType)
+        {
+            case SpecialType.System_Boolean:
+            case SpecialType.System_Byte:
+            case SpecialType.System_SByte:
+            case SpecialType.System_Char:
+            case SpecialType.System_Int16:
+            case SpecialType.System_UInt16:
+            case SpecialType.System_Int32:
+            case SpecialType.System_UInt32:
+            case SpecialType.System_Single:
+            case SpecialType.System_Int64:
+            case SpecialType.System_UInt64:
+            case SpecialType.System_Double:
+            case SpecialType.System_String:
+                return true;
+        }
+        return false;
+    }
+
+    static string GetPrimitiveWriteMethod(ITypeSymbol type)
+    {
+        switch (type.SpecialType)
+        {
+            case SpecialType.System_Boolean: return "WriteInt32"; // Bool is written as Int32 VarInt in BoolFormatter
+            case SpecialType.System_Byte:    return "WriteByte";
+            case SpecialType.System_SByte:   return "WriteByte"; 
+            case SpecialType.System_Char:    return "WriteInt16Fixed";
+            case SpecialType.System_Int16:   return "WriteInt16Fixed";
+            case SpecialType.System_UInt16:  return "WriteInt16Fixed";
+            case SpecialType.System_Int32:   return "WriteInt32";
+            case SpecialType.System_UInt32:  return "WriteUInt32";
+            case SpecialType.System_Single:  return "WriteFloat32Fixed";
+            case SpecialType.System_Int64:   return "WriteInt64Fixed";
+            case SpecialType.System_UInt64:  return "WriteInt64Fixed"; 
+            case SpecialType.System_Double:  return "WriteDouble64Fixed";
+            case SpecialType.System_String:  return "WriteString";
+        }
+        throw new NotSupportedException();
+    }
+
+    static string GetPrimitiveReadMethod(ITypeSymbol type)
+    {
+        switch (type.SpecialType)
+        {
+            case SpecialType.System_Boolean: return "ReadInt32(ref reader) != 0";
+            case SpecialType.System_Byte:    return "ReadByte(ref reader)";
+            case SpecialType.System_SByte:   return "(sbyte)SerializerBinary.ReadByte(ref reader)";
+            case SpecialType.System_Char:    return "(char)SerializerBinary.ReadInt16Fixed(ref reader)";
+            case SpecialType.System_Int16:   return "ReadInt16Fixed(ref reader)";
+            case SpecialType.System_UInt16:  return "(ushort)SerializerBinary.ReadInt16Fixed(ref reader)";
+            case SpecialType.System_Int32:   return "ReadInt32(ref reader)";
+            case SpecialType.System_UInt32:  return "ReadUInt32(ref reader)";
+            case SpecialType.System_Single:  return "ReadFloat32Fixed(ref reader)";
+            case SpecialType.System_Int64:   return "ReadInt64Fixed(ref reader)";
+            case SpecialType.System_UInt64:  return "(ulong)SerializerBinary.ReadInt64Fixed(ref reader)";
+            case SpecialType.System_Double:  return "ReadDouble64Fixed(ref reader)";
+            case SpecialType.System_String:  return "ReadString(ref reader)";
+        }
+        throw new NotSupportedException();
     }
 
     static string GetConcreteFormatterType(ITypeSymbol type, bool isMonomorphic)
