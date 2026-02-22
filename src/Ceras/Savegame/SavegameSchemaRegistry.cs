@@ -73,8 +73,52 @@ namespace Ceras.Savegame
         public static bool TryGetId(Type type, out int id)
         {
             if (ByType.TryGetValue(type, out var e)) { id = e.Id; return true; }
+            
+            // Automatic registration for types encountered at runtime (e.g. generic instantiations)
+            if (type != null && !WellKnownTypes.IsWellKnown(type))
+            {
+                EnsureRegistered(type);
+                if (ByType.TryGetValue(type, out e)) { id = e.Id; return true; }
+            }
+
             id = -1;
             return false;
+        }
+
+        static void EnsureRegistered(Type type)
+        {
+            if (type == null || WellKnownTypes.IsWellKnown(type) || ByType.ContainsKey(type))
+                return;
+
+            if (type.IsGenericType && !type.IsGenericTypeDefinition)
+            {
+                // Register arguments first
+                foreach (var arg in type.GetGenericArguments())
+                    EnsureRegistered(arg);
+
+                // Create and register schema for this instantiation
+                var info = CreateSchemaForGeneric(type);
+                Register(type, info);
+            }
+        }
+
+        static SchemaTypeInfo CreateSchemaForGeneric(Type type)
+        {
+            var def = type.GetGenericTypeDefinition();
+            var args = type.GetGenericArguments();
+            var argNames = new string[args.Length];
+            for (int i = 0; i < args.Length; i++)
+                argNames[i] = args[i].FullName ?? args[i].Name;
+
+            return new SchemaTypeInfo(
+                stableName: type.FullName ?? type.Name,
+                previousTypeNames: Array.Empty<string>(),
+                kind: SchemaTypeKind.GenericInstantiation,
+                fields: Array.Empty<SchemaFieldInfo>(),
+                fixedByteSize: 0,
+                enumValues: null,
+                underlyingTypeName: def.FullName ?? def.Name,
+                argTypeNames: argNames);
         }
 
         public static bool TryGetInfo(Type type, out SchemaTypeInfo info)

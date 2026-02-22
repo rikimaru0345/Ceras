@@ -87,96 +87,149 @@ namespace Ceras.Savegame
     {
         public static Dictionary<Type, int> Write(ref byte[] buffer, ref int offset)
         {
-            var registered = new List<(Type type, int id, SchemaTypeInfo info)>(SavegameSchemaRegistry.All());
             var typeToId = new Dictionary<Type, int>();
-            var clrNameToId = new Dictionary<string, int>(StringComparer.Ordinal);
-            
-            foreach (var (type, id, _) in registered)
+            var queue = new Queue<(Type type, int id, SchemaTypeInfo info)>();
+            var alreadyProcessed = new HashSet<int>();
+
+            // 1. Initial set from registry
+            foreach (var entry in SavegameSchemaRegistry.All())
             {
-                if (type == null) continue;
-                typeToId[type] = id;
-                clrNameToId[type.FullName ?? type.Name] = id;
+                typeToId[entry.type] = entry.id;
+                queue.Enqueue(entry);
             }
 
-            WriteLeb128(ref buffer, ref offset, (uint)registered.Count);
+            // We need to write the count FIRST, but we don't know it until we've 
+            // discovered all generic instantiations. So we write to a temp buffer.
+            var tempBuf = new byte[4096];
+            int tempOff = 0;
+            int finalCount = 0;
 
-            foreach (var (type, id, info) in registered)
+            while (queue.Count > 0)
             {
-                WriteLeb128(ref buffer, ref offset, (uint)id);
-                WriteInlineString(ref buffer, ref offset, info.StableName);
+                var (type, id, info) = queue.Dequeue();
+                if (!alreadyProcessed.Add(id)) continue;
+                finalCount++;
 
-                WriteLeb128(ref buffer, ref offset, (uint)(info.PreviousTypeNames?.Length ?? 0));
+                WriteLeb128(ref tempBuf, ref tempOff, (uint)id);
+                WriteInlineString(ref tempBuf, ref tempOff, info.StableName);
+
+                WriteLeb128(ref tempBuf, ref tempOff, (uint)(info.PreviousTypeNames?.Length ?? 0));
                 if (info.PreviousTypeNames != null)
                 {
                     foreach (var prev in info.PreviousTypeNames)
-                        WriteInlineString(ref buffer, ref offset, prev);
+                        WriteInlineString(ref tempBuf, ref tempOff, prev);
                 }
 
-                EnsureCapacity(ref buffer, offset + 1);
-                buffer[offset++] = (byte)info.Kind;
+                EnsureCapacity(ref tempBuf, tempOff + 1);
+                tempBuf[tempOff++] = (byte)info.Kind;
 
                 switch (info.Kind)
                 {
                     case SchemaTypeKind.Enum:
-                        int underlyingId = ResolveFieldTypeId(info.UnderlyingTypeName, clrNameToId);
+                        int underlyingId = ResolveId(info.UnderlyingTypeName, typeToId, queue);
                         if (underlyingId == WellKnownTypes.Null) underlyingId = WellKnownTypes.Int32;
-                        WriteLeb128(ref buffer, ref offset, (uint)underlyingId);
-                        WriteLeb128(ref buffer, ref offset, (uint)(info.EnumValues?.Length ?? 0));
+                        WriteLeb128(ref tempBuf, ref tempOff, (uint)underlyingId);
+                        WriteLeb128(ref tempBuf, ref tempOff, (uint)(info.EnumValues?.Length ?? 0));
                         if (info.EnumValues != null)
                         {
                             foreach (var ev in info.EnumValues)
                             {
-                                WriteInlineString(ref buffer, ref offset, ev.Name);
-                                EnsureCapacity(ref buffer, offset + 8);
-                                BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(offset), ev.Value);
-                                offset += 8;
+                                WriteInlineString(ref tempBuf, ref tempOff, ev.Name);
+                                EnsureCapacity(ref tempBuf, tempOff + 8);
+                                BinaryPrimitives.WriteInt64LittleEndian(tempBuf.AsSpan(tempOff), ev.Value);
+                                tempOff += 8;
                             }
                         }
                         break;
 
                     case SchemaTypeKind.Struct:
                     case SchemaTypeKind.Class:
-                        WriteLeb128(ref buffer, ref offset, (uint)(info.Fields?.Length ?? 0));
+                        WriteLeb128(ref tempBuf, ref tempOff, (uint)(info.Fields?.Length ?? 0));
                         if (info.Fields != null)
                         {
                             foreach (var field in info.Fields)
                             {
-                                WriteInlineString(ref buffer, ref offset, field.StableName);
+                                WriteInlineString(ref tempBuf, ref tempOff, field.StableName);
 
-                                WriteLeb128(ref buffer, ref offset, (uint)(field.PreviousNames?.Length ?? 0));
+                                WriteLeb128(ref tempBuf, ref tempOff, (uint)(field.PreviousNames?.Length ?? 0));
                                 if (field.PreviousNames != null)
                                 {
                                     foreach (var pn in field.PreviousNames)
-                                        WriteInlineString(ref buffer, ref offset, pn);
+                                        WriteInlineString(ref tempBuf, ref tempOff, pn);
                                 }
 
-                                int fieldTypeId = ResolveFieldTypeId(field.TypeName, clrNameToId);
-                                WriteLeb128(ref buffer, ref offset, (uint)fieldTypeId);
+                                int fieldTypeId = ResolveId(field.TypeName, typeToId, queue);
+                                WriteLeb128(ref tempBuf, ref tempOff, (uint)fieldTypeId);
 
-                                EnsureCapacity(ref buffer, offset + 1);
-                                buffer[offset++] = (byte)(field.IsMonomorphic ? 1 : 0);
+                                EnsureCapacity(ref tempBuf, tempOff + 1);
+                                tempBuf[tempOff++] = (byte)(field.IsMonomorphic ? 1 : 0);
                             }
                         }
-                        WriteLeb128(ref buffer, ref offset, (uint)info.FixedByteSize);
+                        WriteLeb128(ref tempBuf, ref tempOff, (uint)info.FixedByteSize);
                         break;
 
                     case SchemaTypeKind.GenericInstantiation:
-                        int defId = ResolveFieldTypeId(info.UnderlyingTypeName, clrNameToId);
-                        WriteLeb128(ref buffer, ref offset, (uint)defId);
-                        WriteLeb128(ref buffer, ref offset, (uint)(info.ArgTypeNames?.Length ?? 0));
+                        int defId = ResolveId(info.UnderlyingTypeName, typeToId, queue);
+                        WriteLeb128(ref tempBuf, ref tempOff, (uint)defId);
+                        WriteLeb128(ref tempBuf, ref tempOff, (uint)(info.ArgTypeNames?.Length ?? 0));
                         if (info.ArgTypeNames != null)
                         {
                             foreach (var argName in info.ArgTypeNames)
                             {
-                                int argId = ResolveFieldTypeId(argName, clrNameToId);
-                                WriteLeb128(ref buffer, ref offset, (uint)argId);
+                                int argId = ResolveId(argName, typeToId, queue);
+                                WriteLeb128(ref tempBuf, ref tempOff, (uint)argId);
                             }
                         }
                         break;
                 }
             }
 
+            // 2. Write real count then flush temp buffer
+            WriteLeb128(ref buffer, ref offset, (uint)finalCount);
+            EnsureCapacity(ref buffer, offset + tempOff);
+            tempBuf.AsSpan(0, tempOff).CopyTo(buffer.AsSpan(offset));
+            offset += tempOff;
+
             return typeToId;
+        }
+
+        static int ResolveId(string clrName, Dictionary<Type, int> typeToId, Queue<(Type, int, SchemaTypeInfo)> queue)
+        {
+            if (clrName == null) return WellKnownTypes.Null;
+
+            int wk = ResolveWellKnownId(clrName);
+            if (wk >= 0) return wk;
+
+            if (SavegameSchemaRegistry.TryResolveType(clrName, out var type))
+            {
+                if (SavegameSchemaRegistry.TryGetId(type, out int id))
+                {
+                    if (!typeToId.ContainsKey(type))
+                    {
+                        typeToId[type] = id;
+                        SavegameSchemaRegistry.TryGetInfo(type, out var info);
+                        queue.Enqueue((type, id, info));
+                    }
+                    return id;
+                }
+            }
+
+            var t = Type.GetType(clrName);
+            if (t != null)
+            {
+                if (SavegameSchemaRegistry.TryGetId(t, out int id))
+                {
+                    if (!typeToId.ContainsKey(t))
+                    {
+                        typeToId[t] = id;
+                        SavegameSchemaRegistry.TryGetInfo(t, out var info);
+                        queue.Enqueue((t, id, info));
+                    }
+                    return id;
+                }
+            }
+
+            return WellKnownTypes.Null;
         }
 
         static int ResolveWellKnownId(string typeName)
@@ -202,21 +255,30 @@ namespace Ceras.Savegame
                 "System.DateTime" => WellKnownTypes.DateTime,
                 "System.TimeSpan" => WellKnownTypes.TimeSpan,
                 "System.Guid"     => WellKnownTypes.Guid,
+                "System.Type"     => WellKnownTypes.Type,
                 "System.Array"    => WellKnownTypes.Array,
                 "System.Collections.Generic.List`1" => WellKnownTypes.List,
+                "System.Collections.Generic.Dictionary`2" => WellKnownTypes.Dictionary,
+                "System.Collections.Generic.HashSet`1" => WellKnownTypes.HashSet,
+                "System.Collections.Generic.Queue`1" => WellKnownTypes.Queue,
+                "System.Collections.Generic.Stack`1" => WellKnownTypes.Stack,
+                "System.Nullable`1" => WellKnownTypes.Nullable,
+                "System.Tuple`1" => WellKnownTypes.Tuple1,
+                "System.Tuple`2" => WellKnownTypes.Tuple2,
+                "System.Tuple`3" => WellKnownTypes.Tuple3,
+                "System.Tuple`4" => WellKnownTypes.Tuple4,
+                "System.Tuple`5" => WellKnownTypes.Tuple5,
+                "System.Tuple`6" => WellKnownTypes.Tuple6,
+                "System.Tuple`7" => WellKnownTypes.Tuple7,
+                "System.ValueTuple`1" => WellKnownTypes.VTuple1,
+                "System.ValueTuple`2" => WellKnownTypes.VTuple2,
+                "System.ValueTuple`3" => WellKnownTypes.VTuple3,
+                "System.ValueTuple`4" => WellKnownTypes.VTuple4,
+                "System.ValueTuple`5" => WellKnownTypes.VTuple5,
+                "System.ValueTuple`6" => WellKnownTypes.VTuple6,
+                "System.ValueTuple`7" => WellKnownTypes.VTuple7,
                 _                 => -1,
             };
-        }
-
-        static int ResolveFieldTypeId(string typeName, Dictionary<string, int> clrNameToId)
-        {
-            int wk = ResolveWellKnownId(typeName);
-            if (wk >= 0) return wk;
-
-            if (typeName != null && clrNameToId.TryGetValue(typeName, out int id))
-                return id;
-
-            return WellKnownTypes.Null;
         }
 
         public static Dictionary<string, OldTypeSchema> Read(byte[] buffer, ref int offset)

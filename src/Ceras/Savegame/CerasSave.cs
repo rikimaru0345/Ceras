@@ -94,13 +94,14 @@ namespace Ceras.Savegame
             WriteHeaderPlaceholder(ref buffer, ref offset, gameVersion);
             // offset == HeaderSize
 
-            // 2. Schema section (immediately after header)
+            // 2. Resolve root type ID (triggering registration)
+            int rootTypeId = GetTypeId(typeof(T));
+
+            // 3. Schema section (immediately after header)
             var typeToId = SchemaSection.Write(ref buffer, ref offset);
 
-            // 3. Root type ID + data section
+            // 4. Root type ID + data section
             int dataStart = offset;
-
-            int rootTypeId = GetTypeId(typeof(T));
             SchemaSection.WriteLeb128(ref buffer, ref offset, (uint)rootTypeId);
 
             var internTable = new StringInternTable();
@@ -312,28 +313,9 @@ namespace Ceras.Savegame
 
         static Type GetWellKnownType(int id)
         {
-            return id switch
-            {
-                WellKnownTypes.Bool     => typeof(bool),
-                WellKnownTypes.Byte     => typeof(byte),
-                WellKnownTypes.SByte    => typeof(sbyte),
-                WellKnownTypes.Char     => typeof(char),
-                WellKnownTypes.Int16    => typeof(short),
-                WellKnownTypes.UInt16   => typeof(ushort),
-                WellKnownTypes.Int32    => typeof(int),
-                WellKnownTypes.UInt32   => typeof(uint),
-                WellKnownTypes.Single   => typeof(float),
-                WellKnownTypes.Int64    => typeof(long),
-                WellKnownTypes.UInt64   => typeof(ulong),
-                WellKnownTypes.Double   => typeof(double),
-                WellKnownTypes.Decimal  => typeof(decimal),
-                WellKnownTypes.String   => typeof(string),
-                WellKnownTypes.Object   => typeof(object),
-                WellKnownTypes.DateTime => typeof(DateTime),
-                WellKnownTypes.TimeSpan => typeof(TimeSpan),
-                WellKnownTypes.Guid     => typeof(Guid),
-                _                       => null,
-            };
+            if (WellKnownTypes.TryGetType(id, out var type))
+                return type;
+            return null;
         }
 
         // ── Buffer growth ─────────────────────────────────────────────────────

@@ -63,27 +63,6 @@ namespace Ceras.Savegame
         // ── Fixed byte sizes (0 = variable or not applicable) ─────────────────
         static readonly int[] FixedSizes = new int[128];
 
-        static WellKnownTypes()
-        {
-            FixedSizes[Byte]     = 1;
-            FixedSizes[SByte]    = 1;
-            FixedSizes[Char]     = 2;
-            FixedSizes[Int16]    = 2;
-            FixedSizes[UInt16]   = 2;
-            FixedSizes[Single]   = 4;
-            FixedSizes[String]   = 4;  // string-table index
-            FixedSizes[Int64]    = 8;
-            FixedSizes[UInt64]   = 8;
-            FixedSizes[Double]   = 8;
-            FixedSizes[DateTime] = 8;
-            FixedSizes[TimeSpan] = 8;
-            FixedSizes[Decimal]  = 16;
-            FixedSizes[Guid]     = 16;
-            // Bool, Int32, UInt32, Object, Collections: 0 (variable)
-        }
-
-        // ── Type → ID lookup ──────────────────────────────────────────────────
-
         static readonly Dictionary<Type, int> TypeToId = new()
         {
             [typeof(bool)]     = Bool,
@@ -135,6 +114,32 @@ namespace Ceras.Savegame
             [typeof(ValueTuple<,,,,,,>)]             = VTuple7,
         };
 
+        static readonly Dictionary<int, Type> IdToTypeMap = new();
+
+        static WellKnownTypes()
+        {
+            FixedSizes[Byte]     = 1;
+            FixedSizes[SByte]    = 1;
+            FixedSizes[Char]     = 2;
+            FixedSizes[Int16]    = 2;
+            FixedSizes[UInt16]   = 2;
+            FixedSizes[Single]   = 4;
+            FixedSizes[String]   = 4;  // string-table index
+            FixedSizes[Int64]    = 8;
+            FixedSizes[UInt64]   = 8;
+            FixedSizes[Double]   = 8;
+            FixedSizes[DateTime] = 8;
+            FixedSizes[TimeSpan] = 8;
+            FixedSizes[Decimal]  = 16;
+            FixedSizes[Guid]     = 16;
+            // Bool, Int32, UInt32, Object, Collections, Tuples: 0 (variable)
+
+            foreach (var kv in TypeToId) IdToTypeMap[kv.Value] = kv.Key;
+            foreach (var kv in GenericDefToId) IdToTypeMap[kv.Value] = kv.Key;
+            foreach (var kv in TupleDefToId) IdToTypeMap[kv.Value] = kv.Key;
+            IdToTypeMap[Array] = typeof(Array);
+        }
+
         public static bool TryGetId(Type type, out int id)
         {
             if (TypeToId.TryGetValue(type, out id))
@@ -160,6 +165,9 @@ namespace Ceras.Savegame
         }
 
         public static bool IsWellKnown(Type type) => TryGetId(type, out _);
+
+        public static bool TryGetType(int id, out Type type)
+            => IdToTypeMap.TryGetValue(id, out type);
 
         /// <summary>
         /// Returns the fixed byte size for a well-known type ID, or 0 if variable.
