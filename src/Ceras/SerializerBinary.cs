@@ -15,6 +15,12 @@ namespace Ceras
     public static unsafe class SerializerBinary
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void FastCopy(byte[] source, int sourceOffset, byte[] destination, int destinationOffset, long count)
+        {
+            source.AsSpan(sourceOffset, (int)count).CopyTo(destination.AsSpan(destinationOffset, (int)count));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void FastCopy<T>(ReadOnlySpan<T> source, Span<byte> destination) where T : struct
         {
             var sourceBytes = MemoryMarshal.AsBytes(source);
@@ -53,7 +59,17 @@ namespace Ceras
                 sourceBytes.CopyTo(destination);
             }
         }
+
         #region Variable Length Encoding (Int32, UInt32, Int64, UInt64)
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteInt32(ref byte[] buffer, ref int offset, int value)
+        {
+            var writer = new CerasSerializer.FixedArrayBufferWriter(buffer, offset);
+            WriteInt32(writer, value);
+            buffer = writer.Buffer;
+            offset = writer.Offset;
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteInt32(IBufferWriter<byte> writer, int value)
@@ -63,10 +79,29 @@ namespace Ceras
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ReadInt32(byte[] buffer, ref int offset)
+        {
+            var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset);
+            var reader = new SequenceReader<byte>(seq);
+            var result = ReadInt32(ref reader);
+            offset += (int)reader.Consumed;
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int ReadInt32(ref SequenceReader<byte> reader)
         {
             var zigZag = ReadVarInt(ref reader, 32);
             return (int)DecodeZigZag(zigZag);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteUInt32(ref byte[] buffer, ref int offset, uint value)
+        {
+            var writer = new CerasSerializer.FixedArrayBufferWriter(buffer, offset);
+            WriteUInt32(writer, value);
+            buffer = writer.Buffer;
+            offset = writer.Offset;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -173,6 +208,16 @@ namespace Ceras
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ReadUInt32Bias(byte[] buffer, ref int offset, int bias)
+        {
+            var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset);
+            var reader = new SequenceReader<byte>(seq);
+            var result = ReadUInt32Bias(ref reader, bias);
+            offset += (int)reader.Consumed;
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int ReadUInt32Bias(ref SequenceReader<byte> reader, int bias)
         {
             var value = (int)ReadVarInt(ref reader, 32);
@@ -189,6 +234,14 @@ namespace Ceras
             var span = writer.GetSpan(1);
             span[0] = value;
             writer.Advance(1);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static byte ReadByte(byte[] buffer, ref int offset)
+        {
+            var val = buffer[offset];
+            offset += 1;
+            return val;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -228,6 +281,14 @@ namespace Ceras
             var span = writer.GetSpan(4);
             BinaryPrimitives.WriteInt32LittleEndian(span, value);
             writer.Advance(4);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ReadInt32Fixed(byte[] buffer, ref int offset)
+        {
+            var val = BinaryPrimitives.ReadInt32LittleEndian(buffer.AsSpan(offset));
+            offset += 4;
+            return val;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -292,6 +353,15 @@ namespace Ceras
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteFloat32Fixed(ref byte[] buffer, ref int offset, float value)
+        {
+            var writer = new CerasSerializer.FixedArrayBufferWriter(buffer, offset);
+            WriteFloat32Fixed(writer, value);
+            buffer = writer.Buffer;
+            offset = writer.Offset;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteFloat32Fixed(IBufferWriter<byte> writer, float value)
         {
             var span = writer.GetSpan(4);
@@ -344,6 +414,15 @@ namespace Ceras
         static readonly UTF8Encoding _utf8Encoding = new UTF8Encoding(false, true);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteString(ref byte[] buffer, ref int offset, string value)
+        {
+            var writer = new CerasSerializer.FixedArrayBufferWriter(buffer, offset);
+            WriteString(writer, value);
+            buffer = writer.Buffer;
+            offset = writer.Offset;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteString(IBufferWriter<byte> writer, string value)
         {
             if (value == null)
@@ -357,6 +436,16 @@ namespace Ceras
             var span = writer.GetSpan(byteCount);
             _utf8Encoding.GetBytes(value, span);
             writer.Advance(byteCount);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static string ReadString(byte[] buffer, ref int offset)
+        {
+            var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset);
+            var reader = new SequenceReader<byte>(seq);
+            var result = ReadString(ref reader);
+            offset += (int)reader.Consumed;
+            return result;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -448,7 +537,8 @@ namespace Ceras
 
             byte[] newBuffer = CerasBufferPool.Rent(targetSize);
             buffer.AsSpan(0, currentSize).CopyTo(newBuffer);
-            CerasBufferPool.Return(buffer);
+            if (buffer.Length >= 0x4000)
+                CerasBufferPool.Return(buffer);
             buffer = newBuffer;
         }
 

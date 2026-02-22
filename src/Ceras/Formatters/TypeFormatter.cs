@@ -3,7 +3,7 @@ namespace Ceras.Formatters
     using System;
     using System.Buffers;
 
-    sealed class TypeFormatter : FormatterBase<Type>
+    public sealed class TypeFormatter : FormatterBase<Type>
     {
         readonly CerasSerializer _ceras;
         readonly ITypeBinder _typeBinder;

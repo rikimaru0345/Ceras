@@ -204,7 +204,7 @@ namespace Ceras
             finally { LeaveRecursive(RecursionMode.Deserialization); }
         }
 
-        class FixedArrayBufferWriter : IBufferWriter<byte>
+        public class FixedArrayBufferWriter : IBufferWriter<byte>
         {
             public byte[] Buffer; public int Offset;
             public FixedArrayBufferWriter(byte[] buffer, int offset) { Buffer = buffer ?? CerasBufferPool.Rent(0x4000); Offset = offset; }

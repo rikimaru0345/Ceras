@@ -4,7 +4,7 @@ using System.Linq.Expressions;
 
 namespace Ceras.Formatters
 {
-    sealed class ByteFormatter : FormatterBase<byte>
+    public sealed class ByteFormatter : FormatterBase<byte>
     {
         public override void Serialize(IBufferWriter<byte> writer, byte value)
         {
@@ -17,7 +17,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class SByteFormatter : FormatterBase<sbyte>
+    public sealed class SByteFormatter : FormatterBase<sbyte>
     {
         public override void Serialize(IBufferWriter<byte> writer, sbyte value)
         {
@@ -30,7 +30,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class BoolFormatter : FormatterBase<bool>
+    public sealed class BoolFormatter : FormatterBase<bool>
     {
         public override void Serialize(IBufferWriter<byte> writer, bool value)
         {
@@ -43,7 +43,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class CharFormatter : FormatterBase<char>
+    public sealed class CharFormatter : FormatterBase<char>
     {
         public override void Serialize(IBufferWriter<byte> writer, char value)
         {
@@ -56,7 +56,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class Int16Formatter : FormatterBase<short>
+    public sealed class Int16Formatter : FormatterBase<short>
     {
         public override void Serialize(IBufferWriter<byte> writer, short value)
         {
@@ -69,7 +69,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class UInt16Formatter : FormatterBase<ushort>
+    public sealed class UInt16Formatter : FormatterBase<ushort>
     {
         public override void Serialize(IBufferWriter<byte> writer, ushort value)
         {
@@ -82,7 +82,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class Int32Formatter : FormatterBase<int>, IInlineEmitter
+    public sealed class Int32Formatter : FormatterBase<int>, IInlineEmitter
     {
         public override void Serialize(IBufferWriter<byte> writer, int value)
         {
@@ -108,7 +108,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class UInt32Formatter : FormatterBase<uint>
+    public sealed class UInt32Formatter : FormatterBase<uint>
     {
         public override void Serialize(IBufferWriter<byte> writer, uint value)
         {
@@ -121,7 +121,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class FloatFormatter : FormatterBase<float>
+    public sealed class FloatFormatter : FormatterBase<float>
     {
         public override void Serialize(IBufferWriter<byte> writer, float value)
         {
@@ -134,7 +134,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class DoubleFormatter : FormatterBase<double>
+    public sealed class DoubleFormatter : FormatterBase<double>
     {
         public override void Serialize(IBufferWriter<byte> writer, double value)
         {
@@ -147,7 +147,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class Int64Formatter : FormatterBase<long>
+    public sealed class Int64Formatter : FormatterBase<long>
     {
         public override void Serialize(IBufferWriter<byte> writer, long value)
         {
@@ -160,7 +160,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class UInt64Formatter : FormatterBase<ulong>
+    public sealed class UInt64Formatter : FormatterBase<ulong>
     {
         public override void Serialize(IBufferWriter<byte> writer, ulong value)
         {
@@ -173,7 +173,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class IntPtrFormatter : FormatterBase<IntPtr>
+    public sealed class IntPtrFormatter : FormatterBase<IntPtr>
     {
         public override void Serialize(IBufferWriter<byte> writer, IntPtr IntPtr)
         {
@@ -186,7 +186,7 @@ namespace Ceras.Formatters
         }
     }
 
-    sealed class UIntPtrFormatter : FormatterBase<UIntPtr>
+    public sealed class UIntPtrFormatter : FormatterBase<UIntPtr>
     {
         public override void Serialize(IBufferWriter<byte> writer, UIntPtr IntPtr)
         {

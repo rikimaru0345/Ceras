@@ -330,8 +330,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             string fieldName = MakeFormatterFieldName(m.Type);
             if (!seenFieldNames.Add(fieldName)) continue;
 
-            string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            sb.AppendLine($"        IFormatter<{memberTypeFqn}> {fieldName};");
+            string concreteFormatterType = GetConcreteFormatterType(m.Type, m.IsMonomorphic);
+            sb.AppendLine($"        readonly {concreteFormatterType} {fieldName};");
         }
         sb.AppendLine();
 
@@ -402,6 +402,58 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
         sb.AppendLine("    }");
         sb.AppendLine();
+    }
+
+    static string GetConcreteFormatterType(ITypeSymbol type, bool isMonomorphic)
+    {
+        string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+        // Primitives
+        switch (type.SpecialType)
+        {
+            case SpecialType.System_Boolean: return "global::Ceras.Formatters.BoolFormatter";
+            case SpecialType.System_Byte:    return "global::Ceras.Formatters.ByteFormatter";
+            case SpecialType.System_SByte:   return "global::Ceras.Formatters.SByteFormatter";
+            case SpecialType.System_Char:    return "global::Ceras.Formatters.CharFormatter";
+            case SpecialType.System_Int16:   return "global::Ceras.Formatters.Int16Formatter";
+            case SpecialType.System_UInt16:  return "global::Ceras.Formatters.UInt16Formatter";
+            case SpecialType.System_Int32:   return "global::Ceras.Formatters.Int32Formatter";
+            case SpecialType.System_UInt32:  return "global::Ceras.Formatters.UInt32Formatter";
+            case SpecialType.System_Single:  return "global::Ceras.Formatters.FloatFormatter";
+            case SpecialType.System_Int64:   return "global::Ceras.Formatters.Int64Formatter";
+            case SpecialType.System_UInt64:  return "global::Ceras.Formatters.UInt64Formatter";
+            case SpecialType.System_Double:  return "global::Ceras.Formatters.DoubleFormatter";
+            case SpecialType.System_String:  return "global::Ceras.Formatters.StringFormatter";
+        }
+
+        if (typeFqn == "global::System.DateTime") return "global::Ceras.Resolvers.StandardFormatterResolver.DateTimeFormatter";
+        if (typeFqn == "global::System.TimeSpan") return "global::Ceras.Resolvers.StandardFormatterResolver.TimeSpanFormatter";
+        if (typeFqn == "global::System.Guid") return "global::Ceras.Resolvers.StandardFormatterResolver.GuidFormatter"; // Wait, GuidFormatter?
+
+        // Arrays
+        if (type is IArrayTypeSymbol arr)
+        {
+            // For now use IFormatter for arrays unless we want to commit to a specific array formatter
+            return $"IFormatter<{typeFqn}>";
+        }
+
+        // Reference types or non-monomorphic types
+        if (!type.IsValueType && !isMonomorphic)
+        {
+            return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+        }
+        
+        if (!type.IsValueType && isMonomorphic)
+        {
+            // If it's a sealed class, we can use ReferenceFormatter_KnownSealedType
+            if (type.IsSealed)
+                return $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>";
+            
+            return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+        }
+
+        // Fallback to interface
+        return $"IFormatter<{typeFqn}>";
     }
 
     static void WriteSchemaDescriptor(

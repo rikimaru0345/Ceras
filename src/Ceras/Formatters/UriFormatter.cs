@@ -3,7 +3,7 @@ namespace Ceras.Formatters
     using System;
     using System.Buffers;
 
-    sealed class UriFormatter : FormatterBase<Uri>
+    public sealed class UriFormatter : FormatterBase<Uri>
     {
         public override void Serialize(IBufferWriter<byte> writer, Uri value)
         {

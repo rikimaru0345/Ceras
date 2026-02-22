@@ -174,7 +174,7 @@ This replaces the old external AotGenerator tool and works automatically — no 
 | Unity IL2CPP / iOS / AOT | ❌ crashes at runtime | ✅ required |
 | NativeAOT (`dotnet publish`) | ❌ crashes at runtime | ✅ required |
 
-### Quick setup (3 steps)
+### Quick setup (2 steps)
 
 **1. Reference the source generator in your `.csproj`:**
 
@@ -186,13 +186,12 @@ This replaces the old external AotGenerator tool and works automatically — no 
 </ItemGroup>
 ```
 
-> When Ceras is published as a NuGet package, the generator will be included automatically — no manual project reference needed.
-
 **2. Annotate the types you want pre-generated formatters for:**
 
 ```csharp
 using Ceras;
 
+// Standard attribute on the type
 [GenerateFormatter]
 public class Player
 {
@@ -200,44 +199,41 @@ public class Player
     public int    Score;
 }
 
-// Use [MemberConfig] to control which members are included
-[GenerateFormatter]
-[MemberConfig(TargetMember.PublicProperties)]
-public class Vec2
-{
-    public float X { get; set; }
-    public float Y { get; set; }
-}
+// Or use the generic version anywhere (e.g. at the assembly level) 
+// to generate formatters for external types you don't control:
+[assembly: GenerateFormatter<ExternalLibrary.UserType>]
 ```
 
-The generator respects `[Include]`, `[Exclude]`, and `[MemberConfig]` just like the runtime serializer.
-
-**3. Register the generated formatters before creating your serializer:**
-
-```csharp
-using Ceras.Generated;
-
-var config = new SerializerConfig();
-GeneratedFormatters.UseFormatters(config);   // registers all [GenerateFormatter] types
-
-var ceras = new CerasSerializer(config);
-```
+> **Automatic Registration**: Ceras will automatically look for and register your generated formatters in its constructor. You no longer need to manually call `GeneratedFormatters.UseFormatters(config)` (though you still can if you want to apply them to a specific config object manually).
 
 The generated formatters produce **byte-identical output** to the runtime `DynamicFormatter`, so serialized data is fully interchangeable.
 
-### Enforcing AOT-only mode (no dynamic fallback)
+### AOT-only mode (Default)
 
-To guarantee that Ceras never falls back to the runtime `DynamicFormatter` — which will crash on AOT platforms — enable `AotMode`:
+Starting with v4.2, `config.Advanced.AotMode` defaults to `Enabled`. This means:
+- Ceras will use its built-in **AOT interpreter** for types without generated formatters.
+- This interpreter is significantly faster than reflection and works on no-jit platforms (iOS, IL2CPP).
+- For maximum performance, you should still use `[GenerateFormatter]` on your most important types.
 
-```csharp
-var config = new SerializerConfig();
-GeneratedFormatters.UseFormatters(config);
-config.Advanced.AotMode = AotMode.Enabled;  // throws if any type lacks a pre-generated formatter
+### Viewing and Debugging Generated Code
 
-var ceras = new CerasSerializer(config);
+Source generators run during compilation, and their output isn't always visible in your file explorer. Here is how to see what Ceras is writing:
+
+**1. Using your IDE**:
+- **Visual Studio**: Expand your project -> Dependencies -> Analyzers -> Ceras.SourceGenerator -> CerasGeneratedFormatters.g.cs.
+- **Rider**: Expand your project -> Scratches and Consoles -> Extension Generated Files -> Ceras.SourceGenerator.
+
+**2. Persisting files to disk**:
+To see the files in your project folder, add these properties to your `.csproj`:
+
+```xml
+<PropertyGroup>
+  <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+  <CompilerGeneratedFilesOutputPath>Generated</CompilerGeneratedFilesOutputPath>
+</PropertyGroup>
 ```
 
-With `AotMode.Enabled`, any type that slips through without a `[GenerateFormatter]` annotation will throw an `InvalidOperationException` immediately (at serializer construction time, not silently at runtime on device).
+This will save the generated C# code to `obj/Generated` (or your specified path), allowing you to set breakpoints, inspect the logic, or verify that all members are being handled correctly.
 
 ### Polymorphic / runtime-only types
 

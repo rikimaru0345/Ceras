@@ -270,6 +270,15 @@ namespace Ceras.Savegame
             };
         }
 
+        public static Dictionary<string, OldTypeSchema> Read(byte[] buffer, ref int offset)
+        {
+            var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset);
+            var reader = new SequenceReader<byte>(seq);
+            var result = Read(ref reader);
+            offset += (int)reader.Consumed;
+            return result;
+        }
+
         public static Dictionary<string, OldTypeSchema> Read(ref SequenceReader<byte> reader)
         {
             var byName = new Dictionary<string, OldTypeSchema>(StringComparer.Ordinal);
@@ -335,6 +344,14 @@ namespace Ceras.Savegame
             return byName;
         }
 
+        internal static void WriteLeb128(ref byte[] buffer, ref int offset, uint value)
+        {
+            var writer = new CerasSerializer.FixedArrayBufferWriter(buffer, offset);
+            WriteLeb128(writer, value);
+            buffer = writer.Buffer;
+            offset = writer.Offset;
+        }
+
         internal static void WriteLeb128(IBufferWriter<byte> writer, uint value)
         {
             var span = writer.GetSpan(5);
@@ -346,6 +363,15 @@ namespace Ceras.Savegame
             }
             span[written++] = (byte)value;
             writer.Advance(written);
+        }
+
+        internal static uint ReadLeb128(byte[] buffer, ref int offset)
+        {
+            var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset);
+            var reader = new SequenceReader<byte>(seq);
+            uint result = ReadLeb128(ref reader);
+            offset += (int)reader.Consumed;
+            return result;
         }
 
         internal static uint ReadLeb128(ref SequenceReader<byte> reader)
