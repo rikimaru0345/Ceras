@@ -8,8 +8,51 @@ namespace Ceras
     using System.Text;
     using Ceras.Helpers;
 
+    using System.Runtime.InteropServices;
+    using System.Runtime.Intrinsics;
+    using System.Runtime.Intrinsics.X86;
+
     public static unsafe class SerializerBinary
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void FastCopy<T>(ReadOnlySpan<T> source, Span<byte> destination) where T : struct
+        {
+            var sourceBytes = MemoryMarshal.AsBytes(source);
+            if (Vector256.IsHardwareAccelerated && sourceBytes.Length >= Vector256<byte>.Count)
+            {
+                int i = 0;
+                int count = sourceBytes.Length;
+                int vectorSize = Vector256<byte>.Count;
+                fixed (byte* pSrc = sourceBytes, pDest = destination)
+                {
+                    for (; i <= count - vectorSize; i += vectorSize)
+                    {
+                        var v = Vector256.Load(pSrc + i);
+                        v.Store(pDest + i);
+                    }
+                }
+                if (i < count) sourceBytes.Slice(i).CopyTo(destination.Slice(i));
+            }
+            else if (Vector128.IsHardwareAccelerated && sourceBytes.Length >= Vector128<byte>.Count)
+            {
+                int i = 0;
+                int count = sourceBytes.Length;
+                int vectorSize = Vector128<byte>.Count;
+                fixed (byte* pSrc = sourceBytes, pDest = destination)
+                {
+                    for (; i <= count - vectorSize; i += vectorSize)
+                    {
+                        var v = Vector128.Load(pSrc + i);
+                        v.Store(pDest + i);
+                    }
+                }
+                if (i < count) sourceBytes.Slice(i).CopyTo(destination.Slice(i));
+            }
+            else
+            {
+                sourceBytes.CopyTo(destination);
+            }
+        }
         #region Variable Length Encoding (Int32, UInt32, Int64, UInt64)
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

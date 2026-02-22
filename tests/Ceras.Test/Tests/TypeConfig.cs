@@ -113,23 +113,23 @@ namespace Ceras.Test
         }
     }
 
-    class DayOfWeekFormatter : IFormatter<DayOfWeek>
+    class DayOfWeekFormatter : FormatterBase<DayOfWeek>
     {
-        public void Serialize(IBufferWriter<byte> writer, DayOfWeek value)
+        public override void Serialize(IBufferWriter<byte> writer, DayOfWeek value)
         {
             SerializerBinary.WriteUInt64(writer, (ulong)value);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref DayOfWeek value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref DayOfWeek value)
         {
             value = (DayOfWeek)SerializerBinary.ReadUInt64(ref reader);
         }
     }
 
-    class ErrorFormatter<T> : IFormatter<T>
+    class ErrorFormatter<T> : FormatterBase<T>
     {
-        public void Serialize(IBufferWriter<byte> writer, T value) => Throw();
-        public void Deserialize(ref SequenceReader<byte> reader, ref T value) => Throw();
+        public override void Serialize(IBufferWriter<byte> writer, T value) => Throw();
+        public override void Deserialize(ref SequenceReader<byte> reader, ref T value) => Throw();
 
         void Throw() => throw new InvalidOperationException("This shouldn't happen");
     }

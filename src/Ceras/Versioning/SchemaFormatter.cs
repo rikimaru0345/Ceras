@@ -4,7 +4,7 @@ namespace Ceras.Formatters
     using System.Buffers;
     using Ceras.Helpers;
 
-    sealed class SchemaDynamicFormatter<T> : IFormatter<T>
+    sealed class SchemaDynamicFormatter<T> : FormatterBase<T>
     {
         readonly CerasSerializer _ceras;
         readonly Schema _schema;
@@ -18,12 +18,12 @@ namespace Ceras.Formatters
             _internalFormatter = (IFormatter<T>)Activator.CreateInstance(formatterType, new object[] { ceras, false });
         }
 
-        public void Serialize(IBufferWriter<byte> writer, T value)
+        public override void Serialize(IBufferWriter<byte> writer, T value)
         {
             _internalFormatter.Serialize(writer, value);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref T value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
         {
             _internalFormatter.Deserialize(ref reader, ref value);
         }

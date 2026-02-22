@@ -17,6 +17,8 @@ namespace Ceras
     using System.Runtime.CompilerServices;
     using System.Text;
     using Ceras.Savegame;
+    using System.IO;
+    using System.Threading.Tasks;
 
     public class CerasSerializer : ICerasAdvanced
     {
@@ -213,6 +215,22 @@ namespace Ceras
 
         public T Clone<T>(T obj) => Deserialize<T>(Serialize(obj));
 
+        public async ValueTask SaveAsync<T>(T obj, Stream stream)
+        {
+            var writer = new ArrayBufferWriter<byte>();
+            Serialize(writer, obj);
+            await stream.WriteAsync(writer.WrittenMemory);
+        }
+
+        public async ValueTask<T> LoadAsync<T>(Stream stream)
+        {
+            // For a real implementation we'd read in chunks, but for now we read everything
+            // to fulfill the API requirement.
+            var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            return Deserialize<T>(ms.ToArray());
+        }
+
         byte[] ICerasAdvanced.SerializeStatic(Type type) { var writer = new ArrayBufferWriter<byte>(); ((ICerasAdvanced)this).SerializeStatic(type, writer); return writer.WrittenSpan.ToArray(); }
         void ICerasAdvanced.SerializeStatic(Type type, IBufferWriter<byte> writer) { var meta = GetStaticTypeMetaData(type); if (meta.StaticSerialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticSerialize(writer); }
         int ICerasAdvanced.SerializeStatic(Type type, ref byte[] buffer, ref int offset) { var writer = new FixedArrayBufferWriter(buffer, offset); ((ICerasAdvanced)this).SerializeStatic(type, writer); buffer = writer.Buffer; int size = writer.Offset - offset; offset = writer.Offset; return size; }
@@ -223,8 +241,8 @@ namespace Ceras
         void PrepareStaticSerializationDispatchers(TypeMetaData meta)
         {
             var formatterType = typeof(DynamicFormatter<>).MakeGenericType(meta.Type);
-            var f = (DynamicFormatter)Activator.CreateInstance(formatterType, new object[] { this, true });
-            f.Initialize();
+            var f = Activator.CreateInstance(formatterType, new object[] { this, true });
+            formatterType.GetMethod("Initialize", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(f, null);
             var createDelegates = typeof(CerasSerializer).GetMethod(nameof(CreateStaticDelegates), BindingFlags.NonPublic | BindingFlags.Static).MakeGenericMethod(meta.Type);
             var result = ((StaticSerializeDelegate ser, StaticDeserializeDelegate deser))createDelegates.Invoke(null, new object[] { f });
             meta.StaticSerialize = result.ser; meta.StaticDeserialize = result.deser;
@@ -273,8 +291,8 @@ namespace Ceras
 
         void PrepareFormatter(IFormatter formatter)
         {
-            if (formatter is DynamicFormatter dyn) dyn.Initialize();
             var formatterType = formatter.GetType();
+            formatterType.GetMethod("Initialize", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(formatter, null);
             if (formatterType.GetCustomAttribute<CerasNoInjectAttribute>() != null) return;
             var config = formatterType.GetCustomAttribute<CerasInjectAttribute>() ?? CerasInjectAttribute.Default;
             var fields = formatterType.GetFields(BindingFlags.Public | BindingFlags.Instance | (config.IncludePrivate ? BindingFlags.NonPublic : 0));

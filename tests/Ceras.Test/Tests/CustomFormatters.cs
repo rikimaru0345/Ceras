@@ -42,9 +42,9 @@ namespace Ceras.Test
     }
     
     // A formatter that keeps the names (and thus "identity") of the colors it serializes
-    class ColorFormatter : IFormatter<Color>
+    class ColorFormatter : FormatterBase<Color>
     {
-        public void Serialize(IBufferWriter<byte> writer, Color value)
+        public override void Serialize(IBufferWriter<byte> writer, Color value)
         {
             bool isKnown = value.IsKnownColor;
             SerializerBinary.WriteByte(writer, isKnown ? (byte)1 : (byte)0);
@@ -61,7 +61,7 @@ namespace Ceras.Test
 
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref Color value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref Color value)
         {
             bool isKnownColor = SerializerBinary.ReadByte(ref reader) != 0;
 

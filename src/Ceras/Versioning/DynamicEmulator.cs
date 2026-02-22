@@ -5,7 +5,7 @@ namespace Ceras.Versioning
     using Ceras.Formatters;
     using Ceras.Helpers;
 
-    sealed class DynamicEmulator<T> : IFormatter<T>
+    sealed class DynamicEmulator<T> : FormatterBase<T>
     {
         readonly CerasSerializer _ceras;
         readonly Schema _schema;
@@ -16,12 +16,12 @@ namespace Ceras.Versioning
             _schema = schema;
         }
 
-        public void Serialize(IBufferWriter<byte> writer, T value)
+        public override void Serialize(IBufferWriter<byte> writer, T value)
         {
             throw new NotSupportedException("Emulation only supports deserialization.");
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref T value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
         {
             throw new NotSupportedException("Emulation not updated to Span-first yet.");
         }

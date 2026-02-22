@@ -503,14 +503,14 @@ namespace Ceras.Test
     /// use GeneratedFormatters.UseFormatters(config) and then explicitly
     /// NOT register formatters for types that need version tolerance.
     /// </summary>
-    internal sealed class Ceras_Test_ItemFormatter : IFormatter<Item>
+    internal sealed class Ceras_Test_ItemFormatter : FormatterBase<Item>
     {
         IFormatter<string>     _stringFormatter;
         IFormatter<int>        _intFormatter;
         IFormatter<ItemRarity> _rarityFormatter;
         IFormatter<float>      _floatFormatter;
 
-        public void Serialize(IBufferWriter<byte> writer, Item value)
+        public override void Serialize(IBufferWriter<byte> writer, Item value)
         {
             _stringFormatter.Serialize(writer, value.Name);
             _intFormatter.Serialize(writer, value.Quantity);
@@ -518,7 +518,7 @@ namespace Ceras.Test
             _floatFormatter.Serialize(writer, value.Weight);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref Item value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref Item value)
         {
             _stringFormatter.Deserialize(ref reader, ref value.Name);
             _intFormatter.Deserialize(ref reader, ref value.Quantity);

@@ -643,13 +643,13 @@ namespace Tutorial
         }
     }
 
-    class MyCustomPersonFormatter : IFormatter<Person>
+    class MyCustomPersonFormatter : FormatterBase<Person>
     {
         // Public IFormatter<T> fields are auto-injected by Ceras's dependency injection system
         public IFormatter<Person> PersonFormatter;
 
 
-        public void Serialize(IBufferWriter<byte> writer, Person value)
+        public override void Serialize(IBufferWriter<byte> writer, Person value)
         {
             SerializerBinary.WriteString(writer, value.Name);
             SerializerBinary.WriteInt32(writer, value.Health);
@@ -673,7 +673,7 @@ namespace Tutorial
             // The actual object Ceras injects into our 'PersonFormatter' field is 'ReferenceFormatter<Person>', which does all the magic to make references and object identity (and many other things) work.
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref Person value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref Person value)
         {
             // Nothing interesting here, all the important stuff is explained in 'Serialize()'
             value.Name = SerializerBinary.ReadString(ref reader);

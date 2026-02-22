@@ -4,7 +4,7 @@ using System.Reflection;
 
 namespace Ceras.Formatters
 {
-    public class MemberInfoFormatter<T> : IFormatter<T> where T : MemberInfo
+    public class MemberInfoFormatter<T> : FormatterBase<T> where T : MemberInfo
     {
         readonly IFormatter<Type> _typeFormatter;
 
@@ -13,7 +13,7 @@ namespace Ceras.Formatters
             _typeFormatter = ceras.GetFormatter<Type>();
         }
 
-        public void Serialize(IBufferWriter<byte> writer, T member)
+        public override void Serialize(IBufferWriter<byte> writer, T member)
         {
             if (member == null)
             {
@@ -33,7 +33,7 @@ namespace Ceras.Formatters
             }
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref T value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
         {
             Type declaringType = null;
             _typeFormatter.Deserialize(ref reader, ref declaringType);

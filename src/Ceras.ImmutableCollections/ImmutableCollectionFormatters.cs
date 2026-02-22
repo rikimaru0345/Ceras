@@ -8,7 +8,7 @@
     using System.Buffers;
     using Formatters;
 
-    public sealed class ImmutableArrayFormatter<TItem> : IFormatter<ImmutableArray<TItem>>
+    public sealed class ImmutableArrayFormatter<TItem> : FormatterBase<ImmutableArray<TItem>>
     {
         IFormatter<TItem> _itemFormatter;
 
@@ -17,7 +17,7 @@
             CerasSerializer.AddFormatterConstructedType(typeof(ImmutableArray<TItem>));
         }
 
-        public void Serialize(IBufferWriter<byte> writer, ImmutableArray<TItem> value)
+        public override void Serialize(IBufferWriter<byte> writer, ImmutableArray<TItem> value)
         {
             if (value.IsDefault)
             {
@@ -30,7 +30,7 @@
                 itemFormatter.Serialize(writer, value[i]);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref ImmutableArray<TItem> value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref ImmutableArray<TItem> value)
         {
             int length = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (length == -1)
@@ -87,7 +87,7 @@
             => collection = builder.ToImmutable();
     }
 
-    public sealed class ImmutableQueueFormatter<TItem> : IFormatter<ImmutableQueue<TItem>>
+    public sealed class ImmutableQueueFormatter<TItem> : FormatterBase<ImmutableQueue<TItem>>
     {
         IFormatter<TItem[]> _itemsFormatter;
 
@@ -96,13 +96,13 @@
             CerasSerializer.AddFormatterConstructedType(typeof(ImmutableQueue<TItem>));
         }
 
-        public void Serialize(IBufferWriter<byte> writer, ImmutableQueue<TItem> value)
+        public override void Serialize(IBufferWriter<byte> writer, ImmutableQueue<TItem> value)
         {
             var array = value.ToArray();
             _itemsFormatter.Serialize(writer, array);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref ImmutableQueue<TItem> value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref ImmutableQueue<TItem> value)
         {
             TItem[] array = null;
             _itemsFormatter.Deserialize(ref reader, ref array);
@@ -135,7 +135,7 @@
             => collection = builder.ToImmutable();
     }
 
-    public sealed class ImmutableStackFormatter<TItem> : IFormatter<ImmutableStack<TItem>>
+    public sealed class ImmutableStackFormatter<TItem> : FormatterBase<ImmutableStack<TItem>>
     {
         IFormatter<TItem[]> _itemsFormatter;
 
@@ -144,13 +144,13 @@
             CerasSerializer.AddFormatterConstructedType(typeof(ImmutableStack<TItem>));
         }
         
-        public void Serialize(IBufferWriter<byte> writer, ImmutableStack<TItem> value)
+        public override void Serialize(IBufferWriter<byte> writer, ImmutableStack<TItem> value)
         {
             var array = value.ToArray();
             _itemsFormatter.Serialize(writer, array);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref ImmutableStack<TItem> value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref ImmutableStack<TItem> value)
         {
             TItem[] array = null;
             _itemsFormatter.Deserialize(ref reader, ref array);

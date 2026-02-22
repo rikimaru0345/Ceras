@@ -4,9 +4,9 @@ using Ceras.Formatters;
 
 namespace Ceras.Savegame
 {
-    sealed class SavegameStringFormatter : IFormatter<string>
+    sealed class SavegameStringFormatter : FormatterBase<string>
     {
-        public void Serialize(IBufferWriter<byte> writer, string value)
+        public override void Serialize(IBufferWriter<byte> writer, string value)
         {
             if (value == null)
             {
@@ -21,7 +21,7 @@ namespace Ceras.Savegame
             SerializerBinary.WriteInt32Fixed(writer, index);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref string value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref string value)
         {
             int index = SerializerBinary.ReadInt32Fixed(ref reader);
             if (index == 0)

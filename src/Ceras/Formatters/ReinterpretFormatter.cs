@@ -61,7 +61,7 @@ namespace Ceras.Formatters
             SerializerBinary.WriteUInt32Bias(writer, value.Length, 1);
             int totalSize = value.Length * _elementSize;
             var span = writer.GetSpan(totalSize);
-            MemoryMarshal.AsBytes(value.AsSpan()).CopyTo(span);
+            SerializerBinary.FastCopy<T>(value.AsSpan(), span);
             writer.Advance(totalSize);
         }
 

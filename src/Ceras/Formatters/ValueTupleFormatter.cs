@@ -229,7 +229,7 @@ namespace Ceras.Formatters
     }
 
 
-    public sealed class ValueTupleFormatter<T1, T2, T3, T4, T5, T6, T7, TRest> : IFormatter<ValueTuple<T1, T2, T3, T4, T5, T6, T7, TRest>> where TRest : struct
+    public sealed class ValueTupleFormatter<T1, T2, T3, T4, T5, T6, T7, TRest> : FormatterBase<ValueTuple<T1, T2, T3, T4, T5, T6, T7, TRest>> where TRest : struct
     {
         IFormatter<T1> _item1Formatter;
         IFormatter<T2> _item2Formatter;

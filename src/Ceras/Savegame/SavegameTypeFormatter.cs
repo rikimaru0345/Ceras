@@ -8,11 +8,11 @@ namespace Ceras.Savegame
     /// In savegame format, we don't write CLR type names for polymorphic fields.
     /// We write schema type-IDs (LEB128).
     /// </summary>
-    sealed class SavegameTypeFormatter : IFormatter<Type>
+    sealed class SavegameTypeFormatter : FormatterBase<Type>
     {
         SchemaRegistry _registry;
 
-        public void Serialize(IBufferWriter<byte> writer, Type value)
+        public override void Serialize(IBufferWriter<byte> writer, Type value)
         {
             if (value == null)
             {
@@ -43,7 +43,7 @@ namespace Ceras.Savegame
             SchemaSection.WriteLeb128(writer, (uint)WellKnownTypes.Null);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref Type value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref Type value)
         {
             uint id = SchemaSection.ReadLeb128(ref reader);
             if (id == WellKnownTypes.Null)

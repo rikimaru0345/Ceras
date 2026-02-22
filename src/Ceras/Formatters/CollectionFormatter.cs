@@ -123,10 +123,6 @@ namespace Ceras.Formatters
         public void Deserialize(ref SequenceReader<byte> reader, ref TItem[,,] ar) { Array a = ar; Deserialize(ref reader, ref a); ar = (TItem[,,])a; }
         public void Serialize(IBufferWriter<byte> writer, TItem[,,,] ar) => Serialize(writer, (Array)ar);
         public void Deserialize(ref SequenceReader<byte> reader, ref TItem[,,,] ar) { Array a = ar; Deserialize(ref reader, ref a); ar = (TItem[,,,])a; }
-
-        public void Serialize(IBufferWriter<byte> writer, TItem[,] value) => Serialize(writer, (Array)value);
-        public void Serialize(IBufferWriter<byte> writer, TItem[,,] value) => Serialize(writer, (Array)value);
-        public void Serialize(IBufferWriter<byte> writer, TItem[,,,] value) => Serialize(writer, (Array)value);
     }
 
     public class CollectionFormatter<TCollection, TItem> : FormatterBase<TCollection>

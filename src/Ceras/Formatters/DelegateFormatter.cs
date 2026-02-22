@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 
 namespace Ceras.Formatters
 {
-    public class DelegateFormatter<T> : IFormatter<T> where T : Delegate
+    public class DelegateFormatter<T> : FormatterBase<T> where T : Delegate
     {
         readonly IFormatter<MethodInfo> _methodInfoFormatter;
         readonly IFormatter<object> _targetFormatter;
@@ -20,7 +20,7 @@ namespace Ceras.Formatters
             _allowInstance = (ceras.Config.Advanced.DelegateSerialization & DelegateSerializationFlags.AllowInstance) != 0;
         }
 
-        public void Serialize(IBufferWriter<byte> writer, T del)
+        public override void Serialize(IBufferWriter<byte> writer, T del)
         {
             var target = del.Target;
             if (target != null)
@@ -36,7 +36,7 @@ namespace Ceras.Formatters
             _methodInfoFormatter.Serialize(writer, del.Method);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref T value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
         {
             object targetObject = null;
             _targetFormatter.Deserialize(ref reader, ref targetObject);

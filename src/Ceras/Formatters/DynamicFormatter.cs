@@ -11,12 +11,6 @@ namespace Ceras.Formatters
     using System.Reflection;
     using static System.Linq.Expressions.Expression;
 
-    abstract class DynamicFormatter
-    {
-        internal abstract void Initialize();
-        internal abstract void DeserializeToMember(ref SequenceReader<byte> reader, object container, MemberInfo member);
-    }
-
     sealed class DynamicFormatter<T> : FormatterBase<T>, ISchemaTaintedFormatter
     {
         readonly CerasSerializer _ceras;
@@ -107,8 +101,6 @@ namespace Ceras.Formatters
                     if (member.MemberInfo is FieldInfo f) memberValue = f.GetValue(value);
                     else if (member.MemberInfo is PropertyInfo p) memberValue = p.GetValue(value);
                     
-                    // We can't use a generic call easily here without reflection.
-                    // But we can add SerializeUntyped to IFormatter too!
                     formatter.SerializeUntyped(writer, memberValue);
                 }
             };
