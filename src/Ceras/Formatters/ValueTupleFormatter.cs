@@ -2,6 +2,7 @@
 
 namespace Ceras.Formatters
 {
+#pragma warning disable 0649 // Field is never assigned to (Ceras dependency injection)
 
     public sealed class ValueTupleFormatter<T1> : IFormatter<ValueTuple<T1>>
     {

@@ -9,6 +9,8 @@ using System.Runtime.CompilerServices;
 
 namespace Ceras
 {
+#pragma warning disable 0649 // Field is never assigned to (reflection/internal use)
+
     using Exceptions;
 
     public abstract class TypeConstruction
@@ -254,7 +256,6 @@ namespace Ceras
         // - after constructing an uninitialized object we can do some trickery to run any ctor on it afterwards
         // - and maybe after the ctor we'd overwrite some members again (if the ctor messed something up)
         ConstructorInfo _directConstructor;
-        bool _writeMembersAgain;
 
         internal override bool HasDataArguments => _directConstructor != null && _directConstructor.GetParameters().Length > 0;
 

@@ -37,7 +37,7 @@ namespace Ceras.Helpers
         }
 
         /// <summary>
-        /// Reads an object that was written using <see cref="WriteToStream(CerasSerializer, object, Stream)"/> by reading the size-prefix and then deserializing the data.
+        /// Reads an object that was written using <see cref="WriteToStream(CerasSerializer, Stream, object)"/> by reading the size-prefix and then deserializing the data.
         /// <para>This method(-pair) is intended to be an easy to understand example for networking scenarios.</para>
         /// </summary>
         public static async Task<object> ReadFromStream(this CerasSerializer ceras, Stream stream)

@@ -1,5 +1,7 @@
 ﻿namespace Ceras.Resolvers
 {
+#pragma warning disable 0649 // Field is never assigned to (Ceras dependency injection)
+
     using Formatters;
     using Helpers;
     using System;

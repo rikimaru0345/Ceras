@@ -89,7 +89,7 @@ namespace Ceras.Test
                 var data = ceras.Serialize(obj);
                 var clone = ceras.Deserialize<ConstructorTest>(data);
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 success = true;
             }

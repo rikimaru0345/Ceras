@@ -1,5 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+
+#pragma warning disable 0649 // Field is never assigned to
+
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -29,8 +32,8 @@ namespace Ceras.Test
 
                 var clone = DoRoundTripTest(config);
                 Assert.True(clone != null);
-                Assert.True(clone.Name.StartsWith("riki"));
-                Assert.True(clone.Name.EndsWith(Person.CtorSuffix));
+                Assert.StartsWith("riki", clone.Name);
+                Assert.EndsWith(Person.CtorSuffix, clone.Name);
             }
 
             // Test: Manual config
@@ -112,7 +115,7 @@ namespace Ceras.Test
 
                 var clone = DoRoundTripTest(config);
                 Assert.True(clone != null);
-                Assert.True(clone.Name.StartsWith("riki"));
+                Assert.StartsWith("riki", clone.Name);
                 Assert.True(pool.IsFromPool(clone));
             }
 
@@ -126,7 +129,7 @@ namespace Ceras.Test
 
                 var clone = DoRoundTripTest(config);
                 Assert.True(clone != null);
-                Assert.True(clone.Name.StartsWith("riki"));
+                Assert.StartsWith("riki", clone.Name);
                 Assert.True(StaticPoolTest.IsFromPool(clone));
             }
         }

@@ -79,7 +79,7 @@ namespace Ceras.Test
 
                 if (!typeof(T).IsValueType)
                     if (ReferenceEquals(obj, null) ^ ReferenceEquals(clone, null))
-                        Assert.True(false, "objects must both have a value or both be null");
+                        Assert.Fail("objects must both have a value or both be null");
 
                 bool areEqual = DeepComparer.Instance.CheckEquality(obj, clone);
                 Assert.True(areEqual, "Equality test failed!");

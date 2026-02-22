@@ -74,6 +74,11 @@ namespace Ceras.Test
                 return Value == other.Value &&
                        SubStruct.Equals(other.SubStruct);
             }
+
+            public override int GetHashCode()
+            {
+                return HashCode.Combine(Value, SubStruct);
+            }
         }
 
         public readonly struct SubStruct : IEquatable<SubStruct>
@@ -99,6 +104,11 @@ namespace Ceras.Test
                 return NameAge.Equals(other.NameAge) &&
                        EqualityComparer<int?>.Default.Equals(Count, other.Count) &&
                        EqualityComparer<decimal?>.Default.Equals(Num, other.Num);
+            }
+
+            public override int GetHashCode()
+            {
+                return HashCode.Combine(NameAge, Count, Num);
             }
         }
 

@@ -505,7 +505,7 @@
         /// But sometimes you might have a property that needs to be written last (maybe after some fields are written already or something...).
         /// 
         /// Members are set in ascending order.
-        /// <para>Default: Value from [<see cref="System.Runtime.Serialization.DataMember"/>.Order] or 0 if the member has no attribute</para>
+        /// <para>Default: Value from [DataMember.Order] or 0 if the member has no attribute</para>
         /// </summary>
         public int WriteBackOrder { get; set; }
 

@@ -269,11 +269,6 @@ namespace Ceras
     /// <c>Ceras.Generated.GeneratedFormatters.UseFormatters(config)</c>.
     /// This replaces the old AotGenerator tool and is required for IL2CPP / AOT platforms.
     /// </summary>
-    /// <param name="stableName">
-    /// The stable wire name for this type — independent of the C# class name.
-    /// If omitted, defaults to the simple class name (no namespace).
-    /// Set this once and the C# class can be freely renamed without needing <see cref="PreviousTypeNameAttribute"/>.
-    /// </param>
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum)]
     public class GenerateFormatterAttribute : Attribute
     {

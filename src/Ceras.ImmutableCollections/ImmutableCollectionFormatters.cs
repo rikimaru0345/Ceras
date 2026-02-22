@@ -1,5 +1,7 @@
 ﻿namespace Ceras.ImmutableCollections
 {
+#pragma warning disable 0649 // Field is never assigned to (Ceras dependency injection)
+
     using System.Collections.Generic;
     using System.Collections.Immutable;
     using System.Linq;

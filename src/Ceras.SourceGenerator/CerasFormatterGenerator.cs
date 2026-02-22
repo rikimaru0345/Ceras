@@ -203,7 +203,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                     attr.ConstructorArguments.Length > 0 &&
                     attr.ConstructorArguments[0].Value is string sn)
                 {
-                    stableName = sn;
+                    stableName = (string)sn;
                     break;
                 }
             }
@@ -220,7 +220,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
                 if (attr.ConstructorArguments.Length > 0 &&
                     attr.ConstructorArguments[0].Value is string primary)
-                    previousNames.Add(primary);
+                    previousNames.Add((string)primary);
 
                 // params string[] alternativeNames is the second arg
                 if (attr.ConstructorArguments.Length > 1 &&
@@ -228,7 +228,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 {
                     foreach (var v in attr.ConstructorArguments[1].Values)
                         if (v.Value is string alt)
-                            previousNames.Add(alt);
+                            previousNames.Add((string)alt);
                 }
             }
         }

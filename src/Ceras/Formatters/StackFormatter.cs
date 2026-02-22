@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 
 namespace Ceras.Formatters
 {
+#pragma warning disable 0649 // Field is never assigned to (Ceras dependency injection)
+
     using System.Collections;
 
     public sealed class StackFormatter<TItem> : IFormatter<Stack<TItem>>

@@ -57,8 +57,6 @@
         /// It also prevents exploits when using Ceras to send objects over the network, because an attacker can not inject new object-types into your data (which, depending on what you do, could be *really* bad).
         /// </para>
         /// 
-        /// By default this prevents new types being added dynamically, but you can change this setting in <see cref="Advanced.SealTypesWhenUsingKnownTypes"/>.
-        /// 
         /// <para>Ceras refers to the types by their index in this list!</para>
         /// So for deserialization the same types must be present in the same order! You can however have new types at the end of the list (so you can still load old data, as long as the types that an object was saved with are still present at the expected indices)
         /// 

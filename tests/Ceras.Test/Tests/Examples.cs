@@ -1,5 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+
+#pragma warning disable 0649 // Field is never assigned to
+
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;

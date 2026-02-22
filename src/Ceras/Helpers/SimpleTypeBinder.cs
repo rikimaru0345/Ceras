@@ -6,7 +6,7 @@
 
     /// <summary>
     /// A type binder is simple. It is responsible to converts a type to a string and back.
-    /// For generic types it must do so by deconstructing the type though. So giving <see cref="List{int}"/> would return "System.Collections.List".
+    /// For generic types it must do so by deconstructing the type though. So giving <see cref="List{T}"/> would return "System.Collections.List".
     /// </summary>
     public interface ITypeBinder
     {
