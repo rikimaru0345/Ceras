@@ -6,32 +6,32 @@ using System.Threading.Tasks;
 
 namespace Ceras.Helpers
 {
-	static class MiscHelpers
-	{
-		public static string Singular<T>(this T enumValue)
-		{
-			if (!typeof(T).IsEnum)
-				throw new ArgumentException();
-			
-			var str = enumValue.ToString();
+    static class MiscHelpers
+    {
+        public static string Singular<T>(this T enumValue)
+        {
+            if (!typeof(T).IsEnum)
+                throw new ArgumentException();
+            
+            var str = enumValue.ToString();
 
-			if (str.EndsWith("ies"))
-				return str.Substring(0, str.Length - 3) + "y";
-			
-			return str.TrimEnd('s');
-		}
+            if (str.EndsWith("ies"))
+                return str.Substring(0, str.Length - 3) + "y";
+            
+            return str.TrimEnd('s');
+        }
 
-		
-		// Remove nonsense like 'm_' from variable names
-		public static string CleanMemberName(string name)
-		{
-			if (name.StartsWith("m_"))
-				return name.Remove(0, 2);
-			if (name.StartsWith("_"))
-				return name.Remove(0, 1);
+        
+        // Remove nonsense like 'm_' from variable names
+        public static string CleanMemberName(string name)
+        {
+            if (name.StartsWith("m_"))
+                return name.Remove(0, 2);
+            if (name.StartsWith("_"))
+                return name.Remove(0, 1);
 
-			return name;
-		}
+            return name;
+        }
 
-	}
+    }
 }

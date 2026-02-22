@@ -6,19 +6,19 @@ using System.Threading.Tasks;
 
 namespace LiveTesting
 {
-	using System.Collections;
-	using System.Diagnostics;
-	using System.Runtime.CompilerServices;
+    using System.Collections;
+    using System.Diagnostics;
+    using System.Runtime.CompilerServices;
 
-	// Test1: the normal "DictionarySlim" with the following changes:
-	// - Type is replaced to always be 'Type'. Since that's what we'll always use it for.
-	// - The IEquatable restruction is removed
-	// - We're always using ReferenceEquals to compare keys
+    // Test1: the normal "DictionarySlim" with the following changes:
+    // - Type is replaced to always be 'Type'. Since that's what we'll always use it for.
+    // - The IEquatable restruction is removed
+    // - We're always using ReferenceEquals to compare keys
 
-	// Test2:
-	// - replaced all .GetHashCode with RuntimeHelpers.GetHashCode
+    // Test2:
+    // - replaced all .GetHashCode with RuntimeHelpers.GetHashCode
 
-	/// <summary>
+    /// <summary>
     /// A lightweight Dictionary with three principal differences compared to <see cref="Dictionary{Type, TValue}"/>
     ///
     /// 1) It is possible to do "get or add" in a single lookup using <see cref="GetOrAddValueRef(Type)"/>. For
@@ -33,7 +33,7 @@ namespace LiveTesting
     /// 2) This means it can save space by not storing hash codes.
     /// 3) This means it can avoid storing a comparer, and avoid the likely virtual call to a comparer.
     /// </remarks>
-	[DebuggerTypeProxy(typeof(TypeDictionary2DebugView<>))]
+    [DebuggerTypeProxy(typeof(TypeDictionary2DebugView<>))]
     [DebuggerDisplay("Count = {Count}")]
     public class TypeDictionary2<TValue> : IReadOnlyCollection<KeyValuePair<Type, TValue>> 
     {
@@ -77,8 +77,8 @@ namespace LiveTesting
         /// <param name="capacity">Requested minimum capacity</param>
         public TypeDictionary2(int capacity)
         {
-	        if (capacity < 0)
-		        throw new ArgumentOutOfRangeException(nameof(capacity));
+            if (capacity < 0)
+                throw new ArgumentOutOfRangeException(nameof(capacity));
             if (capacity < 2)
                 capacity = 2; // 1 would indicate the dummy array
             capacity = HashHelpers.PowerOf2(capacity);
@@ -144,7 +144,7 @@ namespace LiveTesting
             for (int i = _buckets[RuntimeHelpers.GetHashCode(key) & (_buckets.Length - 1)] - 1;
                     (uint)i < (uint)entries.Length; i = entries[i].next)
             {
-	            if (ReferenceEquals(key, entries[i].key))
+                if (ReferenceEquals(key, entries[i].key))
                 {
                     value = entries[i].value;
                     return true;
@@ -169,7 +169,7 @@ namespace LiveTesting
         /// <returns>true if the key is present, false if it is not</returns>
         public bool Remove(Type key)
         {
-	        if (key == null) throw new ArgumentNullException(nameof(key));
+            if (key == null) throw new ArgumentNullException(nameof(key));
             Entry[] entries = _entries;
             int bucketIndex = RuntimeHelpers.GetHashCode(key) & (_buckets.Length - 1);
             int entryIndex = _buckets[bucketIndex] - 1;
@@ -375,9 +375,9 @@ namespace LiveTesting
             public void Dispose() { }
         }
     }
-	
+    
 
-	internal sealed class TypeDictionary2DebugView<V>
+    internal sealed class TypeDictionary2DebugView<V>
     {
         private readonly TypeDictionary2<V> _dictionary;
 

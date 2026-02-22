@@ -6,17 +6,17 @@ using System.Threading.Tasks;
 
 namespace LiveTesting
 {
-	using System.Collections;
-	using System.Diagnostics;
-	using System.Runtime.CompilerServices;
+    using System.Collections;
+    using System.Diagnostics;
+    using System.Runtime.CompilerServices;
 
-	// Test1: the normal "DictionarySlim" with the following changes:
-	// - Type is replaced to always be 'Type'. Since that's what we'll always use it for.
-	// - The IEquatable restruction is removed
-	// - We're always using ReferenceEquals to compare keys
+    // Test1: the normal "DictionarySlim" with the following changes:
+    // - Type is replaced to always be 'Type'. Since that's what we'll always use it for.
+    // - The IEquatable restruction is removed
+    // - We're always using ReferenceEquals to compare keys
 
 
-	/// <summary>
+    /// <summary>
     /// A lightweight Dictionary with three principal differences compared to <see cref="Dictionary{Type, TValue}"/>
     ///
     /// 1) It is possible to do "get or add" in a single lookup using <see cref="GetOrAddValueRef(Type)"/>. For
@@ -39,18 +39,18 @@ namespace LiveTesting
         // Array.Empty would give divide by zero in modulo operation. So we use static one element arrays.
         // The first add will cause a resize replacing these with real arrays of three elements.
         // Arrays are wrapped in a class to avoid being duplicated for each <Type, TValue>
-		static readonly Entry[] InitialEntries = new Entry[1];
+        static readonly Entry[] InitialEntries = new Entry[1];
 
-		int _count;
+        int _count;
         // 0-based index into _entries of head of free chain: -1 means empty
-		int _freeList = -1;
+        int _freeList = -1;
         // 1-based index into _entries; 0 means empty
-		int[] _buckets;
-		Entry[] _entries;
+        int[] _buckets;
+        Entry[] _entries;
 
 
         [DebuggerDisplay("({key}, {value})->{next}")]
-		struct Entry
+        struct Entry
         {
             public Type key;
             public TValue value;
@@ -76,8 +76,8 @@ namespace LiveTesting
         /// <param name="capacity">Requested minimum capacity</param>
         public TypeDictionary(int capacity)
         {
-	        if (capacity < 0)
-		        throw new ArgumentOutOfRangeException(nameof(capacity));
+            if (capacity < 0)
+                throw new ArgumentOutOfRangeException(nameof(capacity));
             if (capacity < 2)
                 capacity = 2; // 1 would indicate the dummy array
             capacity = HashHelpers.PowerOf2(capacity);
@@ -143,7 +143,7 @@ namespace LiveTesting
             for (int i = _buckets[key.GetHashCode() & (_buckets.Length - 1)] - 1;
                     (uint)i < (uint)entries.Length; i = entries[i].next)
             {
-	            if (ReferenceEquals(key, entries[i].key))
+                if (ReferenceEquals(key, entries[i].key))
                 {
                     value = entries[i].value;
                     return true;
@@ -168,7 +168,7 @@ namespace LiveTesting
         /// <returns>true if the key is present, false if it is not</returns>
         public bool Remove(Type key)
         {
-	        if (key == null) throw new ArgumentNullException(nameof(key));
+            if (key == null) throw new ArgumentNullException(nameof(key));
             Entry[] entries = _entries;
             int bucketIndex = key.GetHashCode() & (_buckets.Length - 1);
             int entryIndex = _buckets[bucketIndex] - 1;
@@ -246,7 +246,7 @@ namespace LiveTesting
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-		ref TValue AddKey(Type key, int bucketIndex)
+        ref TValue AddKey(Type key, int bucketIndex)
         {
             Entry[] entries = _entries;
             int entryIndex;
@@ -273,7 +273,7 @@ namespace LiveTesting
             return ref entries[entryIndex].value;
         }
 
-		Entry[] Resize()
+        Entry[] Resize()
         {
             Debug.Assert(_entries.Length == _count || _entries.Length == 1); // We only copy _count, so if it's longer we will miss some
             int count = _count;
@@ -319,10 +319,10 @@ namespace LiveTesting
         /// </summary>
         public struct Enumerator : IEnumerator<KeyValuePair<Type, TValue>>
         {
-			readonly TypeDictionary<TValue> _dictionary;
-			int _index;
-			int _count;
-			KeyValuePair<Type, TValue> _current;
+            readonly TypeDictionary<TValue> _dictionary;
+            int _index;
+            int _count;
+            KeyValuePair<Type, TValue> _current;
 
             internal Enumerator(TypeDictionary<TValue> dictionary)
             {
@@ -375,9 +375,9 @@ namespace LiveTesting
         }
     }
 
-	sealed class TypeDictionaryDebugView<V>
+    sealed class TypeDictionaryDebugView<V>
     {
-		readonly TypeDictionary<V> _dictionary;
+        readonly TypeDictionary<V> _dictionary;
 
         public TypeDictionaryDebugView(TypeDictionary<V> dictionary)
         {

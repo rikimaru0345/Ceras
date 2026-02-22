@@ -4,105 +4,105 @@ using Xunit;
 
 namespace Ceras.Test
 {
-	/// <summary>
-	/// Tests that verify the source-generator produces formatters that actually work.
-	/// The types below are marked with [GenerateFormatter] so the Ceras.SourceGenerator
-	/// will emit formatter code into CerasGeneratedFormatters.g.cs at compile time.
-	/// </summary>
-	public class SourceGeneratorFormatters : TestBase
-	{
-		[Fact]
-		public void GeneratedFormatter_RoundTrips_SimplePublicFields()
-		{
-			var config = new SerializerConfig();
-			GeneratedFormatters.UseFormatters(config);
-			var ceras = new CerasSerializer(config);
+    /// <summary>
+    /// Tests that verify the source-generator produces formatters that actually work.
+    /// The types below are marked with [GenerateFormatter] so the Ceras.SourceGenerator
+    /// will emit formatter code into CerasGeneratedFormatters.g.cs at compile time.
+    /// </summary>
+    public class SourceGeneratorFormatters : TestBase
+    {
+        [Fact]
+        public void GeneratedFormatter_RoundTrips_SimplePublicFields()
+        {
+            var config = new SerializerConfig();
+            GeneratedFormatters.UseFormatters(config);
+            var ceras = new CerasSerializer(config);
 
-			var original = new SimpleFieldModel
-			{
-				Name = "Alice",
-				Age  = 30,
-			};
+            var original = new SimpleFieldModel
+            {
+                Name = "Alice",
+                Age  = 30,
+            };
 
-			var clone = ceras.Deserialize<SimpleFieldModel>(ceras.Serialize(original));
+            var clone = ceras.Deserialize<SimpleFieldModel>(ceras.Serialize(original));
 
-			Assert.Equal(original.Name, clone.Name);
-			Assert.Equal(original.Age,  clone.Age);
-		}
+            Assert.Equal(original.Name, clone.Name);
+            Assert.Equal(original.Age,  clone.Age);
+        }
 
-		[Fact]
-		public void GeneratedFormatter_RoundTrips_PublicProperties()
-		{
-			var config = new SerializerConfig();
-			GeneratedFormatters.UseFormatters(config);
-			var ceras = new CerasSerializer(config);
+        [Fact]
+        public void GeneratedFormatter_RoundTrips_PublicProperties()
+        {
+            var config = new SerializerConfig();
+            GeneratedFormatters.UseFormatters(config);
+            var ceras = new CerasSerializer(config);
 
-			var original = new PropertyModel { X = 3.14f, Y = -1.0f };
+            var original = new PropertyModel { X = 3.14f, Y = -1.0f };
 
-			var clone = ceras.Deserialize<PropertyModel>(ceras.Serialize(original));
+            var clone = ceras.Deserialize<PropertyModel>(ceras.Serialize(original));
 
-			Assert.Equal(original.X, clone.X);
-			Assert.Equal(original.Y, clone.Y);
-		}
+            Assert.Equal(original.X, clone.X);
+            Assert.Equal(original.Y, clone.Y);
+        }
 
-		[Fact]
-		public void GeneratedFormatter_ProducesIdenticalBytes_To_DynamicFormatter()
-		{
-			// Serialize once with the generated formatter, once with DynamicFormatter.
-			// Bytes must be identical (same schema, same member order).
+        [Fact]
+        public void GeneratedFormatter_ProducesIdenticalBytes_To_DynamicFormatter()
+        {
+            // Serialize once with the generated formatter, once with DynamicFormatter.
+            // Bytes must be identical (same schema, same member order).
 
-			var generatedConfig = new SerializerConfig();
-			GeneratedFormatters.UseFormatters(generatedConfig);
-			var generatedCeras = new CerasSerializer(generatedConfig);
+            var generatedConfig = new SerializerConfig();
+            GeneratedFormatters.UseFormatters(generatedConfig);
+            var generatedCeras = new CerasSerializer(generatedConfig);
 
-			var dynamicConfig = new SerializerConfig();
-			var dynamicCeras  = new CerasSerializer(dynamicConfig);
+            var dynamicConfig = new SerializerConfig();
+            var dynamicCeras  = new CerasSerializer(dynamicConfig);
 
-			var obj = new SimpleFieldModel { Name = "Bob", Age = 42 };
+            var obj = new SimpleFieldModel { Name = "Bob", Age = 42 };
 
-			byte[] generatedBytes = generatedCeras.Serialize(obj);
-			byte[] dynamicBytes   = dynamicCeras.Serialize(obj);
+            byte[] generatedBytes = generatedCeras.Serialize(obj);
+            byte[] dynamicBytes   = dynamicCeras.Serialize(obj);
 
-			Assert.Equal(dynamicBytes, generatedBytes);
-		}
+            Assert.Equal(dynamicBytes, generatedBytes);
+        }
 
-		[Fact]
-		public void GeneratedFormatter_CrossDeserialize()
-		{
-			// Bytes written by DynamicFormatter can be read by the generated formatter.
-			var dynamicConfig = new SerializerConfig();
-			var dynamicCeras  = new CerasSerializer(dynamicConfig);
+        [Fact]
+        public void GeneratedFormatter_CrossDeserialize()
+        {
+            // Bytes written by DynamicFormatter can be read by the generated formatter.
+            var dynamicConfig = new SerializerConfig();
+            var dynamicCeras  = new CerasSerializer(dynamicConfig);
 
-			var generatedConfig = new SerializerConfig();
-			GeneratedFormatters.UseFormatters(generatedConfig);
-			var generatedCeras = new CerasSerializer(generatedConfig);
+            var generatedConfig = new SerializerConfig();
+            GeneratedFormatters.UseFormatters(generatedConfig);
+            var generatedCeras = new CerasSerializer(generatedConfig);
 
-			var original = new SimpleFieldModel { Name = "Cross", Age = 99 };
-			byte[] bytes = dynamicCeras.Serialize(original);
-			var clone = generatedCeras.Deserialize<SimpleFieldModel>(bytes);
+            var original = new SimpleFieldModel { Name = "Cross", Age = 99 };
+            byte[] bytes = dynamicCeras.Serialize(original);
+            var clone = generatedCeras.Deserialize<SimpleFieldModel>(bytes);
 
-			Assert.Equal(original.Name, clone.Name);
-			Assert.Equal(original.Age,  clone.Age);
-		}
-	}
+            Assert.Equal(original.Name, clone.Name);
+            Assert.Equal(original.Age,  clone.Age);
+        }
+    }
 
-	// -------------------------------------------------------------------------
-	// Test types — marked with [GenerateFormatter] so the source generator
-	// emits formatters for them at compile time.
-	// -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // Test types — marked with [GenerateFormatter] so the source generator
+    // emits formatters for them at compile time.
+    // -------------------------------------------------------------------------
 
-	[GenerateFormatter]
-	public class SimpleFieldModel
-	{
-		public string Name;
-		public int    Age;
-	}
+    [GenerateFormatter]
+    public class SimpleFieldModel
+    {
+        public string Name;
+        public int    Age;
+    }
 
-	[GenerateFormatter]
-	[MemberConfig(TargetMember.PublicProperties)]
-	public class PropertyModel
-	{
-		public float X { get; set; }
-		public float Y { get; set; }
-	}
+    [GenerateFormatter]
+    [MemberConfig(TargetMember.PublicProperties)]
+    public class PropertyModel
+    {
+        public float X { get; set; }
+        public float Y { get; set; }
+    }
 }

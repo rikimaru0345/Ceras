@@ -35,213 +35,213 @@ using System.Runtime.CompilerServices;
 // ReSharper disable once InconsistentNaming
 public sealed class xxHash
 {
-	public struct XXH_State
-	{
-		public ulong total_len;
-		public uint seed;
-		public uint v1;
-		public uint v2;
-		public uint v3;
-		public uint v4;
-		public int memsize;
-		public byte[] memory;
-	};
+    public struct XXH_State
+    {
+        public ulong total_len;
+        public uint seed;
+        public uint v1;
+        public uint v2;
+        public uint v3;
+        public uint v4;
+        public int memsize;
+        public byte[] memory;
+    };
 
-	const uint PRIME32_1 = 2654435761U;
-	const uint PRIME32_2 = 2246822519U;
-	const uint PRIME32_3 = 3266489917U;
-	const uint PRIME32_4 = 668265263U;
-	const uint PRIME32_5 = 374761393U;
+    const uint PRIME32_1 = 2654435761U;
+    const uint PRIME32_2 = 2246822519U;
+    const uint PRIME32_3 = 3266489917U;
+    const uint PRIME32_4 = 668265263U;
+    const uint PRIME32_5 = 374761393U;
 
-	private XXH_State _state;
+    private XXH_State _state;
 
-	public xxHash()
-	{
-	}
+    public xxHash()
+    {
+    }
 
-	public static uint CalculateHash(ReadOnlySpan<byte> buf, uint seed = 0)
-	{
-		uint h32;
-		int index = 0;
-		int len = buf.Length;
+    public static uint CalculateHash(ReadOnlySpan<byte> buf, uint seed = 0)
+    {
+        uint h32;
+        int index = 0;
+        int len = buf.Length;
 
-		if (len >= 16)
-		{
-			int limit = len - 16;
-			uint v1 = seed + PRIME32_1 + PRIME32_2;
-			uint v2 = seed + PRIME32_2;
-			uint v3 = seed + 0;
-			uint v4 = seed - PRIME32_1;
+        if (len >= 16)
+        {
+            int limit = len - 16;
+            uint v1 = seed + PRIME32_1 + PRIME32_2;
+            uint v2 = seed + PRIME32_2;
+            uint v3 = seed + 0;
+            uint v4 = seed - PRIME32_1;
 
-			do
-			{
-				v1 = CalcSubHash(v1, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
-				index += 4;
-				v2 = CalcSubHash(v2, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
-				index += 4;
-				v3 = CalcSubHash(v3, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
-				index += 4;
-				v4 = CalcSubHash(v4, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
-				index += 4;
-			} while (index <= limit);
+            do
+            {
+                v1 = CalcSubHash(v1, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
+                index += 4;
+                v2 = CalcSubHash(v2, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
+                index += 4;
+                v3 = CalcSubHash(v3, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
+                index += 4;
+                v4 = CalcSubHash(v4, BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)));
+                index += 4;
+            } while (index <= limit);
 
-			h32 = RotateLeft(v1, 1) + RotateLeft(v2, 7) + RotateLeft(v3, 12) + RotateLeft(v4, 18);
-		}
-		else
-		{
-			h32 = seed + PRIME32_5;
-		}
+            h32 = RotateLeft(v1, 1) + RotateLeft(v2, 7) + RotateLeft(v3, 12) + RotateLeft(v4, 18);
+        }
+        else
+        {
+            h32 = seed + PRIME32_5;
+        }
 
-		h32 += (uint)len;
+        h32 += (uint)len;
 
-		while (index <= len - 4)
-		{
-			h32 += BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)) * PRIME32_3;
-			h32 = RotateLeft(h32, 17) * PRIME32_4;
-			index += 4;
-		}
+        while (index <= len - 4)
+        {
+            h32 += BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(index)) * PRIME32_3;
+            h32 = RotateLeft(h32, 17) * PRIME32_4;
+            index += 4;
+        }
 
-		while (index < len)
-		{
-			h32 += buf[index] * PRIME32_5;
-			h32 = RotateLeft(h32, 11) * PRIME32_1;
-			index++;
-		}
+        while (index < len)
+        {
+            h32 += buf[index] * PRIME32_5;
+            h32 = RotateLeft(h32, 11) * PRIME32_1;
+            index++;
+        }
 
-		h32 ^= h32 >> 15;
-		h32 *= PRIME32_2;
-		h32 ^= h32 >> 13;
-		h32 *= PRIME32_3;
-		h32 ^= h32 >> 16;
+        h32 ^= h32 >> 15;
+        h32 *= PRIME32_2;
+        h32 ^= h32 >> 13;
+        h32 *= PRIME32_3;
+        h32 ^= h32 >> 16;
 
-		return h32;
-	}
+        return h32;
+    }
 
-	public void Init(uint seed = 0)
-	{
-		_state.seed = seed;
-		_state.v1 = seed + PRIME32_1 + PRIME32_2;
-		_state.v2 = seed + PRIME32_2;
-		_state.v3 = seed + 0;
-		_state.v4 = seed - PRIME32_1;
-		_state.total_len = 0;
-		_state.memsize = 0;
-		_state.memory ??= new byte[16];
-	}
+    public void Init(uint seed = 0)
+    {
+        _state.seed = seed;
+        _state.v1 = seed + PRIME32_1 + PRIME32_2;
+        _state.v2 = seed + PRIME32_2;
+        _state.v3 = seed + 0;
+        _state.v4 = seed - PRIME32_1;
+        _state.total_len = 0;
+        _state.memsize = 0;
+        _state.memory ??= new byte[16];
+    }
 
-	public void Update(ReadOnlySpan<byte> input)
-	{
-		int len = input.Length;
-		int index = 0;
+    public void Update(ReadOnlySpan<byte> input)
+    {
+        int len = input.Length;
+        int index = 0;
 
-		_state.total_len += (ulong)len;
+        _state.total_len += (ulong)len;
 
-		if (_state.memsize + len < 16)
-		{
-			input.CopyTo(_state.memory.AsSpan(_state.memsize));
-			_state.memsize += len;
-			return;
-		}
+        if (_state.memsize + len < 16)
+        {
+            input.CopyTo(_state.memory.AsSpan(_state.memsize));
+            _state.memsize += len;
+            return;
+        }
 
-		if (_state.memsize > 0)
-		{
-			int fill = 16 - _state.memsize;
-			input.Slice(0, fill).CopyTo(_state.memory.AsSpan(_state.memsize));
+        if (_state.memsize > 0)
+        {
+            int fill = 16 - _state.memsize;
+            input.Slice(0, fill).CopyTo(_state.memory.AsSpan(_state.memsize));
 
-			_state.v1 = CalcSubHash(_state.v1, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(0)));
-			_state.v2 = CalcSubHash(_state.v2, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(4)));
-			_state.v3 = CalcSubHash(_state.v3, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(8)));
-			_state.v4 = CalcSubHash(_state.v4, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(12)));
+            _state.v1 = CalcSubHash(_state.v1, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(0)));
+            _state.v2 = CalcSubHash(_state.v2, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(4)));
+            _state.v3 = CalcSubHash(_state.v3, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(8)));
+            _state.v4 = CalcSubHash(_state.v4, BinaryPrimitives.ReadUInt32LittleEndian(_state.memory.AsSpan(12)));
 
-			index = fill;
-			_state.memsize = 0;
-		}
+            index = fill;
+            _state.memsize = 0;
+        }
 
-		if (index <= len - 16)
-		{
-			int limit = len - 16;
-			uint v1 = _state.v1;
-			uint v2 = _state.v2;
-			uint v3 = _state.v3;
-			uint v4 = _state.v4;
+        if (index <= len - 16)
+        {
+            int limit = len - 16;
+            uint v1 = _state.v1;
+            uint v2 = _state.v2;
+            uint v3 = _state.v3;
+            uint v4 = _state.v4;
 
-			do
-			{
-				v1 = CalcSubHash(v1, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
-				index += 4;
-				v2 = CalcSubHash(v2, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
-				index += 4;
-				v3 = CalcSubHash(v3, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
-				index += 4;
-				v4 = CalcSubHash(v4, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
-				index += 4;
-			} while (index <= limit);
+            do
+            {
+                v1 = CalcSubHash(v1, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
+                index += 4;
+                v2 = CalcSubHash(v2, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
+                index += 4;
+                v3 = CalcSubHash(v3, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
+                index += 4;
+                v4 = CalcSubHash(v4, BinaryPrimitives.ReadUInt32LittleEndian(input.Slice(index)));
+                index += 4;
+            } while (index <= limit);
 
-			_state.v1 = v1;
-			_state.v2 = v2;
-			_state.v3 = v3;
-			_state.v4 = v4;
-		}
+            _state.v1 = v1;
+            _state.v2 = v2;
+            _state.v3 = v3;
+            _state.v4 = v4;
+        }
 
-		if (index < len)
-		{
-			input.Slice(index).CopyTo(_state.memory.AsSpan(0));
-			_state.memsize = len - index;
-		}
-	}
+        if (index < len)
+        {
+            input.Slice(index).CopyTo(_state.memory.AsSpan(0));
+            _state.memsize = len - index;
+        }
+    }
 
-	public uint Digest()
-	{
-		uint h32;
-		int index = 0;
-		if (_state.total_len >= 16)
-		{
-			h32 = RotateLeft(_state.v1, 1) + RotateLeft(_state.v2, 7) + RotateLeft(_state.v3, 12) + RotateLeft(_state.v4, 18);
-		}
-		else
-		{
-			h32 = _state.seed + PRIME32_5;
-		}
+    public uint Digest()
+    {
+        uint h32;
+        int index = 0;
+        if (_state.total_len >= 16)
+        {
+            h32 = RotateLeft(_state.v1, 1) + RotateLeft(_state.v2, 7) + RotateLeft(_state.v3, 12) + RotateLeft(_state.v4, 18);
+        }
+        else
+        {
+            h32 = _state.seed + PRIME32_5;
+        }
 
-		h32 += (uint)_state.total_len;
+        h32 += (uint)_state.total_len;
 
-		ReadOnlySpan<byte> mem = _state.memory.AsSpan(0, _state.memsize);
+        ReadOnlySpan<byte> mem = _state.memory.AsSpan(0, _state.memsize);
 
-		while (index <= _state.memsize - 4)
-		{
-			h32 += BinaryPrimitives.ReadUInt32LittleEndian(mem.Slice(index)) * PRIME32_3;
-			h32 = RotateLeft(h32, 17) * PRIME32_4;
-			index += 4;
-		}
+        while (index <= _state.memsize - 4)
+        {
+            h32 += BinaryPrimitives.ReadUInt32LittleEndian(mem.Slice(index)) * PRIME32_3;
+            h32 = RotateLeft(h32, 17) * PRIME32_4;
+            index += 4;
+        }
 
-		while (index < _state.memsize)
-		{
-			h32 += mem[index] * PRIME32_5;
-			h32 = RotateLeft(h32, 11) * PRIME32_1;
-			index++;
-		}
+        while (index < _state.memsize)
+        {
+            h32 += mem[index] * PRIME32_5;
+            h32 = RotateLeft(h32, 11) * PRIME32_1;
+            index++;
+        }
 
-		h32 ^= h32 >> 15;
-		h32 *= PRIME32_2;
-		h32 ^= h32 >> 13;
-		h32 *= PRIME32_3;
-		h32 ^= h32 >> 16;
+        h32 ^= h32 >> 15;
+        h32 *= PRIME32_2;
+        h32 ^= h32 >> 13;
+        h32 *= PRIME32_3;
+        h32 ^= h32 >> 16;
 
-		return h32;
-	}
+        return h32;
+    }
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	static uint CalcSubHash(uint value, uint read_value)
-	{
-		value += read_value * PRIME32_2;
-		value = RotateLeft(value, 13);
-		value *= PRIME32_1;
-		return value;
-	}
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static uint CalcSubHash(uint value, uint read_value)
+    {
+        value += read_value * PRIME32_2;
+        value = RotateLeft(value, 13);
+        value *= PRIME32_1;
+        return value;
+    }
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	static uint RotateLeft(uint value, int count)
-	{
-		return (value << count) | (value >> (32 - count));
-	}
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static uint RotateLeft(uint value, int count)
+    {
+        return (value << count) | (value >> (32 - count));
+    }
 }
