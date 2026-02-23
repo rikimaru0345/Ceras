@@ -34,12 +34,12 @@ namespace Ceras.Formatters
     {
         public override void Serialize(IBufferWriter<byte> writer, bool value)
         {
-            SerializerBinary.WriteInt32(writer, value ? 1 : 0);
+            SerializerBinary.WriteByte(writer, value ? (byte)1 : (byte)0);
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref bool value)
         {
-            value = SerializerBinary.ReadInt32(ref reader) != 0;
+            value = SerializerBinary.ReadByte(ref reader) != 0;
         }
     }
 

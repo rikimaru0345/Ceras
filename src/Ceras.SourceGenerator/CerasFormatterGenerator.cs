@@ -718,7 +718,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             string fieldName = MakeFormatterFieldName(m.Type);
             if (!seenFieldNames.Add(fieldName)) continue;
 
-            string concreteFormatterType = GetConcreteFormatterType(m.Type, m.IsMonomorphic);
+            string concreteFormatterType = GetConcreteFormatterType(m.Type, m.IsMonomorphic, attrs);
             sb.AppendLine($"        {concreteFormatterType} {fieldName};");
         }
         sb.AppendLine();
@@ -765,7 +765,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             {
                 string writeMethod = GetPrimitiveWriteMethod(m.Type);
                 string valueExp = $"value.{m.Name}";
-                if (m.Type.SpecialType == SpecialType.System_Boolean) valueExp = $"{valueExp} ? 1 : 0";
+                if (m.Type.SpecialType == SpecialType.System_Boolean)
+                    valueExp = $"(byte)({valueExp} ? 1 : 0)";
                 sb.AppendLine($"            global::Ceras.SerializerBinary.{writeMethod}(writer, {valueExp});");
             }
             else
@@ -923,7 +924,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
     {
         switch (type.SpecialType)
         {
-            case SpecialType.System_Boolean: return "WriteInt32"; // Bool is written as Int32 VarInt in BoolFormatter
+            case SpecialType.System_Boolean: return "WriteByte"; 
             case SpecialType.System_Byte: return "WriteByte";
             case SpecialType.System_SByte: return "WriteByte";
             case SpecialType.System_Char: return "WriteInt16Fixed";
@@ -943,7 +944,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
     {
         switch (type.SpecialType)
         {
-            case SpecialType.System_Boolean: return "ReadInt32(ref reader) != 0";
+            case SpecialType.System_Boolean: return "ReadByte(ref reader) != 0";
             case SpecialType.System_Byte: return "ReadByte(ref reader)";
             case SpecialType.System_SByte: return "(sbyte)ReadByte(ref reader)";
             case SpecialType.System_Char: return "(char)ReadInt16Fixed(ref reader)";
@@ -959,7 +960,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         throw new NotSupportedException();
     }
 
-    static string GetConcreteFormatterType(ITypeSymbol type, bool isMonomorphic)
+    static string GetConcreteFormatterType(ITypeSymbol type, bool isMonomorphic, AttributeBag attrs)
     {
         string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
@@ -983,13 +984,20 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
         if (typeFqn == "global::System.DateTime") return "global::Ceras.Resolvers.StandardFormatterResolver.DateTimeFormatter";
         if (typeFqn == "global::System.TimeSpan") return "global::Ceras.Resolvers.StandardFormatterResolver.TimeSpanFormatter";
-        if (typeFqn == "global::System.Guid") return "global::Ceras.Resolvers.StandardFormatterResolver.GuidFormatter"; // Wait, GuidFormatter?
+        if (typeFqn == "global::System.Guid") return "global::Ceras.Formatters.GuidFormatter";
+
+        // User-defined types marked with [GenerateFormatter]
+        if (type is INamedTypeSymbol named && HasAttribute(named, attrs.GenerateFormatter))
+        {
+            string generatedName = MakeFormatterClassName(named);
+            return $"global::Ceras.Generated.{generatedName}";
+        }
 
         // Arrays
         if (type is IArrayTypeSymbol arr)
         {
-            // For now use IFormatter for arrays unless we want to commit to a specific array formatter
-            return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
+            string elemFqn = arr.ElementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {elemFqn}>";
         }
 
         // Reference types or non-monomorphic types
@@ -1000,14 +1008,12 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
         if (!type.IsValueType && isMonomorphic)
         {
-            // If it's a sealed class, we can use ReferenceFormatter_KnownSealedType
             if (type.IsSealed)
                 return $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>";
 
             return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
         }
 
-        // Fallback to interface
         return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
     }
 
