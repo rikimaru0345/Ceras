@@ -6,22 +6,22 @@ namespace Ceras.Savegame
 {
     public static class CerasSave
     {
-        public const int HeaderSize = 38;
+        internal const int OffsetMagic = 0;
+        internal const int OffsetFormatVersion = 4 + OffsetMagic;
+        internal const int OffsetGameVersion = 1 + OffsetFormatVersion;
+        internal const int OffsetFingerprint = 4 + OffsetGameVersion;
+        internal const int OffsetFlags = 8 + OffsetFingerprint;
+        internal const int OffsetDataSection = 1 + OffsetFlags;
+        internal const int OffsetStringTable = 8 + OffsetDataSection;
+        internal const int OffsetChecksum = 8 + OffsetStringTable;
+        public const int HeaderSize = 4 + OffsetChecksum;
         public const int FormatVersion = 1;
-        internal const int OffsetMagic            = 0;
-        internal const int OffsetFormatVersion    = 4;
-        internal const int OffsetGameVersion      = 5;
-        internal const int OffsetFingerprint      = 9;
-        internal const int OffsetFlags            = 17;
-        internal const int OffsetDataSection      = 18;
-        internal const int OffsetStringTable      = 26;
-        internal const int OffsetChecksum         = 34;
 
         public static void ConfigureSavegame(SerializerConfig config)
         {
             config.Advanced.EmbedChecksum = false;
             config.ConfigType<string>().CustomFormatter = new SavegameStringFormatter();
-            config.ConfigType<Type>().CustomFormatter   = new SavegameTypeFormatter();
+            config.ConfigType<Type>().CustomFormatter = new SavegameTypeFormatter();
         }
 
         public static byte[] Save<T>(T rootObject, uint gameVersion, CerasSerializer ceras)
@@ -37,7 +37,7 @@ namespace Ceras.Savegame
             int dataStart = offset;
             var writer = new ArrayBufferWriter<byte>();
             SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
-            
+
             var internTable = new StringInternTable();
             SavegameContext.BeginWrite(internTable, typeToId);
             try { ceras.Serialize(writer, rootObject); }
@@ -66,7 +66,7 @@ namespace Ceras.Savegame
 
             var table = StringTable.Load(data, (int)stringTableOffset);
             ulong currentFingerprint = registry.ComputeFingerprint();
-            
+
             int schemaOffset = HeaderSize;
             var sequence = new ReadOnlySequence<byte>(data, schemaOffset, (int)dataSectionOffset - schemaOffset);
             var schemaReader = new SequenceReader<byte>(sequence);
