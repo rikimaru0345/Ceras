@@ -857,7 +857,9 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         {
             // Normal path (no [CerasConstructor])
             if (type.IsReferenceType)
-                sb.AppendLine($"            if (value == null) throw new global::System.InvalidOperationException($\"The instance of type '{{typeof({typeFqn}).FullName}}' was null. This should have been handled by ReferenceFormatter.\");");
+            {
+                sb.AppendLine($"            if (value == null) throw new global::System.InvalidOperationException($\"The instance of type '{{typeof({typeFqn}).FullName}}' was null. For types with a parameterless constructor, the instance must be provided by ReferenceFormatter.\");");
+            }
 
             foreach (var m in members)
             {
@@ -986,37 +988,42 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         if (typeFqn == "global::System.TimeSpan") return "global::Ceras.Resolvers.StandardFormatterResolver.TimeSpanFormatter";
         if (typeFqn == "global::System.Guid") return "global::Ceras.Formatters.GuidFormatter";
 
-        // User-defined types marked with [GenerateFormatter]
-        if (type is INamedTypeSymbol named && HasAttribute(named, attrs.GenerateFormatter))
-        {
-            string generatedName = MakeFormatterClassName(named);
-            return $"global::Ceras.Generated.{generatedName}";
+            // User-defined types marked with [GenerateFormatter]
+            if (type is INamedTypeSymbol named && HasAttribute(named, attrs.GenerateFormatter))
+            {
+                if (type.IsValueType)
+                {
+                    string generatedName = MakeFormatterClassName(named);
+                    return $"global::Ceras.Generated.{generatedName}";
+                }
+            }
+        
+            // Arrays
+            if (type is IArrayTypeSymbol arr)
+            {
+                string elemFqn = arr.ElementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                // Use the specialized collection formatter
+                return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {elemFqn}>";
+            }
+        
+            // Reference types or non-monomorphic types
+            if (!type.IsValueType && !isMonomorphic)
+            {
+                return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+            }
+        
+            if (!type.IsValueType && isMonomorphic)
+            {
+                // If it's a sealed class, we can use ReferenceFormatter_KnownSealedType
+                if (type.IsSealed)
+                    return $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>";
+        
+                return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+            }
+        
+            // Fallback to interface
+            return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
         }
-
-        // Arrays
-        if (type is IArrayTypeSymbol arr)
-        {
-            string elemFqn = arr.ElementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {elemFqn}>";
-        }
-
-        // Reference types or non-monomorphic types
-        if (!type.IsValueType && !isMonomorphic)
-        {
-            return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
-        }
-
-        if (!type.IsValueType && isMonomorphic)
-        {
-            if (type.IsSealed)
-                return $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>";
-
-            return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
-        }
-
-        return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
-    }
-
     static void WriteSchemaDescriptor(
         StringBuilder sb,
         INamedTypeSymbol type,
