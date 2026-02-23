@@ -1,5 +1,12 @@
+using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Text;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 
 namespace Ceras.SourceGenerator;
 
@@ -159,6 +166,10 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("using Ceras;");
         sb.AppendLine("using Ceras.Formatters;");
+        sb.AppendLine("using Ceras.Helpers;");
+        sb.AppendLine("using Ceras.Savegame;");
+        sb.AppendLine("using System;");
+        sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine("using System.Buffers;");
         sb.AppendLine();
         sb.AppendLine("namespace Ceras.Generated");

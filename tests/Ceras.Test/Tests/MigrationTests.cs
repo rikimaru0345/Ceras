@@ -1,4 +1,12 @@
+using System;
+using System.Collections.Generic;
 using System.Buffers.Binary;
+using Xunit;
+using Ceras;
+using Ceras.Savegame;
+using Ceras.Helpers;
+using Ceras.Versioning;
+using Ceras.Generated;
 
 namespace Ceras.Test.Migration
 {

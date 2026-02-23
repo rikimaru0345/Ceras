@@ -1,6 +1,12 @@
 ﻿// ReSharper disable InconsistentNaming
 
 
+using System;
+using System.Collections.Generic;
+using Xunit;
+using Ceras;
+using Ceras.Helpers;
+
 namespace Ceras.Test
 {
 	using System;

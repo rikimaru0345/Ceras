@@ -63,45 +63,39 @@ namespace LiveTesting
         }
     }
 
-    class DefaultFormatter : IFormatter<Vector3>
+    class DefaultFormatter : FormatterBase<Vector3>
     {
         IFormatter<float> _floatFormatter = new FloatFormatter();
 
-        public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+        public override void Serialize(IBufferWriter<byte> writer, Vector3 value)
         {
-            _floatFormatter.Serialize(ref buffer, ref offset, value.X);
-            _floatFormatter.Serialize(ref buffer, ref offset, value.Y);
-            _floatFormatter.Serialize(ref buffer, ref offset, value.Z);
+            _floatFormatter.Serialize(writer, value.X);
+            _floatFormatter.Serialize(writer, value.Y);
+            _floatFormatter.Serialize(writer, value.Z);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref Vector3 value)
         {
-            _floatFormatter.Deserialize(buffer, ref offset, ref value.X);
-            _floatFormatter.Deserialize(buffer, ref offset, ref value.Y);
-            _floatFormatter.Deserialize(buffer, ref offset, ref value.Z);
+            _floatFormatter.Deserialize(ref reader, ref value.X);
+            _floatFormatter.Deserialize(ref reader, ref value.Y);
+            _floatFormatter.Deserialize(ref reader, ref value.Z);
         }
     }
 
-    class RawCallFormatter : IFormatter<Vector3>
+    class RawCallFormatter : FormatterBase<Vector3>
     {
-        public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+        public override void Serialize(IBufferWriter<byte> writer, Vector3 value)
         {
-            SerializerBinary.EnsureCapacity(ref buffer, offset, 3 * 4);
-
-            ReinterpretFormatter<float>.Write_Raw(buffer, offset, value.X);
-            ReinterpretFormatter<float>.Write_Raw(buffer, offset + 4, value.Y);
-            ReinterpretFormatter<float>.Write_Raw(buffer, offset + 8, value.Z);
-
-            offset += 3 * 4;
+            SerializerBinary.WriteFloat32Fixed(writer, value.X);
+            SerializerBinary.WriteFloat32Fixed(writer, value.Y);
+            SerializerBinary.WriteFloat32Fixed(writer, value.Z);
         }
 
-        public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value)
+        public override void Deserialize(ref SequenceReader<byte> reader, ref Vector3 value)
         {
-            ReinterpretFormatter<float>.Read_Raw(buffer, offset, ref value.X);
-            ReinterpretFormatter<float>.Read_Raw(buffer, offset + 4, ref value.Y);
-            ReinterpretFormatter<float>.Read_Raw(buffer, offset + 8, ref value.Z);
-
-            offset += 3 * 4;
+            value.X = SerializerBinary.ReadFloat32Fixed(ref reader);
+            value.Y = SerializerBinary.ReadFloat32Fixed(ref reader);
+            value.Z = SerializerBinary.ReadFloat32Fixed(ref reader);
         }
     }
 

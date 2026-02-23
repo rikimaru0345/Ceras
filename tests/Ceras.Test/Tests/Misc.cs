@@ -1,4 +1,10 @@
-﻿namespace Ceras.Test
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using Xunit;
+using Ceras;
+
+namespace Ceras.Test
 {
 	public class Misc : TestBase
 	{

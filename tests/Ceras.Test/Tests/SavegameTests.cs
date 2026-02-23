@@ -32,6 +32,15 @@ using System.Buffers;
 // ---------------------------------------------------------------------------
 
 
+using System;
+using System.Collections.Generic;
+using Xunit;
+using Ceras;
+using Ceras.Formatters;
+using Ceras.Helpers;
+using Ceras.Savegame;
+using Ceras.Generated;
+
 namespace Ceras.Test
 {
     // -----------------------------------------------------------------------
