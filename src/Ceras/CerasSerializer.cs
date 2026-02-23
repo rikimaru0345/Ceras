@@ -134,7 +134,8 @@ namespace Ceras
             if (generatedType != null)
             {
                 var method = generatedType.GetMethod("UseFormatters", BindingFlags.Static | BindingFlags.Public);
-                method?.Invoke(null, new object[] { Config });
+                if (method != null)
+                    method.Invoke(null, new object[] { Config });
             }
 
             foreach (var t in _knownTypes) ProtocolChecksum.Add(t.FullName); ProtocolChecksum.Finish();
@@ -241,7 +242,10 @@ namespace Ceras
         {
             var formatterType = typeof(DynamicFormatter<>).MakeGenericType(meta.Type);
             var f = Activator.CreateInstance(formatterType, new object[] { this, true });
-            formatterType.GetMethod("Initialize", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(f, null);
+            var initMethod = formatterType.GetMethod("Initialize", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (initMethod != null)
+                initMethod.Invoke(f, null);
+
             var createDelegates = typeof(CerasSerializer).GetMethod(nameof(CreateStaticDelegates), BindingFlags.NonPublic | BindingFlags.Static).MakeGenericMethod(meta.Type);
             var result = ((StaticSerializeDelegate ser, StaticDeserializeDelegate deser))createDelegates.Invoke(null, new object[] { f });
             meta.StaticSerialize = result.ser; meta.StaticDeserialize = result.deser;
@@ -291,7 +295,10 @@ namespace Ceras
         void PrepareFormatter(IFormatter formatter)
         {
             var formatterType = formatter.GetType();
-            formatterType.GetMethod("Initialize", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(formatter, null);
+            var initMethod = formatterType.GetMethod("Initialize", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (initMethod != null)
+                initMethod.Invoke(formatter, null);
+
             if (formatterType.GetCustomAttribute<CerasNoInjectAttribute>() != null) return;
             var config = formatterType.GetCustomAttribute<CerasInjectAttribute>() ?? CerasInjectAttribute.Default;
             var fields = formatterType.GetFields(BindingFlags.Public | BindingFlags.Instance | (config.IncludePrivate ? BindingFlags.NonPublic : 0));

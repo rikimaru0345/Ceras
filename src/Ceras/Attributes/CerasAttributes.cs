@@ -301,6 +301,25 @@ namespace Ceras
     }
 
     /// <summary>
+    /// When using <see cref="GenerateFormatterAttribute.DiscoverSubtypes"/>, you can put this
+    /// on a specific class to prevent the generator from creating a formatter for it.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
+    public class ExcludeFromDiscoveryAttribute : Attribute { }
+
+    /// <summary>
+    /// Prevents the Ceras source generator from automatically discovering and generating
+    /// formatters for types in the specified namespace or matching the pattern (e.g. "Godot.*").
+    /// Types with an explicit <see cref="GenerateFormatterAttribute"/> will still be processed.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public class CerasGeneratorBlacklistAttribute : Attribute
+    {
+        public string Pattern { get; }
+        public CerasGeneratorBlacklistAttribute(string pattern) { Pattern = pattern; }
+    }
+
+    /// <summary>
     /// Generic version of <see cref="GenerateFormatterAttribute"/> for better type safety.
     /// Can be used on any type or the assembly itself to generate a formatter for the specified type <typeparamref name="T"/>.
     /// </summary>

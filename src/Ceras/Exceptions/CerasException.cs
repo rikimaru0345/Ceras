@@ -10,7 +10,10 @@ namespace Ceras.Exceptions
     {
         public CerasException(string message) : base(message)
         {
-            
+        }
+
+        public CerasException(string message, Exception inner) : base(message, inner)
+        {
         }
     }
 

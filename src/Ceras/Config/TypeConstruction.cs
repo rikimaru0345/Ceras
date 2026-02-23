@@ -182,7 +182,7 @@ namespace Ceras
         internal override Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen)
         {
             var ctor = Constructor;
-            return () => ctor.Invoke(null);
+            return () => Ceras.Helpers.ReflectionHelper.Invoke(ctor, null);
         }
 
         internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)

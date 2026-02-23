@@ -14,6 +14,24 @@
         static readonly Dictionary<Type, int> _typeToBlittableSize = new Dictionary<Type, int>();
         static readonly Dictionary<Type, int> _typeToUnsafeSize = new Dictionary<Type, int>();
 
+        public static object Invoke(this MethodBase method, object target, object[]? arguments = null)
+        {
+            try
+            {
+                if (method is ConstructorInfo ctor && target == null)
+                    return ctor.Invoke(arguments);
+
+                return method.Invoke(target, arguments);
+            }
+            catch (TargetInvocationException tie)
+            {
+                var e = tie.InnerException;
+                while (e is TargetInvocationException)
+                    e = e.InnerException;
+                throw e ?? tie;
+            }
+        }
+
         public static Type FindClosedType(Type type, Type openGeneric)
         {
             if (openGeneric.IsInterface)

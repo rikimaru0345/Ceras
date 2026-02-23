@@ -101,7 +101,14 @@ namespace Ceras.Formatters
                     if (member.MemberInfo is FieldInfo f) memberValue = f.GetValue(value);
                     else if (member.MemberInfo is PropertyInfo p) memberValue = p.GetValue(value);
                     
-                    formatter.SerializeUntyped(writer, memberValue);
+                    try
+                    {
+                        formatter.SerializeUntyped(writer, memberValue);
+                    }
+                    catch (Exception e)
+                    {
+                        throw new Ceras.Exceptions.CerasException($"Error while serializing member '{member.MemberInfo.Name}' of type '{typeof(T).FullName}': {e.Message}", e);
+                    }
                 }
             };
         }

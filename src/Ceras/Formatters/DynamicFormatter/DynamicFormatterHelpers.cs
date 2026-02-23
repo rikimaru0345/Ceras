@@ -152,10 +152,10 @@
                     continue;
 
                 var args = method.GetParameters();
-                if (args.Length != 3)
+                if (args.Length != 2)
                     continue;
 
-                var paramType = args[2].ParameterType;
+                var paramType = args[1].ParameterType;
                 if (paramType.IsByRef)
                     paramType = paramType.GetElementType();
 

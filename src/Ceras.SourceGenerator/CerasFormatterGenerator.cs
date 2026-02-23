@@ -31,6 +31,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
     const string SerializedAsFqn = "Ceras.SerializedAsAttribute";
     const string MonomorphicFqn = "Ceras.MonomorphicAttribute";
     const string PolymorphicFqn = "Ceras.PolymorphicAttribute";
+    const string ExcludeFromDiscoveryFqn = "Ceras.ExcludeFromDiscoveryAttribute";
+    const string BlacklistFqn = "Ceras.CerasGeneratorBlacklistAttribute";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -107,6 +109,34 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         var monomorphicAttr = compilation.GetTypeByMetadataName(MonomorphicFqn);
         var polymorphicAttr = compilation.GetTypeByMetadataName(PolymorphicFqn);
         var generateFmtAttr = compilation.GetTypeByMetadataName(GenerateFormatterFqn);
+        var excludeFromDiscoveryAttr = compilation.GetTypeByMetadataName(ExcludeFromDiscoveryFqn);
+        var blacklistAttr = compilation.GetTypeByMetadataName(BlacklistFqn);
+
+        // --- Collect Blacklist ----------------------------------------------------
+        var blacklistPatterns = new List<string>();
+        foreach (var attr in compilation.Assembly.GetAttributes())
+        {
+            if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, blacklistAttr) &&
+                attr.ConstructorArguments.Length > 0 &&
+                attr.ConstructorArguments[0].Value is string pattern)
+            {
+                blacklistPatterns.Add(pattern);
+            }
+        }
+
+        bool MatchesBlacklist(INamedTypeSymbol type)
+        {
+            string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
+            foreach (var p in blacklistPatterns)
+            {
+                if (p.EndsWith("*"))
+                {
+                    if (fqn.StartsWith(p.Substring(0, p.Length - 1))) return true;
+                }
+                else if (fqn == p) return true;
+            }
+            return false;
+        }
 
         // --- DiscoverSubtypes expansion -------------------------------------------
         // For any annotated type that has DiscoverSubtypes = true, scan the whole
@@ -137,6 +167,14 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 // Skip types that already have an explicit [GenerateFormatter] — they
                 // carry their own VersionTolerant value and are already in `expanded`.
                 if (expanded.ContainsKey(candidate))
+                    continue;
+
+                // Explicitly excluded from discovery?
+                if (excludeFromDiscoveryAttr != null && HasAttribute(candidate, excludeFromDiscoveryAttr))
+                    continue;
+
+                // Blacklisted?
+                if (MatchesBlacklist(candidate))
                     continue;
 
                 foreach (var (root, vt) in discoverRoots)
@@ -535,7 +573,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         string formatterName = MakeFormatterClassName(type);
 
-        sb.AppendLine($"    internal sealed class {formatterName} : IFormatter<{typeFqn}>");
+        sb.AppendLine($"    internal sealed class {formatterName} : global::Ceras.Formatters.IFormatter<{typeFqn}>");
         sb.AppendLine("    {");
 
         // --- Formatter fields (one per distinct member type) -------------------
@@ -548,7 +586,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             if (!seenFieldNames.Add(fieldName)) continue;
 
             string concreteFormatterType = GetConcreteFormatterType(m.Type, m.IsMonomorphic);
-            sb.AppendLine($"        readonly {concreteFormatterType} {fieldName};");
+            sb.AppendLine($"        {concreteFormatterType} {fieldName};");
         }
         sb.AppendLine();
 
@@ -557,14 +595,14 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             WriteSchemaDescriptor(sb, type, members, attrs);
 
         // --- SerializeUntyped --------------------------------------------------
-        sb.AppendLine($"        public void SerializeUntyped(IBufferWriter<byte> writer, object value)");
+        sb.AppendLine($"        public void SerializeUntyped(global::System.Buffers.IBufferWriter<byte> writer, object value)");
         sb.AppendLine("        {");
         sb.AppendLine($"            Serialize(writer, ({typeFqn})value);");
         sb.AppendLine("        }");
         sb.AppendLine();
 
         // --- DeserializeUntyped ------------------------------------------------
-        sb.AppendLine($"        public void DeserializeUntyped(ref SequenceReader<byte> reader, object container, global::System.Reflection.MemberInfo member)");
+        sb.AppendLine($"        public void DeserializeUntyped(ref global::System.Buffers.SequenceReader<byte> reader, object container, global::System.Reflection.MemberInfo member)");
         sb.AppendLine("        {");
         sb.AppendLine($"            {typeFqn} value = default;");
         sb.AppendLine("            if (member is global::System.Reflection.FieldInfo f)");
@@ -585,7 +623,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         sb.AppendLine();
 
         // --- Serialize ---------------------------------------------------------
-        sb.AppendLine($"        public void Serialize(IBufferWriter<byte> writer, {typeFqn} value)");
+        sb.AppendLine($"        public void Serialize(global::System.Buffers.IBufferWriter<byte> writer, {typeFqn} value)");
         sb.AppendLine("        {");
         foreach (var m in members)
         {
@@ -595,7 +633,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 string writeMethod = GetPrimitiveWriteMethod(m.Type);
                 string valueExp = $"value.{m.Name}";
                 if (m.Type.SpecialType == SpecialType.System_Boolean) valueExp = $"{valueExp} ? 1 : 0";
-                sb.AppendLine($"            SerializerBinary.{writeMethod}(writer, {valueExp});");
+                sb.AppendLine($"            global::Ceras.SerializerBinary.{writeMethod}(writer, {valueExp});");
             }
             else
             {
@@ -606,7 +644,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         sb.AppendLine();
 
         // --- Deserialize -------------------------------------------------------
-        sb.AppendLine($"        public void Deserialize(ref SequenceReader<byte> reader, ref {typeFqn} value)");
+        sb.AppendLine($"        public void Deserialize(ref global::System.Buffers.SequenceReader<byte> reader, ref {typeFqn} value)");
         sb.AppendLine("        {");
         foreach (var m in members)
         {
@@ -616,7 +654,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             if (IsPrimitive(m.Type))
             {
                 string readMethod = GetPrimitiveReadMethod(m.Type);
-                sb.AppendLine($"            value.{m.Name} = SerializerBinary.{readMethod};");
+                sb.AppendLine($"            value.{m.Name} = global::Ceras.SerializerBinary.{readMethod};");
             }
             else
             {
@@ -627,13 +665,13 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 else if (m.IsGetterOnly)
                 {
                     // Getter-only collection: populate the existing instance in-place (no assignment needed)
-                    string tmp = "_tmp" + m.Name;
+                    string tmp = "_m_" + m.Name;
                     sb.AppendLine($"            {memberTypeFqn} {tmp} = value.{m.Name};");
                     sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
                 }
                 else
                 {
-                    string tmp = "_tmp" + m.Name;
+                    string tmp = "_m_" + m.Name;
                     sb.AppendLine($"            {memberTypeFqn} {tmp} = value.{m.Name};");
                     sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
                     sb.AppendLine($"            value.{m.Name} = {tmp};");
@@ -695,15 +733,15 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         {
             case SpecialType.System_Boolean: return "ReadInt32(ref reader) != 0";
             case SpecialType.System_Byte: return "ReadByte(ref reader)";
-            case SpecialType.System_SByte: return "(sbyte)SerializerBinary.ReadByte(ref reader)";
-            case SpecialType.System_Char: return "(char)SerializerBinary.ReadInt16Fixed(ref reader)";
+            case SpecialType.System_SByte: return "(sbyte)ReadByte(ref reader)";
+            case SpecialType.System_Char: return "(char)ReadInt16Fixed(ref reader)";
             case SpecialType.System_Int16: return "ReadInt16Fixed(ref reader)";
-            case SpecialType.System_UInt16: return "(ushort)SerializerBinary.ReadInt16Fixed(ref reader)";
+            case SpecialType.System_UInt16: return "(ushort)ReadInt16Fixed(ref reader)";
             case SpecialType.System_Int32: return "ReadInt32(ref reader)";
             case SpecialType.System_UInt32: return "ReadUInt32(ref reader)";
             case SpecialType.System_Single: return "ReadFloat32Fixed(ref reader)";
             case SpecialType.System_Int64: return "ReadInt64Fixed(ref reader)";
-            case SpecialType.System_UInt64: return "(ulong)SerializerBinary.ReadInt64Fixed(ref reader)";
+            case SpecialType.System_UInt64: return "(ulong)ReadInt64Fixed(ref reader)";
             case SpecialType.System_Double: return "ReadDouble64Fixed(ref reader)";
             case SpecialType.System_String: return "ReadString(ref reader)";
         }
@@ -740,7 +778,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         if (type is IArrayTypeSymbol arr)
         {
             // For now use IFormatter for arrays unless we want to commit to a specific array formatter
-            return $"IFormatter<{typeFqn}>";
+            return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
         }
 
         // Reference types or non-monomorphic types
@@ -759,7 +797,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         }
 
         // Fallback to interface
-        return $"IFormatter<{typeFqn}>";
+        return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
     }
 
     static void WriteSchemaDescriptor(

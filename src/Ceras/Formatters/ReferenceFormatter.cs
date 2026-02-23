@@ -66,9 +66,9 @@ namespace Ceras.Formatters
             if (_allowReferences)
             {
                 if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id)) SerializerBinary.WriteUInt32Bias(writer, id, Bias);
-                else { _ceras.InstanceData.ObjectCache.RegisterObject(value); SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias); if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType); entry.CurrentSerializeDispatcher(writer, value); }
+                else { _ceras.InstanceData.ObjectCache.RegisterObject(value); SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias); if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType); try { entry.CurrentSerializeDispatcher(writer, value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while serializing object of type '{specificType.FullName}': {e.Message}", e); } }
             }
-            else { SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias); if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType); entry.CurrentSerializeDispatcher(writer, value); }
+            else { SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias); if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType); try { entry.CurrentSerializeDispatcher(writer, value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while serializing object of type '{specificType.FullName}': {e.Message}", e); } }
         }
 
         public void Deserialize(ref SequenceReader<byte> reader, ref T value)
@@ -82,10 +82,10 @@ namespace Ceras.Formatters
             if (objId == NewValue) _typeFormatter.Deserialize(ref reader, ref specificType);
             var entry = GetOrCreateEntry(specificType);
             if (!entry.IsValueType) { if (value != null) { if (value.GetType() != specificType) { _ceras.DiscardObjectMethod?.Invoke(value); value = (T)entry.Constructor(); } } else value = (T)entry.Constructor(); }
-            if (!_allowReferences) { entry.CurrentDeserializeDispatcher(ref reader, ref value); return; }
+            if (!_allowReferences) { try { entry.CurrentDeserializeDispatcher(ref reader, ref value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType.FullName}': {e.Message}", e); } return; }
             var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
             objectProxy.Value = value;
-            entry.CurrentDeserializeDispatcher(ref reader, ref objectProxy.Value);
+            try { entry.CurrentDeserializeDispatcher(ref reader, ref objectProxy.Value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType.FullName}': {e.Message}", e); }
             value = objectProxy.Value;
         }
 
@@ -109,7 +109,17 @@ namespace Ceras.Formatters
         static SerializeDelegate<T> CreateSerializeDispatcherHelper<TSpecific>(IFormatter<TSpecific> formatter) => (writer, value) => formatter.Serialize(writer, (TSpecific)(object)value);
         static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher(Type type, IFormatter specificFormatter) { var method = specificFormatter.GetType().ResolveDeserializeMethod(type); if (type == typeof(T)) return (DeserializeDelegate<T>)Delegate.CreateDelegate(typeof(DeserializeDelegate<T>), specificFormatter, method); var helper = typeof(ReferenceFormatter<T>).GetMethod(nameof(CreateDeserializeDispatcherHelper), BindingFlags.Static | BindingFlags.NonPublic); return (DeserializeDelegate<T>)helper.MakeGenericMethod(type).Invoke(null, new object[] { specificFormatter }); }
         static DeserializeDelegate<T> CreateDeserializeDispatcherHelper<TSpecific>(IFormatter<TSpecific> formatter) { return (ref SequenceReader<byte> reader, ref T value) => { TSpecific specific = value != null ? (TSpecific)(object)value : default; formatter.Deserialize(ref reader, ref specific); value = (T)(object)specific; }; }
-        static SerializeDelegate<T> CreateSpecificSerializerDispatcher_Aot(Type type, IFormatter specificFormatter) { var method = specificFormatter.GetType().ResolveSerializeMethod(type); if (type == typeof(T)) return (SerializeDelegate<T>)Delegate.CreateDelegate(typeof(SerializeDelegate<T>), specificFormatter, method); return (writer, value) => { method.Invoke(specificFormatter, new object[] { writer, value }); }; }
+        static SerializeDelegate<T> CreateSpecificSerializerDispatcher_Aot(Type type, IFormatter specificFormatter)
+        {
+            var method = specificFormatter.GetType().ResolveSerializeMethod(type);
+            if (type == typeof(T))
+                return (SerializeDelegate<T>)Delegate.CreateDelegate(typeof(SerializeDelegate<T>), specificFormatter, method);
+
+            return (writer, value) =>
+            {
+                method.Invoke(specificFormatter, new object[] { writer, value });
+            };
+        }
         static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher_Aot(Type type, IFormatter specificFormatter) { var method = specificFormatter.GetType().ResolveDeserializeMethod(type); if (type == typeof(T)) return (DeserializeDelegate<T>)Delegate.CreateDelegate(typeof(DeserializeDelegate<T>), specificFormatter, method); return (ref SequenceReader<byte> reader, ref T value) => { throw new NotSupportedException("AOT polymorphic migration requires Source Generator."); }; }
         void ISchemaTaintedFormatter.OnSchemaChanged(TypeMetaData meta) { if (_dispatchers.TryGetValue(meta.Type, out var entry)) { if (entry.SchemaDispatchers.TryGetValue(meta.CurrentSchema, out var pair)) { entry.CurrentSerializeDispatcher = pair.SerializeDispatcher; entry.CurrentDeserializeDispatcher = pair.DeserializeDispatcher; } else { entry.CurrentSerializeDispatcher = null; entry.CurrentDeserializeDispatcher = null; } } }
         class DispatcherEntry { public readonly Type Type; public Func<object> Constructor; public readonly bool IsType, IsExternalRootObject, IsValueType; public Schema CurrentSchema; public SerializeDelegate<T> CurrentSerializeDispatcher; public DeserializeDelegate<T> CurrentDeserializeDispatcher; public readonly Dictionary<Schema, DispatcherPair> SchemaDispatchers; public DispatcherEntry(Type type, bool hasSchema, Schema currentSchema) { Type = type; CurrentSchema = currentSchema; IsType = typeof(Type).IsAssignableFrom(type); IsExternalRootObject = typeof(IExternalRootObject).IsAssignableFrom(type); IsValueType = type.IsValueType; if (hasSchema) SchemaDispatchers = new Dictionary<Schema, DispatcherPair>(); } }
