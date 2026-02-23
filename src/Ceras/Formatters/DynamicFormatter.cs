@@ -107,7 +107,7 @@ namespace Ceras.Formatters
                     }
                     catch (Exception e)
                     {
-                        throw new Ceras.Exceptions.CerasException($"Error while serializing member '{member.MemberInfo.Name}' of type '{typeof(T).FullName}': {e.Message}", e);
+                        throw new Ceras.Exceptions.CerasException($"Error while serializing member '{member.MemberInfo.Name}' of type '{typeof(T).FullName}'", e);
                     }
                 }
             };

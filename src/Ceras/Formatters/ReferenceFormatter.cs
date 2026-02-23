@@ -66,9 +66,9 @@ namespace Ceras.Formatters
             if (_allowReferences)
             {
                 if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id)) SerializerBinary.WriteUInt32Bias(writer, id, Bias);
-                else { _ceras.InstanceData.ObjectCache.RegisterObject(value); SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias); if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType); try { entry.CurrentSerializeDispatcher(writer, value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while serializing object of type '{specificType.FullName}': {e.Message}", e); } }
+                else { _ceras.InstanceData.ObjectCache.RegisterObject(value); SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias); if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType); try { entry.CurrentSerializeDispatcher(writer, value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while serializing object of type '{specificType.FullName}'", e); } }
             }
-            else { SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias); if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType); try { entry.CurrentSerializeDispatcher(writer, value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while serializing object of type '{specificType.FullName}': {e.Message}", e); } }
+            else { SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias); if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType); try { entry.CurrentSerializeDispatcher(writer, value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while serializing object of type '{specificType.FullName}'", e); } }
         }
 
         public void Deserialize(ref SequenceReader<byte> reader, ref T value)
@@ -82,10 +82,10 @@ namespace Ceras.Formatters
             if (objId == NewValue) _typeFormatter.Deserialize(ref reader, ref specificType);
             var entry = GetOrCreateEntry(specificType);
             if (!entry.IsValueType) { if (value != null) { if (value.GetType() != specificType) { _ceras.DiscardObjectMethod?.Invoke(value); value = (T)entry.Constructor(); } } else value = (T)entry.Constructor(); }
-            if (!_allowReferences) { try { entry.CurrentDeserializeDispatcher(ref reader, ref value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType.FullName}': {e.Message}", e); } return; }
+            if (!_allowReferences) { try { entry.CurrentDeserializeDispatcher(ref reader, ref value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType.FullName}'", e); } return; }
             var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
             objectProxy.Value = value;
-            try { entry.CurrentDeserializeDispatcher(ref reader, ref objectProxy.Value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType.FullName}': {e.Message}", e); }
+            try { entry.CurrentDeserializeDispatcher(ref reader, ref objectProxy.Value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType.FullName}'", e); }
             value = objectProxy.Value;
         }
 

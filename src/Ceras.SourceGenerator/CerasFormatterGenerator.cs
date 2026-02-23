@@ -33,6 +33,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
     const string PolymorphicFqn = "Ceras.PolymorphicAttribute";
     const string ExcludeFromDiscoveryFqn = "Ceras.ExcludeFromDiscoveryAttribute";
     const string BlacklistFqn = "Ceras.CerasGeneratorBlacklistAttribute";
+    const string CerasConstructorFqn = "Ceras.CerasConstructorAttribute";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -111,6 +112,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         var generateFmtAttr = compilation.GetTypeByMetadataName(GenerateFormatterFqn);
         var excludeFromDiscoveryAttr = compilation.GetTypeByMetadataName(ExcludeFromDiscoveryFqn);
         var blacklistAttr = compilation.GetTypeByMetadataName(BlacklistFqn);
+        var cerasConstructorAttr = compilation.GetTypeByMetadataName(CerasConstructorFqn);
 
         // --- Collect Blacklist ----------------------------------------------------
         var blacklistPatterns = new List<string>();
@@ -136,6 +138,24 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 else if (fqn == p) return true;
             }
             return false;
+        }
+
+        // --- CERAS002: interface / abstract without DiscoverSubtypes ---------------
+        // Warn early — before any expansion — so the user knows the attribute has no effect.
+        foreach (var t in types)
+        {
+            bool isInterface = t.TypeKind == TypeKind.Interface;
+            bool isAbstract = t.IsAbstract && t.TypeKind != TypeKind.Interface;
+            if (!isInterface && !isAbstract) continue;
+
+            if (!HasDiscoverSubtypes(t, generateFmtAttr))
+            {
+                string kind = isInterface ? "interface" : "abstract class";
+                context.ReportDiagnostic(Diagnostic.Create(
+                    Diag.InterfaceOrAbstractWithoutDiscoverSubtypes,
+                    t.Locations.FirstOrDefault(),
+                    t.Name, kind));
+            }
         }
 
         // --- DiscoverSubtypes expansion -------------------------------------------
@@ -247,7 +267,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         // --- One formatter class per type ----------------------------------------
         var attrBag = new AttributeBag(includeAttr, excludeAttr, memberConfigAttr,
             previousNameAttr, previousTypeAttr, serializedAsAttr, monomorphicAttr,
-            polymorphicAttr, generateFmtAttr);
+            polymorphicAttr, generateFmtAttr, cerasConstructorAttr);
 
         foreach (var type in finalTypes)
         {
@@ -255,6 +275,19 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             // they are never instantiated so no formatter class is needed for them.
             if (type.TypeKind == TypeKind.Interface || type.IsAbstract)
                 continue;
+
+            // CERAS003: can Ceras construct this type?
+            // Value types always have a default constructor; check only reference types.
+            if (!type.IsValueType && !CanCerasConstruct(type, cerasConstructorAttr))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    Diag.NotConstructable,
+                    type.Locations.FirstOrDefault(),
+                    type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
+            }
+
+            // CERAS008: members with both [Include] and [Exclude]
+            ValidateIncludeExcludeConflicts(context, type, attrBag);
 
             var members = DiscoverMembers(type, attrBag);
 
@@ -265,6 +298,12 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                     type.Locations.FirstOrDefault(),
                     type.Name));
             }
+
+            // CERAS004/005/006/007: [CerasConstructor] validation
+            ValidateCerasConstructor(context, compilation, type, members, attrBag);
+
+            // CERAS009: duplicate stable wire names
+            ValidateDuplicateWireNames(context, type, members);
 
             // Use the VT flag from the expanded dict (which inherits from DiscoverSubtypes roots)
             // rather than re-checking only the type's own attribute.
@@ -445,6 +484,96 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                     if (!hasInclude && !IsPropertyIncluded(prop, targetKind)) continue;
 
                     members.Add(MakeMember(prop.Name, prop.Type, isField: false, member, attrs, isGetterOnly: isGetterOnly));
+                }
+            }
+        }
+
+        // --- [CerasConstructor] parameter injection ---
+        // If the type has a constructor marked [CerasConstructor], its parameters become
+        // serialized members (read in Serialize, passed to ctor in Deserialize rather than
+        // assigned post-construction). Parameters matching existing members just set
+        // IsCtorParam = true; parameters not yet in the list are force-added if accessible.
+        if (attrs.CerasConstructor != null)
+        {
+            IMethodSymbol? cerasCtor = null;
+            foreach (var member in type.GetMembers())
+            {
+                if (member is IMethodSymbol method &&
+                    method.MethodKind == MethodKind.Constructor &&
+                    HasAttribute(method, attrs.CerasConstructor))
+                {
+                    cerasCtor = method;
+                    break;
+                }
+            }
+
+            if (cerasCtor != null)
+            {
+                // Build a lookup of existing members by normalized name (lowercase, strip leading _)
+                var memberByNorm = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < members.Count; i++)
+                {
+                    string norm = members[i].Name.TrimStart('_').ToLowerInvariant();
+                    memberByNorm[norm] = i;
+                }
+
+                foreach (var param in cerasCtor.Parameters)
+                {
+                    string normParam = param.Name.TrimStart('_').ToLowerInvariant();
+
+                    if (memberByNorm.TryGetValue(normParam, out int idx))
+                    {
+                        // Existing member: replace with IsCtorParam = true, preserving StableName
+                        // but storing the exact constructor parameter name for named-arg emission.
+                        var existing = members[idx];
+                        members[idx] = new SerializedMember(
+                            existing.Name, existing.StableName, existing.Type,
+                            existing.IsField, existing.PreviousNames, existing.IsMonomorphic,
+                            existing.IsGetterOnly, isCtorParam: true, ctorParamName: param.Name);
+                    }
+                    else
+                    {
+                        // Not yet in list: search the type (and base types) for a matching member
+                        ISymbol? found = null;
+                        ITypeSymbol? foundType = null;
+                        bool foundIsField = false;
+
+                        foreach (var t2 in typeChain)
+                        {
+                            foreach (var sym in t2.GetMembers())
+                            {
+                                if (sym.IsStatic || sym.IsImplicitlyDeclared) continue;
+                                // Match by normalized name
+                                string normMember = sym.Name.TrimStart('_').ToLowerInvariant();
+                                if (normMember != normParam) continue;
+                                // Must be accessible from generated code
+                                if (sym.DeclaredAccessibility == Accessibility.Private ||
+                                    sym.DeclaredAccessibility == Accessibility.Protected)
+                                    continue;
+
+                                if (sym is IFieldSymbol f2 && !f2.IsConst)
+                                {
+                                    found = sym; foundType = f2.Type; foundIsField = true; break;
+                                }
+                                else if (sym is IPropertySymbol p2 && !p2.IsIndexer && p2.GetMethod != null)
+                                {
+                                    found = sym; foundType = p2.Type; foundIsField = false; break;
+                                }
+                            }
+                            if (found != null) break;
+                        }
+
+                        if (found != null && foundType != null)
+                        {
+                            bool mono = IsMonomorphicByDefault(foundType);
+                            // StableName = param.Name for wire format; CtorParamName = param.Name for named-arg call.
+                            members.Add(new SerializedMember(
+                                found.Name, param.Name, foundType, foundIsField,
+                                Array.Empty<string>(), mono,
+                                isGetterOnly: false, isCtorParam: true, ctorParamName: param.Name));
+                            memberByNorm[normParam] = members.Count - 1;
+                        }
+                    }
                 }
             }
         }
@@ -646,38 +775,116 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         // --- Deserialize -------------------------------------------------------
         sb.AppendLine($"        public void Deserialize(ref global::System.Buffers.SequenceReader<byte> reader, ref {typeFqn} value)");
         sb.AppendLine("        {");
-        foreach (var m in members)
-        {
-            string fieldName = MakeFormatterFieldName(m.Type);
-            string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-            if (IsPrimitive(m.Type))
+        bool hasCtorParams = members.Any(m => m.IsCtorParam);
+
+        if (hasCtorParams)
+        {
+            // [CerasConstructor] path: read ALL members into locals first, then call ctor,
+            // then assign any non-ctor-param members that survived the constructor.
+            // Declare locals for every member.
+            foreach (var m in members)
             {
-                string readMethod = GetPrimitiveReadMethod(m.Type);
-                sb.AppendLine($"            value.{m.Name} = global::Ceras.SerializerBinary.{readMethod};");
+                string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                sb.AppendLine($"            {memberTypeFqn} _ctor_{m.Name} = default;");
             }
-            else
+
+            // Read each member from the stream into its local.
+            foreach (var m in members)
             {
-                if (m.IsField)
+                string fieldName = MakeFormatterFieldName(m.Type);
+                string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+                if (IsPrimitive(m.Type))
                 {
-                    sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref value.{m.Name});");
+                    string readMethod = GetPrimitiveReadMethod(m.Type);
+                    sb.AppendLine($"            _ctor_{m.Name} = global::Ceras.SerializerBinary.{readMethod};");
                 }
                 else if (m.IsGetterOnly)
                 {
-                    // Getter-only collection: populate the existing instance in-place (no assignment needed)
-                    string tmp = "_m_" + m.Name;
-                    sb.AppendLine($"            {memberTypeFqn} {tmp} = value.{m.Name};");
-                    sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
+                    // Getter-only collection ctor param: read into existing collection if value exists
+                    sb.AppendLine($"            if (value != null) _ctor_{m.Name} = value.{m.Name};");
+                    sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref _ctor_{m.Name});");
+                }
+                else if (m.IsField)
+                {
+                    sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref _ctor_{m.Name});");
                 }
                 else
                 {
-                    string tmp = "_m_" + m.Name;
-                    sb.AppendLine($"            {memberTypeFqn} {tmp} = value.{m.Name};");
-                    sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
-                    sb.AppendLine($"            value.{m.Name} = {tmp};");
+                    sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref _ctor_{m.Name});");
+                }
+            }
+
+            // Find the [CerasConstructor]-marked constructor and build its argument list.
+            // Parameters are matched to locals by normalized name (case-insensitive, strip _).
+            // Build a map from normalized param name → local variable name.
+            // Emit a named-argument constructor call using the exact C# parameter names (CtorParamName),
+            // which preserves case correctly regardless of the member's stable wire name.
+            var ctorArgParts = members
+                .Where(m => m.IsCtorParam)
+                .Select(m => $"{m.CtorParamName}: _ctor_{m.Name}");
+            string ctorArgs = string.Join(", ", ctorArgParts);
+            sb.AppendLine($"            value = new {typeFqn}({ctorArgs});");
+
+            // Assign non-ctor-param members that need post-construction assignment.
+            foreach (var m in members.Where(m => !m.IsCtorParam))
+            {
+                if (IsPrimitive(m.Type))
+                {
+                    sb.AppendLine($"            value.{m.Name} = _ctor_{m.Name};");
+                }
+                else if (m.IsGetterOnly)
+                {
+                    // Already populated in-place above; nothing to do
+                }
+                else if (m.IsField)
+                {
+                    sb.AppendLine($"            value.{m.Name} = _ctor_{m.Name};");
+                }
+                else
+                {
+                    sb.AppendLine($"            value.{m.Name} = _ctor_{m.Name};");
                 }
             }
         }
+        else
+        {
+            // Normal path (no [CerasConstructor])
+            foreach (var m in members)
+            {
+                string fieldName = MakeFormatterFieldName(m.Type);
+                string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+                if (IsPrimitive(m.Type))
+                {
+                    string readMethod = GetPrimitiveReadMethod(m.Type);
+                    sb.AppendLine($"            value.{m.Name} = global::Ceras.SerializerBinary.{readMethod};");
+                }
+                else
+                {
+                    if (m.IsField)
+                    {
+                        sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref value.{m.Name});");
+                    }
+                    else if (m.IsGetterOnly)
+                    {
+                        // Getter-only collection: populate the existing instance in-place (no assignment needed)
+                        string tmp = "_m_" + m.Name;
+                        sb.AppendLine($"            {memberTypeFqn} {tmp} = value.{m.Name};");
+                        sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
+                    }
+                    else
+                    {
+                        string tmp = "_m_" + m.Name;
+                        sb.AppendLine($"            {memberTypeFqn} {tmp} = value.{m.Name};");
+                        sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
+                        sb.AppendLine($"            value.{m.Name} = {tmp};");
+                    }
+                }
+            }
+        }
+
         sb.AppendLine("        }");
 
         sb.AppendLine("    }");
@@ -998,6 +1205,168 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         return false;
     }
 
+    /// <summary>
+    /// Returns true if Ceras can construct the type at runtime.
+    /// Ceras can construct a class when it has:
+    ///   - a public or internal parameterless constructor, OR
+    ///   - any constructor marked with [CerasConstructor] (public or internal).
+    /// </summary>
+    static bool CanCerasConstruct(INamedTypeSymbol type, INamedTypeSymbol? cerasConstructorAttr)
+    {
+        foreach (var member in type.GetMembers())
+        {
+            if (member is not IMethodSymbol method) continue;
+            if (method.MethodKind != MethodKind.Constructor) continue;
+            if (method.IsStatic) continue;
+
+            // Accessibility: public or internal is reachable from generated code
+            bool accessible = method.DeclaredAccessibility == Accessibility.Public
+                           || method.DeclaredAccessibility == Accessibility.Internal;
+            if (!accessible) continue;
+
+            // Parameterless constructor
+            if (method.Parameters.Length == 0) return true;
+
+            // [CerasConstructor]-marked constructor (parameters satisfied via serialized members)
+            if (cerasConstructorAttr != null && HasAttribute(method, cerasConstructorAttr))
+                return true;
+        }
+        return false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Per-type validation helpers (emit diagnostics, no code gen)
+    // -------------------------------------------------------------------------
+
+    /// <summary>CERAS008: member with both [Include] and [Exclude].</summary>
+    static void ValidateIncludeExcludeConflicts(
+        SourceProductionContext context,
+        INamedTypeSymbol type,
+        AttributeBag attrs)
+    {
+        if (attrs.Include == null || attrs.Exclude == null) return;
+
+        foreach (var member in type.GetMembers())
+        {
+            if (member.IsStatic || member.IsImplicitlyDeclared) continue;
+            if (member is not IFieldSymbol && member is not IPropertySymbol) continue;
+
+            if (HasAttribute(member, attrs.Include) && HasAttribute(member, attrs.Exclude))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    Diag.IncludeAndExcludeOnSameMember,
+                    member.Locations.FirstOrDefault(),
+                    member.Name, type.Name));
+            }
+        }
+    }
+
+    /// <summary>CERAS004/005/006/007: validate [CerasConstructor] usage.</summary>
+    static void ValidateCerasConstructor(
+        SourceProductionContext context,
+        Compilation compilation,
+        INamedTypeSymbol type,
+        List<SerializedMember> members,
+        AttributeBag attrs)
+    {
+        if (attrs.CerasConstructor == null) return;
+
+        // Collect all annotated constructors (static factory methods also allowed, but
+        // for diagnostics we only check instance constructors here).
+        var cerasCtors = type.GetMembers()
+            .OfType<IMethodSymbol>()
+            .Where(m => m.MethodKind == MethodKind.Constructor && HasAttribute(m, attrs.CerasConstructor))
+            .ToList();
+
+        // CERAS004: Multiple [CerasConstructor]
+        if (cerasCtors.Count > 1)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                Diag.MultipleCerasConstructors,
+                type.Locations.FirstOrDefault(),
+                type.Name));
+            return; // Can't continue — ambiguous which ctor to analyse
+        }
+
+        if (cerasCtors.Count == 0) return;
+
+        var ctor = cerasCtors[0];
+
+        // CERAS007: [CerasConstructor] on parameterless ctor — no-op
+        if (ctor.Parameters.Length == 0)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                Diag.CerasConstructorOnParameterlessCtor,
+                ctor.Locations.FirstOrDefault(),
+                type.Name));
+            return;
+        }
+
+        // Build normalized-name lookup of serialized members (same logic as DiscoverMembers)
+        var memberByNorm = new Dictionary<string, SerializedMember>(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in members)
+        {
+            string norm = m.Name.TrimStart('_').ToLowerInvariant();
+            if (!memberByNorm.ContainsKey(norm))
+                memberByNorm[norm] = m;
+        }
+
+        foreach (var param in ctor.Parameters)
+        {
+            string normParam = param.Name.TrimStart('_').ToLowerInvariant();
+
+            if (!memberByNorm.TryGetValue(normParam, out var matched))
+            {
+                // CERAS005: No matching serialized member
+                context.ReportDiagnostic(Diagnostic.Create(
+                    Diag.CerasConstructorParameterNotMatched,
+                    ctor.Locations.FirstOrDefault(),
+                    param.Name, type.Name));
+            }
+            else
+            {
+                // CERAS006: Type incompatibility between matched member and parameter
+                // Use Compilation.ClassifyConversion to check if an implicit conversion exists.
+                var conv = compilation.ClassifyConversion(matched.Type, param.Type);
+                if (!conv.IsIdentity && !conv.IsImplicit)
+                {
+                    string paramTypeName = param.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                    string memberTypeName = matched.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        Diag.CerasConstructorParameterTypeMismatch,
+                        ctor.Locations.FirstOrDefault(),
+                        param.Name, paramTypeName, matched.Name, memberTypeName, type.Name));
+                }
+            }
+        }
+    }
+
+    /// <summary>CERAS009: two serialized members share the same stable wire name.</summary>
+    static void ValidateDuplicateWireNames(
+        SourceProductionContext context,
+        INamedTypeSymbol type,
+        List<SerializedMember> members)
+    {
+        var seen = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var m in members)
+        {
+            if (!seen.TryGetValue(m.StableName, out var list))
+                seen[m.StableName] = list = new List<string>();
+            list.Add(m.Name);
+        }
+
+        foreach (var kvp in seen)
+        {
+            if (kvp.Value.Count > 1)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    Diag.DuplicateStableWireName,
+                    type.Locations.FirstOrDefault(),
+                    type.Name, kvp.Key, string.Join(", ", kvp.Value)));
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Fixed-byte-size computation (used for SchemaTypeInfo.FixedByteSize)
     // -------------------------------------------------------------------------
@@ -1161,12 +1530,14 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         public readonly INamedTypeSymbol? Monomorphic;
         public readonly INamedTypeSymbol? Polymorphic;
         public readonly INamedTypeSymbol? GenerateFormatter;
+        public readonly INamedTypeSymbol? CerasConstructor;
 
         public AttributeBag(
             INamedTypeSymbol? include, INamedTypeSymbol? exclude, INamedTypeSymbol? memberConfig,
             INamedTypeSymbol? previousName, INamedTypeSymbol? previousTypeName,
             INamedTypeSymbol? serializedAs, INamedTypeSymbol? monomorphic,
-            INamedTypeSymbol? polymorphic, INamedTypeSymbol? generateFormatter)
+            INamedTypeSymbol? polymorphic, INamedTypeSymbol? generateFormatter,
+            INamedTypeSymbol? cerasConstructor = null)
         {
             Include = include;
             Exclude = exclude;
@@ -1177,6 +1548,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             Monomorphic = monomorphic;
             Polymorphic = polymorphic;
             GenerateFormatter = generateFormatter;
+            CerasConstructor = cerasConstructor;
         }
     }
 
@@ -1190,10 +1562,15 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         public bool IsMonomorphic { get; }
         /// <summary>True for getter-only collection properties; populated in-place without assignment.</summary>
         public bool IsGetterOnly { get; }
+        /// <summary>True when this member maps to a [CerasConstructor] parameter; value is passed to ctor on deserialize, never assigned post-construction.</summary>
+        public bool IsCtorParam { get; }
+        /// <summary>The exact constructor parameter name (case-sensitive) used when emitting named-argument ctor calls. Only meaningful when IsCtorParam = true.</summary>
+        public string CtorParamName { get; }
 
         public SerializedMember(
             string name, string stableName, ITypeSymbol type, bool isField,
-            string[] previousNames, bool isMonomorphic, bool isGetterOnly = false)
+            string[] previousNames, bool isMonomorphic, bool isGetterOnly = false,
+            bool isCtorParam = false, string ctorParamName = null)
         {
             Name = name;
             StableName = stableName;
@@ -1202,6 +1579,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             PreviousNames = previousNames;
             IsMonomorphic = isMonomorphic;
             IsGetterOnly = isGetterOnly;
+            IsCtorParam = isCtorParam;
+            CtorParamName = ctorParamName ?? stableName;
         }
     }
 
@@ -1226,6 +1605,86 @@ static class Diag
         id: "CERAS001",
         title: "No serializable members found",
         messageFormat: "Type '{0}' has [GenerateFormatter] but no serializable members were found. Check [Include]/[Exclude] attributes and TargetMembers config.",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor InterfaceOrAbstractWithoutDiscoverSubtypes = new(
+        id: "CERAS002",
+        title: "[GenerateFormatter] on interface/abstract type without DiscoverSubtypes",
+        messageFormat: "'{0}' is an {1} with [GenerateFormatter] but DiscoverSubtypes is not set to true. " +
+                       "No concrete subtypes will be automatically registered for serialization through this type. " +
+                       "Add DiscoverSubtypes = true to have the generator find all implementations automatically.",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor NotConstructable = new(
+        id: "CERAS003",
+        title: "Serializable type has no accessible constructor",
+        messageFormat: "Type '{0}' is included in serialization but Ceras cannot construct it: " +
+                       "there is no accessible (public or internal) parameterless constructor and no constructor marked [CerasConstructor]. " +
+                       "Add a parameterless constructor or mark one constructor with [CerasConstructor].",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor MultipleCerasConstructors = new(
+        id: "CERAS004",
+        title: "Multiple [CerasConstructor] attributes on the same type",
+        messageFormat: "Type '{0}' has more than one constructor or factory method marked with [CerasConstructor]. " +
+                       "Only one is allowed — Ceras will throw at runtime if multiple are found. " +
+                       "Remove [CerasConstructor] from all but one.",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor CerasConstructorParameterNotMatched = new(
+        id: "CERAS005",
+        title: "[CerasConstructor] parameter has no matching serialized member",
+        messageFormat: "Constructor parameter '{0}' on type '{1}' cannot be matched to any serialized member. " +
+                       "Ceras matches parameters to members by name (case-insensitive, ignoring leading underscores). " +
+                       "Either the member is not serialized, does not exist, or has a different name. " +
+                       "Add a serialized member whose name matches '{0}', or rename the parameter.",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor CerasConstructorParameterTypeMismatch = new(
+        id: "CERAS006",
+        title: "[CerasConstructor] parameter type is incompatible with its matched member",
+        messageFormat: "Constructor parameter '{0}' (type '{1}') on type '{3}' was matched to member '{2}' (type '{4}') by name, " +
+                       "but the types are not compatible — this will cause a compile error in the generated formatter. " +
+                       "Make the parameter and member types match, or rename one to break the unintended name match.",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor CerasConstructorOnParameterlessCtor = new(
+        id: "CERAS007",
+        title: "[CerasConstructor] on parameterless constructor has no effect",
+        messageFormat: "Type '{0}' has [CerasConstructor] on a parameterless constructor. " +
+                       "Ceras already prefers a parameterless constructor by default — the attribute has no effect here. " +
+                       "Remove [CerasConstructor] or mark a constructor that takes parameters if you need injection.",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor IncludeAndExcludeOnSameMember = new(
+        id: "CERAS008",
+        title: "Member has both [Include] and [Exclude]",
+        messageFormat: "Member '{0}' on type '{1}' has both [Include] and [Exclude] applied. " +
+                       "Ceras will throw at runtime when it encounters this. Remove one of the two attributes.",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor DuplicateStableWireName = new(
+        id: "CERAS009",
+        title: "Duplicate stable wire name on serialized members",
+        messageFormat: "Type '{0}' has multiple serialized members that share the stable wire name '{1}' " +
+                       "(members: {2}). This will cause corrupt data or a runtime exception. " +
+                       "Use [SerializedAs(\"uniqueName\")] on one of them to give it a distinct name.",
         category: "Ceras.SourceGenerator",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
