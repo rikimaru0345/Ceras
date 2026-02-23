@@ -1,6 +1,8 @@
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Collections.Generic;
+using System.Text;
 
 namespace Ceras.Savegame
 {
@@ -19,9 +21,15 @@ namespace Ceras.Savegame
 
         public static void ConfigureSavegame(SerializerConfig config)
         {
+            if (config == null) throw new ArgumentNullException(nameof(config));
             config.Advanced.EmbedChecksum = false;
+            
+            // Core savegame formatters
             config.ConfigType<string>().CustomFormatter = new SavegameStringFormatter();
             config.ConfigType<Type>().CustomFormatter = new SavegameTypeFormatter();
+            
+            // In the new architecture, we want the SchemaRegistry to be populated
+            // by the source generator or manual registration.
         }
 
         public static byte[] Save<T>(T rootObject, uint gameVersion, CerasSerializer ceras)
@@ -35,11 +43,12 @@ namespace Ceras.Savegame
             var typeToId = SchemaSection.Write(ref buffer, ref offset, registry);
 
             int dataStart = offset;
-            var writer = new ArrayBufferWriter<byte>();
-            SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
-
+            
             var internTable = new StringInternTable();
             SavegameContext.BeginWrite(internTable, typeToId);
+            
+            var writer = new ArrayBufferWriter<byte>();
+            SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
             try { ceras.Serialize(writer, rootObject); }
             finally { SavegameContext.End(); }
 
@@ -55,7 +64,13 @@ namespace Ceras.Savegame
 
         public static T Load<T>(byte[] data, uint currentGameVersion, CerasSerializer ceras)
         {
+            if (data == null) throw new ArgumentNullException(nameof(data));
             if (data.Length < HeaderSize) throw new InvalidOperationException("Header too short");
+            
+            // Check magic "CERA"
+            if (data[0] != (byte)'C' || data[1] != (byte)'E' || data[2] != (byte)'R' || data[3] != (byte)'A')
+                throw new InvalidOperationException("Invalid magic");
+
             var registry = ceras.Config.Savegame.SchemaRegistry;
             uint saveGameVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetGameVersion));
             if (saveGameVersion > currentGameVersion) throw new InvalidOperationException("Save from newer version");
@@ -72,14 +87,14 @@ namespace Ceras.Savegame
             var schemaReader = new SequenceReader<byte>(sequence);
             var fileSchemas = SchemaSection.Read(ref schemaReader);
 
-            var idToType = new System.Collections.Generic.Dictionary<int, Type>();
+            var idToType = new Dictionary<int, Type>();
             for (int i = 0; i < 128; i++) if (WellKnownTypes.TryGetType(i, out var wkType)) idToType[i] = wkType;
             foreach (var s in fileSchemas.Values) if (registry.TryResolveType(s.StableName, out var type)) idToType[s.TypeId] = type;
 
             SavegameContext.BeginRead(table, idToType);
             try
             {
-                var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, data.Length - (int)dataSectionOffset);
+                var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, (int)stringTableOffset - (int)dataSectionOffset);
                 var reader = new SequenceReader<byte>(dataSeq);
                 uint rootTypeId = SchemaSection.ReadLeb128(ref reader);
 
@@ -99,7 +114,10 @@ namespace Ceras.Savegame
         static void WriteHeaderPlaceholder(ref byte[] buffer, ref int offset, uint gameVersion)
         {
             SerializerBinary.EnsureCapacity(ref buffer, offset, HeaderSize);
-            "CERA"u8.CopyTo(buffer.AsSpan(offset));
+            buffer[offset + 0] = (byte)'C';
+            buffer[offset + 1] = (byte)'E';
+            buffer[offset + 2] = (byte)'R';
+            buffer[offset + 3] = (byte)'A';
             buffer[offset + 4] = FormatVersion;
             BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(offset + 5), gameVersion);
             offset += HeaderSize;

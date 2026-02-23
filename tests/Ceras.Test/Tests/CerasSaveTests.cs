@@ -173,23 +173,26 @@ namespace Ceras.Test
 
         // ── String table deduplication ────────────────────────────────────────
 
-             [Fact]
+        [Fact]
         public void DuplicateStrings_WriteOnlyOnce_InStringTable()
         {
-            var ceras = CreateSerializer();
+            var config = new SerializerConfig();
+            CerasSave.ConfigureSavegame(config);
+            var ceras = new CerasSerializer(config);
+
             // Tag == Note == "duplicate" → should be interned once
             var inv = new SavegameInventory { Gold = 0, Tag = "duplicate", Note = "duplicate" };
             byte[] data = CerasSave.Save(inv, gameVersion: 1, ceras);
             long tableOff = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(CerasSave.OffsetStringTable));
 
-            // Read string table count
-            int tOff  = (int)tableOff;
-            uint cnt  = SchemaSection.ReadLeb128(data, ref tOff);
-
-            // "duplicate" interned once; null is index 0 (not stored).
-            // The count should include exactly one entry for "duplicate".
-            // (There may be others from the schema, but let's check the table loaded correctly.)
+            // Read string table
             var table = StringTable.Load(data, (int)tableOff);
+            
+            // "duplicate" interned once; null is index 0 (not stored).
+            // Check if any entry in the table matches "duplicate"
+            bool found = Array.Exists(table, s => s == "duplicate");
+            Assert.True(found, "String 'duplicate' not found in table");
+            
             int occurrences = table.Count(s => s == "duplicate");
             Assert.Equal(1, occurrences);
         }

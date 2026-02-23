@@ -911,7 +911,6 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             case SpecialType.System_Int64:
             case SpecialType.System_UInt64:
             case SpecialType.System_Double:
-            case SpecialType.System_String:
                 return true;
         }
         return false;
@@ -933,7 +932,6 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             case SpecialType.System_Int64: return "WriteInt64Fixed";
             case SpecialType.System_UInt64: return "WriteInt64Fixed";
             case SpecialType.System_Double: return "WriteDouble64Fixed";
-            case SpecialType.System_String: return "WriteString";
         }
         throw new NotSupportedException();
     }
@@ -954,7 +952,6 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             case SpecialType.System_Int64: return "ReadInt64Fixed(ref reader)";
             case SpecialType.System_UInt64: return "(ulong)ReadInt64Fixed(ref reader)";
             case SpecialType.System_Double: return "ReadDouble64Fixed(ref reader)";
-            case SpecialType.System_String: return "ReadString(ref reader)";
         }
         throw new NotSupportedException();
     }
@@ -978,7 +975,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             case SpecialType.System_Int64: return "global::Ceras.Formatters.Int64Formatter";
             case SpecialType.System_UInt64: return "global::Ceras.Formatters.UInt64Formatter";
             case SpecialType.System_Double: return "global::Ceras.Formatters.DoubleFormatter";
-            case SpecialType.System_String: return "global::Ceras.Formatters.StringFormatter";
+            case SpecialType.System_String: return "global::Ceras.Formatters.IFormatter<string>";
         }
 
         if (typeFqn == "global::System.DateTime") return "global::Ceras.Resolvers.StandardFormatterResolver.DateTimeFormatter";

@@ -81,9 +81,13 @@ namespace Ceras.Formatters
             Type specificType = (objId == NewValue) ? null : typeof(T);
             if (objId == NewValue) _typeFormatter.Deserialize(ref reader, ref specificType);
             var entry = GetOrCreateEntry(specificType);
+            
             if (!entry.IsValueType) { if (value != null) { if (value.GetType() != specificType) { _ceras.DiscardObjectMethod?.Invoke(value); value = (T)entry.Constructor(); } } else value = (T)entry.Constructor(); }
+            
             if (!_allowReferences) { try { entry.DeserializeDispatcher(ref reader, ref value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType.FullName}'", e); } return; }
+            
             var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
+            if (value == null && !entry.IsValueType) value = (T)entry.Constructor();
             objectProxy.Value = value;
             try { entry.DeserializeDispatcher(ref reader, ref objectProxy.Value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType.FullName}'", e); }
             value = objectProxy.Value;
@@ -145,7 +149,7 @@ namespace Ceras.Formatters
 
         public void Deserialize(ref SequenceReader<byte> reader, ref TBase value)
         {
-            TSpecific specific = (TSpecific)value;
+            TSpecific specific = value != null ? (TSpecific)value : default;
             _formatter.Deserialize(ref reader, ref specific);
             value = specific;
         }

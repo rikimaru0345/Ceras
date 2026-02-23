@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -43,12 +43,23 @@ namespace Ceras.Test
             x.Advanced.UseReinterpretFormatter = false;
             x.UseImmutableFormatters();
         });
-
-        Func<SerializerConfig>[] _currentTestConfigurations = new Func<SerializerConfig>[]
+        protected Func<SerializerConfig> Config_WithVersioning => () => CreateConfig(x =>
         {
-            () => new SerializerConfig(),
-        };
-        int _callsToClone = 0;
+            Ceras.Savegame.CerasSave.ConfigureSavegame(x);
+            x.UseImmutableFormatters();
+        });
+
+        Func<SerializerConfig>[] _currentTestConfigurations;
+
+        public TestBase()
+        {
+            _currentTestConfigurations = new Func<SerializerConfig>[]
+            {
+                () => new SerializerConfig(),
+                () => CreateConfig(x => { x.Advanced.UseReinterpretFormatter = false; x.UseImmutableFormatters(); }),
+                () => CreateConfig(x => { Ceras.Savegame.CerasSave.ConfigureSavegame(x); x.UseImmutableFormatters(); }),
+            };
+        }
 
         protected void SetSerializerConfigurations(params Func<SerializerConfig>[] configs) => _currentTestConfigurations = configs;
 
@@ -97,9 +108,11 @@ namespace Ceras.Test
             return clone;
         }
 
+        int _callsToClone = 0;
         protected void CheckAndResetTotalRunCount(int i)
         {
-            Assert.True(_callsToClone == i);
+            int expected = (i / 3) * _currentTestConfigurations.Length;
+            Assert.True(_callsToClone == expected, $"Expected {expected} clones, but got {_callsToClone}");
             _callsToClone = 0;
         }
 
@@ -188,7 +201,11 @@ namespace Ceras.Test
             else if (x is IEnumerable xEnum)
             {
                 var ar1 = xEnum.Cast<object>().ToArray();
-                var ar2 = ((IEnumerable)y).Cast<object>().ToArray();
+                var yEnum = (IEnumerable)y;
+                if (yEnum == null) return false;
+                var ar2 = yEnum.Cast<object>().ToArray();
+
+                if (ar1.Length != ar2.Length) return false;
 
                 foreach (var (a, b) in Zip(ar1, ar2))
                     if (!AreEqual(a, b))
