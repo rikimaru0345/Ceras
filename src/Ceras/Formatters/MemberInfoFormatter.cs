@@ -73,13 +73,45 @@ namespace Ceras.Formatters
 
                 if (memberType == MemberTypes.Method)
                 {
-                    var method = declaringType.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static, null, paramTypes, null);
-                    
-                    if (method == null && isGeneric)
+                    MethodInfo method = null;
+
+                    if (isGeneric)
                     {
-                        // Try to find the generic method definition
-                        method = declaringType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
-                            .FirstOrDefault(m => m.Name == name && m.IsGenericMethodDefinition && m.GetParameters().Length == paramCount);
+                        // For generic methods, we must find the definition first.
+                        // We can't easily use GetMethod with paramTypes because those types are already closed.
+                        var candidates = declaringType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
+                            .Where(m => m.Name == name && m.IsGenericMethodDefinition && m.GetParameters().Length == paramCount)
+                            .ToArray();
+
+                        if (candidates.Length == 1)
+                        {
+                            method = candidates[0];
+                        }
+                        else if (candidates.Length > 1)
+                        {
+                            // Ambiguous generic overloads. 
+                            // Try to match by checking if the closed paramTypes are assignable to the open paramTypes.
+                            method = candidates.FirstOrDefault(c => 
+                            {
+                                var cParams = c.GetParameters();
+                                for (int i = 0; i < paramCount; i++)
+                                {
+                                    var openT = cParams[i].ParameterType;
+                                    var closedT = paramTypes[i];
+
+                                    if (!openT.IsGenericParameter)
+                                    {
+                                        if (openT != closedT)
+                                            return false;
+                                    }
+                                }
+                                return true;
+                            });
+                        }
+                    }
+                    else
+                    {
+                        method = declaringType.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static, null, paramTypes, null);
                     }
 
                     if (method != null && isGeneric && method.IsGenericMethodDefinition)

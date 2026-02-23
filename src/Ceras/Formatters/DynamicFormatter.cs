@@ -215,8 +215,9 @@ namespace Ceras.Formatters
             }
             else if (_factory != null)
             {
-                // Re-run factory for pooling/recycling to match legacy behavior
-                _factory();
+                // We already have an instance, so we don't need to call the factory again.
+                // Re-running the factory here was intended to match some legacy behavior, but it causes
+                // side-effects (like double-allocations or incrementing counters) that are undesirable.
             }
 
             InvokeCallback(_onBeforeDeserialize, value);
