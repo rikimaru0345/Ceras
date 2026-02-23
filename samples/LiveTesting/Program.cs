@@ -400,7 +400,7 @@ namespace LiveTesting
 
             MergeBlittingTest.Test();
 
-            ConvertDynamicFormatterToString();
+            // ConvertDynamicFormatterToString();
 
             NewRefProxyTest.CompareCalls();
             NewRefProxyTest.ReinterpretRefProxyTest();
@@ -553,6 +553,7 @@ namespace LiveTesting
 
         }
 
+        /*
         static void ConvertDynamicFormatterToString()
         {
             var ceras = new CerasSerializer();
@@ -567,7 +568,6 @@ namespace LiveTesting
             // ReferenceFormatter<Person>.Deserialize 
             // value.set_Health(...);
 
-            /*
             Func<TranslationSettings, TranslationSettings> configuration = s
                 => s.ConvertPropertyMethods
                 .NameConstantsUsing(constant =>
@@ -581,8 +581,8 @@ namespace LiveTesting
 
             var normalCode = normalDeserializer.ToReadableString(configuration);
             var schemaCode = schemaDeserializer.ToReadableString(configuration);
-            */
         }
+        */
 
         static void Benchmarks()
         {
@@ -752,13 +752,13 @@ namespace LiveTesting
         }
 
 
-        class HashSetFormatterThatKeepsItsComparer : IFormatter<HashSet<byte[]>>
+        class HashSetFormatterThatKeepsItsComparer : FormatterBase<HashSet<byte[]>>
         {
             // Sub-formatters are automatically set by Ceras' dependency injection
             IFormatter<byte[]> _byteArrayFormatter;
             IFormatter<IEqualityComparer<byte[]>> _comparerFormatter; // auto-implemented by Ceras using DynamicFormatter
 
-            public void Serialize(ref byte[] buffer, ref int offset, HashSet<byte[]> set)
+            public override void Serialize(IBufferWriter<byte> writer, HashSet<byte[]> set)
             {
                 // What do we need?
                 // - The comparer
@@ -766,31 +766,31 @@ namespace LiveTesting
                 // - Actual content
 
                 // Comparer
-                _comparerFormatter.Serialize(ref buffer, ref offset, set.Comparer);
+                _comparerFormatter.Serialize(writer, set.Comparer);
 
                 // Count
                 // We could use a 'IFormatter<int>' field, but Ceras will resolve it to this method anyway...
-                SerializerBinary.WriteInt32(ref buffer, ref offset, set.Count);
+                SerializerBinary.WriteInt32(writer, set.Count);
 
                 // Actual content
                 foreach (var array in set)
-                    _byteArrayFormatter.Serialize(ref buffer, ref offset, array);
+                    _byteArrayFormatter.Serialize(writer, array);
             }
 
-            public void Deserialize(byte[] buffer, ref int offset, ref HashSet<byte[]> set)
+            public override void Deserialize(ref SequenceReader<byte> reader, ref HashSet<byte[]> set)
             {
                 IEqualityComparer<byte[]> equalityComparer = null;
-                _comparerFormatter.Deserialize(buffer, ref offset, ref equalityComparer);
+                _comparerFormatter.Deserialize(ref reader, ref equalityComparer);
 
                 // We can already create the hashset
                 set = new HashSet<byte[]>(equalityComparer);
 
                 // Read content...
-                int count = SerializerBinary.ReadInt32(buffer, ref offset);
+                int count = SerializerBinary.ReadInt32(ref reader);
                 for (int i = 0; i < count; i++)
                 {
                     byte[] ar = null;
-                    _byteArrayFormatter.Deserialize(buffer, ref offset, ref ar);
+                    _byteArrayFormatter.Deserialize(ref reader, ref ar);
 
                     set.Add(ar);
                 }
@@ -1050,14 +1050,14 @@ namespace LiveTesting
 
         }
 
-        class DependencyInjectionTestFormatter : IFormatter<Person>
+        class DependencyInjectionTestFormatter : FormatterBase<Person>
         {
             public CerasSerializer Ceras;
             public ReinterpretFormatter<ByteEnum> EnumFormatter;
             public DependencyInjectionTestFormatter Self;
 
-            public void Serialize(ref byte[] buffer, ref int offset, Person value) => throw new NotImplementedException();
-            public void Deserialize(byte[] buffer, ref int offset, ref Person value) => throw new NotImplementedException();
+            public override void Serialize(IBufferWriter<byte> writer, Person value) => throw new NotImplementedException();
+            public override void Deserialize(ref SequenceReader<byte> reader, ref Person value) => throw new NotImplementedException();
         }
 
         static void ReadonlyTest()
@@ -1379,15 +1379,16 @@ namespace LiveTesting
 
 
             byte[] buffer = new byte[200];
-            int offset = 0;
-            intListFormatter.Serialize(ref buffer, ref offset, list);
+            var writer = new CerasSerializer.FixedArrayBufferWriter(buffer, 0);
+            intListFormatter.Serialize(writer, list);
 
 
             // Deserializing into a IList variable should be no problem!
 
-            offset = 0;
+            var seq = new ReadOnlySequence<byte>(buffer, 0, writer.Offset);
+            var reader = new SequenceReader<byte>(seq);
             IList<int> clonedList = null;
-            intListFormatter.Deserialize(buffer, ref offset, ref clonedList);
+            intListFormatter.Deserialize(ref reader, ref clonedList);
 
             Debug.Assert(clonedList != null);
             Debug.Assert(clonedList.SequenceEqual(list));

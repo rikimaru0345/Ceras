@@ -13,6 +13,8 @@ namespace LiveTesting
     using BenchmarkDotNet.Order;
     using Ceras;
     using Ceras.Formatters;
+    using System.Buffers;
+    using System.Linq;
     using MessagePack;
     using Newtonsoft.Json;
     using ProtoBuf;
@@ -251,29 +253,25 @@ namespace LiveTesting
         [Benchmark(Baseline = true)]
         public void Method1()
         {
-            int offset = 0;
-
-            var b = _buffer;
             var p = _person;
+            var writer = new CerasSerializer.FixedArrayBufferWriter(_buffer, 0);
 
-            _serializer1(ref b, ref offset, p);
-            _serializer1(ref b, ref offset, p);
-            _serializer1(ref b, ref offset, p);
-            _serializer1(ref b, ref offset, p);
+            _serializer1(writer, p);
+            _serializer1(writer, p);
+            _serializer1(writer, p);
+            _serializer1(writer, p);
         }
 
         [Benchmark]
         public void Method2()
         {
-            int offset = 0;
-
-            var b = _buffer;
             var p = _person;
+            var writer = new CerasSerializer.FixedArrayBufferWriter(_buffer, 0);
 
-            _serializer2(ref b, ref offset, p);
-            _serializer2(ref b, ref offset, p);
-            _serializer2(ref b, ref offset, p);
-            _serializer2(ref b, ref offset, p);
+            _serializer2(writer, p);
+            _serializer2(writer, p);
+            _serializer2(writer, p);
+            _serializer2(writer, p);
         }
 
 
@@ -308,38 +306,29 @@ namespace LiveTesting
         //            .. check with bool, int, float, Vector3! But also with strings and larger real-world objects
         // todo: some formatter instances may be able to write inline-code, making them much faster!
 
-        class Vector3Formatter_MergeBlit_WriteFloat32FixedNoCheck : IFormatter<Vector3>
+        class Vector3Formatter_MergeBlit_WriteFloat32FixedNoCheck : FormatterBase<Vector3>
         {
-            public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+            public override void Serialize(IBufferWriter<byte> writer, Vector3 value)
             {
-                const int v3Size = 3 * 4;
-
-                SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
-
-                var bufferLocal = buffer;
-
-                SerializerBinary.WriteFloat32FixedNoCheck(bufferLocal, ref offset, value.X);
-                SerializerBinary.WriteFloat32FixedNoCheck(bufferLocal, ref offset, value.Y);
-                SerializerBinary.WriteFloat32FixedNoCheck(bufferLocal, ref offset, value.Z);
+                SerializerBinary.WriteFloat32Fixed(writer, value.X);
+                SerializerBinary.WriteFloat32Fixed(writer, value.Y);
+                SerializerBinary.WriteFloat32Fixed(writer, value.Z);
             }
 
-            public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
+            public override void Deserialize(ref SequenceReader<byte> reader, ref Vector3 value) => throw new NotImplementedException();
         }
 
 
-        class Vector3Formatter_MergeBlit_Fixed : IFormatter<Vector3>
+        class Vector3Formatter_MergeBlit_Fixed : FormatterBase<Vector3>
         {
-            public unsafe void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+            public unsafe override void Serialize(IBufferWriter<byte> writer, Vector3 value)
             {
                 const int v3Size = 3 * 4;
+                var span = writer.GetSpan(v3Size);
 
-                SerializerBinary.EnsureCapacity(ref buffer, offset, v3Size);
-
-                var bufferLocal = buffer;
-
-                fixed (byte* pBuffer = buffer)
+                fixed (byte* pBuffer = span)
                 {
-                    var ptr = (float*)(pBuffer + offset);
+                    var ptr = (float*)pBuffer;
 
                     *ptr = value.X;
                     ptr++;
@@ -350,15 +339,14 @@ namespace LiveTesting
                     *ptr = value.Z;
                 }
 
-
-                offset += v3Size;
+                writer.Advance(v3Size);
             }
 
-            public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
+            public override void Deserialize(ref SequenceReader<byte> reader, ref Vector3 value) => throw new NotImplementedException();
         }
 
 
-        class Vector3Formatter_Interface : IFormatter<Vector3>
+        class Vector3Formatter_Interface : FormatterBase<Vector3>
         {
             IFormatter<float> _f;
 
@@ -367,14 +355,14 @@ namespace LiveTesting
                 _f = new FloatFormatter();
             }
 
-            public void Serialize(ref byte[] buffer, ref int offset, Vector3 value)
+            public override void Serialize(IBufferWriter<byte> writer, Vector3 value)
             {
-                _f.Serialize(ref buffer, ref offset, value.X);
-                _f.Serialize(ref buffer, ref offset, value.Y);
-                _f.Serialize(ref buffer, ref offset, value.Z);
+                _f.Serialize(writer, value.X);
+                _f.Serialize(writer, value.Y);
+                _f.Serialize(writer, value.Z);
             }
 
-            public void Deserialize(byte[] buffer, ref int offset, ref Vector3 value) => throw new NotImplementedException();
+            public override void Deserialize(ref SequenceReader<byte> reader, ref Vector3 value) => throw new NotImplementedException();
         }
 
 
@@ -408,8 +396,8 @@ namespace LiveTesting
         [Benchmark]
         public void Test()
         {
-            int offset = 0;
-            _formatter.Serialize(ref _buffer, ref offset, _vector3);
+            var writer = new CerasSerializer.FixedArrayBufferWriter(_buffer, 0);
+            _formatter.Serialize(writer, _vector3);
         }
     }
 
@@ -1195,22 +1183,22 @@ namespace LiveTesting
         [Benchmark(Baseline = true)]
         public void Fixed32()
         {
-            int offset = 0;
+            var writer = new CerasSerializer.FixedArrayBufferWriter(_buffer, 0);
             for (int i = 0; i < _numbers.Length; i++)
             {
                 var n = _numbers[i];
-                SerializerBinary.WriteInt32Fixed(ref _buffer, ref offset, n);
+                SerializerBinary.WriteInt32Fixed(writer, n);
             }
         }
 
         [Benchmark]
         public void NormalVarInt32()
         {
-            int offset = 0;
+            var writer = new CerasSerializer.FixedArrayBufferWriter(_buffer, 0);
             for (int i = 0; i < _numbers.Length; i++)
             {
                 var n = _numbers[i];
-                SerializerBinary.WriteInt32(ref _buffer, ref offset, n);
+                SerializerBinary.WriteInt32(writer, n);
             }
         }
 

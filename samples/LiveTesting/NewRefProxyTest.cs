@@ -8,6 +8,7 @@ namespace LiveTesting
 {
     using Ceras;
     using Ceras.Helpers;
+    using System.Buffers;
     using System.Runtime.CompilerServices;
     using Ceras.Formatters;
     using System.Linq.Expressions;
@@ -156,7 +157,7 @@ namespace LiveTesting
         }
 
 
-        class RefFormatter_OldObjectCache<T> : IFormatter<T> where T : class
+        class RefFormatter_OldObjectCache<T> : FormatterBase<T> where T : class
         {
             const int Null = -1;
             const int New = -2;
@@ -164,30 +165,30 @@ namespace LiveTesting
             public ObjectCache _objectCache = new ObjectCache();
             public IFormatter<T> InnerFormatter;
 
-            public void Serialize(ref byte[] buffer, ref int offset, T p)
+            public override void Serialize(IBufferWriter<byte> writer, T p)
             {
                 if (ReferenceEquals(p, null))
                 {
                     // Null
-                    SerializerBinary.WriteInt32(ref buffer, ref offset, Null);
+                    SerializerBinary.WriteInt32(writer, Null);
                 }
                 else if (_objectCache.TryGetExistingObjectId(p, out int existingId))
                 {
                     // Existing
-                    SerializerBinary.WriteInt32(ref buffer, ref offset, existingId);
+                    SerializerBinary.WriteInt32(writer, existingId);
                 }
                 else
                 {
                     // New
-                    SerializerBinary.WriteInt32(ref buffer, ref offset, New);
+                    SerializerBinary.WriteInt32(writer, New);
                     _objectCache.RegisterObject(p);
-                    InnerFormatter.Serialize(ref buffer, ref offset, p);
+                    InnerFormatter.Serialize(writer, p);
                 }
             }
 
-            public void Deserialize(byte[] buffer, ref int offset, ref T value)
+            public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
             {
-                var id = SerializerBinary.ReadInt32(buffer, ref offset);
+                var id = SerializerBinary.ReadInt32(ref reader);
                 switch (id)
                 {
                 case Null: // Null
@@ -201,7 +202,7 @@ namespace LiveTesting
                     var proxy = _objectCache.CreateDeserializationProxy<T>();
 
                     proxy.Value = value;
-                    InnerFormatter.Deserialize(buffer, ref offset, ref proxy.Value);
+                    InnerFormatter.Deserialize(ref reader, ref proxy.Value);
                     value = proxy.Value;
                     break;
 
@@ -212,29 +213,29 @@ namespace LiveTesting
             }
         }
 
-        class PersonFormatter_OldObjectCache : IFormatter<Person>
+        class PersonFormatter_OldObjectCache : FormatterBase<Person>
         {
             public RefFormatter_OldObjectCache<Person> RefFormatter;
 
-            public void Serialize(ref byte[] buffer, ref int offset, Person p)
+            public override void Serialize(IBufferWriter<byte> writer, Person p)
             {
-                SerializerBinary.WriteString(ref buffer, ref offset, p.Name);
-                SerializerBinary.WriteInt32(ref buffer, ref offset, p.Health);
-                RefFormatter.Serialize(ref buffer, ref offset, p.Friend1);
-                RefFormatter.Serialize(ref buffer, ref offset, p.Friend2);
+                SerializerBinary.WriteString(writer, p.Name);
+                SerializerBinary.WriteInt32(writer, p.Health);
+                RefFormatter.Serialize(writer, p.Friend1);
+                RefFormatter.Serialize(writer, p.Friend2);
             }
 
-            public void Deserialize(byte[] buffer, ref int offset, ref Person value)
+            public override void Deserialize(ref SequenceReader<byte> reader, ref Person value)
             {
-                value.Name = SerializerBinary.ReadString(buffer, ref offset);
-                value.Health = SerializerBinary.ReadInt32(buffer, ref offset);
-                RefFormatter.Deserialize(buffer, ref offset, ref value.Friend1);
-                RefFormatter.Deserialize(buffer, ref offset, ref value.Friend2);
+                value.Name = SerializerBinary.ReadString(ref reader);
+                value.Health = SerializerBinary.ReadInt32(ref reader);
+                RefFormatter.Deserialize(ref reader, ref value.Friend1);
+                RefFormatter.Deserialize(ref reader, ref value.Friend2);
             }
         }
 
 
-        class RefFormatter<T> : IFormatter<T> where T : class
+        class RefFormatter<T> : FormatterBase<T> where T : class
         {
             const int Null = -1;
             const int New = -2;
@@ -242,30 +243,30 @@ namespace LiveTesting
             public BetterCache Cache = BetterCache.Create(ConstCacheSize);
             public IFormatter<T> InnerFormatter;
 
-            public void Serialize(ref byte[] buffer, ref int offset, T p)
+            public override void Serialize(IBufferWriter<byte> writer, T p)
             {
                 if (ReferenceEquals(p, null))
                 {
                     // Null
-                    SerializerBinary.WriteInt32(ref buffer, ref offset, Null);
+                    SerializerBinary.WriteInt32(writer, Null);
                 }
                 else if (Cache.TryGetExistingObjectId(p, out int existingId))
                 {
                     // Existing
-                    SerializerBinary.WriteInt32(ref buffer, ref offset, existingId);
+                    SerializerBinary.WriteInt32(writer, existingId);
                 }
                 else
                 {
                     // New
-                    SerializerBinary.WriteInt32(ref buffer, ref offset, New);
+                    SerializerBinary.WriteInt32(writer, New);
                     Cache.RegisterObject(p);
-                    InnerFormatter.Serialize(ref buffer, ref offset, p);
+                    InnerFormatter.Serialize(writer, p);
                 }
             }
 
-            public void Deserialize(byte[] buffer, ref int offset, ref T value)
+            public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
             {
-                var id = SerializerBinary.ReadInt32(buffer, ref offset);
+                var id = SerializerBinary.ReadInt32(ref reader);
                 switch (id)
                 {
                 case Null: // Null
@@ -279,7 +280,7 @@ namespace LiveTesting
                     ref var proxy = ref Cache.CreateDeserializationProxy<T>();
 
                     proxy = value;
-                    InnerFormatter.Deserialize(buffer, ref offset, ref proxy);
+                    InnerFormatter.Deserialize(ref reader, ref proxy);
                     value = proxy;
                     break;
 
@@ -290,37 +291,37 @@ namespace LiveTesting
             }
         }
 
-        class PersonFormatter : IFormatter<Person>
+        class PersonFormatter : FormatterBase<Person>
         {
             public RefFormatter<Person> RefFormatter;
 
-            public void Serialize(ref byte[] buffer, ref int offset, Person p)
+            public override void Serialize(IBufferWriter<byte> writer, Person p)
             {
-                SerializerBinary.WriteString(ref buffer, ref offset, p.Name);
-                SerializerBinary.WriteInt32(ref buffer, ref offset, p.Health);
-                RefFormatter.Serialize(ref buffer, ref offset, p.Friend1);
-                RefFormatter.Serialize(ref buffer, ref offset, p.Friend2);
+                SerializerBinary.WriteString(writer, p.Name);
+                SerializerBinary.WriteInt32(writer, p.Health);
+                RefFormatter.Serialize(writer, p.Friend1);
+                RefFormatter.Serialize(writer, p.Friend2);
             }
 
-            public void Deserialize(byte[] buffer, ref int offset, ref Person value)
+            public override void Deserialize(ref SequenceReader<byte> reader, ref Person value)
             {
-                value.Name = SerializerBinary.ReadString(buffer, ref offset);
-                value.Health = SerializerBinary.ReadInt32(buffer, ref offset);
-                RefFormatter.Deserialize(buffer, ref offset, ref value.Friend1);
-                RefFormatter.Deserialize(buffer, ref offset, ref value.Friend2);
+                value.Name = SerializerBinary.ReadString(ref reader);
+                value.Health = SerializerBinary.ReadInt32(ref reader);
+                RefFormatter.Deserialize(ref reader, ref value.Friend1);
+                RefFormatter.Deserialize(ref reader, ref value.Friend2);
             }
         }
 
 
-        class RefFormatterReaderWriter<T> : IFormatterNew<T> where T : class
+        class RefFormatterReaderWriter<T> : FormatterNewBase<T> where T : class
         {
             const int Null = -1;
             const int New = -2;
 
             public BetterCache Cache = BetterCache.Create(ConstCacheSize);
-            public IFormatterNew<T> InnerFormatter;
+            public FormatterNewBase<T> InnerFormatter;
 
-            public void Serialize(ref Writer writer, T p)
+            public override void Serialize(ref Writer writer, T p)
             {
                 if (ReferenceEquals(p, null))
                 {
@@ -341,7 +342,7 @@ namespace LiveTesting
                 }
             }
 
-            public void Deserialize(ref Reader reader, ref T value)
+            public override void Deserialize(ref Reader reader, ref T value)
             {
                 var id = reader.ReadInt32();
                 switch (id)
@@ -368,11 +369,11 @@ namespace LiveTesting
             }
         }
 
-        class PersonFormatterReaderWriter : IFormatterNew<Person>
+        class PersonFormatterReaderWriter : FormatterNewBase<Person>
         {
             public RefFormatterReaderWriter<Person> RefFormatter;
 
-            public void Serialize(ref Writer writer, Person p)
+            public override void Serialize(ref Writer writer, Person p)
             {
                 writer.WriteString(p.Name);
                 writer.WriteInt32(p.Health);
@@ -380,7 +381,7 @@ namespace LiveTesting
                 RefFormatter.Serialize(ref writer, p.Friend2);
             }
 
-            public void Deserialize(ref Reader reader, ref Person value)
+            public override void Deserialize(ref Reader reader, ref Person value)
             {
                 value.Name = reader.ReadString();
                 value.Health = reader.ReadInt32();
@@ -390,7 +391,7 @@ namespace LiveTesting
         }
 
 
-        class RefFormatterNewCache2<T> : IFormatter<T> where T : class
+        class RefFormatterNewCache2<T> : FormatterBase<T> where T : class
         {
             const int Null = -1;
             const int New = -2;
@@ -398,30 +399,30 @@ namespace LiveTesting
             public BetterCache2 Cache = BetterCache2.Create(ConstCacheSize);
             public IFormatter<T> InnerFormatter;
 
-            public void Serialize(ref byte[] buffer, ref int offset, T p)
+            public override void Serialize(IBufferWriter<byte> writer, T p)
             {
                 if (ReferenceEquals(p, null))
                 {
                     // Null
-                    SerializerBinary.WriteInt32(ref buffer, ref offset, Null);
+                    SerializerBinary.WriteInt32(writer, Null);
                 }
                 else if (Cache.TryGetExistingObjectId(p, out int existingId))
                 {
                     // Existing
-                    SerializerBinary.WriteInt32(ref buffer, ref offset, existingId);
+                    SerializerBinary.WriteInt32(writer, existingId);
                 }
                 else
                 {
                     // New
-                    SerializerBinary.WriteInt32(ref buffer, ref offset, New);
+                    SerializerBinary.WriteInt32(writer, New);
                     Cache.RegisterObject(p);
-                    InnerFormatter.Serialize(ref buffer, ref offset, p);
+                    InnerFormatter.Serialize(writer, p);
                 }
             }
 
-            public void Deserialize(byte[] buffer, ref int offset, ref T value)
+            public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
             {
-                var id = SerializerBinary.ReadInt32(buffer, ref offset);
+                var id = SerializerBinary.ReadInt32(ref reader);
                 switch (id)
                 {
                 case Null: // Null
@@ -435,7 +436,7 @@ namespace LiveTesting
                     ref var proxy = ref Cache.CreateDeserializationProxy<T>();
 
                     proxy = value;
-                    InnerFormatter.Deserialize(buffer, ref offset, ref proxy);
+                    InnerFormatter.Deserialize(ref reader, ref proxy);
                     value = proxy;
                     break;
 
@@ -446,24 +447,24 @@ namespace LiveTesting
             }
         }
 
-        class PersonFormatterNewCache2 : IFormatter<Person>
+        class PersonFormatterNewCache2 : FormatterBase<Person>
         {
             public RefFormatterNewCache2<Person> RefFormatter;
 
-            public void Serialize(ref byte[] buffer, ref int offset, Person p)
+            public override void Serialize(IBufferWriter<byte> writer, Person p)
             {
-                SerializerBinary.WriteString(ref buffer, ref offset, p.Name);
-                SerializerBinary.WriteInt32(ref buffer, ref offset, p.Health);
-                RefFormatter.Serialize(ref buffer, ref offset, p.Friend1);
-                RefFormatter.Serialize(ref buffer, ref offset, p.Friend2);
+                SerializerBinary.WriteString(writer, p.Name);
+                SerializerBinary.WriteInt32(writer, p.Health);
+                RefFormatter.Serialize(writer, p.Friend1);
+                RefFormatter.Serialize(writer, p.Friend2);
             }
 
-            public void Deserialize(byte[] buffer, ref int offset, ref Person value)
+            public override void Deserialize(ref SequenceReader<byte> reader, ref Person value)
             {
-                value.Name = SerializerBinary.ReadString(buffer, ref offset);
-                value.Health = SerializerBinary.ReadInt32(buffer, ref offset);
-                RefFormatter.Deserialize(buffer, ref offset, ref value.Friend1);
-                RefFormatter.Deserialize(buffer, ref offset, ref value.Friend2);
+                value.Name = SerializerBinary.ReadString(ref reader);
+                value.Health = SerializerBinary.ReadInt32(ref reader);
+                RefFormatter.Deserialize(ref reader, ref value.Friend1);
+                RefFormatter.Deserialize(ref reader, ref value.Friend2);
             }
         }
 
@@ -473,12 +474,13 @@ namespace LiveTesting
 
         static T Clone<T>(T obj, IFormatter<T> formatter)
         {
-            int offset = 0;
-            formatter.Serialize(ref _buffer, ref offset, obj);
+            var writer = new CerasSerializer.FixedArrayBufferWriter(_buffer, 0);
+            formatter.Serialize(writer, obj);
 
-            offset = 0;
+            var seq = new ReadOnlySequence<byte>(_buffer, 0, writer.Offset);
+            var reader = new SequenceReader<byte>(seq);
             T clone = default;
-            formatter.Deserialize(_buffer, ref offset, ref clone);
+            formatter.Deserialize(ref reader, ref clone);
 
             return clone;
         }
@@ -651,10 +653,25 @@ namespace LiveTesting
             public string ReadString() => SerializerBinary.ReadString(buffer, ref offset);
         }
 
-        interface IFormatterNew<T> : IFormatter
+        abstract class FormatterNewBase<T> : FormatterBase<T>
         {
-            void Serialize(ref Writer writer, T value);
-            void Deserialize(ref Reader reader, ref T value);
+            public abstract void Serialize(ref Writer writer, T value);
+            public abstract void Deserialize(ref Reader reader, ref T value);
+
+            public override void Serialize(IBufferWriter<byte> writer, T value)
+            {
+                var fixedWriter = (CerasSerializer.FixedArrayBufferWriter)writer;
+                var w = new Writer { buffer = fixedWriter.Buffer, offset = fixedWriter.Offset };
+                Serialize(ref w, value);
+                fixedWriter.Offset = w.offset;
+            }
+
+            public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
+            {
+                var r = new Reader { buffer = reader.UnreadSpan.ToArray(), offset = 0 };
+                Deserialize(ref r, ref value);
+                reader.Advance(r.offset);
+            }
         }
 
         static class CtorHelper
