@@ -26,7 +26,7 @@ namespace Ceras.Savegame
             
             // Core savegame formatters
             config.ConfigType<string>().CustomFormatter = new SavegameStringFormatter();
-            config.ConfigType<Type>().CustomFormatter = new SavegameTypeFormatter();
+            config.ConfigType<Type>().CustomFormatter = new SavegameTypeFormatter(config.Savegame.SchemaRegistry);
             
             // In the new architecture, we want the SchemaRegistry to be populated
             // by the source generator or manual registration.

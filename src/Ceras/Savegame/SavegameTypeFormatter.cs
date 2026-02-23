@@ -10,7 +10,15 @@ namespace Ceras.Savegame
     /// </summary>
     sealed class SavegameTypeFormatter : FormatterBase<Type>
     {
-        SchemaRegistry _registry;
+        readonly SchemaRegistry _registry;
+        readonly ITypeBinder _typeBinder = new SimpleTypeBinder(); // Fallback binder
+
+        const int FullNameMarker = 127; // Special marker for unregistered types
+
+        public SavegameTypeFormatter(SchemaRegistry registry)
+        {
+            _registry = registry;
+        }
 
         public override void Serialize(IBufferWriter<byte> writer, Type value)
         {
@@ -33,14 +41,16 @@ namespace Ceras.Savegame
                 return;
             }
 
-            // Fallback
+            // Fallback to registry
             if (_registry != null && _registry.TryGetId(value, out id))
             {
                 SchemaSection.WriteLeb128(writer, (uint)id);
                 return;
             }
 
-            SchemaSection.WriteLeb128(writer, (uint)WellKnownTypes.Null);
+            // Extreme fallback for unregistered types (mostly for tests or transition)
+            SchemaSection.WriteLeb128(writer, (uint)FullNameMarker);
+            SerializerBinary.WriteString(writer, _typeBinder.GetBaseName(value));
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref Type value)
@@ -51,6 +61,16 @@ namespace Ceras.Savegame
                 value = null;
                 return;
             }
+
+            if (id == FullNameMarker)
+            {
+                string typeName = SerializerBinary.ReadString(ref reader);
+                value = _typeBinder.GetTypeFromBase(typeName);
+                return;
+            }
+
+            if (WellKnownTypes.TryGetType((int)id, out value))
+                return;
 
             var idToType = SavegameContext.IdToType;
             if (idToType != null)

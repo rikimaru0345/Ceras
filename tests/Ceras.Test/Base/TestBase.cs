@@ -96,6 +96,19 @@ namespace Ceras.Test
         {
             var ceras = new CerasSerializer(config);
 
+            // Savegame formatters (SavegameTypeFormatter and SavegameStringFormatter) require 
+            // a SavegameContext which is only set up by CerasSave.Save and Load.
+            // If we are using the savegame config, we must use those methods.
+            bool isSavegame = config != null && config.GetExistingTypeConfig(typeof(Type), false)?.CustomFormatter is Ceras.Savegame.SavegameTypeFormatter;
+
+            if (isSavegame)
+            {
+                var savegameData = Ceras.Savegame.CerasSave.Save(source, 1, ceras);
+                var cloneResult = Ceras.Savegame.CerasSave.Load<T>(savegameData, 1, ceras);
+                _callsToClone++;
+                return cloneResult;
+            }
+
             byte[] data = new byte[0x1000];
             int len = ceras.Serialize(source, ref data);
 

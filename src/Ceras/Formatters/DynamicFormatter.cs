@@ -16,6 +16,9 @@ namespace Ceras.Formatters
         readonly MethodInfo _onBeforeSerialize, _onAfterSerialize, _onBeforeDeserialize, _onAfterDeserialize;
         
         readonly Func<T> _factory;
+        readonly MethodBase _ctorOrFactory;
+        readonly object _ctorTarget;
+        readonly int[] _parameterToMemberIndex;
 
         public DynamicFormatter(CerasSerializer serializer, bool isStatic)
         {
@@ -55,10 +58,37 @@ namespace Ceras.Formatters
             if (!isStatic && !type.IsValueType)
             {
                 var tc = typeConfig.TypeConstruction;
-                if (tc != null && !tc.HasDataArguments && !(tc is ConstructNull))
+                if (tc != null && !(tc is ConstructNull))
                 {
-                    var factoryDel = tc.GetRefFormatterConstructor();
-                    _factory = () => (T)factoryDel();
+                    if (!tc.HasDataArguments)
+                    {
+                        var factoryDel = tc.GetRefFormatterConstructor();
+                        _factory = () => (T)factoryDel();
+                    }
+                    else
+                    {
+                        if (tc is SpecificConstructor sc)
+                        {
+                            _ctorOrFactory = sc.Constructor;
+                        }
+                        else if (tc is ConstructByMethod cbm)
+                        {
+                            _ctorOrFactory = cbm.Method;
+                            _ctorTarget = cbm.TargetObject;
+                        }
+
+                        if (_ctorOrFactory != null)
+                        {
+                            var parameters = _ctorOrFactory.GetParameters();
+                            _parameterToMemberIndex = new int[parameters.Length];
+                            for (int i = 0; i < parameters.Length; i++)
+                            {
+                                var p = parameters[i];
+                                var member = typeConfig.ParameterMap[p];
+                                _parameterToMemberIndex[i] = Array.FindIndex(_members, m => m.member == member);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -135,9 +165,53 @@ namespace Ceras.Formatters
             if (value == null)
             {
                 if (_factory != null)
+                {
                     value = _factory();
+                }
+                else if (_ctorOrFactory != null)
+                {
+                    // Buffered read
+                    object[] memberValues = new object[_members.Length];
+                    FakeContainer fake = new FakeContainer();
+                    for (int i = 0; i < _members.Length; i++)
+                    {
+                        _members[i].formatter.DeserializeUntyped(ref reader, fake, FakeContainer.ValueField);
+                        memberValues[i] = fake.Value;
+                        fake.Value = null;
+                    }
+
+                    object[] args = new object[_parameterToMemberIndex.Length];
+                    for (int i = 0; i < args.Length; i++)
+                        args[i] = memberValues[_parameterToMemberIndex[i]];
+
+                    if (_ctorOrFactory is ConstructorInfo ctor)
+                        value = (T)ctor.Invoke(args);
+                    else
+                        value = (T)_ctorOrFactory.Invoke(_ctorTarget, args);
+
+                    InvokeCallback(_onBeforeDeserialize, value);
+
+                    // Assign rest of members
+                    for (int i = 0; i < _members.Length; i++)
+                    {
+                        // Don't overwrite members that were passed to the constructor
+                        if (Array.IndexOf(_parameterToMemberIndex, i) != -1)
+                            continue;
+
+                        var m = _members[i];
+                        if (m.member is FieldInfo f)
+                            f.SetValue(value, memberValues[i]);
+                        else if (m.member is PropertyInfo p && p.GetSetMethod(true) != null)
+                            p.SetValue(value, memberValues[i]);
+                    }
+
+                    InvokeCallback(_onAfterDeserialize, value);
+                    return;
+                }
                 else
+                {
                     value = (T)RuntimeHelpers.GetUninitializedObject(typeof(T));
+                }
             }
             else if (_factory != null)
             {
@@ -188,6 +262,12 @@ namespace Ceras.Formatters
         {
             return objectType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
                 .FirstOrDefault(m => m.GetCustomAttribute(attributeType) != null);
+        }
+
+        class FakeContainer
+        {
+            public object Value;
+            public static readonly FieldInfo ValueField = typeof(FakeContainer).GetField(nameof(Value));
         }
     }
 }
