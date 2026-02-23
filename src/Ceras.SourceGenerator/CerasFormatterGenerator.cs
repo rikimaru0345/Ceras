@@ -422,11 +422,15 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             typeChain.Add(cur);
             cur = cur.BaseType;
         }
+
         // Process most-derived first so derived [Exclude] or [Include] wins over base.
         // We still collect from every level; seenNames prevents duplicates.
+        TargetMemberKind currentTargetKind = TargetMemberKind.AllPublic;
         foreach (var t in typeChain)
         {
-            TargetMemberKind targetKind = GetTargetMemberKind(t, attrs.MemberConfig);
+            var kind = GetTargetMemberKind(t, attrs.MemberConfig);
+            if (kind.HasValue)
+                currentTargetKind = kind.Value;
 
             foreach (var member in t.GetMembers())
             {
@@ -454,7 +458,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                     // only if the containing type has a formatter that sets them directly.
                     // For generated formatters, we allow it with [Include].
                     if (field.IsConst || (field.IsReadOnly && !hasInclude)) continue;
-                    if (!hasInclude && !IsFieldIncluded(field, targetKind)) continue;
+                    if (!hasInclude && !IsFieldIncluded(field, currentTargetKind)) continue;
 
                     members.Add(MakeMember(field.Name, field.Type, isField: true, member, attrs, isGetterOnly: false));
                 }
@@ -481,7 +485,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                             continue;
                     }
 
-                    if (!hasInclude && !IsPropertyIncluded(prop, targetKind)) continue;
+                    if (!hasInclude && !IsPropertyIncluded(prop, currentTargetKind)) continue;
 
                     members.Add(MakeMember(prop.Name, prop.Type, isField: false, member, attrs, isGetterOnly: isGetterOnly));
                 }
@@ -513,13 +517,13 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 var memberByNorm = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 for (int i = 0; i < members.Count; i++)
                 {
-                    string norm = members[i].Name.TrimStart('_').ToLowerInvariant();
+                    string norm = NormalizeName(members[i].Name);
                     memberByNorm[norm] = i;
                 }
 
                 foreach (var param in cerasCtor.Parameters)
                 {
-                    string normParam = param.Name.TrimStart('_').ToLowerInvariant();
+                    string normParam = NormalizeName(param.Name);
 
                     if (memberByNorm.TryGetValue(normParam, out int idx))
                     {
@@ -544,7 +548,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                             {
                                 if (sym.IsStatic || sym.IsImplicitlyDeclared) continue;
                                 // Match by normalized name
-                                string normMember = sym.Name.TrimStart('_').ToLowerInvariant();
+                                string normMember = NormalizeName(sym.Name);
                                 if (normMember != normParam) continue;
                                 // Must be accessible from generated code
                                 if (sym.DeclaredAccessibility == Accessibility.Private ||
@@ -1164,10 +1168,18 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         return type.Name; // simple class name without namespace
     }
 
-    static TargetMemberKind GetTargetMemberKind(INamedTypeSymbol type, INamedTypeSymbol? memberConfigAttr)
+    static string NormalizeName(string name)
+    {
+        string n = name;
+        if (n.StartsWith("m_"))
+            n = n.Substring(2);
+        return n.TrimStart('_').ToLowerInvariant();
+    }
+
+    static TargetMemberKind? GetTargetMemberKind(INamedTypeSymbol type, INamedTypeSymbol? memberConfigAttr)
     {
         if (memberConfigAttr == null)
-            return TargetMemberKind.AllPublic; // default: public fields + public properties
+            return null;
 
         foreach (var attr in type.GetAttributes())
         {
@@ -1180,7 +1192,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 if (na.Key == "TargetMembers" && na.Value.Value is int rawNamed)
                     return (TargetMemberKind)rawNamed;
         }
-        return TargetMemberKind.AllPublic;
+        return null;
     }
 
     static bool IsFieldIncluded(IFieldSymbol field, TargetMemberKind kind)
@@ -1306,14 +1318,14 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         var memberByNorm = new Dictionary<string, SerializedMember>(StringComparer.OrdinalIgnoreCase);
         foreach (var m in members)
         {
-            string norm = m.Name.TrimStart('_').ToLowerInvariant();
+            string norm = NormalizeName(m.Name);
             if (!memberByNorm.ContainsKey(norm))
                 memberByNorm[norm] = m;
         }
 
         foreach (var param in ctor.Parameters)
         {
-            string normParam = param.Name.TrimStart('_').ToLowerInvariant();
+            string normParam = NormalizeName(param.Name);
 
             if (!memberByNorm.TryGetValue(normParam, out var matched))
             {
