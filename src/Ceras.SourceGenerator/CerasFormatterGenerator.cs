@@ -855,6 +855,9 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         else
         {
             // Normal path (no [CerasConstructor])
+            if (type.IsReferenceType)
+                sb.AppendLine($"            if (value == null) throw new global::System.InvalidOperationException($\"The instance of type '{{typeof({typeFqn}).FullName}}' was null. This should have been handled by ReferenceFormatter.\");");
+
             foreach (var m in members)
             {
                 string fieldName = MakeFormatterFieldName(m.Type);

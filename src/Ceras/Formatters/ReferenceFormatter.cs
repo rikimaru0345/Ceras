@@ -22,14 +22,12 @@ namespace Ceras.Formatters
         readonly CerasSerializer _ceras;
         readonly IFormatter<Type> _typeFormatter;
         readonly TypeDictionary<DispatcherEntry> _dispatchers = new TypeDictionary<DispatcherEntry>();
-        readonly bool _allowReferences;
 
         public ReferenceFormatter(CerasSerializer ceras)
         {
             _ceras = ceras;
             if (typeof(T).IsStatic()) throw new InvalidOperationException("static");
             _typeFormatter = ceras.GetFormatter<Type>();
-            _allowReferences = _ceras.Config.PreserveReferences;
         }
 
         public void SerializeUntyped(IBufferWriter<byte> writer, object value)
@@ -63,12 +61,18 @@ namespace Ceras.Formatters
             var entry = GetOrCreateEntry(specificType);
             if (entry.IsType) { SerializerBinary.WriteUInt32Bias(writer, InlineType, Bias); _typeFormatter.Serialize(writer, (Type)(object)value); return; }
             if (entry.IsExternalRootObject) { var externalObj = (IExternalRootObject)value; if (!ReferenceEquals(_ceras.InstanceData.CurrentRoot, value)) { SerializerBinary.WriteUInt32Bias(writer, ExternalObject, Bias); SerializerBinary.WriteInt32Fixed(writer, externalObj.GetReferenceId()); _ceras.Config.OnExternalObject?.Invoke(externalObj); return; } }
-            if (_allowReferences)
+            
+            if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id)) 
             {
-                if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id)) SerializerBinary.WriteUInt32Bias(writer, id, Bias);
-                else { _ceras.InstanceData.ObjectCache.RegisterObject(value); SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias); if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType); try { entry.SerializeDispatcher(writer, value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while serializing object of type '{specificType.FullName}'", e); } }
+                SerializerBinary.WriteUInt32Bias(writer, id, Bias);
             }
-            else { SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias); if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType); try { entry.SerializeDispatcher(writer, value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while serializing object of type '{specificType.FullName}'", e); } }
+            else 
+            { 
+                _ceras.InstanceData.ObjectCache.RegisterObject(value); 
+                SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias); 
+                if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType); 
+                try { entry.SerializeDispatcher(writer, value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while serializing object of type '{specificType.FullName}'", e); } 
+            }
         }
 
         public void Deserialize(ref SequenceReader<byte> reader, ref T value)
@@ -83,8 +87,6 @@ namespace Ceras.Formatters
             var entry = GetOrCreateEntry(specificType);
             
             if (!entry.IsValueType) { if (value != null) { if (value.GetType() != specificType) { _ceras.DiscardObjectMethod?.Invoke(value); value = (T)entry.Constructor(); } } else value = (T)entry.Constructor(); }
-            
-            if (!_allowReferences) { try { entry.DeserializeDispatcher(ref reader, ref value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType.FullName}'", e); } return; }
             
             var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
             if (value == null && !entry.IsValueType) value = (T)entry.Constructor();
@@ -158,14 +160,13 @@ namespace Ceras.Formatters
     public sealed class ReferenceFormatter_KnownSealedType<T> : IFormatter<T> where T : class
     {
         const int Null = -1, NewValueSameType = -3, Bias = 5;
-        readonly CerasSerializer _ceras; readonly bool _allowReferences; readonly IFormatter<T> _formatter; readonly Func<object> _constructor;
+        readonly CerasSerializer _ceras; readonly IFormatter<T> _formatter; readonly Func<object> _constructor;
         public ReferenceFormatter_KnownSealedType(CerasSerializer ceras)
         {
             _ceras = ceras;
             var type = typeof(T);
             if (type.IsStatic()) throw new InvalidOperationException("static");
             if (!type.IsSealed) throw new InvalidOperationException("Not sealed");
-            _allowReferences = _ceras.Config.PreserveReferences;
             _formatter = (IFormatter<T>)ceras.GetSpecificFormatter(type);
 
             if (type.IsArray || CerasSerializer.IsFormatterConstructed(type))
@@ -205,8 +206,24 @@ namespace Ceras.Formatters
             }
         }
         
-        public void Serialize(IBufferWriter<byte> writer, T value) { if (ReferenceEquals(value, null)) { SerializerBinary.WriteUInt32Bias(writer, Null, Bias); return; } if (_allowReferences) { if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id)) SerializerBinary.WriteUInt32Bias(writer, id, Bias); else { _ceras.InstanceData.ObjectCache.RegisterObject(value); SerializerBinary.WriteUInt32Bias(writer, NewValueSameType, Bias); _formatter.Serialize(writer, value); } } else { SerializerBinary.WriteUInt32Bias(writer, NewValueSameType, Bias); _formatter.Serialize(writer, value); } }
-        public void Deserialize(ref SequenceReader<byte> reader, ref T value) { var objId = SerializerBinary.ReadUInt32Bias(ref reader, Bias); if (objId == Null) { if (value != null) _ceras.DiscardObjectMethod?.Invoke(value); value = default; return; } if (objId >= 0) { value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId); return; } if (value == null) value = (T)_constructor(); if (!_allowReferences) { _formatter.Deserialize(ref reader, ref value); return; } var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>(); objectProxy.Value = value; _formatter.Deserialize(ref reader, ref objectProxy.Value); value = objectProxy.Value; }
+        public void Serialize(IBufferWriter<byte> writer, T value) 
+        { 
+            if (ReferenceEquals(value, null)) { SerializerBinary.WriteUInt32Bias(writer, Null, Bias); return; } 
+            if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id)) SerializerBinary.WriteUInt32Bias(writer, id, Bias); 
+            else { _ceras.InstanceData.ObjectCache.RegisterObject(value); SerializerBinary.WriteUInt32Bias(writer, NewValueSameType, Bias); _formatter.Serialize(writer, value); } 
+        }
+
+        public void Deserialize(ref SequenceReader<byte> reader, ref T value) 
+        { 
+            var objId = SerializerBinary.ReadUInt32Bias(ref reader, Bias); 
+            if (objId == Null) { if (value != null) _ceras.DiscardObjectMethod?.Invoke(value); value = default; return; } 
+            if (objId >= 0) { value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId); return; } 
+            if (value == null) value = (T)_constructor(); 
+            var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>(); 
+            objectProxy.Value = value; 
+            _formatter.Deserialize(ref reader, ref objectProxy.Value); 
+            value = objectProxy.Value; 
+        }
     }
 
     static class MemberHelper { internal static byte _field; internal static byte _prop { get; set; } internal static void _method() { } }

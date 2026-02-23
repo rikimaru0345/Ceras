@@ -177,11 +177,7 @@ namespace Ceras.Formatters
             // Reference type
             if (value == null)
             {
-                if (_factory != null)
-                {
-                    value = _factory();
-                }
-                else if (_ctorOrFactory != null)
+                if (_ctorOrFactory != null)
                 {
                     // Buffered read
                     object[] memberValues = new object[_members.Length];
@@ -223,14 +219,8 @@ namespace Ceras.Formatters
                 }
                 else
                 {
-                    value = (T)RuntimeHelpers.GetUninitializedObject(typeof(T));
+                    throw new InvalidOperationException($"The instance of type '{typeof(T).FullName}' was null, and no constructor or factory was able to create it. This should have been handled by ReferenceFormatter.");
                 }
-            }
-            else if (_factory != null)
-            {
-                // We already have an instance, so we don't need to call the factory again.
-                // Re-running the factory here was intended to match some legacy behavior, but it causes
-                // side-effects (like double-allocations or incrementing counters) that are undesirable.
             }
 
             InvokeCallback(_onBeforeDeserialize, value);

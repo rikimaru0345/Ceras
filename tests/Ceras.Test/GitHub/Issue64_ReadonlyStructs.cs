@@ -29,7 +29,7 @@ namespace Ceras.Test
         [Fact]
         public void Repro64_v1_NullableStruct()
         {
-            var config = new SerializerConfig { DefaultTargets = TargetMember.AllFields, PreserveReferences = false };
+            var config = new SerializerConfig { DefaultTargets = TargetMember.AllFields };
             config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
             config.Advanced.SkipCompilerGeneratedFields = false;
             config.OnConfigNewType = tc => tc.TypeConstruction = TypeConstruction.ByUninitialized();
@@ -129,7 +129,7 @@ namespace Ceras.Test
         [Fact]
         public void Repro64_v2_ReadonlyStructs_Direct()
         {
-            var config = new SerializerConfig { DefaultTargets = TargetMember.AllFields, PreserveReferences = false };
+            var config = new SerializerConfig { DefaultTargets = TargetMember.AllFields };
             config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
             config.Advanced.SkipCompilerGeneratedFields = false;
             config.OnConfigNewType = tc =>
@@ -154,7 +154,7 @@ namespace Ceras.Test
         [Fact]
         public void Repro64_v2_ReadonlyStructs_Ctor()
         {
-            var config = new SerializerConfig { DefaultTargets = TargetMember.AllFields, PreserveReferences = false };
+            var config = new SerializerConfig { DefaultTargets = TargetMember.AllFields };
             config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
             config.Advanced.SkipCompilerGeneratedFields = false;
             int nCtor=0;

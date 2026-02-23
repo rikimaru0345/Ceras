@@ -96,13 +96,6 @@
         public List<FormatterResolverCallback> OnResolveFormatter { get; } = new List<FormatterResolverCallback>();
 
         /// <summary>
-        /// Whether or not to handle object references.
-        /// This feature will correctly handle circular references (which would otherwise just crash with a StackOverflowException), but comes at a (very) small performance cost; so turn it off if you know that you won't need it.
-        /// <para>Default: true</para>
-        /// </summary>
-        public bool PreserveReferences { get; set; } = true;
-
-        /// <summary>
         /// If all the other things (ShouldSerializeMember / Attributes) don't produce a decision, then this setting is used to determine if a member should be included.
         /// By default only public fields are serialized. ReadonlyHandling is a separate option found inside <see cref="Advanced"/>
         /// <para>Default: AllPublic</para>
