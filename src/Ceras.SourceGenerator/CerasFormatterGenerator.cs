@@ -587,11 +587,6 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         // --- Serialize ---------------------------------------------------------
         sb.AppendLine($"        public void Serialize(IBufferWriter<byte> writer, {typeFqn} value)");
         sb.AppendLine("        {");
-        sb.AppendLine("            Serialize<IBufferWriter<byte>>(writer, value);");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-        sb.AppendLine($"        public void Serialize<TWriter>(TWriter writer, {typeFqn} value) where TWriter : IBufferWriter<byte>");
-        sb.AppendLine("        {");
         foreach (var m in members)
         {
             string fieldName = MakeFormatterFieldName(m.Type);
@@ -604,8 +599,6 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             }
             else
             {
-                // We can't easily call a generic Serialize on another formatter because we only have IFormatter<T>
-                // For now, non-primitive formatters still use the interface call.
                 sb.AppendLine($"            {fieldName}.Serialize(writer, value.{m.Name});");
             }
         }
@@ -1045,8 +1038,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
     static string MakeFormatterFieldName(ITypeSymbol type)
     {
         string raw = SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal));
-        string lower = char.ToLowerInvariant(raw[0]) + raw.Substring(1);
-        return "_" + lower + "Formatter";
+        // We use the full sanitized name to avoid collisions between types with same name in different namespaces
+        return "_" + raw + "Formatter";
     }
 
     static string SanitizeIdentifier(string displayName)
@@ -1054,10 +1047,18 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         var sb = new StringBuilder(displayName.Length);
         foreach (char c in displayName)
         {
-            if (char.IsLetterOrDigit(c) || c == '_')
+            if (char.IsLetterOrDigit(c))
                 sb.Append(c);
+            else
+                sb.Append('_');
         }
-        return sb.Length == 0 ? "Unknown" : sb.ToString();
+        
+        // Remove consecutive underscores
+        string result = sb.ToString();
+        while (result.Contains("__"))
+            result = result.Replace("__", "_");
+            
+        return result.Trim('_');
     }
 
     // -------------------------------------------------------------------------
