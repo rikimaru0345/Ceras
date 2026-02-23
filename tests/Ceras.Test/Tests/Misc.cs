@@ -1,13 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-
-namespace Ceras.Test
+﻿namespace Ceras.Test
 {
-    using Xunit;
-
-    public class Misc : TestBase
-    {
+	public class Misc : TestBase
+	{
         [Fact]
         public void DictInObjArrayTest()
         {
@@ -81,29 +75,29 @@ namespace Ceras.Test
             Assert.True(StaticClassTest.StringField == "-3");
             Assert.True(StaticClassTest.FloatProp == -3);
             Assert.True(StaticClassTest.ListProp.Count == 1 && StaticClassTest.ListProp[0] == -3);
-            // Those should still be like we last changed them 
-            Assert.True(StaticClassTest.NotIncluded1 == 5);
+			// Those should still be like we last changed them
+			Assert.True(StaticClassTest.NotIncluded1 == 5);
             Assert.True(StaticClassTest.NotIncluded2 == 6);
             Assert.True(StaticClassTest.NotIncluded3 == 7);
-            
-            //
-            // Now we restore the changed state
-            //
-            ceras.Advanced.DeserializeStatic(typeof(StaticClassTest), dataChanged);
+
+			//
+			// Now we restore the changed state
+			//
+			ceras.Advanced.DeserializeStatic(typeof(StaticClassTest), dataChanged);
 
             Assert.True(StaticClassTest.ValueField == 1);
             Assert.True(StaticClassTest.StringField == "2");
             Assert.True(StaticClassTest.FloatProp == 3);
             Assert.True(StaticClassTest.ListProp.Count == 4 && StaticClassTest.ListProp.All(x => x == 4));
-            // Those should still be like we last changed them 
-            Assert.True(StaticClassTest.NotIncluded1 == 5);
+			// Those should still be like we last changed them
+			Assert.True(StaticClassTest.NotIncluded1 == 5);
             Assert.True(StaticClassTest.NotIncluded2 == 6);
             Assert.True(StaticClassTest.NotIncluded3 == 7);
 
 
         }
-    
-        [Fact]
+
+		[Fact]
         public void SerializeStaticPart()
         {
             var ceras = new CerasSerializer();
@@ -113,8 +107,8 @@ namespace Ceras.Test
 
             var dataStaticDefault = ceras.Advanced.SerializeStatic(typeof(StaticMembersTest));
             var dataInstanceDefault = ceras.Serialize(obj);
-            
-            Assert.True(StaticMembersTest.ValueField == -12);
+
+			Assert.True(StaticMembersTest.ValueField == -12);
             Assert.True(obj.InstanceValue == -5);
 
             obj.InstanceValue = 1;
@@ -125,23 +119,23 @@ namespace Ceras.Test
 
             Assert.True(StaticMembersTest.ValueField == 2);
             Assert.True(obj.InstanceValue == 1);
-            
-            //
-            // Deserialize
-            //
 
-            ceras.Advanced.DeserializeStatic(typeof(StaticMembersTest), dataStaticDefault);
+			//
+			// Deserialize
+			//
+
+			ceras.Advanced.DeserializeStatic(typeof(StaticMembersTest), dataStaticDefault);
             ceras.Deserialize(ref obj, dataInstanceDefault);
-            
-            Assert.True(StaticMembersTest.ValueField == -12);
+
+			Assert.True(StaticMembersTest.ValueField == -12);
             Assert.True(obj.InstanceValue == -5);
-            
 
 
-            ceras.Advanced.DeserializeStatic(typeof(StaticMembersTest), dataStaticChanged);
+
+			ceras.Advanced.DeserializeStatic(typeof(StaticMembersTest), dataStaticChanged);
             ceras.Deserialize(ref obj, dataInstanceChanged);
-            
-            Assert.True(StaticMembersTest.ValueField == 2);
+
+			Assert.True(StaticMembersTest.ValueField == 2);
             Assert.True(obj.InstanceValue == 1);
         }
     }

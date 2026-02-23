@@ -1,10 +1,4 @@
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.Text;
-using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Linq;
 using System.Text;
 
 namespace Ceras.SourceGenerator;
@@ -676,16 +670,16 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         {
             case SpecialType.System_Boolean: return "WriteInt32"; // Bool is written as Int32 VarInt in BoolFormatter
             case SpecialType.System_Byte:    return "WriteByte";
-            case SpecialType.System_SByte:   return "WriteByte"; 
-            case SpecialType.System_Char:    return "WriteInt16Fixed";
+			case SpecialType.System_SByte: return "WriteByte";
+			case SpecialType.System_Char:    return "WriteInt16Fixed";
             case SpecialType.System_Int16:   return "WriteInt16Fixed";
             case SpecialType.System_UInt16:  return "WriteInt16Fixed";
             case SpecialType.System_Int32:   return "WriteInt32";
             case SpecialType.System_UInt32:  return "WriteUInt32";
             case SpecialType.System_Single:  return "WriteFloat32Fixed";
             case SpecialType.System_Int64:   return "WriteInt64Fixed";
-            case SpecialType.System_UInt64:  return "WriteInt64Fixed"; 
-            case SpecialType.System_Double:  return "WriteDouble64Fixed";
+			case SpecialType.System_UInt64: return "WriteInt64Fixed";
+			case SpecialType.System_Double:  return "WriteDouble64Fixed";
             case SpecialType.System_String:  return "WriteString";
         }
         throw new NotSupportedException();
@@ -750,14 +744,14 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         {
             return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
         }
-        
-        if (!type.IsValueType && isMonomorphic)
+
+		if (!type.IsValueType && isMonomorphic)
         {
             // If it's a sealed class, we can use ReferenceFormatter_KnownSealedType
             if (type.IsSealed)
                 return $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>";
-            
-            return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+
+			return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
         }
 
         // Fallback to interface

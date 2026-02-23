@@ -1,11 +1,4 @@
-using System;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.Text;
-using Ceras;
-using Ceras.Generated;
-using Ceras.Savegame;
-using Xunit;
 
 namespace Ceras.Test.Migration
 {
@@ -540,9 +533,9 @@ namespace Ceras.Test.Migration
 
             byte[] save = OldSaveBuilder.Build(
                 gameVersion: 1,
-                types: new[] 
-                { 
-                    OldSaveBuilder.ClassType("HeroWithList", Array.Empty<string>(), oldFields, typeId: 200),
+				types: new[]
+				{
+					OldSaveBuilder.ClassType("HeroWithList", Array.Empty<string>(), oldFields, typeId: 200),
                     OldSaveBuilder.GenericType("List<int>", Array.Empty<string>(), WellKnownTypes.List, new[] { WellKnownTypes.Int32 }, typeId: 201)
                 },
                 currentRegisteredTypes: new[] { typeof(HeroWithList) },

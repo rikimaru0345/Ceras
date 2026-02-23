@@ -1,14 +1,13 @@
-﻿using Xunit;
-// ReSharper disable InconsistentNaming
+﻿// ReSharper disable InconsistentNaming
+
 
 namespace Ceras.Test
 {
-    using Helpers;
-    using System;
-    using System.Collections.Generic;
+	using System;
+	using System.Collections.Generic;
 
-    public class Internals : TestBase
-    {
+	public class Internals : TestBase
+	{
         [Fact]
         public void MethodResolving()
         {
@@ -70,13 +69,13 @@ namespace Ceras.Test
         class Cat : ICat { }
         class Dog : IDog { }
 
-        // Boxed value references being de-duplicated (cached) doesn't hurt, but it shouldn't happen just out of principle.
-        // Fixing this would probably be very complicated.
-        // I guess we'd have to essentially completely remove ReferenceFormatter; moving all its functionality into each actual formatter or something?
-        // But that would make writing custom formatters much harder... 
-        // Maybe that could be combined with the 'ref writer' idea to alleviate this somewhat?
-        // But then again, this "bug" causes absolutely no harm, it doesn't even really affect performance, so why bother?
-        [Fact(Skip = "Not implemented yet; causes no problems though. See comment for more details.")]
+		// Boxed value references being de-duplicated (cached) doesn't hurt, but it shouldn't happen just out of principle.
+		// Fixing this would probably be very complicated.
+		// I guess we'd have to essentially completely remove ReferenceFormatter; moving all its functionality into each actual formatter or something?
+		// But that would make writing custom formatters much harder...
+		// Maybe that could be combined with the 'ref writer' idea to alleviate this somewhat?
+		// But then again, this "bug" causes absolutely no harm, it doesn't even really affect performance, so why bother?
+		[Fact(Skip = "Not implemented yet; causes no problems though. See comment for more details.")]
         public void BoxedReferencesAreNotCached()
         {
             var ceras = new CerasSerializer();
@@ -329,8 +328,8 @@ namespace Ceras.Test
             {
                 (new (string,bool?)?(("t", true)), new (string,bool?)?(("t", true))),
                 (new (string,bool)?(("a", true)), new (string,bool)?(("abc".Substring(0,1), true))),
-                
-                (new (string,bool)?(("a", true)), new (string,bool)?(("b", true))),
+
+				(new (string,bool)?(("a", true)), new (string,bool)?(("b", true))),
                 (new (string,bool)?(("ee", true)), new (string,bool)?(("ee", false))),
 
                 (new (string,bool?)?(("t", true)), new (string,bool?)?(("t", true))),

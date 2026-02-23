@@ -1,12 +1,7 @@
-using System;
-using System.Collections.Generic;
 
 #pragma warning disable 0649 // Field is never assigned to
 
-using Ceras;
-using Ceras.Formatters;
-using Ceras.Generated;
-using Xunit;
+
 using System.Buffers;
 
 // ---------------------------------------------------------------------------
@@ -35,6 +30,7 @@ using System.Buffers;
 //     - Type changes (int → float) and removals that change binary layout
 //       across saves require a hand-written migration path regardless.
 // ---------------------------------------------------------------------------
+
 
 namespace Ceras.Test
 {
