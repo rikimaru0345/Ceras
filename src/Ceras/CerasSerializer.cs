@@ -21,7 +21,7 @@ namespace Ceras
 
     public class CerasSerializer : ICerasAdvanced
     {
-        internal static readonly Type _rtTypeType, _rtFieldType, _rtPropType, _rtCtorType, _rtMethodType;
+        internal static readonly Type _rtTypeType;
         static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
 
         public static void AddFormatterConstructedType(Type type)
@@ -40,7 +40,7 @@ namespace Ceras
             if (type.IsPrimitive) return true;
             if (type.IsArray) return IsPrimitiveType(type.GetElementType());
             if (type == typeof(string) || type == typeof(Type)) return true;
-            if (type == _rtTypeType || type == _rtFieldType || type == _rtPropType || type == _rtCtorType || type == _rtMethodType) return true;
+            if (type == _rtTypeType) return true;
             return false;
         }
 
@@ -52,22 +52,6 @@ namespace Ceras
             _rtTypeType = type.GetType();
             _formatterConstructedTypes.Add(type);
             _formatterConstructedTypes.Add(_rtTypeType);
-            _formatterConstructedTypes.Add(typeof(FieldInfo));
-            var field = typeof(MemberHelper).GetField(nameof(MemberHelper._field), BindingFlags.Static | BindingFlags.NonPublic);
-            _rtFieldType = field.GetType();
-            _formatterConstructedTypes.Add(_rtFieldType);
-            _formatterConstructedTypes.Add(typeof(PropertyInfo));
-            var prop = typeof(MemberHelper).GetProperty(nameof(MemberHelper._prop), BindingFlags.Static | BindingFlags.NonPublic);
-            _rtPropType = prop.GetType();
-            _formatterConstructedTypes.Add(_rtPropType);
-            _formatterConstructedTypes.Add(typeof(ConstructorInfo));
-            var ctor = typeof(CerasSerializer).GetConstructor(BindingFlags.Static | BindingFlags.NonPublic, null, new Type[0], new ParameterModifier[0]);
-            _rtCtorType = ctor.GetType();
-            _formatterConstructedTypes.Add(_rtCtorType);
-            _formatterConstructedTypes.Add(typeof(MethodInfo));
-            var method = typeof(MemberHelper).GetMethod(nameof(MemberHelper._method), BindingFlags.Static | BindingFlags.NonPublic);
-            _rtMethodType = method.GetType();
-            _formatterConstructedTypes.Add(_rtMethodType);
             _formatterConstructedTypes.Add(typeof(string));
         }
 

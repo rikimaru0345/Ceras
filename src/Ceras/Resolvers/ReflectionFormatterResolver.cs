@@ -25,18 +25,6 @@
                 return (IFormatter)memberInfoFormatter;
             }
 
-            if (typeof(MulticastDelegate).IsAssignableFrom(type))
-            {
-                if (_ceras.Config.Advanced.DelegateSerialization == DelegateSerializationFlags.Off)
-                    throw new InvalidOperationException($"The type '{type.FullName}' can not be serialized because it is a delegate; and 'config.Advanced.DelegateSerialization' is turned off.");
-
-                // Every delegate type is created by the formatter, there can't be any exceptions (unless you do some really dangerous stuff)
-                CerasSerializer.AddFormatterConstructedType(type);
-
-                var formatterType = typeof(DelegateFormatter<>).MakeGenericType(type);
-                var formatter = Activator.CreateInstance(formatterType, args: _ceras);
-                return (IFormatter)formatter;
-            }
 
             return null;
         }

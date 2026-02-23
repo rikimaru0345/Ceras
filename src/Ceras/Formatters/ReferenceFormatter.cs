@@ -225,6 +225,4 @@ namespace Ceras.Formatters
             value = objectProxy.Value; 
         }
     }
-
-    static class MemberHelper { internal static byte _field; internal static byte _prop { get; set; } internal static void _method() { } }
 }

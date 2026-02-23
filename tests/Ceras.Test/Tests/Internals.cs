@@ -14,67 +14,6 @@ namespace Ceras.Test
 
 	public class Internals : TestBase
 	{
-        [Fact]
-        public void MethodResolving()
-        {
-            // Check if the method resolver works correctly
-            IAnimal animal = null;
-            ICat cat = null;
-            IDog dog = null;
-
-
-            // - Non-generic MethodInfo, ConstructorInfo
-            {
-                var ctor = GetCtor(() => new Internals());
-                TestDeepEquality(ctor);
-
-                var mAA = GetMethod(() => HandleAnimal(animal, animal));
-                TestDeepEquality(mAA);
-
-                var mCA = GetMethod(() => HandleAnimal(cat, animal));
-                TestDeepEquality(mCA);
-
-                var mAC = GetMethod(() => HandleAnimal(animal, cat));
-                TestDeepEquality(mAC);
-
-                var mCC = GetMethod(() => HandleAnimal(cat, cat));
-                TestDeepEquality(mCC);
-            }
-
-
-            // - Simple closed generic
-            {
-                var mt = GetMethod(() => HandleAnimal(dog, dog));
-                TestDeepEquality(mt);
-            }
-
-            // - Exception on open method
-            {
-                var open = GetMethod(() => HandleAnimal(dog, dog)).GetGenericMethodDefinition();
-                try
-                {
-                    Clone(open);
-                    throw new Exception("expected exception not thrown");
-                }
-                catch
-                {
-                }
-            }
-        }
-
-
-        void HandleAnimal(IAnimal anyA, IAnimal anyB) { }
-        void HandleAnimal(ICat cat, IAnimal any) { }
-        void HandleAnimal(IAnimal any, ICat cat) { }
-        void HandleAnimal(ICat cat1, ICat cat2) { }
-        void HandleAnimal<T>(T obj1, T obj2) where T : IDog { }
-
-        interface IAnimal { }
-        interface ICat : IAnimal { }
-        interface IDog : IAnimal { }
-        class Cat : ICat { }
-        class Dog : IDog { }
-
 		// Boxed value references being de-duplicated (cached) doesn't hurt, but it shouldn't happen just out of principle.
 		// Fixing this would probably be very complicated.
 		// I guess we'd have to essentially completely remove ReferenceFormatter; moving all its functionality into each actual formatter or something?
@@ -304,6 +243,12 @@ namespace Ceras.Test
         {
             public PluginLocation PluginLocation { get; set; } = new PluginLocation();
         }
+
+        interface IAnimal { }
+        interface ICat : IAnimal { }
+        interface IDog : IAnimal { }
+        class Cat : ICat { }
+        class Dog : IDog { }
     }
 
 
