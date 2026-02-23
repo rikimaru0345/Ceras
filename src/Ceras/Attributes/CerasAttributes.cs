@@ -107,8 +107,8 @@ namespace Ceras
     }
 
     /// <summary>
-    /// Add this to a member if you have changed the type and you're using the VersionTolerance feature.
-    /// Ceras will use this to map old field names to the new one.
+    /// Add this to a member if you have changed the name.
+    /// Ceras will use this to map old field names to the new one in the Savegame migration engine.
     /// You can also use this to simply override what name is used to serialize the member, so as long as the attribute is around and does not change you can freely rename the member itself; this can be used to make the resulting serialized data smaller.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
@@ -130,48 +130,6 @@ namespace Ceras
         {
             Name = name;
             AlternativeNames = alternativeNames;
-        }
-    }
-
-
-    // todo: previous type / previous formatter would be nice to have. It's supposed to auto-convert old data to the new format (or let the user provide a formatter to read the old data)
-    // at the moment the problem is that we never know in what format the data was written; we'd have to embed the data type (ewww! that would make the binary huge!), or add a version number that the user provides
-    // so we always know in what format we can expect the data. version number would be simply added to the binary data. 
-
-    class PreviousFormatter : PreviousNameAttribute
-    {
-        public Type FormatterType { get; } // formatter that can read this old version
-
-        public PreviousFormatter(Type formatterType) : base(null)
-        {
-            CheckType(formatterType);
-            FormatterType = formatterType;
-        }
-        public PreviousFormatter(string previousName, Type formatterType) : base(previousName)
-        {
-            CheckType(formatterType);
-            FormatterType = formatterType;
-        }
-
-        static void CheckType(Type formatterType)
-        {
-            if (!typeof(IFormatter).IsAssignableFrom(formatterType))
-                throw new Exception($"The provided type {formatterType.FriendlyName()} is not valid for 'PreviousFormatter', it needs to be a type that implements IFormatter<T>");
-        }
-    }
-
-    class PreviousType : PreviousNameAttribute
-    {
-        public Type MemberType { get; } // the old type of the field/property
-
-        public PreviousType(Type memberType) : base(null)
-        {
-            MemberType = memberType;
-        }
-
-        public PreviousType(string previousName, Type memberType) : base(previousName)
-        {
-            MemberType = memberType;
         }
     }
 
@@ -250,15 +208,6 @@ namespace Ceras.Formatters
 
 namespace Ceras.Formatters.AotGenerator
 {
-    /// <summary>
-    /// When using the formatter generator you should have a static method somewhere that returns a SerializerConfig, the tool will find the method using this attribute and then execute it so it can use the same config that you are using when the program runs.
-    /// That way the generator knows what types to generate formatters for, and what members to include or exclude.
-    /// The tool inspects 'KnownTypes' as well as all types that you configured using the ConfigType methods. Types that are only handled in "OnConfigNewType" will not be handled in any way because that method is only called when any type is actually encountered (serialized or deserialized).
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Method)]
-    public class AotSerializerConfigAttribute : Attribute
-    {
-    }
 }
 
 namespace Ceras

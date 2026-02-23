@@ -22,19 +22,6 @@ namespace Ceras.Formatters
     public delegate void StaticSerializeDelegate(IBufferWriter<byte> writer);
     public delegate void StaticDeserializeDelegate(ref SequenceReader<byte> reader);
 
-    // A formatter that is relying on the Schema of a Type in some way (either directly: SchemaDynamicFormatter, or indirectly ReferenceFormatter)
-    // Those formatters need to be notified when the CurrentSchema of a Type changes (because of reading an older schema, or because we're resetting to the primary schema for writing) 
-    interface ISchemaTaintedFormatter
-    {
-        void OnSchemaChanged(TypeMetaData meta);
-    }
-
-    interface IInlineEmitter
-    {
-        System.Linq.Expressions.Expression EmitWrite(System.Linq.Expressions.ParameterExpression bufferExp, System.Linq.Expressions.ParameterExpression offsetExp, System.Linq.Expressions.ParameterExpression valueExp, out int writtenSize);
-        System.Linq.Expressions.Expression EmitRead(System.Linq.Expressions.ParameterExpression bufferExp, System.Linq.Expressions.ParameterExpression offsetExp, System.Linq.Expressions.ParameterExpression valueExp, out int readSize);
-    }
-
     static class FormatterHelper
     {
         public static bool IsFormatterMatch(IFormatter formatter, Type type)

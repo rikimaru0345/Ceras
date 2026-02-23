@@ -44,10 +44,12 @@ namespace Ceras.Formatters
         where T : struct
     {
         readonly int _elementSize;
+        readonly uint _maxCount;
 
-        public ReinterpretArrayFormatter()
+        public ReinterpretArrayFormatter(uint maxCount)
         {
             _elementSize = Unsafe.SizeOf<T>();
+            _maxCount = maxCount;
         }
 
         public override void Serialize(IBufferWriter<byte> writer, T[] value)
@@ -73,6 +75,8 @@ namespace Ceras.Formatters
                 value = null;
                 return;
             }
+
+            if (length > _maxCount) throw new InvalidOperationException("Max count exceeded");
 
             if (value == null || value.Length != length)
                 value = new T[length];

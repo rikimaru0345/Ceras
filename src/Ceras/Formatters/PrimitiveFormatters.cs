@@ -82,7 +82,7 @@ namespace Ceras.Formatters
         }
     }
 
-    public sealed class Int32Formatter : FormatterBase<int>, IInlineEmitter
+    public sealed class Int32Formatter : FormatterBase<int>
     {
         public override void Serialize(IBufferWriter<byte> writer, int value)
         {
@@ -92,19 +92,6 @@ namespace Ceras.Formatters
         public override void Deserialize(ref SequenceReader<byte> reader, ref int value)
         {
             value = SerializerBinary.ReadInt32(ref reader);
-        }
-
-
-        public Expression EmitWrite(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int writtenSize)
-        {
-            writtenSize = 4;
-            return null;
-        }
-
-        public Expression EmitRead(ParameterExpression bufferExp, ParameterExpression offsetExp, ParameterExpression valueExp, out int readSize)
-        {
-            readSize = 4;
-            return null;
         }
     }
 

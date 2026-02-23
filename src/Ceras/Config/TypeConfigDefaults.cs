@@ -45,7 +45,7 @@ namespace Ceras
 
 
             if(typeConfig.TypeConstruction == null)
-                if (CerasSerializer.IsFormatterConstructed(typeConfig.Type) || (typeConfig.Type.IsStatic()))
+                if (CerasSerializer.IsFormatterConstructed(typeConfig.Type) || (typeConfig.Type.IsStatic()) || typeConfig.Type.IsArray)
                 {
                     typeConfig.TypeConstruction = TypeConstruction.Null();
                     return;

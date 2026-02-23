@@ -339,6 +339,16 @@
             throw new InvalidOperationException();
         }
 
+        public static MethodInfo ResolveSerializeMethod(this Type formatterType, Type typeToFormat)
+        {
+            return ResolveMethod(formatterType, "Serialize", new[] { typeof(System.Buffers.IBufferWriter<byte>), typeToFormat });
+        }
+
+        public static MethodInfo ResolveDeserializeMethod(this Type formatterType, Type typeToFormat)
+        {
+            return ResolveMethod(formatterType, "Deserialize", new[] { typeof(System.Buffers.SequenceReader<byte>).MakeByRefType(), typeToFormat.MakeByRefType() });
+        }
+
 
         /// <summary>
         /// Find the MethodInfo that matches the given name and specific parameters on the given type. 

@@ -143,8 +143,8 @@ namespace Ceras.Formatters
                 if (def == typeof(List<>) || def == typeof(Dictionary<,>))
                 {
                     var ctor = collectionType.GetConstructor(new[] { typeof(int) });
-                    if (ctor != null && serializer.Config.Advanced.AotMode == AotMode.None)
-                        _capacityConstructor = n => (TCollection)ReflectionHelper.Invoke(ctor, null, new object[] { n });
+                    if (ctor != null)
+                        _capacityConstructor = n => (TCollection)ctor.Invoke(new object[] { n });
                 }
             }
             if (_capacityConstructor == null) _capacityConstructor = _ => (TCollection)Activator.CreateInstance(collectionType);

@@ -17,7 +17,7 @@ namespace Ceras.Test
     {
         public BuiltInTypes()
         {
-            SetSerializerConfigurations(Config_NoReinterpret, Config_WithReinterpret, Config_WithVersioning);
+            SetSerializerConfigurations(Config_NoReinterpret, Config_WithReinterpret);
         }
 
         [Fact]
@@ -390,8 +390,6 @@ namespace Ceras.Test
             config.DefaultTargets = TargetMember.AllFields;
             config.Advanced.BitmapMode = BitmapMode.SaveAsPng;
             config.Advanced.RespectNonSerializedAttribute = false;
-            config.VersionTolerance.Mode = VersionToleranceMode.Standard;
-            config.VersionTolerance.VerifySizes = false;
 
             var ceras = new CerasSerializer(config);
 

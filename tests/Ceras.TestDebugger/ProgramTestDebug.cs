@@ -37,8 +37,6 @@
 #error Unhandled framework version!
 #endif
             
-            new VersionTolerance().EmulatorCanReadSchemaData();
-            
             new Blitting().BlittingEnums();
 
             new BuiltInTypes().MultidimensionalArrays();

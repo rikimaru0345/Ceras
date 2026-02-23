@@ -23,7 +23,7 @@
     /// You shouldn't share a single instance of a SerializerConfig either
     /// </para>
     /// </summary>
-    public class SerializerConfig : IAdvancedConfig, ISizeLimitsConfig, IVersionToleranceConfig, IWarningConfig, ISavegameConfig
+    public class SerializerConfig : IAdvancedConfig, ISizeLimitsConfig, IWarningConfig, ISavegameConfig
     {
         bool _isSealed; // todo
         internal bool IsSealed => _isSealed;
@@ -108,31 +108,6 @@
         /// <para>Default: AllPublic</para>
         /// </summary>
         public TargetMember DefaultTargets { get; set; } = TargetMember.AllPublic;
-
-        #endregion
-
-        #region Version Tolerance
-
-        /// <summary>
-        /// Sometimes you want to persist objects even while they evolve (fields being added, removed, renamed).
-        /// Type changes are not supported (yet, nobody has requested it so far).
-        /// Check out the tutorial for more information (and a way to deal with changing types)
-        /// </summary>
-        public IVersionToleranceConfig VersionTolerance => this;
-
-        VersionToleranceMode _versionToleranceMode = VersionToleranceMode.Disabled;
-        VersionToleranceMode IVersionToleranceConfig.Mode
-        {
-            get => _versionToleranceMode;
-            set
-            {
-                if (_versionToleranceMode == VersionToleranceMode.Disabled && value != VersionToleranceMode.Disabled)
-                    Advanced.UseReinterpretFormatter = false;
-                _versionToleranceMode = value;
-            }
-        }
-        bool IVersionToleranceConfig.VerifySizes { get; set; } = false;
-        //bool IVersionToleranceConfig.IncludeFrameworkTypes { get; set; } = false;
 
         #endregion
 
@@ -261,7 +236,6 @@
         bool IAdvancedConfig.UseReinterpretFormatter { get; set; } = true;
         bool IAdvancedConfig.RespectNonSerializedAttribute { get; set; } = true;
         BitmapMode IAdvancedConfig.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
-        AotMode IAdvancedConfig.AotMode { get; set; } = AotMode.Enabled;
         IEqualityComparer<object> IAdvancedConfig.ObjectCacheComparer { get; set; }
 
         #endregion
@@ -274,7 +248,6 @@
         /// </summary>
         public IWarningConfig Warnings => this;
 
-        bool IWarningConfig.ExceptionWhenUsingDynamicFormatterInAotMode { get; set; } = true;
         bool IWarningConfig.ExceptionOnStructWithAutoProperties { get; set; } = true;
 
         #endregion
@@ -393,11 +366,6 @@
         BitmapMode BitmapMode { get; set; }
 
         /// <summary>
-        /// On an AoT platforms (for example Unity IL2CPP) Ceras can not use dynamic code generation. When enabled, Ceras will use reflection for everything where it would otherwise use dynamic code generation. This is slow, but it allows for testing and debugging on those platforms until 
-        /// </summary>
-        AotMode AotMode { get; set; }
-
-        /// <summary>
         /// The <see cref="IEqualityComparer{T}"/> to use for the object cache. If this is <see langword="null"/>, the default <see cref="EqualityComparer{T}"/> for <see cref="object"/> will be used.
         /// <para>Default: <see langword="null"/></para>
         /// </summary>
@@ -424,40 +392,8 @@
         uint MaxCollectionSize { get; set; }
     }
 
-    public interface IVersionToleranceConfig
-    {
-        /// <summary>
-        /// Checkout the documentation for <see cref="VersionToleranceMode.Standard"/>
-        /// <para>Default: <see cref="VersionToleranceMode.Disabled"/></para>
-        /// </summary>
-        VersionToleranceMode Mode { get; set; }
-
-        /// <summary>
-        /// When using VersionTolerance, the size of each member is written/read, but this information can also be used to verify if the data has been read correctly.
-        /// Turn it on to gain some protection against data-corruption, or leave it off to not pay the performance penalty of doing the check.
-        /// <para>Default: false</para>
-        /// </summary>
-        bool VerifySizes { get; set; }
-
-        /*
-        /// <summary>
-        /// By default Ceras will not embed any version-relevant data for framework types (types that come from the assemblies 'mscorlib', 'System', 'System.Core').
-        /// Activating this will increase the output size by quite a lot.
-        /// It's very rare that any of the base types (at least those that you probably serialize) will change. 
-        /// <para>Default: false</para>
-        /// </summary>
-        bool IncludeFrameworkTypes { get; set; }
-        */
-    }
-
     public interface IWarningConfig
     {
-        /// <summary>
-        /// When enabled, will throw an exception when the serializer is running with <see cref="AotMode.Enabled"/> and is about to create an instance of <see cref="DynamicFormatter"/>
-        /// <para>Default: true</para>
-        /// </summary>
-        bool ExceptionWhenUsingDynamicFormatterInAotMode { get; set; }
-
         /// <summary>
         /// When a struct is encountered that only consists of auto-properties, it will not be serialized correctly. That is because structs (by default) are serialized by their fields, but auto-properties make it so those fields become marked as 'CompilerGenerated' (preventing them from being part of the serialization).
         /// </summary>
@@ -510,47 +446,6 @@
         ForcedOverwrite = 2,
     }
 
-    [Flags]
-    public enum VersionToleranceMode
-    {
-        /// <summary>
-        /// No version tolerance, any name or type change in any serialized type changes will be a breaking change
-        /// </summary>
-        Disabled = 0,
-
-        /// <summary>
-        /// Embed member names and sizes. The most common way version tolerance is implemented.
-        /// This mode is equivalent to how version-tolerant most other formats are, for example Json, Xml, and MessagePack all have the same "depth" of version tolerance as this mode.
-        /// 
-        /// <para>
-        /// This makes the serialized data robust against: renaming members, removing members, adding new members!
-        /// </para>
-        /// <para>
-        /// This does not help against: renaming types themselves, changing the type of a member while keeping the name (you'd need to rename the member so it won't conflict with any old data).
-        /// </para>
-        ///
-        /// <para>
-        /// In order to find and map members again after their name has changed, you need to place the [PreviousName].
-        /// </para>
-        ///
-        /// <para>
-        /// To get resistance against type-name-changes use the Extended mode (not yet implemented, contact me on GitHub or Discord if you have a need for it)
-        /// </para>
-        /// </summary>
-        Standard = 1,
-
-        /// <summary>
-        /// In addition to the <see cref="Standard"/> mode, this also embeds the type names of serialized objects, as well as the types of the members.
-        /// <para>
-        /// As far as tolerance to changes goes, this mode is literally as good as it gets. Every relevant bit of information is encoded, and old data is converted/upgraded by calling your conversion functions.
-        /// </para>
-        /// <para>
-        /// Warning: This mode is not implemented yet as it's still a bit unclear how users would prefer the conversion process to look like. Get in contact on GitHub or Discord if you need this mode.
-        /// </para>
-        /// </summary>
-        Extended = 2,
-    }
-
     public delegate IFormatter FormatterResolverCallback(CerasSerializer ceras, Type typeToBeFormatted);
 
     public enum BitmapMode
@@ -559,18 +454,6 @@
         SaveAsBmp = 1,
         SaveAsPng = 2,
         SaveAsJpg = 3,
-    }
-
-    public enum AotMode
-    {
-        /// <summary>
-        /// The default mode, don't do anything special for compatibility with AoT runtimes
-        /// </summary>
-        None,
-        /// <summary>
-        /// Enable AoT mode, which disables all dynamic code-gen and instead uses fallback methods.
-        /// </summary>
-        Enabled,
     }
 
     public interface ISavegameConfig

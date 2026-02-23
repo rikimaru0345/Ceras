@@ -99,8 +99,6 @@ namespace Ceras
             if (config != null && !config.Claim(this)) throw new CerasException("SerializerConfig already in use");
             Config = config ?? new SerializerConfig();
             if (Config.ExternalObjectResolver == null) Config.ExternalObjectResolver = new ErrorResolver();
-            if (Config.Advanced.UseReinterpretFormatter && Config.VersionTolerance.Mode != VersionToleranceMode.Disabled) throw new NotSupportedException("Reinterpret + VersionTolerance not supported");
-            if (Config.Advanced.AotMode != AotMode.None && Config.VersionTolerance.Mode != VersionToleranceMode.Disabled) throw new NotSupportedException("AOT + VersionTolerance not supported");
             TypeBinder = Config.Advanced.TypeBinder;
             DiscardObjectMethod = Config.Advanced.DiscardObjectMethod;
             _userResolvers = Config.OnResolveFormatter.ToArray();
@@ -123,7 +121,6 @@ namespace Ceras
             SetFormatters(runtimeType, typeFormatter, typeFormatter);
             _resolvers.Add(new ReflectionFormatterResolver(this));
             _dynamicResolver = new DynamicObjectFormatterResolver(this);
-            _resolvers.Add(new ExpressionFormatterResolver(this));
 
             _knownTypes = Config.KnownTypes.ToArray();
 
@@ -270,8 +267,8 @@ namespace Ceras
             var meta = GetTypeMetaData(type);
             if (meta.Type.IsValueType) return GetSpecificFormatter(type, meta);
             if (meta.ReferenceFormatter != null) return meta.ReferenceFormatter;
-            bool isType = typeof(Type).IsAssignableFrom(type), isExternal = typeof(IExternalRootObject).IsAssignableFrom(type), isVT = Config.VersionTolerance.Mode != VersionToleranceMode.Disabled;
-            var refFormatterType = (type.IsSealed && !isType && !isExternal && !isVT) ? typeof(ReferenceFormatter_KnownSealedType<>).MakeGenericType(type) : typeof(ReferenceFormatter<>).MakeGenericType(type);
+            bool isType = typeof(Type).IsAssignableFrom(type), isExternal = typeof(IExternalRootObject).IsAssignableFrom(type);
+            var refFormatterType = (type.IsSealed && !isType && !isExternal) ? typeof(ReferenceFormatter_KnownSealedType<>).MakeGenericType(type) : typeof(ReferenceFormatter<>).MakeGenericType(type);
             return meta.ReferenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
         }
 
@@ -290,7 +287,7 @@ namespace Ceras
 
         internal TypeMetaData GetTypeMetaData(Type type) { ref var meta = ref _metaData.GetOrAddValueRef(type); return meta ?? CreateMetaData(type, false); }
         internal TypeMetaData GetStaticTypeMetaData(Type type) { ref var meta = ref _staticMetaData.GetOrAddValueRef(type); return meta ?? CreateMetaData(type, true); }
-        TypeMetaData CreateMetaData(Type type, bool isStatic) { var dict = isStatic ? _staticMetaData : _metaData; ref var meta = ref dict.GetOrAddValueRef(type); if (meta != null) return meta; BannedTypes.ThrowIfBanned(type); bool isPrim = IsPrimitiveType(type), isFrame = _frameworkAssemblies.Contains(type.Assembly); meta = new TypeMetaData(type, isPrim ? null : Config.GetTypeConfig(type, isStatic), isFrame, isPrim); if (!isPrim) meta.CurrentSchema = meta.PrimarySchema = CreatePrimarySchema(type, isStatic); return meta; }
+        TypeMetaData CreateMetaData(Type type, bool isStatic) { var dict = isStatic ? _staticMetaData : _metaData; ref var meta = ref dict.GetOrAddValueRef(type); if (meta != null) return meta; BannedTypes.ThrowIfBanned(type); bool isPrim = IsPrimitiveType(type), isFrame = _frameworkAssemblies.Contains(type.Assembly); meta = new TypeMetaData(type, isPrim ? null : Config.GetTypeConfig(type, isStatic), isFrame, isPrim); return meta; }
 
         void PrepareFormatter(IFormatter formatter)
         {
@@ -329,11 +326,6 @@ namespace Ceras
             void SafeInject(object f, FieldInfo field, object value) { var ev = field.GetValue(f); if (ev == null) field.SetValue(f, value); else if (!ReferenceEquals(ev, value)) throw new InvalidOperationException("Injection conflict"); }
         }
 
-        internal void ActivateSchemaOverride(Type type, Schema schema) { var meta = GetTypeMetaData(type); if (Equals(meta.CurrentSchema, schema)) return; meta.CurrentSchema = schema; GetSpecificFormatter(type, meta); for (int i = 0; i < meta.OnSchemaChangeTargets.Count; i++) meta.OnSchemaChangeTargets[i].OnSchemaChanged(meta); }
-        internal void EnsurePrimarySchema(Type type) { var meta = GetTypeMetaData(type); if (!meta.CurrentSchema.IsPrimary) ActivateSchemaOverride(type, meta.PrimarySchema); }
-        Schema CreatePrimarySchema(Type type, bool isStatic) { if (IsPrimitiveType(type) || type.IsAbstract() || type.IsInterface || type.ContainsGenericParameters) return null; var tc = Config.GetTypeConfig(type, isStatic); tc.Seal(); var s = new Schema(true, type, tc, isStatic); foreach (var mc in tc._allMembers) if (mc.ComputeFinalInclusionFast()) s.Members.Add(new SchemaMember(mc.PersistentName, mc.Member, mc.WriteBackOrder)); s.Members.Sort(SchemaMemberComparer.Instance); return s; }
-        internal Schema ReadSchema(byte[] buffer, ref int offset, Type type, bool isStatic) { var meta = GetTypeMetaData(type); if (meta.IsPrimitive) throw new InvalidOperationException("No schema for primitive"); var tc = Config.GetTypeConfig(type, isStatic); var s = new Schema(false, type, tc, isStatic); int count = 0; var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset); var reader = new SequenceReader<byte>(seq); count = SerializerBinary.ReadInt32(ref reader); for (int i = 0; i < count; i++) { var name = SerializerBinary.ReadString(ref reader); var m = Schema.FindMemberInType(type, name, isStatic); if (m == null) s.Members.Add(new SchemaMember(name)); else s.Members.Add(new SchemaMember(name, m, tc.GetMemberConfig(m).WriteBackOrder)); } offset += (int)reader.Consumed; var secondaries = meta.SecondarySchemata; int idx = secondaries.IndexOf(s); if (idx == -1) { secondaries.Add(s); return s; } return secondaries[idx]; }
-        internal static void WriteSchema(ref byte[] buffer, ref int offset, Schema schema) { if (!schema.IsPrimary) throw new InvalidOperationException("Not primary"); var members = schema.Members; var writer = new FixedArrayBufferWriter(buffer, offset); SerializerBinary.WriteInt32(writer, members.Count); for (int i = 0; i < members.Count; i++) SerializerBinary.WriteString(writer, members[i].PersistentName); buffer = writer.Buffer; offset = writer.Offset; }
         public string GenerateSerializationDebugReport(Type type) { if (IsPrimitiveType(type)) return type.FullName + " is primitive"; var tc = Config.GetTypeConfig(type, false); var inc = tc._allMembers.Where(m => m.ComputeFinalInclusionFast()).ToArray(); var exc = tc._allMembers.Where(m => !m.ComputeFinalInclusionFast()).ToArray(); string r = $"Schema report for {type.FriendlyName()}:\nSerialized:\n" + string.Join("\n", inc.Select(m => $"[{m.Member.Name}] {m.ComputeFinalInclusion().Reason}")) + "\nExcluded:\n" + string.Join("\n", exc.Select(m => $"[{m.Member.Name}] {m.ComputeFinalInclusion().Reason}")); return r; }
 
         void EnterRecursive(RecursionMode enteringMode) { _recursionDepth++; if (_recursionDepth == 1) _mode = enteringMode; else { if (_mode != enteringMode) throw new InvalidOperationException("Mixed mode recursion"); _recursionStack.Push(InstanceData); InstanceData = _instanceDataPool.RentObject(); } }
@@ -369,12 +361,8 @@ namespace Ceras
     class TypeMetaData
     {
         public readonly Type Type; public readonly bool IsFrameworkType; public readonly bool IsPrimitive;
-        public bool HasSchema => !IsPrimitive && !IsFrameworkType;
         public readonly TypeConfig TypeConfig;
         public IFormatter SpecificFormatter, ReferenceFormatter;
-        public Schema CurrentSchema, PrimarySchema;
-        public readonly List<Schema> SecondarySchemata = new List<Schema>();
-        public readonly List<ISchemaTaintedFormatter> OnSchemaChangeTargets = new List<ISchemaTaintedFormatter>();
         public StaticSerializeDelegate StaticSerialize; public StaticDeserializeDelegate StaticDeserialize;
         public TypeMetaData(Type type, TypeConfig typeConfig, bool isFrameworkType, bool isSerializationPrimitive) { Type = type; IsFrameworkType = isFrameworkType; IsPrimitive = isSerializationPrimitive; TypeConfig = typeConfig; }
     }

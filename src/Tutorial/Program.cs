@@ -19,8 +19,7 @@ namespace Tutorial
             t.Step5_CustomFormatters();
             t.Step6_NetworkExample();
             t.Step7_GameDatabase();
-            //t.Step8_DataUpgrade_OLD();
-            t.Step9_VersionTolerance();
+            t.Step8_DataUpgrade();
             t.Step10_ReadonlyHandling();
 
 

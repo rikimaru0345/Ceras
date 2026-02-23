@@ -5,6 +5,11 @@ namespace Ceras.Formatters
 
     public sealed class UriFormatter : FormatterBase<Uri>
     {
+        public UriFormatter()
+        {
+            CerasSerializer.AddFormatterConstructedType(typeof(Uri));
+        }
+
         public override void Serialize(IBufferWriter<byte> writer, Uri value)
         {
             SerializerBinary.WriteString(writer, value?.OriginalString);

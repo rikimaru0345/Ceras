@@ -43,12 +43,6 @@ namespace Ceras.Test
             x.Advanced.UseReinterpretFormatter = false;
             x.UseImmutableFormatters();
         });
-        protected Func<SerializerConfig> Config_WithVersioning => () => CreateConfig(x =>
-        {
-            x.VersionTolerance.Mode = VersionToleranceMode.Standard;
-            x.VersionTolerance.VerifySizes = true;
-            x.UseImmutableFormatters();
-        });
 
         Func<SerializerConfig>[] _currentTestConfigurations = new Func<SerializerConfig>[]
         {

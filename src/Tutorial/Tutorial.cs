@@ -507,75 +507,16 @@ namespace Tutorial
 
         }
 
-        public void Step8_DataUpgrade_OLD()
+        public void Step8_DataUpgrade()
         {
             /*
-             * So you have a settings class or something, and now you have done 3 types of changes:
-             * - removed a field
-             * - added a new field
-             * - renamed a field
-             *
-             * For now Ceras trades off versioning support for speed and binary-size, so this is not directly supported.
-             * You can still load the old data using the old class (maybe move it into a separate namepace, or an extra .dll)
-             *
-              *
-             * Note:
-             * - In a future version I'll most likely add an option to serialize
-             *   by name / integer-keys and support for automatic conversion from older formats.
-             *
-             *
-             */
-
-
-
-            // In this example I'm just using JObject (from Newtonsoft.Json) for easy editting and transfer.
-            // However you can also do it fully manually, but personally I find working with JObject pretty easy.
-            var settings = new SettingsOld { Bool1 = true, Int1 = 5, String1 = "test" };
-
-            var serializer = new CerasSerializer();
-            var oldData = serializer.Serialize(settings);
-
-            // Now we have some data in the old format
-            var oldLoaded = serializer.Deserialize<SettingsOld>(oldData);
-            JObject jObj = JObject.FromObject(oldLoaded);
-
-            // Remove Bool1
-            jObj.Remove("Bool1");
-
-            // Rename Int1 -> Int2
-            var int1 = jObj["Int1"];
-            jObj.Remove("Int1");
-            jObj["Int2"] = int1;
-
-            // Add String2
-            jObj["String2"] = "string added during data-upgrade";
-
-            var newSettings = jObj.ToObject<SettingsNew>();
-
-            var newData = serializer.Serialize(newSettings);
-        }
-
-        public void Step9_VersionTolerance()
-        {
-            /*
-             * This is like V2 of the 'DataUpgrade' section.
-             * Since then Ceras got a VersionTolerance feature which can be enabled in the config.
+             * Ceras now supports robust, version-tolerant serialization via the 'CerasSave' system.
+             * It allows for adding, removing, and renaming members while maintaining compatibility
+             * with old savegames.
              * 
-             * 
+             * For transient data (like networking), Ceras remains fast and compact,
+             * trading off versioning support for maximum performance.
              */
-
-            // todo 1: show how to use it
-
-            // todo 2: mention that any type-changes of existing fields are not supported (int X; becoming a float X; or so)
-
-            // todo 3: show how to deal with changing types (like in #8, just keep the old object around) 
-
-            // todo 4: In the future: Embed type-data and maybe a version number, so Ceras can also deal with changing types!
-            //         Advantage: Now we have perfect version tolerance, no need for any workarounds!
-            //           Disadvantage: Uses more additional space, we can't magically save more data (the member types) without using more space.
-            //           Problems: If we are asked to load an older type, and we see that a type has changed, we need the user to provide some sort of type-converter thingy.
-            //                     but we can probably do automatic conversion for all the simple stuff (int->float, ...), but maybe that's too dangerous.
-            //                     What if someone has a locale set that uses '.' and we use ',' and then "1.45" becomes 145 as int (which is ofc wrong)
         }
 
         public void Step10_ReadonlyHandling()

@@ -1,4 +1,4 @@
-﻿using Ceras.Formatters;
+using Ceras.Formatters;
 using Ceras.Helpers;
 using System;
 using System.Collections.Generic;
@@ -18,12 +18,7 @@ namespace Ceras
         internal TypeConfig TypeConfig; // Not as clean as I'd like, this can't be set from a protected base ctor, because users might eventually want to create their own
 
         internal abstract bool HasDataArguments { get; }
-        internal abstract Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen);
-
-        internal virtual void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, MemberParameterPair[] memberParameters)
-        {
-            throw new NotImplementedException("This construction type can not be used in deferred mode.");
-        }
+        internal abstract Func<object> GetRefFormatterConstructor();
 
         internal virtual void VerifyReturnType() { }
 
@@ -136,40 +131,10 @@ namespace Ceras
         ConstructNull() { }
 
         internal override bool HasDataArguments => false;
-        internal override Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen) => () => null;
+        internal override Func<object> GetRefFormatterConstructor() => () => null;
     }
 
-    abstract class MethodBaseConstruction : TypeConstruction
-    {
-        protected Expression[] GenerateArgumentExpressions(ParameterInfo[] targetMethodParameters, Schema schema, HashSet<ParameterExpression> usedVariables, MemberParameterPair[] memberParameters)
-        {
-            Expression[] finalArgExpressions = new Expression[targetMethodParameters.Length];
-
-            // Parameter -> ParameterMap -> SchemaMembers -> MemberExpression
-            for (int i = 0; i < targetMethodParameters.Length; i++)
-            {
-                var parameter = targetMethodParameters[i];
-                var sourceMember = TypeConfig.ParameterMap[parameter];
-                var schemaMember = schema.Members.First(m => m.MemberInfo == sourceMember);
-                
-                if (schemaMember.IsSkip) // Not found, or current schema does not contain this data member
-                    throw new InvalidOperationException($"Can not generate the constructor-call or call to the factory method for type '{schema.Type.FullName}'. The parameter '{parameter.Name}' is not part of the serialization / serialized data.");
-                
-                // SerializedMember -> ParameterExpression
-                var paramExp = memberParameters.First(m => m.Member == schemaMember.MemberInfo);
-
-                // Use as source in call
-                finalArgExpressions[i] = paramExp.LocalVar;
-
-                // And mark as consumed
-                usedVariables.Add(paramExp.LocalVar);
-            }
-
-            return finalArgExpressions;
-        }
-    }
-
-    class SpecificConstructor : MethodBaseConstruction
+    class SpecificConstructor : TypeConstruction
     {
         internal ConstructorInfo Constructor;
 
@@ -179,26 +144,17 @@ namespace Ceras
         }
 
         internal override bool HasDataArguments => Constructor.GetParameters().Length > 0;
-        internal override Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen)
+        internal override Func<object> GetRefFormatterConstructor()
         {
             var ctor = Constructor;
-            return () => Ceras.Helpers.ReflectionHelper.Invoke(ctor, null);
-        }
-
-        internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
-        {
-            var parameters = Constructor.GetParameters();
-            var args = GenerateArgumentExpressions(parameters, schema, usedVariables, memberParameters);
-
-            var invocation = Expression.Assign(refValueArg, Expression.New(Constructor, args));
-            body.Add(invocation);
+            return () => ctor.Invoke(null);
         }
 
         internal override void VerifyReturnType() => VerifyMethodReturn(Constructor);
         internal override void VerifyParameterMapping() => VerifyParameterMapping(Constructor);
     }
 
-    class ConstructByMethod : MethodBaseConstruction
+    class ConstructByMethod : TypeConstruction
     {
         internal readonly MethodInfo Method;
         internal readonly object TargetObject;
@@ -224,26 +180,12 @@ namespace Ceras
 
 
         internal override bool HasDataArguments => Method.GetParameters().Length > 0;
-        internal override Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen)
+        internal override Func<object> GetRefFormatterConstructor()
         {
             if (Method.IsStatic)
-                return (Func<object>)Delegate.CreateDelegate(typeof(Func<object>), Method);
+                return () => Method.Invoke(null, null);
             else
-                return (Func<object>)Delegate.CreateDelegate(typeof(Func<object>), TargetObject, Method);
-        }
-
-        internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, Formatters.MemberParameterPair[] memberParameters)
-        {
-            var parameters = Method.GetParameters();
-            var args = GenerateArgumentExpressions(parameters, schema, usedVariables, memberParameters);
-
-            Expression invocation;
-            if (Method.IsStatic)
-                invocation = Expression.Assign(refValueArg, Expression.Call(Method, args));
-            else
-                invocation = Expression.Assign(refValueArg, Expression.Call(instance: Expression.Constant(TargetObject), method: Method, args));
-
-            body.Add(invocation);
+                return () => Method.Invoke(TargetObject, null);
         }
 
         internal override void VerifyReturnType() => VerifyMethodReturn(Method);
@@ -252,14 +194,11 @@ namespace Ceras
 
     class UninitializedObject : TypeConstruction
     {
-        // todo: cool ideas:
-        // - after constructing an uninitialized object we can do some trickery to run any ctor on it afterwards
-        // - and maybe after the ctor we'd overwrite some members again (if the ctor messed something up)
         ConstructorInfo _directConstructor;
 
         internal override bool HasDataArguments => _directConstructor != null && _directConstructor.GetParameters().Length > 0;
 
-        internal override Func<object> GetRefFormatterConstructor(bool allowDynamicCodeGen)
+        internal override Func<object> GetRefFormatterConstructor()
         {
             var t = TypeConfig.Type;
             return () => RuntimeHelpers.GetUninitializedObject(t);
@@ -271,28 +210,5 @@ namespace Ceras
                 if (_directConstructor.DeclaringType != base.TypeConfig.Type)
                     throw new InvalidOperationException($"The given constructor is not part of the type '{base.TypeConfig.Type.FullName}'");
         }
-
-        internal override void EmitConstruction(Schema schema, List<Expression> body, ParameterExpression refValueArg, HashSet<ParameterExpression> usedVariables, MemberParameterPair[] memberParameters)
-        {
-            throw new NotImplementedException("running a ctor or factory is not yet supported in this mode");
-        }
-
     }
-
-    // todo: a construction method that expects an object to be already present but then runs a given ctor anyway. Maybe also resetting all members and private vars to 'default(T)' ?
-    abstract class ResetAndReuse : TypeConstruction
-    {
-        // option: load data from existing object into locals
-        // option: reset all fields to default (including compiler generated), in definition order
-        // option: call a specific ctor
-        // option: write selected members again after calling the ctor
-    }
-
-    // todo: combines two construct methods. For example something that can somehow reuse an existing object, or fallback to somehow creating a new object when needed
-    abstract class CoalesceConstruction : TypeConstruction
-    {
-        // Try reuse (overwrite, reset, direct-ctor, ...)
-        // Or create custom (new(), factory, ...)
-    }
-
 }

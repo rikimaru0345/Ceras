@@ -156,26 +156,6 @@ namespace Ceras.Test
 
             Assert.Equal(4, context.Counter);
         }
-
-        [Fact]
-        public void WarnUserAgainstPropertyStruct()
-        {
-            Assert.Throws<WarningException>(() =>
-            {
-                var config = new SerializerConfig();
-                config.VersionTolerance.Mode = VersionToleranceMode.Standard;
-
-                var tc = config.ConfigType<PropertyStruct>();
-
-                CerasSerializer ceras = new CerasSerializer(config);
-                var obj = new PropertyStruct();
-                obj.DeviceAddress = 1235;
-                obj.SwitchId = 45454545;
-
-                var data = ceras.Serialize(obj);
-                var clone = ceras.Deserialize<PropertyStruct>(data);
-            });
-        }
     }
 
     class NormalClass

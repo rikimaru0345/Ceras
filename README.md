@@ -36,7 +36,6 @@ var bytes = ceras.Serialize(p);
 - **Full** support for polymorphism / inheritance / interfaces
 - Can serialize objects into parts as "ExtenalObjects" (useful in many many scenarios)
 - **New: Specialized Savegame Format** with version-tolerance, string interning, and schema-based migration.
-- Automatic version-tolerance, no need to place any attributes on your classes!
 - ***[full feature list (and planned features)](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)***
 
 ## Savegame Format (Version Tolerant)
@@ -171,8 +170,8 @@ This replaces the old external AotGenerator tool and works automatically — no 
 | Scenario | DynamicFormatter (default) | Source Generator |
 |---|---|---|
 | Normal .NET desktop/server | ✅ works out of the box | optional (slightly faster startup) |
-| Unity IL2CPP / iOS / AOT | ❌ crashes at runtime | ✅ required |
-| NativeAOT (`dotnet publish`) | ❌ crashes at runtime | ✅ required |
+| Unity IL2CPP / iOS / AOT | ✅ works (reflection fallback) | ✅ recommended (faster) |
+| NativeAOT (`dotnet publish`) | ✅ works (reflection fallback) | ✅ recommended (faster) |
 
 ### Quick setup (2 steps)
 
@@ -208,13 +207,6 @@ public class Player
 
 The generated formatters produce **byte-identical output** to the runtime `DynamicFormatter`, so serialized data is fully interchangeable.
 
-### AOT-only mode (Default)
-
-Starting with v4.2, `config.Advanced.AotMode` defaults to `Enabled`. This means:
-- Ceras will use its built-in **AOT interpreter** for types without generated formatters.
-- This interpreter is significantly faster than reflection and works on no-jit platforms (iOS, IL2CPP).
-- For maximum performance, you should still use `[GenerateFormatter]` on your most important types.
-
 ### Viewing and Debugging Generated Code
 
 Source generators run during compilation, and their output isn't always visible in your file explorer. Here is how to see what Ceras is writing:
@@ -248,7 +240,7 @@ For polymorphic scenarios (serializing an interface or base-class field whose co
 ```
 
 If a concrete type is only known at runtime (e.g. loaded from a plugin assembly), it cannot be source-generated. In that case you have two options:
-- Keep `AotMode = AotMode.None` (the default) so `DynamicFormatter` handles those types as a fallback — only viable on JIT platforms.
+- Let `DynamicFormatter` handle those types as a fallback (uses reflection).
 - Write a hand-crafted `IFormatter<T>` and register it via `config.ConfigType<T>().CustomFormatter = new MyFormatter();`.
 
 # Support

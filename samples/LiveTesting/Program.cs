@@ -392,7 +392,6 @@ namespace LiveTesting
 
 
             new Ceras.Test.BuiltInTypes().MultidimensionalArrays();
-            new Ceras.Test.VersionTolerance().EmulatorCanReadSchemaData();
 
             RuntimeColorTest();
 
@@ -418,8 +417,6 @@ namespace LiveTesting
             EnsureSealedTypesThrowsException();
 
             InjectSpecificFormatterTest();
-
-            VersionToleranceTest();
 
             ReadonlyTest();
 
@@ -553,37 +550,6 @@ namespace LiveTesting
 
         }
 
-        /*
-        static void ConvertDynamicFormatterToString()
-        {
-            var ceras = new CerasSerializer();
-            var personFormatter = (DynamicFormatter<Person>)ceras.GetSpecificFormatter(typeof(Person));
-
-            var schema = ceras.GetTypeMetaData(typeof(Person)).PrimarySchema;
-
-            var normalDeserializer = DynamicFormatter<Person>.GenerateDeserializer(ceras, schema, false, false);
-            var schemaDeserializer = DynamicFormatter<Person>.GenerateDeserializer(ceras, schema, true, false);
-
-            // wtf:
-            // ReferenceFormatter<Person>.Deserialize 
-            // value.set_Health(...);
-
-            Func<TranslationSettings, TranslationSettings> configuration = s
-                => s.ConvertPropertyMethods
-                .NameConstantsUsing(constant =>
-                {
-                    var formattedType = constant.Type.FindClosedArg(typeof(IFormatter<>));
-                    if(formattedType == null) return null;
-
-                    return "_" + formattedType.FriendlyName(false) + "Formatter";
-                });
-
-
-            var normalCode = normalDeserializer.ToReadableString(configuration);
-            var schemaCode = schemaDeserializer.ToReadableString(configuration);
-        }
-        */
-
         static void Benchmarks()
         {
             // Benchmark_DynamicMethod();
@@ -605,7 +571,6 @@ namespace LiveTesting
             //BenchmarkRunner.Run<MergeBlittingBenchmarks>(config);
             //BenchmarkRunner.Run<Feature_MreRefs_Benchmarks>(config);
             //BenchmarkRunner.Run<SerializerComparisonBenchmarks>(config);
-            //BenchmarkRunner.Run<ConstantsInGenericContainerBenchmarks>(config);
 
 
 
@@ -1468,46 +1433,6 @@ namespace LiveTesting
             Debug.Assert(c.TestStruct == cloneContainer.TestStruct);
         }
 
-        static void VersionToleranceTest()
-        {
-            var config = new SerializerConfig();
-            config.VersionTolerance.Mode = VersionToleranceMode.Standard;
-            config.VersionTolerance.VerifySizes = true;
-
-            config.Advanced.TypeBinder = new DebugVersionTypeBinder();
-
-            // We are using a new ceras instance every time.
-            // We want to make sure that no caching is going on.
-            // todo: we have to run the same tests with only one instance to test the opposite, which is that cached stuff won't get in the way!
-
-            var v1 = new VersionTest1 { A = 33, B = 34, C = 36 };
-            var v2 = new VersionTest2 { A = -3, C2 = -6, D = -7 };
-
-            var v1Data = (new CerasSerializer(config)).Serialize(v1);
-            v1Data.VisualizePrint("data with version tolerance");
-            (new CerasSerializer(config)).Deserialize<VersionTest2>(ref v2, v1Data);
-
-            Debug.Assert(v1.A == v2.A, "normal prop did not persist");
-            Debug.Assert(v1.C == v2.C2, "expected prop 'C2' to be populated by prop previously named 'C'");
-
-
-            // Everything should work the same way when forcing serialization to <object>
-            var v1DataAsObj = (new CerasSerializer(config)).Serialize<object>(v1);
-            v1DataAsObj.VisualizePrint("data with version tolerance (as object)");
-            var v1Clone = (new CerasSerializer(config)).Deserialize<object>(v1DataAsObj);
-
-            var v1CloneCasted = v1Clone as VersionTest2;
-            Debug.Assert(v1CloneCasted != null, "expected deserialized object to have changed to the newer type");
-            Debug.Assert(v1CloneCasted.A == v1.A, "expected A to stay the same");
-            Debug.Assert(v1CloneCasted.C2 == v1.C, "expected C to be transferred to C2");
-            Debug.Assert(v1CloneCasted.D == new VersionTest2().D, "expected D to have the default value");
-
-
-            // todo: we have to add a test for the case when we read some old data, and the root object has not changed (so it's still the same as always), but a child object has changed
-            // todo: test the case where a user-value-type is a field in some root object, and while reading the schema changes (because are reading old data), an exception is expected/wanted
-            // todo: test reading multiple different old serializations in random order; each one encoding a different version of the object; 
-        }
-
         static void WrongRefTypeTest()
         {
             var ceras = new CerasSerializer();
@@ -1916,63 +1841,6 @@ namespace LiveTesting
             da.Save(fileName);
 #endif
         }
-    }
-
-
-    class DebugVersionTypeBinder : ITypeBinder
-    {
-        Dictionary<Type, string> _commonNames = new Dictionary<Type, string>
-        {
-                { typeof(VersionTest1), "*" },
-                { typeof(VersionTest2), "*" }
-        };
-
-        SimpleTypeBinder _simpleTypeBinder = new SimpleTypeBinder();
-
-        public string GetBaseName(Type type)
-        {
-            if (_commonNames.TryGetValue(type, out string v))
-                return v;
-
-            return _simpleTypeBinder.GetBaseName(type);
-        }
-
-        public Type GetTypeFromBase(string baseTypeName)
-        {
-            // While reading, we want to resolve to 'VersionTest2'
-            // So we can simulate that the type changed.
-            if (_commonNames.ContainsValue(baseTypeName))
-                return typeof(VersionTest2);
-
-            return _simpleTypeBinder.GetTypeFromBase(baseTypeName);
-        }
-
-        public Type GetTypeFromBaseAndArguments(string baseTypeName, params Type[] genericTypeArguments)
-        {
-            throw new NotSupportedException("this binder is only for debugging");
-            // return SimpleTypeBinderHelper.GetTypeFromBaseAndAgruments(baseTypeName, genericTypeArguments);
-        }
-    }
-
-    class VersionTest1
-    {
-        public int A = -11;
-        public int B = -12;
-        public int C = -13;
-    }
-    class VersionTest2
-    {
-        // A stays as it is
-        public int A = 50;
-
-        // B got removed
-        // --
-
-        [PreviousName("C", "C2")]
-        public int C2 = 52;
-
-        // D is new
-        public int D = 53;
     }
 
 
