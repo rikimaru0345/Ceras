@@ -268,8 +268,12 @@ namespace Ceras
     /// The source generator will emit an <c>IFormatter&lt;T&gt;</c> implementation and include it in
     /// <c>Ceras.Generated.GeneratedFormatters.UseFormatters(config)</c>.
     /// This replaces the old AotGenerator tool and is required for IL2CPP / AOT platforms.
+    ///
+    /// When placed on an interface or abstract class with <see cref="DiscoverSubtypes"/> = true,
+    /// the source generator automatically discovers every non-abstract type in the compilation
+    /// that implements or inherits from it and generates formatters for all of them.
     /// </summary>
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum)]
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum | AttributeTargets.Interface)]
     public class GenerateFormatterAttribute : Attribute
     {
         /// <summary>The stable name used in the binary schema. Defaults to the simple class name.</summary>
@@ -281,6 +285,14 @@ namespace Ceras
         /// format's version-tolerance (add/remove/rename fields across game updates).
         /// </summary>
         public bool VersionTolerant { get; set; }
+
+        /// <summary>
+        /// When true (and placed on an interface or abstract/base class), the source generator
+        /// scans the entire compilation and automatically generates formatters for every
+        /// non-abstract concrete type that implements or extends the marked type.
+        /// The <see cref="VersionTolerant"/> flag is inherited by all discovered subtypes.
+        /// </summary>
+        public bool DiscoverSubtypes { get; set; }
 
         public GenerateFormatterAttribute(string stableName = null)
         {
