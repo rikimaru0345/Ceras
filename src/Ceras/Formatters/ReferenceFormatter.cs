@@ -102,7 +102,7 @@ namespace Ceras.Formatters
             return entry;
         }
 
-        Func<object> CreateObjectConstructor(Type type) { if (type.IsArray) return () => null; if (CerasSerializer.IsFormatterConstructed(type) || type.IsValueType) return () => null; var tc = _ceras.Config.GetTypeConfig(type, false).TypeConstruction; if (tc == null) throw new InvalidOperationException($"No ctor for '{type.FullName}'"); if (tc.HasDataArguments || tc is ConstructNull) return () => null; return tc.GetRefFormatterConstructor(false); }
+        Func<object> CreateObjectConstructor(Type type) { if (type.IsArray) return () => null; if (CerasSerializer.IsFormatterConstructed(type) || type.IsValueType) return () => null; var tc = _ceras.Config.GetTypeConfig(type, false).TypeConstruction; if (tc == null) throw new InvalidOperationException($"No ctor for '{type.FullName}'"); if (tc.HasDataArguments || tc is ConstructNull) return () => null; return tc.GetRefFormatterConstructor(); }
         static SerializeDelegate<T> CreateSpecificSerializerDispatcher(Type type, IFormatter specificFormatter)
         {
             var method = specificFormatter.GetType().ResolveSerializeMethod(type);
@@ -173,7 +173,7 @@ namespace Ceras.Formatters
                 var tc = _ceras.Config.GetTypeConfig(type, false).TypeConstruction;
                 if (tc == null) throw new InvalidOperationException($"No ctor for '{type.FullName}'");
                 if (tc.HasDataArguments || tc is ConstructNull) _constructor = () => null;
-                else _constructor = tc.GetRefFormatterConstructor(false);
+                else _constructor = tc.GetRefFormatterConstructor();
             }
         }
         

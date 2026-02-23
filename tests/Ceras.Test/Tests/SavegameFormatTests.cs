@@ -3,11 +3,22 @@ using System.Collections.Generic;
 using Ceras;
 using Ceras.Generated;
 using Ceras.Savegame;
-using Ceras.Test.Migration;
 using Xunit;
 
 namespace Ceras.Test
 {
+    public enum StateEnum { Off, On }
+
+    public class HeroWithEnum
+    {
+        public StateEnum State;
+    }
+
+    public class HeroWithList
+    {
+        public List<int> Scores;
+    }
+
     public class SavegameFormatTests : TestBase
     {
         CerasSerializer CreateSerializer()

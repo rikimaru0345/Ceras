@@ -13,14 +13,5 @@ namespace Ceras.Helpers
 
             return false;
         }
-
-        public static bool IsSchemaDynamicFormatter(Type formatterType)
-        {
-            if (formatterType.IsGenericType)
-                if (formatterType.GetGenericTypeDefinition().Name == typeof(SchemaDynamicFormatter<int>).GetGenericTypeDefinition().Name)
-                    return true;
-
-            return false;
-        }
     }
 }

@@ -233,7 +233,13 @@ namespace Ceras.Test
             Assert.Equal(dynamicCeras.Serialize(obj), generatedCeras.Serialize(obj));
         }
     }
-}
+
+    /// <summary>
+    /// Hand-written IFormatter for Item — used in the mixed-approach test to
+    /// demonstrate that you can selectively opt types into generated formatting
+    /// without using the auto-generated class directly.
+    /// </summary>
+    internal sealed class Ceras_Test_ItemFormatter : FormatterBase<Item>
     {
         IFormatter<string>     _stringFormatter;
         IFormatter<int>        _intFormatter;
