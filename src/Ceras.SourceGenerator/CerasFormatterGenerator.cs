@@ -305,6 +305,12 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             // CERAS009: duplicate stable wire names
             ValidateDuplicateWireNames(context, type, members);
 
+            // CERAS010: partial requirement for private members
+            ValidatePartialRequirement(context, type, members);
+
+            // Emit partial class with access helpers for private members
+            WritePartialClassHelper(context, type, members);
+
             // Use the VT flag from the expanded dict (which inherits from DiscoverSubtypes roots)
             // rather than re-checking only the type's own attribute.
             bool typeVt = expanded[type];
@@ -446,11 +452,10 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
                 if (hasExclude) continue;
 
-                // Generated formatters are in a separate class; they cannot access private members.
-                // Users must declare fields/properties as internal or public to be serializable.
-                if (member.DeclaredAccessibility == Accessibility.Private ||
-                    member.DeclaredAccessibility == Accessibility.Protected)
-                    continue;
+                // Generated formatters are in a separate class; they can only access Public and Internal members.
+                // Private and Protected members require the class to be 'partial' so we can inject a helper.
+                bool isAccessible = member.DeclaredAccessibility == Accessibility.Public ||
+                                    member.DeclaredAccessibility == Accessibility.Internal;
 
                 if (member is IFieldSymbol field)
                 {
@@ -478,10 +483,10 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                     }
                     else
                     {
-                        // Skip properties whose setter is not accessible (private/protected) —
-                        // generated code cannot call them.
-                        if (prop.SetMethod!.DeclaredAccessibility != Accessibility.Public
-                            && prop.SetMethod.DeclaredAccessibility != Accessibility.Internal)
+                        // Skip properties whose setter is not accessible (private/protected) 
+                        // UNLESS we can use the partial class trick.
+                        // For now, if it's not accessible and not explicitly included, skip it.
+                        if (!isAccessible && !hasInclude && !IsPropertyIncluded(prop, currentTargetKind))
                             continue;
                     }
 
@@ -533,7 +538,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                         members[idx] = new SerializedMember(
                             existing.Name, existing.StableName, existing.Type,
                             existing.IsField, existing.PreviousNames, existing.IsMonomorphic,
-                            existing.IsGetterOnly, isCtorParam: true, ctorParamName: param.Name);
+                            existing.IsAccessible, existing.IsGetterOnly, isCtorParam: true, 
+                            ctorParamName: param.Name);
                     }
                     else
                     {
@@ -570,10 +576,13 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                         if (found != null && foundType != null)
                         {
                             bool mono = IsMonomorphicByDefault(foundType);
+                            bool isAcc = found.DeclaredAccessibility == Accessibility.Public ||
+                                         found.DeclaredAccessibility == Accessibility.Internal;
+
                             // StableName = param.Name for wire format; CtorParamName = param.Name for named-arg call.
                             members.Add(new SerializedMember(
                                 found.Name, param.Name, foundType, foundIsField,
-                                Array.Empty<string>(), mono,
+                                Array.Empty<string>(), mono, isAcc,
                                 isGetterOnly: false, isCtorParam: true, ctorParamName: param.Name));
                             memberByNorm[normParam] = members.Count - 1;
                         }
@@ -593,6 +602,20 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         });
 
         return members;
+    }
+
+    static bool IsPartial(INamedTypeSymbol type)
+    {
+        foreach (var syntaxRef in type.DeclaringSyntaxReferences)
+        {
+            var syntax = syntaxRef.GetSyntax();
+            if (syntax is TypeDeclarationSyntax typeDecl)
+            {
+                if (typeDecl.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword)))
+                    return true;
+            }
+        }
+        return false;
     }
 
     static bool IsCollectionType(ITypeSymbol type)
@@ -662,8 +685,35 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         if (attrs.Polymorphic != null && HasAttribute(symbol, attrs.Polymorphic))
             isMonomorphic = false;
 
+        // Accessibility detection: generated formatters (in Ceras.Generated) 
+        // can only access Public and Internal members.
+        bool isAccessible = symbol.DeclaredAccessibility == Accessibility.Public ||
+                            symbol.DeclaredAccessibility == Accessibility.Internal;
+
+        if (symbol is IPropertySymbol prop)
+        {
+            // Getter must be accessible
+            bool getterAcc = prop.GetMethod != null &&
+                             (prop.GetMethod.DeclaredAccessibility == Accessibility.Public ||
+                              prop.GetMethod.DeclaredAccessibility == Accessibility.Internal);
+
+            // Setter must be accessible if it exists and we're not in getter-only mode
+            bool setterAcc = true;
+            if (prop.SetMethod != null)
+            {
+                setterAcc = prop.SetMethod.DeclaredAccessibility == Accessibility.Public ||
+                            prop.SetMethod.DeclaredAccessibility == Accessibility.Internal;
+            }
+            else if (!isGetterOnly)
+            {
+                setterAcc = false;
+            }
+
+            isAccessible = getterAcc && setterAcc;
+        }
+
         return new SerializedMember(name, stableName, type, isField,
-            previousNames.ToArray(), isMonomorphic, isGetterOnly);
+            previousNames.ToArray(), isMonomorphic, isAccessible, isGetterOnly);
     }
 
     /// <summary>
@@ -761,17 +811,25 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         foreach (var m in members)
         {
             string fieldName = MakeFormatterFieldName(m.Type);
+            string memberAccess;
+            if (m.IsAccessible)
+                memberAccess = $"value.{m.Name}";
+            else if (m.IsField)
+                memberAccess = $"{typeFqn}.__ceras_ref_{m.Name}(value)";
+            else
+                memberAccess = $"{typeFqn}.__ceras_get_{m.Name}(value)";
+
             if (IsPrimitive(m.Type))
             {
                 string writeMethod = GetPrimitiveWriteMethod(m.Type);
-                string valueExp = $"value.{m.Name}";
+                string valueExp = memberAccess;
                 if (m.Type.SpecialType == SpecialType.System_Boolean)
                     valueExp = $"(byte)({valueExp} ? 1 : 0)";
                 sb.AppendLine($"            global::Ceras.SerializerBinary.{writeMethod}(writer, {valueExp});");
             }
             else
             {
-                sb.AppendLine($"            {fieldName}.Serialize(writer, value.{m.Name});");
+                sb.AppendLine($"            {fieldName}.Serialize(writer, {memberAccess});");
             }
         }
         sb.AppendLine("        }");
@@ -808,7 +866,15 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 else if (m.IsGetterOnly)
                 {
                     // Getter-only collection ctor param: read into existing collection if value exists
-                    sb.AppendLine($"            if (value != null) _ctor_{m.Name} = value.{m.Name};");
+                    string memberAccess;
+                    if (m.IsAccessible)
+                        memberAccess = $"value.{m.Name}";
+                    else if (m.IsField)
+                        memberAccess = $"{typeFqn}.__ceras_ref_{m.Name}(value)";
+                    else
+                        memberAccess = $"{typeFqn}.__ceras_get_{m.Name}(value)";
+
+                    sb.AppendLine($"            if (value != null) _ctor_{m.Name} = {memberAccess};");
                     sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref _ctor_{m.Name});");
                 }
                 else if (m.IsField)
@@ -832,69 +898,94 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             string ctorArgs = string.Join(", ", ctorArgParts);
             sb.AppendLine($"            value = new {typeFqn}({ctorArgs});");
 
-            // Assign non-ctor-param members that need post-construction assignment.
-            foreach (var m in members.Where(m => !m.IsCtorParam))
-            {
-                if (IsPrimitive(m.Type))
-                {
-                    sb.AppendLine($"            value.{m.Name} = _ctor_{m.Name};");
-                }
-                else if (m.IsGetterOnly)
-                {
-                    // Already populated in-place above; nothing to do
-                }
-                else if (m.IsField)
-                {
-                    sb.AppendLine($"            value.{m.Name} = _ctor_{m.Name};");
-                }
+                            // Assign non-ctor-param members that need post-construction assignment.
+                            foreach (var m in members.Where(m => !m.IsCtorParam))
+                            {
+                                string memberAccess;
+                                if (m.IsAccessible)
+                                    memberAccess = $"value.{m.Name}";
+                                else if (m.IsField)
+                                    memberAccess = $"{typeFqn}.__ceras_ref_{m.Name}(value)";
+                                else
+                                    memberAccess = null; // Use set helper for properties
+                    
+                                if (IsPrimitive(m.Type))
+                                {
+                                    if (memberAccess != null)
+                                        sb.AppendLine($"            {memberAccess} = _ctor_{m.Name};");
+                                    else
+                                        sb.AppendLine($"            {typeFqn}.__ceras_set_{m.Name}(value, _ctor_{m.Name});");
+                                }
+                                else if (m.IsGetterOnly)
+                                {
+                                    // Already populated in-place above; nothing to do
+                                }
+                                else
+                                {
+                                    if (memberAccess != null)
+                                        sb.AppendLine($"            {memberAccess} = _ctor_{m.Name};");
+                                    else
+                                        sb.AppendLine($"            {typeFqn}.__ceras_set_{m.Name}(value, _ctor_{m.Name});");
+                                }
+                            }                }
                 else
                 {
-                    sb.AppendLine($"            value.{m.Name} = _ctor_{m.Name};");
-                }
-            }
-        }
-        else
-        {
-            // Normal path (no [CerasConstructor])
-            if (type.IsReferenceType)
-            {
-                sb.AppendLine($"            if (value == null) throw new global::System.InvalidOperationException($\"The instance of type '{{typeof({typeFqn}).FullName}}' was null. For types with a parameterless constructor, the instance must be provided by ReferenceFormatter.\");");
-            }
-
-            foreach (var m in members)
-            {
-                string fieldName = MakeFormatterFieldName(m.Type);
-                string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-
-                if (IsPrimitive(m.Type))
-                {
-                    string readMethod = GetPrimitiveReadMethod(m.Type);
-                    sb.AppendLine($"            value.{m.Name} = global::Ceras.SerializerBinary.{readMethod};");
-                }
-                else
-                {
-                    if (m.IsField)
+                    // Normal path (no [CerasConstructor])
+                    if (type.IsReferenceType)
                     {
-                        sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref value.{m.Name});");
+                        sb.AppendLine($"            if (value == null) throw new global::System.InvalidOperationException($\"The instance of type '{{typeof({typeFqn}).FullName}}' was null. For types with a parameterless constructor, the instance must be provided by ReferenceFormatter.\");");
                     }
-                    else if (m.IsGetterOnly)
-                    {
-                        // Getter-only collection: populate the existing instance in-place (no assignment needed)
-                        string tmp = "_m_" + m.Name;
-                        sb.AppendLine($"            {memberTypeFqn} {tmp} = value.{m.Name};");
-                        sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
-                    }
-                    else
-                    {
-                        string tmp = "_m_" + m.Name;
-                        sb.AppendLine($"            {memberTypeFqn} {tmp} = value.{m.Name};");
-                        sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
-                        sb.AppendLine($"            value.{m.Name} = {tmp};");
-                    }
-                }
-            }
-        }
-
+            
+                            foreach (var m in members)
+                            {
+                                string fieldName = MakeFormatterFieldName(m.Type);
+                                string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                string memberAccess;
+                                if (m.IsAccessible)
+                                    memberAccess = $"value.{m.Name}";
+                                else if (m.IsField)
+                                    memberAccess = $"{typeFqn}.__ceras_ref_{m.Name}(value)";
+                                else
+                                    memberAccess = null; // Use set helper for properties
+                    
+                                if (IsPrimitive(m.Type))
+                                {
+                                    string readMethod = GetPrimitiveReadMethod(m.Type);
+                                    if (memberAccess != null)
+                                        sb.AppendLine($"            {memberAccess} = global::Ceras.SerializerBinary.{readMethod};");
+                                    else
+                                        sb.AppendLine($"            {typeFqn}.__ceras_set_{m.Name}(value, global::Ceras.SerializerBinary.{readMethod});");
+                                }
+                                                else
+                                                {
+                                                    if (m.IsGetterOnly)
+                                                    {
+                                                        // Getter-only collection: populate the existing instance in-place (no assignment needed)
+                                                        string getAccess = memberAccess ?? $"{typeFqn}.__ceras_get_{m.Name}(value)";
+                                                        string tmp = "_m_" + m.Name;
+                                                        sb.AppendLine($"            {memberTypeFqn} {tmp} = {getAccess};");
+                                                        sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
+                                                    }
+                                                    else
+                                                    {
+                                                        if (m.IsField && memberAccess != null)
+                                                        {
+                                                            // Direct field access via ref
+                                                            sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {memberAccess});");
+                                                        }
+                                                        else
+                                                        {
+                                                            // Property (accessible or not) or non-accessible field: use temp var
+                                                            string getAccess = memberAccess ?? $"{typeFqn}.__ceras_get_{m.Name}(value)";
+                                                            string setStatement = memberAccess != null ? $"{memberAccess} = {{0}};" : $"{typeFqn}.__ceras_set_{m.Name}(value, {{0}});";
+                                                            
+                                                            string tmp = "_m_" + m.Name;
+                                                            sb.AppendLine($"            {memberTypeFqn} {tmp} = {getAccess};");
+                                                            sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
+                                                            sb.AppendLine($"            {string.Format(setStatement, tmp)}");
+                                                        }
+                                                    }
+                                                }                            }                }
         sb.AppendLine("        }");
 
         sb.AppendLine("    }");
@@ -1392,6 +1483,18 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         }
     }
 
+    static void ValidatePartialRequirement(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
+    {
+        bool hasPrivate = members.Any(m => !m.IsAccessible);
+        if (hasPrivate && !IsPartial(type))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                Diag.NotPartial,
+                type.Locations.FirstOrDefault(),
+                type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Fixed-byte-size computation (used for SchemaTypeInfo.FixedByteSize)
     // -------------------------------------------------------------------------
@@ -1463,6 +1566,84 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
     // -------------------------------------------------------------------------
     // Naming helpers
     // -------------------------------------------------------------------------
+
+    static void WritePartialClassHelper(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
+    {
+        var privateMembers = members.Where(m => !m.IsAccessible).ToList();
+        if (privateMembers.Count == 0) return;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("// <auto-generated/>");
+        sb.AppendLine("#nullable disable");
+        sb.AppendLine();
+
+        string? ns = type.ContainingNamespace?.IsGlobalNamespace == true ? null : type.ContainingNamespace?.ToDisplayString();
+        if (ns != null)
+        {
+            sb.AppendLine($"namespace {ns}");
+            sb.AppendLine("{");
+        }
+
+        // Handle nested types by opening each containing type as partial
+        var typeStack = new Stack<INamedTypeSymbol>();
+        var parent = type;
+        while (parent != null)
+        {
+            typeStack.Push(parent);
+            parent = parent.ContainingType;
+        }
+
+        int indent = ns != null ? 4 : 0;
+        while (typeStack.Count > 0)
+        {
+            var t = typeStack.Pop();
+            string kind = t.TypeKind == TypeKind.Struct ? "struct" : "class";
+            sb.AppendLine($"{new string(' ', indent)}partial {kind} {t.Name}");
+            sb.AppendLine($"{new string(' ', indent)}{{");
+            indent += 4;
+        }
+
+        foreach (var m in privateMembers)
+        {
+            string typeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            
+            if (m.IsField)
+            {
+                string helperName = $"__ceras_ref_{m.Name}";
+                sb.AppendLine($"{new string(' ', indent)}internal static ref {typeFqn} {helperName}({type.Name} obj)");
+                sb.AppendLine($"{new string(' ', indent)}{{");
+                sb.AppendLine($"{new string(' ', indent)}    return ref obj.{m.Name};");
+                sb.AppendLine($"{new string(' ', indent)}}}");
+            }
+            else
+            {
+                // Property helpers
+                string getHelper = $"__ceras_get_{m.Name}";
+                sb.AppendLine($"{new string(' ', indent)}internal static {typeFqn} {getHelper}({type.Name} obj) => obj.{m.Name};");
+
+                if (!m.IsGetterOnly)
+                {
+                    string setHelper = $"__ceras_set_{m.Name}";
+                    sb.AppendLine($"{new string(' ', indent)}internal static void {setHelper}({type.Name} obj, {typeFqn} value) => obj.{m.Name} = value;");
+                }
+            }
+        }
+
+        // Close all types
+        while (indent > (ns != null ? 4 : 0))
+        {
+            indent -= 4;
+            sb.AppendLine($"{new string(' ', indent)}}}");
+        }
+
+        if (ns != null)
+        {
+            sb.AppendLine("}");
+        }
+
+        string fileName = $"{SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal))}.Ceras.g.cs";
+        context.AddSource(fileName, SourceText.From(sb.ToString(), Encoding.UTF8));
+    }
 
     static string MakeFormatterClassName(INamedTypeSymbol type)
         => SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal)) + "Formatter";
@@ -1591,10 +1772,12 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         public bool IsCtorParam { get; }
         /// <summary>The exact constructor parameter name (case-sensitive) used when emitting named-argument ctor calls. Only meaningful when IsCtorParam = true.</summary>
         public string CtorParamName { get; }
+        public bool IsAccessible { get; }
 
         public SerializedMember(
             string name, string stableName, ITypeSymbol type, bool isField,
-            string[] previousNames, bool isMonomorphic, bool isGetterOnly = false,
+            string[] previousNames, bool isMonomorphic, bool isAccessible,
+            bool isGetterOnly = false,
             bool isCtorParam = false, string ctorParamName = null)
         {
             Name = name;
@@ -1603,6 +1786,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             IsField = isField;
             PreviousNames = previousNames;
             IsMonomorphic = isMonomorphic;
+            IsAccessible = isAccessible;
             IsGetterOnly = isGetterOnly;
             IsCtorParam = isCtorParam;
             CtorParamName = ctorParamName ?? stableName;
@@ -1712,5 +1896,14 @@ static class Diag
                        "Use [SerializedAs(\"uniqueName\")] on one of them to give it a distinct name.",
         category: "Ceras.SourceGenerator",
         defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor NotPartial = new(
+        id: "CERAS010",
+        title: "Type must be partial to support private member serialization",
+        messageFormat: "Type '{0}' has private or protected members marked for serialization but is not declared as 'partial'. " +
+                       "Make the type partial so Ceras can inject access helpers for these members.",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 }
