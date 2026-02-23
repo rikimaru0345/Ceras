@@ -5,17 +5,17 @@
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.TestDebugger")]
 namespace Ceras
 {
-	using System;
-	using System.Buffers;
-	using System.Collections.Generic;
-	using System.Linq;
-	using System.Reflection;
-	using System.Text;
-	using System.IO;
-	using System.Threading.Tasks;
+    using System;
+    using System.Buffers;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Reflection;
+    using System.Text;
+    using System.IO;
+    using System.Threading.Tasks;
 
-	public class CerasSerializer : ICerasAdvanced
-	{
+    public class CerasSerializer : ICerasAdvanced
+    {
         internal static readonly Type _rtTypeType, _rtFieldType, _rtPropType, _rtCtorType, _rtMethodType;
         static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
 

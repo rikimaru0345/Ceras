@@ -15,15 +15,15 @@ namespace Ceras.SourceGenerator;
 [Generator]
 public sealed class CerasFormatterGenerator : IIncrementalGenerator
 {
-    const string GenerateFormatterFqn  = "Ceras.GenerateFormatterAttribute";
-    const string IncludeFqn            = "Ceras.IncludeAttribute";
-    const string ExcludeFqn            = "Ceras.ExcludeAttribute";
-    const string MemberConfigFqn       = "Ceras.MemberConfigAttribute";
-    const string PreviousNameFqn       = "Ceras.PreviousNameAttribute";
-    const string PreviousTypeNameFqn   = "Ceras.PreviousTypeNameAttribute";
-    const string SerializedAsFqn       = "Ceras.SerializedAsAttribute";
-    const string MonomorphicFqn        = "Ceras.MonomorphicAttribute";
-    const string PolymorphicFqn        = "Ceras.PolymorphicAttribute";
+    const string GenerateFormatterFqn = "Ceras.GenerateFormatterAttribute";
+    const string IncludeFqn = "Ceras.IncludeAttribute";
+    const string ExcludeFqn = "Ceras.ExcludeAttribute";
+    const string MemberConfigFqn = "Ceras.MemberConfigAttribute";
+    const string PreviousNameFqn = "Ceras.PreviousNameAttribute";
+    const string PreviousTypeNameFqn = "Ceras.PreviousTypeNameAttribute";
+    const string SerializedAsFqn = "Ceras.SerializedAsAttribute";
+    const string MonomorphicFqn = "Ceras.MonomorphicAttribute";
+    const string PolymorphicFqn = "Ceras.PolymorphicAttribute";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -91,21 +91,21 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         ImmutableArray<INamedTypeSymbol> types)
     {
         // Resolve attribute symbols once
-        var includeAttr        = compilation.GetTypeByMetadataName(IncludeFqn);
-        var excludeAttr        = compilation.GetTypeByMetadataName(ExcludeFqn);
-        var memberConfigAttr   = compilation.GetTypeByMetadataName(MemberConfigFqn);
-        var previousNameAttr   = compilation.GetTypeByMetadataName(PreviousNameFqn);
-        var previousTypeAttr   = compilation.GetTypeByMetadataName(PreviousTypeNameFqn);
-        var serializedAsAttr   = compilation.GetTypeByMetadataName(SerializedAsFqn);
-        var monomorphicAttr    = compilation.GetTypeByMetadataName(MonomorphicFqn);
-        var polymorphicAttr    = compilation.GetTypeByMetadataName(PolymorphicFqn);
-        var generateFmtAttr    = compilation.GetTypeByMetadataName(GenerateFormatterFqn);
+        var includeAttr = compilation.GetTypeByMetadataName(IncludeFqn);
+        var excludeAttr = compilation.GetTypeByMetadataName(ExcludeFqn);
+        var memberConfigAttr = compilation.GetTypeByMetadataName(MemberConfigFqn);
+        var previousNameAttr = compilation.GetTypeByMetadataName(PreviousNameFqn);
+        var previousTypeAttr = compilation.GetTypeByMetadataName(PreviousTypeNameFqn);
+        var serializedAsAttr = compilation.GetTypeByMetadataName(SerializedAsFqn);
+        var monomorphicAttr = compilation.GetTypeByMetadataName(MonomorphicFqn);
+        var polymorphicAttr = compilation.GetTypeByMetadataName(PolymorphicFqn);
+        var generateFmtAttr = compilation.GetTypeByMetadataName(GenerateFormatterFqn);
 
         // --- DiscoverSubtypes expansion -------------------------------------------
         // For any annotated type that has DiscoverSubtypes = true, scan the whole
         // compilation and collect every non-abstract concrete type that implements
         // or inherits from it.  The VersionTolerant flag is inherited from the root.
-        var expanded      = new Dictionary<INamedTypeSymbol, bool /* vt */>(SymbolEqualityComparer.Default);
+        var expanded = new Dictionary<INamedTypeSymbol, bool /* vt */>(SymbolEqualityComparer.Default);
         var discoverRoots = new List<(INamedTypeSymbol Root, bool Vt)>();
 
         foreach (var t in types)
@@ -179,9 +179,9 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             // Interfaces and abstract types have no formatter class generated; skip registration.
             if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
 
-            string typeFqn       = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             string formatterName = MakeFormatterClassName(type);
-            bool   vt            = expanded[type];
+            bool vt = expanded[type];
 
             sb.AppendLine($"            config.ConfigType<{typeFqn}>().CustomFormatter = new {formatterName}();");
 
@@ -521,7 +521,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         AttributeBag attrs,
         bool vt = false)
     {
-        string typeFqn       = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         string formatterName = MakeFormatterClassName(type);
 
         sb.AppendLine($"    internal sealed class {formatterName} : IFormatter<{typeFqn}>");
@@ -606,7 +606,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         sb.AppendLine("        {");
         foreach (var m in members)
         {
-            string fieldName     = MakeFormatterFieldName(m.Type);
+            string fieldName = MakeFormatterFieldName(m.Type);
             string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
             if (IsPrimitive(m.Type))
@@ -669,18 +669,18 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         switch (type.SpecialType)
         {
             case SpecialType.System_Boolean: return "WriteInt32"; // Bool is written as Int32 VarInt in BoolFormatter
-            case SpecialType.System_Byte:    return "WriteByte";
-			case SpecialType.System_SByte: return "WriteByte";
-			case SpecialType.System_Char:    return "WriteInt16Fixed";
-            case SpecialType.System_Int16:   return "WriteInt16Fixed";
-            case SpecialType.System_UInt16:  return "WriteInt16Fixed";
-            case SpecialType.System_Int32:   return "WriteInt32";
-            case SpecialType.System_UInt32:  return "WriteUInt32";
-            case SpecialType.System_Single:  return "WriteFloat32Fixed";
-            case SpecialType.System_Int64:   return "WriteInt64Fixed";
-			case SpecialType.System_UInt64: return "WriteInt64Fixed";
-			case SpecialType.System_Double:  return "WriteDouble64Fixed";
-            case SpecialType.System_String:  return "WriteString";
+            case SpecialType.System_Byte: return "WriteByte";
+            case SpecialType.System_SByte: return "WriteByte";
+            case SpecialType.System_Char: return "WriteInt16Fixed";
+            case SpecialType.System_Int16: return "WriteInt16Fixed";
+            case SpecialType.System_UInt16: return "WriteInt16Fixed";
+            case SpecialType.System_Int32: return "WriteInt32";
+            case SpecialType.System_UInt32: return "WriteUInt32";
+            case SpecialType.System_Single: return "WriteFloat32Fixed";
+            case SpecialType.System_Int64: return "WriteInt64Fixed";
+            case SpecialType.System_UInt64: return "WriteInt64Fixed";
+            case SpecialType.System_Double: return "WriteDouble64Fixed";
+            case SpecialType.System_String: return "WriteString";
         }
         throw new NotSupportedException();
     }
@@ -690,18 +690,18 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         switch (type.SpecialType)
         {
             case SpecialType.System_Boolean: return "ReadInt32(ref reader) != 0";
-            case SpecialType.System_Byte:    return "ReadByte(ref reader)";
-            case SpecialType.System_SByte:   return "(sbyte)SerializerBinary.ReadByte(ref reader)";
-            case SpecialType.System_Char:    return "(char)SerializerBinary.ReadInt16Fixed(ref reader)";
-            case SpecialType.System_Int16:   return "ReadInt16Fixed(ref reader)";
-            case SpecialType.System_UInt16:  return "(ushort)SerializerBinary.ReadInt16Fixed(ref reader)";
-            case SpecialType.System_Int32:   return "ReadInt32(ref reader)";
-            case SpecialType.System_UInt32:  return "ReadUInt32(ref reader)";
-            case SpecialType.System_Single:  return "ReadFloat32Fixed(ref reader)";
-            case SpecialType.System_Int64:   return "ReadInt64Fixed(ref reader)";
-            case SpecialType.System_UInt64:  return "(ulong)SerializerBinary.ReadInt64Fixed(ref reader)";
-            case SpecialType.System_Double:  return "ReadDouble64Fixed(ref reader)";
-            case SpecialType.System_String:  return "ReadString(ref reader)";
+            case SpecialType.System_Byte: return "ReadByte(ref reader)";
+            case SpecialType.System_SByte: return "(sbyte)SerializerBinary.ReadByte(ref reader)";
+            case SpecialType.System_Char: return "(char)SerializerBinary.ReadInt16Fixed(ref reader)";
+            case SpecialType.System_Int16: return "ReadInt16Fixed(ref reader)";
+            case SpecialType.System_UInt16: return "(ushort)SerializerBinary.ReadInt16Fixed(ref reader)";
+            case SpecialType.System_Int32: return "ReadInt32(ref reader)";
+            case SpecialType.System_UInt32: return "ReadUInt32(ref reader)";
+            case SpecialType.System_Single: return "ReadFloat32Fixed(ref reader)";
+            case SpecialType.System_Int64: return "ReadInt64Fixed(ref reader)";
+            case SpecialType.System_UInt64: return "(ulong)SerializerBinary.ReadInt64Fixed(ref reader)";
+            case SpecialType.System_Double: return "ReadDouble64Fixed(ref reader)";
+            case SpecialType.System_String: return "ReadString(ref reader)";
         }
         throw new NotSupportedException();
     }
@@ -714,18 +714,18 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         switch (type.SpecialType)
         {
             case SpecialType.System_Boolean: return "global::Ceras.Formatters.BoolFormatter";
-            case SpecialType.System_Byte:    return "global::Ceras.Formatters.ByteFormatter";
-            case SpecialType.System_SByte:   return "global::Ceras.Formatters.SByteFormatter";
-            case SpecialType.System_Char:    return "global::Ceras.Formatters.CharFormatter";
-            case SpecialType.System_Int16:   return "global::Ceras.Formatters.Int16Formatter";
-            case SpecialType.System_UInt16:  return "global::Ceras.Formatters.UInt16Formatter";
-            case SpecialType.System_Int32:   return "global::Ceras.Formatters.Int32Formatter";
-            case SpecialType.System_UInt32:  return "global::Ceras.Formatters.UInt32Formatter";
-            case SpecialType.System_Single:  return "global::Ceras.Formatters.FloatFormatter";
-            case SpecialType.System_Int64:   return "global::Ceras.Formatters.Int64Formatter";
-            case SpecialType.System_UInt64:  return "global::Ceras.Formatters.UInt64Formatter";
-            case SpecialType.System_Double:  return "global::Ceras.Formatters.DoubleFormatter";
-            case SpecialType.System_String:  return "global::Ceras.Formatters.StringFormatter";
+            case SpecialType.System_Byte: return "global::Ceras.Formatters.ByteFormatter";
+            case SpecialType.System_SByte: return "global::Ceras.Formatters.SByteFormatter";
+            case SpecialType.System_Char: return "global::Ceras.Formatters.CharFormatter";
+            case SpecialType.System_Int16: return "global::Ceras.Formatters.Int16Formatter";
+            case SpecialType.System_UInt16: return "global::Ceras.Formatters.UInt16Formatter";
+            case SpecialType.System_Int32: return "global::Ceras.Formatters.Int32Formatter";
+            case SpecialType.System_UInt32: return "global::Ceras.Formatters.UInt32Formatter";
+            case SpecialType.System_Single: return "global::Ceras.Formatters.FloatFormatter";
+            case SpecialType.System_Int64: return "global::Ceras.Formatters.Int64Formatter";
+            case SpecialType.System_UInt64: return "global::Ceras.Formatters.UInt64Formatter";
+            case SpecialType.System_Double: return "global::Ceras.Formatters.DoubleFormatter";
+            case SpecialType.System_String: return "global::Ceras.Formatters.StringFormatter";
         }
 
         if (typeFqn == "global::System.DateTime") return "global::Ceras.Resolvers.StandardFormatterResolver.DateTimeFormatter";
@@ -745,13 +745,13 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
         }
 
-		if (!type.IsValueType && isMonomorphic)
+        if (!type.IsValueType && isMonomorphic)
         {
             // If it's a sealed class, we can use ReferenceFormatter_KnownSealedType
             if (type.IsSealed)
                 return $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>";
 
-			return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+            return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
         }
 
         // Fallback to interface
@@ -801,7 +801,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         sb.AppendLine($"        internal static readonly global::Ceras.Savegame.SchemaTypeInfo Schema =");
         sb.AppendLine($"            new global::Ceras.Savegame.SchemaTypeInfo(");
         sb.AppendLine($"                stableName: {QuoteString(stableTypeName)},");
-        sb.Append    ($"                previousTypeNames: ");
+        sb.Append($"                previousTypeNames: ");
         WriteStringArray(sb, prevTypeNames);
         sb.AppendLine($",");
         sb.AppendLine($"                kind: {kind},");
@@ -810,10 +810,10 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         foreach (var m in members)
         {
             string typeName = m.Type.ToDisplayString(SortKeyFormat); // CLR name, no global::
-            sb.Append    ($"                    new global::Ceras.Savegame.SchemaFieldInfo(");
-            sb.Append    ($"{QuoteString(m.StableName)}, ");
+            sb.Append($"                    new global::Ceras.Savegame.SchemaFieldInfo(");
+            sb.Append($"{QuoteString(m.StableName)}, ");
             WriteStringArrayInline(sb, m.PreviousNames);
-            sb.Append    ($", {QuoteString(typeName)}, {(m.IsMonomorphic ? "true" : "false")}");
+            sb.Append($", {QuoteString(typeName)}, {(m.IsMonomorphic ? "true" : "false")}");
             sb.AppendLine($"),");
         }
         sb.AppendLine($"                }},");
@@ -937,14 +937,14 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
     static bool IsFieldIncluded(IFieldSymbol field, TargetMemberKind kind)
     {
         bool pub = field.DeclaredAccessibility == Accessibility.Public;
-        return ((kind & TargetMemberKind.PublicFields)  != 0 && pub)
+        return ((kind & TargetMemberKind.PublicFields) != 0 && pub)
             || ((kind & TargetMemberKind.PrivateFields) != 0 && !pub);
     }
 
     static bool IsPropertyIncluded(IPropertySymbol prop, TargetMemberKind kind)
     {
         bool pub = prop.DeclaredAccessibility == Accessibility.Public;
-        return ((kind & TargetMemberKind.PublicProperties)  != 0 && pub)
+        return ((kind & TargetMemberKind.PublicProperties) != 0 && pub)
             || ((kind & TargetMemberKind.PrivateProperties) != 0 && !pub);
     }
 
@@ -977,19 +977,19 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         switch (type.SpecialType)
         {
             case SpecialType.System_Boolean: return 1;
-            case SpecialType.System_Byte:    return 1;
-            case SpecialType.System_SByte:   return 1;
-            case SpecialType.System_Char:    return 2;
-            case SpecialType.System_Int16:   return 2;
-            case SpecialType.System_UInt16:  return 2;
-            case SpecialType.System_Int32:   return 4;
-            case SpecialType.System_UInt32:  return 4;
-            case SpecialType.System_Single:  return 4;
-            case SpecialType.System_Int64:   return 8;
-            case SpecialType.System_UInt64:  return 8;
-            case SpecialType.System_Double:  return 8;
+            case SpecialType.System_Byte: return 1;
+            case SpecialType.System_SByte: return 1;
+            case SpecialType.System_Char: return 2;
+            case SpecialType.System_Int16: return 2;
+            case SpecialType.System_UInt16: return 2;
+            case SpecialType.System_Int32: return 4;
+            case SpecialType.System_UInt32: return 4;
+            case SpecialType.System_Single: return 4;
+            case SpecialType.System_Int64: return 8;
+            case SpecialType.System_UInt64: return 8;
+            case SpecialType.System_Double: return 8;
             case SpecialType.System_Decimal: return 16;
-            case SpecialType.System_String:  return 4; // string-table index
+            case SpecialType.System_String: return 4; // string-table index
         }
 
         if (type is INamedTypeSymbol named)
@@ -1002,7 +1002,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             string clrName = named.ToDisplayString(SortKeyFormat);
             if (clrName == "System.DateTime") return 8;
             if (clrName == "System.TimeSpan") return 8;
-            if (clrName == "System.Guid")     return 16;
+            if (clrName == "System.Guid") return 16;
 
             // Other structs: recurse over instance fields
             if (named.IsValueType && named.TypeKind == TypeKind.Struct)
@@ -1033,7 +1033,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
     static string MakeFormatterFieldName(ITypeSymbol type)
     {
-        string raw   = SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal));
+        string raw = SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal));
         string lower = char.ToLowerInvariant(raw[0]) + raw.Substring(1);
         return "_" + lower + "Formatter";
     }
@@ -1082,18 +1082,18 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
     // For class/field names in generated code: uses C# keyword aliases (float, int, string).
     static readonly SymbolDisplayFormat FullyQualifiedNoGlobal = new SymbolDisplayFormat(
-        globalNamespaceStyle:   SymbolDisplayGlobalNamespaceStyle.Omitted,
+        globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
         typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
-        genericsOptions:        SymbolDisplayGenericsOptions.IncludeTypeParameters,
-        miscellaneousOptions:   SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
+        genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
+        miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
 
     // For sort keys and schema type names: CLR names (System.Single, not float).
     // Must match SchemaMemberComparer.GetComparisonName which uses MemberType.FullName.
     static readonly SymbolDisplayFormat SortKeyFormat = new SymbolDisplayFormat(
-        globalNamespaceStyle:   SymbolDisplayGlobalNamespaceStyle.Omitted,
+        globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
         typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
-        genericsOptions:        SymbolDisplayGenericsOptions.IncludeTypeParameters,
-        miscellaneousOptions:   SymbolDisplayMiscellaneousOptions.None);
+        genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
+        miscellaneousOptions: SymbolDisplayMiscellaneousOptions.None);
 
     // -------------------------------------------------------------------------
     // Data types
@@ -1118,54 +1118,54 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             INamedTypeSymbol? serializedAs, INamedTypeSymbol? monomorphic,
             INamedTypeSymbol? polymorphic, INamedTypeSymbol? generateFormatter)
         {
-            Include          = include;
-            Exclude          = exclude;
-            MemberConfig     = memberConfig;
-            PreviousName     = previousName;
+            Include = include;
+            Exclude = exclude;
+            MemberConfig = memberConfig;
+            PreviousName = previousName;
             PreviousTypeName = previousTypeName;
-            SerializedAs     = serializedAs;
-            Monomorphic      = monomorphic;
-            Polymorphic      = polymorphic;
+            SerializedAs = serializedAs;
+            Monomorphic = monomorphic;
+            Polymorphic = polymorphic;
             GenerateFormatter = generateFormatter;
         }
     }
 
     sealed class SerializedMember
     {
-        public string     Name         { get; } // C# member name
-        public string     StableName   { get; } // wire name ([SerializedAs] or Name)
-        public ITypeSymbol Type        { get; }
-        public bool       IsField      { get; }
-        public string[]   PreviousNames { get; }
-        public bool       IsMonomorphic { get; }
+        public string Name { get; } // C# member name
+        public string StableName { get; } // wire name ([SerializedAs] or Name)
+        public ITypeSymbol Type { get; }
+        public bool IsField { get; }
+        public string[] PreviousNames { get; }
+        public bool IsMonomorphic { get; }
         /// <summary>True for getter-only collection properties; populated in-place without assignment.</summary>
-        public bool       IsGetterOnly  { get; }
+        public bool IsGetterOnly { get; }
 
         public SerializedMember(
             string name, string stableName, ITypeSymbol type, bool isField,
             string[] previousNames, bool isMonomorphic, bool isGetterOnly = false)
         {
-            Name          = name;
-            StableName    = stableName;
-            Type          = type;
-            IsField       = isField;
+            Name = name;
+            StableName = stableName;
+            Type = type;
+            IsField = isField;
             PreviousNames = previousNames;
             IsMonomorphic = isMonomorphic;
-            IsGetterOnly  = isGetterOnly;
+            IsGetterOnly = isGetterOnly;
         }
     }
 
     [Flags]
     enum TargetMemberKind
     {
-        None              = 0,
-        PublicFields      = 1,
-        PrivateFields     = 2,
-        PublicProperties  = 4,
+        None = 0,
+        PublicFields = 1,
+        PrivateFields = 2,
+        PublicProperties = 4,
         PrivateProperties = 8,
-        AllPublic         = PublicFields | PublicProperties,
-        AllPrivate        = PrivateFields | PrivateProperties,
-        All               = AllPublic | AllPrivate,
+        AllPublic = PublicFields | PublicProperties,
+        AllPrivate = PrivateFields | PrivateProperties,
+        All = AllPublic | AllPrivate,
     }
 }
 
@@ -1173,10 +1173,10 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 static class Diag
 {
     public static readonly DiagnosticDescriptor NoSerializableMembers = new(
-        id:                 "CERAS001",
-        title:              "No serializable members found",
-        messageFormat:      "Type '{0}' has [GenerateFormatter] but no serializable members were found. Check [Include]/[Exclude] attributes and TargetMembers config.",
-        category:           "Ceras.SourceGenerator",
-        defaultSeverity:    DiagnosticSeverity.Warning,
+        id: "CERAS001",
+        title: "No serializable members found",
+        messageFormat: "Type '{0}' has [GenerateFormatter] but no serializable members were found. Check [Include]/[Exclude] attributes and TargetMembers config.",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 }

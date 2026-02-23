@@ -1,0 +1,15 @@
+root = true
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+tab_width = 4
+
+[*.cs]
+# All rules:
+# https://learn.microsoft.com/en-us/dotnet/fundamentals/code-analysis/style-rules/csharp-formatting-options
+
+# IDE0047: Remove unnecessary parentheses
+dotnet_style_parentheses_in_arithmetic_binary_operators = always_for_clarity
+
+csharp_new_line_before_open_brace = none

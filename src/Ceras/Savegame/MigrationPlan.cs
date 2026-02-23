@@ -15,17 +15,17 @@ namespace Ceras.Savegame
     struct FieldMapping
     {
         public OldFieldSchema OldField;
-        public FieldInfo      NewField;  // null = removed (skip)
-        public CoercionKind   Coercion;
+        public FieldInfo NewField;  // null = removed (skip)
+        public CoercionKind Coercion;
     }
 
     sealed class TypeMigrationPlan
     {
-        public Type           CurrentType;
+        public Type CurrentType;
         public FieldMapping[] Mappings;
-        public string[]       AddedFieldNames;
-        public bool           HasChanges;
-        public MethodInfo     OnAfterDeserialize; // method taking MigrationContext, or null
+        public string[] AddedFieldNames;
+        public bool HasChanges;
+        public MethodInfo OnAfterDeserialize; // method taking MigrationContext, or null
         public Dictionary<long, long> EnumValueMap;
     }
 
@@ -68,19 +68,19 @@ namespace Ceras.Savegame
 
             if (currentType == null)
             {
-                plan.Mappings        = BuildSkipAllMappings(old);
+                plan.Mappings = BuildSkipAllMappings(old);
                 plan.AddedFieldNames = Array.Empty<string>();
-                plan.HasChanges      = true;
+                plan.HasChanges = true;
                 return plan;
             }
 
-            var currentFieldMap   = BuildCurrentFieldMap(currentType);
+            var currentFieldMap = BuildCurrentFieldMap(currentType);
             var mappedStableNames = new HashSet<string>(StringComparer.Ordinal);
 
             plan.Mappings = new FieldMapping[old.Fields.Length];
             for (int i = 0; i < old.Fields.Length; i++)
             {
-                var      oldField = old.Fields[i];
+                var oldField = old.Fields[i];
                 FieldInfo newField = FindCurrentField(oldField, currentFieldMap);
                 CoercionKind coerce = CoercionKind.None;
 
@@ -99,7 +99,7 @@ namespace Ceras.Savegame
                 }
 
                 plan.Mappings[i] = new FieldMapping
-                    { OldField = oldField, NewField = newField, Coercion = coerce };
+                { OldField = oldField, NewField = newField, Coercion = coerce };
             }
 
             // Determine added fields (in current schema but not matched from old)
@@ -167,10 +167,10 @@ namespace Ceras.Savegame
 
         static CoercionKind DetectCoercion(int oldTypeId, Type newFieldType)
         {
-            if (oldTypeId == WellKnownTypes.Int32  && newFieldType == typeof(long))   return CoercionKind.Int32ToInt64;
-            if (oldTypeId == WellKnownTypes.Int16  && newFieldType == typeof(int))    return CoercionKind.Int16ToInt32;
-            if (oldTypeId == WellKnownTypes.Int32  && newFieldType == typeof(float))  return CoercionKind.Int32ToSingle;
-            if (oldTypeId == WellKnownTypes.Int32  && newFieldType == typeof(double)) return CoercionKind.Int32ToDouble;
+            if (oldTypeId == WellKnownTypes.Int32 && newFieldType == typeof(long)) return CoercionKind.Int32ToInt64;
+            if (oldTypeId == WellKnownTypes.Int16 && newFieldType == typeof(int)) return CoercionKind.Int16ToInt32;
+            if (oldTypeId == WellKnownTypes.Int32 && newFieldType == typeof(float)) return CoercionKind.Int32ToSingle;
+            if (oldTypeId == WellKnownTypes.Int32 && newFieldType == typeof(double)) return CoercionKind.Int32ToDouble;
             if (oldTypeId == WellKnownTypes.Single && newFieldType == typeof(double)) return CoercionKind.SingleToDouble;
             return CoercionKind.None;
         }

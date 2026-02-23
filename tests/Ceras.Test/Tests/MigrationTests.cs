@@ -51,8 +51,8 @@ namespace Ceras.Test.Migration
 
             Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, ceras);
 
-            Assert.Equal(5.0f,    hero.Hp);
-            Assert.Equal(7,       hero.Level);
+            Assert.Equal(5.0f, hero.Hp);
+            Assert.Equal(7, hero.Level);
             Assert.Equal("Knight", hero.Name);
         }
 
@@ -86,9 +86,9 @@ namespace Ceras.Test.Migration
 
             Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, ceras);
 
-            Assert.Equal(12,    hero.Level);
+            Assert.Equal(12, hero.Level);
             Assert.Equal("Aria", hero.Name);
-            Assert.Equal(0f,    hero.Hp);
+            Assert.Equal(0f, hero.Hp);
         }
 
         // ── Schema migration scenario: field renamed via previous names ────────
@@ -132,8 +132,8 @@ namespace Ceras.Test.Migration
 
             Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, ceras);
 
-            Assert.Equal(3.0f,  hero.Hp);
-            Assert.Equal(8,     hero.Level);
+            Assert.Equal(3.0f, hero.Hp);
+            Assert.Equal(8, hero.Level);
             Assert.Equal("Rex", hero.Name);
         }
 
@@ -241,7 +241,7 @@ namespace Ceras.Test.Migration
 
             RenamedHero hero = CerasSave.Load<RenamedHero>(save, currentGameVersion: 1, ceras);
 
-            Assert.Equal(9,        hero.Level);
+            Assert.Equal(9, hero.Level);
             Assert.Equal("legacy", hero.Tag);
         }
 
@@ -273,7 +273,7 @@ namespace Ceras.Test.Migration
             int dataOff = 0;
             dataBuf[dataOff++] = 0x02; // NewValueSameType for Hero
             SerializerBinary.WriteInt32(ref dataBuf, ref dataOff, 3);       // Level
-            // GhostBuff is a struct — no ref marker, just inline fields
+                                                                            // GhostBuff is a struct — no ref marker, just inline fields
             SerializerBinary.WriteInt32(ref dataBuf, ref dataOff, 99);      // GhostBuff.Power
             strings.WriteIndex(ref dataBuf, ref dataOff, "Ghost");          // Name
             byte[] dataBytes = dataBuf[..dataOff];
@@ -292,7 +292,7 @@ namespace Ceras.Test.Migration
 
             Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, ceras);
 
-            Assert.Equal(3,       hero.Level);
+            Assert.Equal(3, hero.Level);
             Assert.Equal("Ghost", hero.Name);
             // Hp is not in old schema → default
             Assert.Equal(0f, hero.Hp);
@@ -533,7 +533,7 @@ namespace Ceras.Test.Migration
 
             byte[] save = OldSaveBuilder.Build(
                 gameVersion: 1,
-				types: new[]
+                types: new[]
 				{
 					OldSaveBuilder.ClassType("HeroWithList", Array.Empty<string>(), oldFields, typeId: 200),
                     OldSaveBuilder.GenericType("List<int>", Array.Empty<string>(), WellKnownTypes.List, new[] { WellKnownTypes.Int32 }, typeId: 201)
@@ -574,7 +574,7 @@ namespace Ceras.Test.Migration
             int dataOff = 0;
             dataBuf[dataOff++] = 0x02; // NewValueSameType for Hero
             SerializerBinary.WriteInt32(ref dataBuf, ref dataOff, 5); // Level
-            // Extra: NewValueSameType for DeletedClass
+                                                                      // Extra: NewValueSameType for DeletedClass
             dataBuf[dataOff++] = 0x02; // marker
             SerializerBinary.WriteInt32(ref dataBuf, ref dataOff, 123); // DeletedClass.Id
             strings.WriteIndex(ref dataBuf, ref dataOff, "Test"); // Name
@@ -594,7 +594,7 @@ namespace Ceras.Test.Migration
 
             Hero hero = CerasSave.Load<Hero>(save, currentGameVersion: 1, ceras);
 
-            Assert.Equal(5,      hero.Level);
+            Assert.Equal(5, hero.Level);
             Assert.Equal("Test", hero.Name);
         }
 
@@ -612,7 +612,7 @@ namespace Ceras.Test.Migration
             int dataOff = 0;
             dataBuf[dataOff++] = 0x02; // HeroWithDict NewValueSameType
             SerializerBinary.WriteUInt32(ref dataBuf, ref dataOff, 2); // Count
-            // Entry 1
+                                                                       // Entry 1
             strings.WriteIndex(ref dataBuf, ref dataOff, "Key1");
             SerializerBinary.WriteInt32(ref dataBuf, ref dataOff, 100);
             // Entry 2
@@ -735,26 +735,26 @@ namespace Ceras.Test.Migration
         const int RefBias = 5;
 
         public static OldTypeSchema ClassType(
-            string                                                             stableName,
-            string[]                                                           prevTypeNames,
-            List<(string name, string[] prevNames, int typeId, bool mono)>     fields,
-            Dictionary<string, string[]>                                       fieldPreviousNames = null,
-            int                                                                typeId = 200)
+            string stableName,
+            string[] prevTypeNames,
+            List<(string name, string[] prevNames, int typeId, bool mono)> fields,
+            Dictionary<string, string[]> fieldPreviousNames = null,
+            int typeId = 200)
             => BuildUserType(stableName, prevTypeNames, fields, fieldPreviousNames, typeId, SchemaTypeKind.Class);
 
         public static OldTypeSchema StructType(
-            string                                                             stableName,
-            string[]                                                           prevTypeNames,
-            List<(string name, string[] prevNames, int typeId, bool mono)>     fields,
-            int                                                                typeId = 200)
+            string stableName,
+            string[] prevTypeNames,
+            List<(string name, string[] prevNames, int typeId, bool mono)> fields,
+            int typeId = 200)
             => BuildUserType(stableName, prevTypeNames, fields, null, typeId, SchemaTypeKind.Struct);
 
         public static OldTypeSchema EnumType(
-            string                  stableName,
-            string[]                prevTypeNames,
-            List<(string, long)>    values,
-            int                     underlyingTypeId,
-            int                     typeId = 200)
+            string stableName,
+            string[] prevTypeNames,
+            List<(string, long)> values,
+            int underlyingTypeId,
+            int typeId = 200)
         {
             var evs = new OldEnumValue[values.Count];
             for (int i = 0; i < values.Count; i++)
@@ -764,23 +764,23 @@ namespace Ceras.Test.Migration
         }
 
         public static OldTypeSchema GenericType(
-            string   stableName,
+            string stableName,
             string[] prevTypeNames,
-            int      defTypeId,
-            int[]    argTypeIds,
-            int      typeId = 200)
+            int defTypeId,
+            int[] argTypeIds,
+            int typeId = 200)
         {
             return new OldTypeSchema(typeId, stableName, prevTypeNames ?? Array.Empty<string>(),
                 defTypeId, argTypeIds);
         }
 
         static OldTypeSchema BuildUserType(
-            string                                                             stableName,
-            string[]                                                           prevTypeNames,
-            List<(string name, string[] prevNames, int typeId, bool mono)>     fields,
-            Dictionary<string, string[]>                                       fieldPreviousNames,
-            int                                                                typeId,
-            SchemaTypeKind                                                     kind)
+            string stableName,
+            string[] prevTypeNames,
+            List<(string name, string[] prevNames, int typeId, bool mono)> fields,
+            Dictionary<string, string[]> fieldPreviousNames,
+            int typeId,
+            SchemaTypeKind kind)
         {
             var fieldSchemas = new OldFieldSchema[fields.Count];
             for (int i = 0; i < fields.Count; i++)
@@ -801,12 +801,12 @@ namespace Ceras.Test.Migration
         }
 
         public static byte[] Build(
-            uint              gameVersion,
-            OldTypeSchema[]   types,
-            Type[]            currentRegisteredTypes,
-            byte[]            dataBytes,
+            uint gameVersion,
+            OldTypeSchema[] types,
+            Type[] currentRegisteredTypes,
+            byte[] dataBytes,
             StringInternTable strings,
-            SchemaRegistry    registry)
+            SchemaRegistry registry)
         {
             var buf = new byte[4096];
             int offset = 0;

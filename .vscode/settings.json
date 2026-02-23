@@ -4,6 +4,7 @@
     "files.eol": "\r\n",
     "editor.insertSpaces": true,
     "editor.tabSize": 4,
+    "editor.detectIndentation": false,
     "editor.snippetSuggestions": "bottom",
     "[csharp]": {
         //Disable space indentation for C# as Tabs are the primary indentation
