@@ -84,6 +84,32 @@ namespace Ceras.Test
             Assert.Equal(original.Name, clone.Name);
             Assert.Equal(original.Age,  clone.Age);
         }
+
+        [Fact]
+        public void GeneratedFormatter_RoundTrips_ReadonlyCtorModel()
+        {
+            var config = new SerializerConfig();
+            GeneratedFormatters.UseFormatters(config);
+            var ceras = new CerasSerializer(config);
+
+            var original = new ReadonlyCtorModel(42);
+            var clone = ceras.Deserialize<ReadonlyCtorModel>(ceras.Serialize(original));
+
+            Assert.Equal(original.Value, clone.Value);
+        }
+
+        [Fact]
+        public void GeneratedFormatter_RoundTrips_InitCtorModel()
+        {
+            var config = new SerializerConfig();
+            GeneratedFormatters.UseFormatters(config);
+            var ceras = new CerasSerializer(config);
+
+            var original = new InitCtorModel(123);
+            var clone = ceras.Deserialize<InitCtorModel>(ceras.Serialize(original));
+
+            Assert.Equal(original.Value, clone.Value);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -104,5 +130,29 @@ namespace Ceras.Test
     {
         public float X { get; set; }
         public float Y { get; set; }
+    }
+
+    [GenerateFormatter]
+    public class ReadonlyCtorModel
+    {
+        public readonly int Value;
+        
+        [CerasConstructor]
+        public ReadonlyCtorModel(int value)
+        {
+            Value = value;
+        }
+    }
+
+    [GenerateFormatter]
+    public class InitCtorModel
+    {
+        public int Value { get; init; }
+        
+        [CerasConstructor]
+        public InitCtorModel(int value)
+        {
+            Value = value;
+        }
     }
 }

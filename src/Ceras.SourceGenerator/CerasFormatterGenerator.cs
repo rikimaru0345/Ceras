@@ -700,7 +700,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         }
         else
         {
-            isReadOnly = ((IPropertySymbol)symbol).SetMethod == null;
+            var p = (IPropertySymbol)symbol;
+            isReadOnly = p.SetMethod == null || p.SetMethod.IsInitOnly;
         }
 
         if (symbol is IPropertySymbol prop)
@@ -1666,20 +1667,22 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
     static void WriteSetStatement(StringBuilder sb, SerializedMember m, string typeFqn, string valueExpr, int indent)
     {
+        if (m.IsReadOnly)
+            return;
+
         string prefix = new string(' ', indent);
         if (m.IsAccessible)
         {
             sb.AppendLine($"{prefix}value.{m.Name} = {valueExpr};");
         }
-        else if (m.IsField && !m.IsReadOnly)
+        else if (m.IsField)
         {
             sb.AppendLine($"{prefix}{typeFqn}.__ceras_ref_{m.Name}(value) = {valueExpr};");
         }
-        else if (!m.IsReadOnly)
+        else
         {
             sb.AppendLine($"{prefix}{typeFqn}.__ceras_set_{m.Name}(value, {valueExpr});");
         }
-        // If it's read-only and not handled by ctor, ValidateReadonlyMembers will have thrown an error already.
     }
 
     static string MakeFormatterClassName(INamedTypeSymbol type)
