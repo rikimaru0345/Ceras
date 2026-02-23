@@ -399,7 +399,7 @@ namespace LiveTesting
 
             MergeBlittingTest.Test();
 
-            // ConvertDynamicFormatterToString();
+            // ConvertReflectionFallbackFormatterToString();
 
             NewRefProxyTest.CompareCalls();
             NewRefProxyTest.ReinterpretRefProxyTest();
@@ -721,7 +721,7 @@ namespace LiveTesting
         {
             // Sub-formatters are automatically set by Ceras' dependency injection
             IFormatter<byte[]> _byteArrayFormatter;
-            IFormatter<IEqualityComparer<byte[]>> _comparerFormatter; // auto-implemented by Ceras using DynamicFormatter
+            IFormatter<IEqualityComparer<byte[]>> _comparerFormatter; // auto-implemented by Ceras using ReflectionFallbackFormatter
 
             public override void Serialize(IBufferWriter<byte> writer, HashSet<byte[]> set)
             {
@@ -1511,7 +1511,7 @@ namespace LiveTesting
              *
              * - potentially improve number encoding speed (varint encoding is naturally not super fast, maybe we can apply some tricks...)
              *
-             * - have DynamicFormatter generate its expressions, but inline the result directly to the reference formatter
+             * - have ReflectionFallbackFormatter generate its expressions, but inline the result directly to the reference formatter
              *
              * - reference proxies: use array instead of a list, don't return references to a pool, just reset them!
              *

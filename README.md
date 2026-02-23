@@ -167,7 +167,7 @@ This replaces the old external AotGenerator tool and works automatically — no 
 
 ### When do you need it?
 
-| Scenario | DynamicFormatter (default) | Source Generator |
+| Scenario | ReflectionFallbackFormatter (default) | Source Generator |
 |---|---|---|
 | Normal .NET desktop/server | ✅ works out of the box | optional (slightly faster startup) |
 | Unity IL2CPP / iOS / AOT | ✅ works (reflection fallback) | ✅ recommended (faster) |
@@ -205,7 +205,7 @@ public class Player
 
 > **Automatic Registration**: Ceras will automatically look for and register your generated formatters in its constructor. You no longer need to manually call `GeneratedFormatters.UseFormatters(config)` (though you still can if you want to apply them to a specific config object manually).
 
-The generated formatters produce **byte-identical output** to the runtime `DynamicFormatter`, so serialized data is fully interchangeable.
+The generated formatters produce **byte-identical output** to the runtime `ReflectionFallbackFormatter`, so serialized data is fully interchangeable.
 
 ### Viewing and Debugging Generated Code
 
@@ -240,7 +240,7 @@ For polymorphic scenarios (serializing an interface or base-class field whose co
 ```
 
 If a concrete type is only known at runtime (e.g. loaded from a plugin assembly), it cannot be source-generated. In that case you have two options:
-- Let `DynamicFormatter` handle those types as a fallback (uses reflection).
+- Let `ReflectionFallbackFormatter` handle those types as a fallback (uses reflection).
 - Write a hand-crafted `IFormatter<T>` and register it via `config.ConfigType<T>().CustomFormatter = new MyFormatter();`.
 
 # Support

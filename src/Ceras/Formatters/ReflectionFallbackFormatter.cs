@@ -8,7 +8,20 @@ namespace Ceras.Formatters
     using System.Reflection;
     using System.Runtime.CompilerServices;
 
-    sealed class DynamicFormatter<T> : FormatterBase<T>
+    /// <summary>
+    /// <para>ReflectionFallbackFormatter is the "escape hatch" of Ceras.</para>
+    /// <para>While the project's vision is to move towards 100% Source Generated formatters for performance and AOT compatibility, 
+    /// this class remains essential for several reasons:</para>
+    /// <list type="bullet">
+    /// <item><description>Third-Party Types: It can handle types from external libraries that cannot be marked with [GenerateFormatter].</description></item>
+    /// <item><description>Private Access: Unlike generated code, it can use reflection to access private/protected state in legacy objects.</description></item>
+    /// <item><description>Runtime Types: It supports types created at runtime (e.g., via Reflection.Emit or dynamic proxies) that are invisible to compile-time generators.</description></item>
+    /// <item><description>Test Baseline: It serves as the "ground truth" for byte-identity verification in the test suite.</description></item>
+    /// </list>
+    /// <para>In performance-critical paths (like high-speed networking), users should prioritize Source Generators. 
+    /// This formatter provides a slower, reflection-based fallback that "just works" for everything else.</para>
+    /// </summary>
+    sealed class ReflectionFallbackFormatter<T> : FormatterBase<T>
     {
         readonly CerasSerializer _ceras;
         readonly bool _isStatic;
@@ -20,7 +33,7 @@ namespace Ceras.Formatters
         readonly object _ctorTarget;
         readonly int[] _parameterToMemberIndex;
 
-        public DynamicFormatter(CerasSerializer serializer, bool isStatic)
+        public ReflectionFallbackFormatter(CerasSerializer serializer, bool isStatic)
         {
             _ceras = serializer;
             _isStatic = isStatic;

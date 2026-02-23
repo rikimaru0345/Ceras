@@ -78,7 +78,7 @@ namespace Ceras
         public ICerasAdvanced Advanced => this;
 
         readonly Type[] _knownTypes;
-        readonly DynamicObjectFormatterResolver _dynamicResolver;
+        readonly ReflectionFallbackResolver _dynamicResolver;
         readonly FormatterResolverCallback[] _userResolvers;
         internal readonly ITypeBinder TypeBinder;
         readonly List<IFormatterResolver> _resolvers = new List<IFormatterResolver>();
@@ -120,7 +120,7 @@ namespace Ceras
             SetFormatters(typeof(Type), typeFormatter, typeFormatter);
             SetFormatters(runtimeType, typeFormatter, typeFormatter);
             _resolvers.Add(new ReflectionFormatterResolver(this));
-            _dynamicResolver = new DynamicObjectFormatterResolver(this);
+            _dynamicResolver = new ReflectionFallbackResolver(this);
 
             _knownTypes = Config.KnownTypes.ToArray();
 
@@ -235,9 +235,16 @@ namespace Ceras
         int ICerasAdvanced.DeserializeStatic(Type type, byte[] buffer, ref int offset) { var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset); var reader = new SequenceReader<byte>(seq); ((ICerasAdvanced)this).DeserializeStatic(type, ref reader); int size = (int)reader.Consumed; offset += size; return size; }
         void ICerasAdvanced.DeserializeStatic(Type type, ref SequenceReader<byte> reader) { var meta = GetStaticTypeMetaData(type); if (meta.StaticDeserialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticDeserialize(ref reader); }
 
+        internal void VerifyReflectionFallbackAllowed(Type type)
+        {
+            if (!Config.Advanced.AllowReflectionFallback)
+                throw new InvalidOperationException($"No specialized or generated formatter found for type '{type.FriendlyName(true)}', and reflection-based fallback is disabled in SerializerConfig.Advanced.AllowReflectionFallback. Please add [GenerateFormatter] to the type or register a custom formatter.");
+        }
+
         void PrepareStaticSerializationDispatchers(TypeMetaData meta)
         {
-            var formatterType = typeof(DynamicFormatter<>).MakeGenericType(meta.Type);
+            VerifyReflectionFallbackAllowed(meta.Type);
+            var formatterType = typeof(ReflectionFallbackFormatter<>).MakeGenericType(meta.Type);
             var f = Activator.CreateInstance(formatterType, new object[] { this, true });
             var initMethod = formatterType.GetMethod("Initialize", BindingFlags.Instance | BindingFlags.NonPublic);
             if (initMethod != null)
@@ -327,7 +334,7 @@ namespace Ceras
 
                 // IF the member is not accessible, but it's explicitly included (via attribute or config), 
                 // we still can't support it in "Byte Identical" mode with the generator, 
-                // but we should support it in DynamicFormatter if it's NOT in that mode.
+                // but we should support it in ReflectionFallbackFormatter if it's NOT in that mode.
                 // For now, to pass tests that depend on private members (like Issue25),
                 // we'll allow it if it's NOT a Savegame scenario.
                 // Wait, the user said "Fast networking mode May not be stable from one compile to the next".

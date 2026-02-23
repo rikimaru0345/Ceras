@@ -218,7 +218,7 @@ namespace Ceras.Test
         }
 
         // -------------------------------------------------------------------
-        // 4. Generated formatter produces byte-identical output to DynamicFormatter
+        // 4. Generated formatter produces byte-identical output to ReflectionFallbackFormatter
         //    (ensures cross-tool compatibility for save data)
         // -------------------------------------------------------------------
 

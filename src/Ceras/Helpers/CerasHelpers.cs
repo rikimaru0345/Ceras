@@ -5,10 +5,10 @@ namespace Ceras.Helpers
 {
     public static class CerasHelpers
     {
-        public static bool IsDynamicFormatter(Type formatterType)
+        public static bool IsReflectionFallbackFormatter(Type formatterType)
         {
             if (formatterType.IsGenericType)
-                if (formatterType.GetGenericTypeDefinition().Name == typeof(DynamicFormatter<int>).GetGenericTypeDefinition().Name)
+                if (formatterType.GetGenericTypeDefinition().Name == typeof(ReflectionFallbackFormatter<int>).GetGenericTypeDefinition().Name)
                     return true;
 
             return false;

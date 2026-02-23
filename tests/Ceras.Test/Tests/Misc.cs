@@ -138,14 +138,32 @@ namespace Ceras.Test
 
 
 
-			ceras.Advanced.DeserializeStatic(typeof(StaticMembersTest), dataStaticChanged);
-            ceras.Deserialize(ref obj, dataInstanceChanged);
-
-			Assert.True(StaticMembersTest.ValueField == 2);
-            Assert.True(obj.InstanceValue == 1);
-        }
-    }
-
+			            ceras.Advanced.DeserializeStatic(typeof(StaticMembersTest), dataStaticChanged);
+			            ceras.Deserialize(ref obj, dataInstanceChanged);
+			
+						Assert.True(StaticMembersTest.ValueField == 2);
+			            Assert.True(obj.InstanceValue == 1);
+			        }
+			
+			        [Fact]
+			        public void AllowReflectionFallbackTest()
+			        {
+			            var config = new SerializerConfig();
+			            config.Advanced.AllowReflectionFallback = false;
+			            var ceras = new CerasSerializer(config);
+			
+			            var obj = new NonGeneratedType { Value = 42 };
+			
+			            // Should throw because NonGeneratedType is not primitive, has no custom formatter, 
+			            // and is not marked with [GenerateFormatter] (and even if it was, we didn't call GeneratedFormatters.UseFormatters)
+			            Assert.Throws<InvalidOperationException>(() => ceras.Serialize(obj));
+			        }
+			
+			        class NonGeneratedType
+			        {
+			            public int Value;
+			        }
+			    }
     static class StaticClassTest
     {
         public static int ValueField = -3;

@@ -46,9 +46,9 @@ namespace Ceras.Test
         }
 
         [Fact]
-        public void GeneratedFormatter_ProducesIdenticalBytes_To_DynamicFormatter()
+        public void GeneratedFormatter_ProducesIdenticalBytes_To_ReflectionFallbackFormatter()
         {
-            // Serialize once with the generated formatter, once with DynamicFormatter.
+            // Serialize once with the generated formatter, once with ReflectionFallbackFormatter.
             // Bytes must be identical (same schema, same member order).
 
             var generatedConfig = new SerializerConfig();
@@ -69,7 +69,7 @@ namespace Ceras.Test
         [Fact]
         public void GeneratedFormatter_CrossDeserialize()
         {
-            // Bytes written by DynamicFormatter can be read by the generated formatter.
+            // Bytes written by ReflectionFallbackFormatter can be read by the generated formatter.
             var dynamicConfig = new SerializerConfig();
             var dynamicCeras  = new CerasSerializer(dynamicConfig);
 

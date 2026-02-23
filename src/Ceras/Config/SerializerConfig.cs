@@ -237,6 +237,7 @@
         bool IAdvancedConfig.RespectNonSerializedAttribute { get; set; } = true;
         BitmapMode IAdvancedConfig.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
         IEqualityComparer<object> IAdvancedConfig.ObjectCacheComparer { get; set; }
+        bool IAdvancedConfig.AllowReflectionFallback { get; set; } = true;
 
         #endregion
         
@@ -370,6 +371,13 @@
         /// <para>Default: <see langword="null"/></para>
         /// </summary>
         IEqualityComparer<object> ObjectCacheComparer { get; set; }
+
+        /// <summary>
+        /// If set to false, Ceras will throw an exception if it cannot find a specialized or generated formatter and would have to fall back to the reflection-based <see cref="ReflectionFallbackFormatter{T}"/>.
+        /// This is useful to ensure that performance-critical code (like networking) always uses the most efficient path.
+        /// <para>Default: true</para>
+        /// </summary>
+        bool AllowReflectionFallback { get; set; }
     }
 
     public interface ISizeLimitsConfig
