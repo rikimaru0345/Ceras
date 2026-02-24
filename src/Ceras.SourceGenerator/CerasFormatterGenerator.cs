@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.IO;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -289,7 +290,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             // CERAS008: members with both [Include] and [Exclude]
             ValidateIncludeExcludeConflicts(context, type, attrBag);
 
-            var members = DiscoverMembers(type, attrBag);
+            var members = DiscoverMembers(context, type, attrBag);
 
             if (members.Count == 0)
             {
@@ -415,10 +416,14 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
     // Member discovery
     // -------------------------------------------------------------------------
 
-    static List<SerializedMember> DiscoverMembers(INamedTypeSymbol type, AttributeBag attrs)
+    static List<SerializedMember> DiscoverMembers(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs)
     {
         var members = new List<SerializedMember>();
         var seenNames = new HashSet<string>(StringComparer.Ordinal);
+
+        // Resolve the effective MemberConfig for this type hierarchy.
+        // Propagation: concrete type -> base classes -> interfaces.
+        TargetMemberKind currentTargetKind = ResolveEffectiveTargetMemberKind(context, type, attrs.MemberConfig);
 
         // Walk the full base-type chain from most-derived → object so that each
         // derived class formatter includes all inherited members in one flat list.
@@ -434,13 +439,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
         // Process most-derived first so derived [Exclude] or [Include] wins over base.
         // We still collect from every level; seenNames prevents duplicates.
-        TargetMemberKind currentTargetKind = TargetMemberKind.AllPublic;
         foreach (var t in typeChain)
         {
-            var kind = GetTargetMemberKind(t, attrs.MemberConfig);
-            if (kind.HasValue)
-                currentTargetKind = kind.Value;
-
             foreach (var member in t.GetMembers())
             {
                 if (member.IsStatic || member.IsImplicitlyDeclared)
@@ -1297,8 +1297,9 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         return n.TrimStart('_').ToLowerInvariant();
     }
 
-    static TargetMemberKind? GetTargetMemberKind(INamedTypeSymbol type, INamedTypeSymbol? memberConfigAttr)
+    static TargetMemberKind? GetTargetMemberKind(INamedTypeSymbol type, INamedTypeSymbol? memberConfigAttr, out AttributeData attrData)
     {
+        attrData = null;
         if (memberConfigAttr == null)
             return null;
 
@@ -1306,12 +1307,18 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         {
             if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, memberConfigAttr))
                 continue;
+
+            attrData = attr;
+
             if (attr.ConstructorArguments.Length > 0 &&
                 attr.ConstructorArguments[0].Value is int raw)
                 return (TargetMemberKind)raw;
             foreach (var na in attr.NamedArguments)
                 if (na.Key == "TargetMembers" && na.Value.Value is int rawNamed)
                     return (TargetMemberKind)rawNamed;
+
+            // Default value if not specified (matches CerasAttributes.cs)
+            return TargetMemberKind.PublicFields;
         }
         return null;
     }
@@ -1524,6 +1531,125 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                     m.Name, type.Name));
             }
         }
+    }
+
+    static TargetMemberKind ResolveEffectiveTargetMemberKind(
+        SourceProductionContext context,
+        INamedTypeSymbol type,
+        INamedTypeSymbol? memberConfigAttr)
+    {
+        if (memberConfigAttr == null)
+            return TargetMemberKind.AllPublic;
+
+        var configs = new List<MemberConfigInfo>();
+        var visited = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        var queue = new Queue<(INamedTypeSymbol Symbol, int Distance)>();
+
+        queue.Enqueue((type, 0));
+
+        int? minDistanceFound = null;
+
+        while (queue.Count > 0)
+        {
+            var (current, dist) = queue.Dequeue();
+            if (!visited.Add(current)) continue;
+
+            // If we already found a config at a closer level, don't look deeper
+            if (minDistanceFound.HasValue && dist > minDistanceFound.Value)
+                continue;
+
+            var kind = GetTargetMemberKind(current, memberConfigAttr, out var attrData);
+            if (kind.HasValue)
+            {
+                configs.Add(new MemberConfigInfo { Kind = kind.Value, SourceType = current, Attribute = attrData, Distance = dist });
+                minDistanceFound = dist;
+            }
+
+            // Only continue searching if we haven't found anything at this level or closer
+            if (!minDistanceFound.HasValue || dist < minDistanceFound.Value)
+            {
+                if (current.BaseType != null && current.BaseType.SpecialType != SpecialType.System_Object)
+                    queue.Enqueue((current.BaseType, dist + 1));
+
+                foreach (var iface in current.Interfaces)
+                    queue.Enqueue((iface, dist + 1));
+            }
+        }
+
+        if (configs.Count == 0)
+            return TargetMemberKind.AllPublic;
+
+        // Priority:
+        // 1. Concrete type (Distance 0, not an interface)
+        // 2. Base classes (Distance > 0, not an interface)
+        // 3. Interfaces (Any distance, but we only have min distance entries here)
+
+        MemberConfigInfo primary = default;
+        bool foundPrimary = false;
+        foreach (var c in configs)
+        {
+            if (c.SourceType.TypeKind != TypeKind.Interface)
+            {
+                primary = c;
+                foundPrimary = true;
+                break;
+            }
+        }
+
+        if (!foundPrimary)
+        {
+            // Only interfaces at this distance
+            primary = configs[0];
+        }
+
+        // Check for conflicts among configs at the SAME minimum distance
+        foreach (var c in configs)
+        {
+            if (c.Kind != primary.Kind)
+            {
+                // Conflict!
+                ReportMemberConfigConflict(context, c, primary);
+                ReportMemberConfigConflict(context, primary, c);
+            }
+        }
+
+        return primary.Kind;
+    }
+
+    static void ReportMemberConfigConflict(SourceProductionContext context, MemberConfigInfo a, MemberConfigInfo b)
+    {
+        var loc = a.Attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation();
+        var otherLoc = b.Attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation();
+        
+        string otherPos;
+        string otherFile;
+
+        if (otherLoc != null)
+        {
+            var lineSpan = otherLoc.GetLineSpan();
+            otherPos = $"line {lineSpan.StartLinePosition.Line + 1}";
+            otherFile = Path.GetFileName(lineSpan.Path ?? "");
+        }
+        else
+        {
+            otherPos = "unknown location";
+            otherFile = "unknown file";
+        }
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            Diag.MemberConfigConflict,
+            loc,
+            a.SourceType.Name,
+            b.SourceType.Name,
+            $"{otherFile} ({otherPos})"));
+    }
+
+    struct MemberConfigInfo
+    {
+        public TargetMemberKind Kind;
+        public INamedTypeSymbol SourceType;
+        public AttributeData Attribute;
+        public int Distance;
     }
 
     // -------------------------------------------------------------------------
@@ -1992,6 +2118,14 @@ static class Diag
         title: "Read-only member cannot be assigned",
         messageFormat: "Member '{0}' on type '{1}' is read-only and cannot be assigned to during deserialization. " +
                        "Read-only members must be part of a [CerasConstructor] to be correctly initialized.",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor MemberConfigConflict = new(
+        id: "CERAS012",
+        title: "Conflicting MemberConfig attributes",
+        messageFormat: "Conflicting MemberConfig settings inherited from '{0}'. This setting must match the one from '{1}' at {2}.",
         category: "Ceras.SourceGenerator",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);

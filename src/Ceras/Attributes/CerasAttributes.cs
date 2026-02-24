@@ -45,7 +45,7 @@ namespace Ceras
     /// <summary>
     /// Configure what members to include by default in this type, you can also add [Exclude] and [Include] to individual members as well to override the member config.
     /// </summary>
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Interface)]
     public sealed class MemberConfigAttribute : Attribute
     {
         public TargetMember TargetMembers { get; set; }
