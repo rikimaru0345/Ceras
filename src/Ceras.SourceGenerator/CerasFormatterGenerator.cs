@@ -307,6 +307,16 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             {
                 if (!m.IsAccessible)
                 {
+                    // If the member is declared in another assembly, we cannot generate a helper for it.
+                    if (!SymbolEqualityComparer.Default.Equals(m.DeclaringType.ContainingAssembly, compilation.Assembly))
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(
+                            Diag.PrivateMemberFromAnotherAssembly,
+                            type.Locations.FirstOrDefault(),
+                            m.Name, m.DeclaringType.Name));
+                        continue;
+                    }
+
                     if (!allPrivateMembersByDeclaringType.TryGetValue(m.DeclaringType, out var list))
                     {
                         list = new List<SerializedMember>();
@@ -325,7 +335,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             ValidateDuplicateWireNames(context, type, members);
 
             // CERAS010: partial requirement for private members
-            ValidatePartialRequirement(context, type, members);
+            ValidatePartialRequirement(context, compilation, type, members);
 
             // CERAS011: readonly members must be in ctor
             ValidateReadonlyMembers(context, type, members);
@@ -1129,8 +1139,11 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         // User-defined types marked with [GenerateFormatter]
         if (type is INamedTypeSymbol named && HasAttribute(named, attrs.GenerateFormatter))
         {
-            string generatedName = MakeFormatterClassName(named);
-            return $"global::Ceras.Generated.{generatedName}";
+            if (!named.IsAbstract && named.TypeKind != TypeKind.Interface)
+            {
+                string generatedName = MakeFormatterClassName(named);
+                return $"global::Ceras.Generated.{generatedName}";
+            }
         }
 
         // Arrays
@@ -1553,15 +1566,23 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         }
     }
 
-    static void ValidatePartialRequirement(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
+    static void ValidatePartialRequirement(SourceProductionContext context, Compilation compilation, INamedTypeSymbol type, List<SerializedMember> members)
     {
-        bool hasPrivate = members.Any(m => !m.IsAccessible);
-        if (hasPrivate && !IsPartial(type))
+        var checkedTypes = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        foreach (var m in members)
         {
-            context.ReportDiagnostic(Diagnostic.Create(
-                Diag.NotPartial,
-                type.Locations.FirstOrDefault(),
-                type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
+            if (!m.IsAccessible && SymbolEqualityComparer.Default.Equals(m.DeclaringType.ContainingAssembly, compilation.Assembly))
+            {
+                if (!checkedTypes.Add(m.DeclaringType)) continue;
+
+                if (!IsPartial(m.DeclaringType))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        Diag.NotPartial,
+                        m.DeclaringType.Locations.FirstOrDefault() ?? type.Locations.FirstOrDefault(),
+                        m.DeclaringType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
+                }
+            }
         }
     }
 
@@ -2184,6 +2205,16 @@ static class Diag
         id: "CERAS012",
         title: "Conflicting MemberConfig attributes",
         messageFormat: "Conflicting MemberConfig settings inherited from '{0}'. This setting must match the one from '{1}' at {2}.",
+        category: "Ceras.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor PrivateMemberFromAnotherAssembly = new(
+        id: "CERAS013",
+        title: "Cannot serialize private member from another assembly",
+        messageFormat: "Member '{0}' on type '{1}' is private or protected and is defined in another assembly. " +
+                       "The Ceras source generator cannot inject access helpers into another assembly. " +
+                       "Make the member internal (and use [InternalsVisibleTo(\"ProjectB\")]) or public.",
         category: "Ceras.SourceGenerator",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
