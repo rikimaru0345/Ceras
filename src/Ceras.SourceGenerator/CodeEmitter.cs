@@ -23,6 +23,7 @@ namespace Ceras.SourceGenerator
             sb.AppendLine($"    internal sealed class {formatterName} : global::Ceras.Formatters.IFormatter<{typeFqn}>");
             sb.AppendLine("    {");
 
+            // --- Formatter fields (one per distinct member type) -------------------
             var seenFieldNames = new HashSet<string>();
             foreach (var m in members)
             {
@@ -36,35 +37,40 @@ namespace Ceras.SourceGenerator
             }
             sb.AppendLine();
 
+            // --- Schema descriptor (VersionTolerant only) --------------------------
             if (vt)
                 WriteSchemaDescriptor(sb, type, members, attrs);
 
+            // --- SerializeUntyped --------------------------------------------------
             sb.AppendLine($"        public void SerializeUntyped(global::System.Buffers.IBufferWriter<byte> writer, object value)");
             sb.AppendLine("        {");
             sb.AppendLine($"            Serialize(writer, ({typeFqn})value);");
             sb.AppendLine("        }");
             sb.AppendLine();
 
+            // --- DeserializeUntyped ------------------------------------------------
             sb.AppendLine($"        public void DeserializeUntyped(ref global::System.Buffers.SequenceReader<byte> reader, object container, global::System.Reflection.MemberInfo member)");
             sb.AppendLine("        {");
-            sb.AppendLine($"            {typeFqn} value = default;");
-            sb.AppendLine("            if (member is global::System.Reflection.FieldInfo f)");
+            sb.AppendLine($"            if (member is global::System.Reflection.FieldInfo f)");
             sb.AppendLine("            {");
-            sb.AppendLine("                var existing = f.GetValue(container);");
-            sb.AppendLine($"                if (existing is {typeFqn} t) value = t;");
-            sb.AppendLine("                Deserialize(ref reader, ref value);");
-            sb.AppendLine("                f.SetValue(container, value);");
+            sb.AppendLine($"                var existing = f.GetValue(container);");
+            sb.AppendLine($"                {typeFqn} value = default;");
+            sb.AppendLine($"                if (existing is {typeFqn}) value = ({typeFqn})existing;");
+            sb.AppendLine($"                Deserialize(ref reader, ref value);");
+            sb.AppendLine($"                f.SetValue(container, value);");
             sb.AppendLine("            }");
             sb.AppendLine("            else if (member is global::System.Reflection.PropertyInfo p)");
             sb.AppendLine("            {");
-            sb.AppendLine("                var existing = p.GetValue(container);");
-            sb.AppendLine($"                if (existing is {typeFqn} t) value = t;");
-            sb.AppendLine("                Deserialize(ref reader, ref value);");
-            sb.AppendLine("                p.SetValue(container, value);");
+            sb.AppendLine($"                var existing = p.GetValue(container);");
+            sb.AppendLine($"                {typeFqn} value = default;");
+            sb.AppendLine($"                if (existing is {typeFqn}) value = ({typeFqn})existing;");
+            sb.AppendLine($"                Deserialize(ref reader, ref value);");
+            sb.AppendLine($"                p.SetValue(container, value);");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine();
 
+            // --- Serialize ---------------------------------------------------------
             sb.AppendLine($"        public void Serialize(global::System.Buffers.IBufferWriter<byte> writer, {typeFqn} value)");
             sb.AppendLine("        {");
             foreach (var m in members)
@@ -88,6 +94,7 @@ namespace Ceras.SourceGenerator
             sb.AppendLine("        }");
             sb.AppendLine();
 
+            // --- Deserialize -------------------------------------------------------
             sb.AppendLine($"        public void Deserialize(ref global::System.Buffers.SequenceReader<byte> reader, ref {typeFqn} value)");
             sb.AppendLine("        {");
 
@@ -95,6 +102,7 @@ namespace Ceras.SourceGenerator
 
             if (hasCtorParams)
             {
+                // [CerasConstructor] path
                 foreach (var m in members)
                 {
                     string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -108,8 +116,8 @@ namespace Ceras.SourceGenerator
 
                     if (IsFastPrimitive(m.Type))
                     {
-                        string readMethod = GetPrimitiveReadMethod(m.Type);
-                        sb.AppendLine($"            _ctor_{m.Name} = global::Ceras.SerializerBinary.{readMethod};");
+                        string readExpr = GetPrimitiveReadExpression(m.Type, "reader");
+                        sb.AppendLine($"            _ctor_{m.Name} = {readExpr};");
                     }
                     else if (m.IsGetterOnly)
                     {
@@ -142,6 +150,7 @@ namespace Ceras.SourceGenerator
             }
             else
             {
+                // Normal path
                 if (type.IsReferenceType)
                 {
                     sb.AppendLine($"            if (value == null) throw new global::System.InvalidOperationException($\"The instance of type '{{typeof({typeFqn}).FullName}}' was null. For types with a parameterless constructor, the instance must be provided by ReferenceFormatter.\");");
@@ -155,8 +164,8 @@ namespace Ceras.SourceGenerator
 
                     if (IsFastPrimitive(m.Type))
                     {
-                        string readMethod = GetPrimitiveReadMethod(m.Type);
-                        WriteSetStatement(sb, m, typeFqn, $"global::Ceras.SerializerBinary.{readMethod}", 12);
+                        string readExpr = GetPrimitiveReadExpression(m.Type, "reader");
+                        WriteSetStatement(sb, m, typeFqn, readExpr, 12);
                     }
                     else
                     {
@@ -236,28 +245,35 @@ namespace Ceras.SourceGenerator
             throw new NotSupportedException();
         }
 
-        static string GetPrimitiveReadMethod(ITypeSymbol type)
+        static string GetPrimitiveReadExpression(ITypeSymbol type, string readerName)
         {
+            string readMethod;
+            string prefix = "";
+            string suffix = "";
+            
             switch (type.SpecialType)
             {
-                case SpecialType.System_Boolean: return "ReadByte(ref reader) != 0";
-                case SpecialType.System_Byte: return "ReadByte(ref reader)";
-                case SpecialType.System_SByte: return "(sbyte)ReadByte(ref reader)";
-                case SpecialType.System_Char: return "(char)ReadInt16Fixed(ref reader)";
-                case SpecialType.System_Int16: return "ReadInt16Fixed(ref reader)";
-                case SpecialType.System_UInt16: return "(ushort)ReadInt16Fixed(ref reader)";
-                case SpecialType.System_Int32: return "ReadInt32(ref reader)";
-                case SpecialType.System_UInt32: return "ReadUInt32(ref reader)";
-                case SpecialType.System_Single: return "ReadFloat32Fixed(ref reader)";
-                case SpecialType.System_Int64: return "ReadInt64Fixed(ref reader)";
-                case SpecialType.System_UInt64: return "(ulong)ReadInt64Fixed(ref reader)";
-                case SpecialType.System_Double: return "ReadDouble64Fixed(ref reader)";
+                case SpecialType.System_Boolean: readMethod = "ReadByte"; suffix = " != 0"; break;
+                case SpecialType.System_Byte: readMethod = "ReadByte"; break;
+                case SpecialType.System_SByte: readMethod = "ReadByte"; prefix = "(sbyte)"; break;
+                case SpecialType.System_Char: readMethod = "ReadInt16Fixed"; prefix = "(char)"; break;
+                case SpecialType.System_Int16: readMethod = "ReadInt16Fixed"; break;
+                case SpecialType.System_UInt16: readMethod = "ReadInt16Fixed"; prefix = "(ushort)"; break;
+                case SpecialType.System_Int32: readMethod = "ReadInt32"; break;
+                case SpecialType.System_UInt32: readMethod = "ReadUInt32"; break;
+                case SpecialType.System_Single: readMethod = "ReadFloat32Fixed"; break;
+                case SpecialType.System_Int64: readMethod = "ReadInt64Fixed"; break;
+                case SpecialType.System_UInt64: readMethod = "ReadInt64Fixed"; prefix = "(ulong)"; break;
+                case SpecialType.System_Double: readMethod = "ReadDouble64Fixed"; break;
+                default:
+                    string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    if (fqn == "global::System.Guid") readMethod = "ReadGuid";
+                    else if (fqn == "global::System.DateTime") readMethod = "ReadDateTime";
+                    else if (fqn == "global::System.TimeSpan") readMethod = "ReadTimeSpan";
+                    else throw new NotSupportedException();
+                    break;
             }
-            string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            if (fqn == "global::System.Guid") return "ReadGuid(ref reader)";
-            if (fqn == "global::System.DateTime") return "ReadDateTime(ref reader)";
-            if (fqn == "global::System.TimeSpan") return "ReadTimeSpan(ref reader)";
-            throw new NotSupportedException();
+            return $"{prefix}global::Ceras.SerializerBinary.{readMethod}(ref {readerName}){suffix}";
         }
 
         static string GetConcreteFormatterType(ITypeSymbol type, bool isMonomorphic, AttributeBag attrs)

@@ -56,6 +56,8 @@ namespace Ceras.SourceGenerator
             Compilation compilation,
             ImmutableArray<INamedTypeSymbol> types)
         {
+            types = types.Distinct(SymbolEqualityComparer.Default).Cast<INamedTypeSymbol>().ToImmutableArray();
+
             var generateFmtAttr = compilation.GetTypeByMetadataName(GenerateFormatterFqn);
             var excludeFromDiscoveryAttr = compilation.GetTypeByMetadataName(ExcludeFromDiscoveryFqn);
             var blacklistAttr = compilation.GetTypeByMetadataName(BlacklistFqn);
@@ -125,6 +127,11 @@ namespace Ceras.SourceGenerator
             foreach (var type in finalTypes)
             {
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
+                
+                // Only register if we can actually construct it (to avoid broken formatters being used)
+                if (!type.IsValueType && !MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr))
+                    continue;
+
                 string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 string formatterName = MakeFormatterClassName(type);
                 bool vt = results[type].IsVersionTolerant;
@@ -146,9 +153,11 @@ namespace Ceras.SourceGenerator
             {
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
 
-                if (!type.IsValueType && !MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr))
+                bool canConstruct = type.IsValueType || MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr);
+                if (!canConstruct)
                 {
                     context.ReportDiagnostic(Diagnostic.Create(Diag.NotConstructable, type.Locations.FirstOrDefault(), type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
+                    continue;
                 }
 
                 MemberExplorer.ValidateIncludeExcludeConflicts(context, type, attrBag);

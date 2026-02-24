@@ -21,6 +21,9 @@ namespace Ceras.SourceGenerator
             var results = new Dictionary<INamedTypeSymbol, TypeDiscoveryResult>(SymbolEqualityComparer.Default);
             var queue = new Queue<INamedTypeSymbol>();
 
+            // Cache all types in the compilation for subtype discovery
+            var allTypes = GetAllNamedTypes(compilation.GlobalNamespace).ToList();
+
             // 1. Initial roots from [CerasSerializable]
             foreach (var t in types)
             {
@@ -31,46 +34,57 @@ namespace Ceras.SourceGenerator
                 queue.Enqueue(t);
             }
 
-            // 2. Discover subtypes for roots with DiscoverSubtypes = true (default)
-            var discoverRoots = types.Where(t => HasDiscoverSubtypes(t, attrs.GenerateFormatter)).ToList();
-            if (discoverRoots.Count > 0)
-            {
-                foreach (var candidate in GetAllNamedTypes(compilation.GlobalNamespace))
-                {
-                    if (candidate.IsAbstract || candidate.TypeKind == TypeKind.Interface) continue;
-                    if (candidate.DeclaredAccessibility == Accessibility.Private || candidate.DeclaredAccessibility == Accessibility.Protected) continue;
-                    if (results.ContainsKey(candidate)) continue;
-                    if (excludeFromDiscoveryAttr != null && HasAttribute(candidate, excludeFromDiscoveryAttr)) continue;
-                    if (MatchesBlacklist(candidate, blacklistPatterns)) continue;
-
-                    foreach (var root in discoverRoots)
-                    {
-                        if (ImplementsOrInherits(candidate, root))
-                        {
-                            var path = $"Inherits from {root.Name} which is marked as [CerasSerializable]";
-                            var result = new TypeDiscoveryResult(candidate, isVersionTolerant: true, discoveryPath: path);
-                            results[candidate] = result;
-                            queue.Enqueue(candidate);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // 3. Recursive propagation through the graph
+            // 2. Recursive propagation through the graph
             while (queue.Count > 0)
             {
                 var currentType = queue.Dequeue();
                 var currentResult = results[currentType];
 
-                // Skip types we shouldn't explore further (primitives, well-knowns)
-                if (IsWellKnownType(currentType)) continue;
+                // Stop at object
+                if (currentType.SpecialType == SpecialType.System_Object) continue;
 
-                // Discover members of current type
-                var members = DiscoverMembers(context, currentType, attrs);
-                foreach (var m in members)
+                bool isInstantiable = !currentType.IsAbstract && currentType.TypeKind != TypeKind.Interface;
+
+                if (isInstantiable)
                 {
-                    ExploreType(m.Type, currentType, currentResult.DiscoveryPath);
+                    // Skip types we shouldn't explore further (primitives, well-knowns)
+                    if (!IsWellKnownType(currentType))
+                    {
+                        // Discover members of current type
+                        var members = DiscoverMembers(context, currentType, attrs);
+                        foreach (var m in members)
+                        {
+                            ExploreType(m.Type, currentType, currentResult.DiscoveryPath);
+                        }
+                    }
+                }
+
+                // SUBTYPE DISCOVERY
+                // If it's something we should find subtypes for (interfaces, abstract classes, or polymorphic classes)
+                if (HasDiscoverSubtypes(currentType, attrs.GenerateFormatter))
+                {
+                    // We only care about subtypes if it's not sealed and not a primitive/well-known
+                    if (!currentType.IsSealed && currentType.TypeKind != TypeKind.Enum && !IsWellKnownType(currentType))
+                    {
+                        foreach (var candidate in allTypes)
+                        {
+                            if (candidate.IsAbstract || candidate.TypeKind == TypeKind.Interface) continue;
+                            if (candidate.DeclaredAccessibility == Accessibility.Private || candidate.DeclaredAccessibility == Accessibility.Protected) continue;
+                            if (results.ContainsKey(candidate)) continue;
+                            if (excludeFromDiscoveryAttr != null && HasAttribute(candidate, excludeFromDiscoveryAttr)) continue;
+                            if (MatchesBlacklist(candidate, blacklistPatterns)) continue;
+
+                            if (ImplementsOrInherits(candidate, currentType))
+                            {
+                                var parentPath = currentResult.DiscoveryPath;
+                                var path = (parentPath == null) ? $"Implementation of {currentType.Name}" : $"{parentPath} -> Implementation of {currentType.Name}";
+                                
+                                var result = new TypeDiscoveryResult(candidate, isVersionTolerant: true, discoveryPath: path);
+                                results[candidate] = result;
+                                queue.Enqueue(candidate);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -85,6 +99,9 @@ namespace Ceras.SourceGenerator
 
                 if (type is INamedTypeSymbol named)
                 {
+                    // Skip Nullable<T> - handled by built-in resolver
+                    if (named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) return;
+
                     if (named.IsGenericType)
                     {
                         foreach (var arg in named.TypeArguments)
@@ -94,12 +111,11 @@ namespace Ceras.SourceGenerator
                         // Usually no, we only care about closed types.
                     }
 
-                    if (named.TypeKind == TypeKind.Class || named.TypeKind == TypeKind.Struct)
+                    if (named.TypeKind == TypeKind.Class || named.TypeKind == TypeKind.Struct || named.TypeKind == TypeKind.Interface)
                     {
-                        // Stop at object, interfaces, abstract types
+                        // Stop at object
                         if (named.SpecialType == SpecialType.System_Object) return;
-                        if (named.IsAbstract || named.TypeKind == TypeKind.Interface) return;
-                        
+
                         // Stop at primitives
                         if (IsFastPrimitive(named)) return;
 
@@ -161,14 +177,25 @@ namespace Ceras.SourceGenerator
 
         static bool HasDiscoverSubtypes(INamedTypeSymbol type, INamedTypeSymbol? generateFmtAttr)
         {
-            if (generateFmtAttr == null) return true;
+            // If the type has [CerasSerializable], check the 'DiscoverSubtypes' property
             foreach (var attr in type.GetAttributes())
             {
                 if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, generateFmtAttr)) continue;
                 foreach (var na in attr.NamedArguments)
                     if (na.Key == "DiscoverSubtypes" && na.Value.Value is bool b)
                         return b;
+                
+                // Attribute found but no property set, default is true
+                return true;
             }
+            
+            // If it doesn't have the attribute, we still default to true if it's an interface or abstract class
+            // because if we found it via propagation, we almost certainly want its implementations.
+            if (type.IsAbstract || type.TypeKind == TypeKind.Interface)
+                return true;
+
+            // For concrete classes found via propagation, should we find subtypes?
+            // Usually yes for polymorphism.
             return true;
         }
 
