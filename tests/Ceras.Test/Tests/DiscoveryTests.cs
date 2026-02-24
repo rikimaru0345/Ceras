@@ -10,47 +10,94 @@ using Ceras.Generated;
 
 namespace Ceras.Test
 {
+    // A root type explicitly marked for serialization
     [CerasSerializable]
     [MemberConfig(TargetMember.PublicFields)]
-    public class DiscoveryRoot
+    public partial class DiscoveryRoot
     {
         public DiscoveryChild Child;
         public List<DiscoveryNestedChild> NestedChildren;
         public IPolymorphicBase Polymorphic;
+        public DiscoveryRecord Record;
     }
 
+    // Discovered via 'Child' field
     public class DiscoveryChild
     {
         public string Name;
     }
 
+    // Discovered via 'List<DiscoveryNestedChild>'
     public class DiscoveryNestedChild
     {
-        public int id;
+        public int Id;
     }
 
+    // Discovered via 'Polymorphic' field
     public interface IPolymorphicBase {}
-    public class PolymorphicImpl : IPolymorphicBase { public int X; }
+    
+    // Discovered because it implements IPolymorphicBase which was found via propagation
+    public class PolymorphicImpl : IPolymorphicBase 
+    { 
+        public int X; 
+
+        public override bool Equals(object obj) => obj is PolymorphicImpl other && X == other.X;
+        public override int GetHashCode() => X.GetHashCode();
+    }
+
+    // Records should use their primary constructor automatically.
+    // They are discovered via propagation from DiscoveryRoot.
+    public record DiscoveryRecord(int Id, string Name);
 
     public class DiscoveryTests : TestBase
     {
         [Fact]
-        public void RecursiveDiscoveryWorks()
+        public void RecursiveDiscovery_And_Records_Work()
         {
-            var c = new SerializerConfig();
-            GeneratedFormatters.UseFormatters(c);
+            var config = new SerializerConfig();
+            // This registers all formatters that the source generator produced
+            GeneratedFormatters.UseFormatters(config);
 
-            var childType = typeof(DiscoveryChild);
-            var nestedType = typeof(DiscoveryNestedChild);
-            var implType = typeof(PolymorphicImpl);
+            var ceras = new CerasSerializer(config);
 
-            var childFormatter = c.ConfigType(childType).CustomFormatter;
-            var nestedFormatter = c.ConfigType(nestedType).CustomFormatter;
-            var implFormatter = c.ConfigType(implType).CustomFormatter;
+            // 1. Verify all expected types have generated formatters assigned
+            // (Note: ConfigType<T> returns TypeConfig<T> which has CustomFormatter property)
+            Assert.NotNull(config.ConfigType<DiscoveryRoot>().CustomFormatter);
+            Assert.NotNull(config.ConfigType<DiscoveryChild>().CustomFormatter);
+            Assert.NotNull(config.ConfigType<DiscoveryNestedChild>().CustomFormatter);
+            Assert.NotNull(config.ConfigType<PolymorphicImpl>().CustomFormatter);
+            Assert.NotNull(config.ConfigType<DiscoveryRecord>().CustomFormatter);
 
-            Assert.NotNull(childFormatter);
-            Assert.NotNull(nestedFormatter);
-            Assert.NotNull(implFormatter);
+            // 2. Full Round-trip test
+            var original = new DiscoveryRoot
+            {
+                Child = new DiscoveryChild { Name = "Child" },
+                NestedChildren = new List<DiscoveryNestedChild> 
+                { 
+                    new DiscoveryNestedChild { Id = 1 }, 
+                    new DiscoveryNestedChild { Id = 2 } 
+                },
+                Polymorphic = new PolymorphicImpl { X = 42 },
+                Record = new DiscoveryRecord(123, "RecordItem")
+            };
+
+            var data = ceras.Serialize(original);
+            var clone = ceras.Deserialize<DiscoveryRoot>(data);
+
+            // 3. Assert equality
+            Assert.NotNull(clone.Child);
+            Assert.Equal(original.Child.Name, clone.Child.Name);
+            
+            Assert.Equal(original.NestedChildren.Count, clone.NestedChildren.Count);
+            Assert.Equal(original.NestedChildren[0].Id, clone.NestedChildren[0].Id);
+            Assert.Equal(original.NestedChildren[1].Id, clone.NestedChildren[1].Id);
+
+            Assert.IsType<PolymorphicImpl>(clone.Polymorphic);
+            Assert.Equal(original.Polymorphic, clone.Polymorphic);
+
+            Assert.Equal(original.Record, clone.Record);
+            Assert.Equal(123, clone.Record.Id);
+            Assert.Equal("RecordItem", clone.Record.Name);
         }
     }
 }

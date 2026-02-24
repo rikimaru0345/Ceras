@@ -140,6 +140,12 @@ namespace Ceras.SourceGenerator
                 sb.AppendLine($"            var {varName} = config.ConfigType<{typeFqn}>();");
                 sb.AppendLine($"            if ({varName}.CustomFormatter == null) {varName}.CustomFormatter = new {formatterName}();");
                 
+                var bestCtor = MemberExplorer.GetBestConstructor(type, cerasConstructorAttr);
+                if (bestCtor != null && bestCtor.Parameters.Length > 0)
+                {
+                    sb.AppendLine($"            global::Ceras.CerasSerializer.AddFormatterConstructedType(typeof({typeFqn}));");
+                }
+
                 if (vt) sb.AppendLine($"            config.Robust.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
             }
 

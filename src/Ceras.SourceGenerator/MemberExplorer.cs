@@ -89,82 +89,68 @@ namespace Ceras.SourceGenerator
             }
 
             // [CerasConstructor] parameter injection
-            if (attrs.CerasConstructor != null)
+            var cerasCtor = GetBestConstructor(type, attrs.CerasConstructor);
+            if (cerasCtor != null && cerasCtor.Parameters.Length > 0)
             {
-                IMethodSymbol? cerasCtor = null;
-                foreach (var member in type.GetMembers())
+                var memberByNorm = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < members.Count; i++)
                 {
-                    if (member is IMethodSymbol method &&
-                        method.MethodKind == MethodKind.Constructor &&
-                        HasAttribute(method, attrs.CerasConstructor))
-                    {
-                        cerasCtor = method;
-                        break;
-                    }
+                    string norm = NormalizeName(members[i].Name);
+                    memberByNorm[norm] = i;
                 }
 
-                if (cerasCtor != null)
+                foreach (var param in cerasCtor.Parameters)
                 {
-                    var memberByNorm = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                    for (int i = 0; i < members.Count; i++)
+                    string normParam = NormalizeName(param.Name);
+
+                    if (memberByNorm.TryGetValue(normParam, out int idx))
                     {
-                        string norm = NormalizeName(members[i].Name);
-                        memberByNorm[norm] = i;
+                        var existing = members[idx];
+                        members[idx] = new SerializedMember(
+                            existing.Name, existing.StableName, existing.Type, existing.DeclaringType,
+                            existing.IsField, existing.PreviousNames, existing.IsMonomorphic,
+                            existing.IsAccessible, existing.IsReadOnly, existing.IsGetterOnly, isCtorParam: true, 
+                            ctorParamName: param.Name);
                     }
-
-                    foreach (var param in cerasCtor.Parameters)
+                    else
                     {
-                        string normParam = NormalizeName(param.Name);
+                        ISymbol? found = null;
+                        ITypeSymbol? foundType = null;
+                        bool foundIsField = false;
 
-                        if (memberByNorm.TryGetValue(normParam, out int idx))
+                        foreach (var t2 in typeChain)
                         {
-                            var existing = members[idx];
-                            members[idx] = new SerializedMember(
-                                existing.Name, existing.StableName, existing.Type, existing.DeclaringType,
-                                existing.IsField, existing.PreviousNames, existing.IsMonomorphic,
-                                existing.IsAccessible, existing.IsReadOnly, existing.IsGetterOnly, isCtorParam: true, 
-                                ctorParamName: param.Name);
-                        }
-                        else
-                        {
-                            ISymbol? found = null;
-                            ITypeSymbol? foundType = null;
-                            bool foundIsField = false;
-
-                            foreach (var t2 in typeChain)
+                            foreach (var sym in t2.GetMembers())
                             {
-                                foreach (var sym in t2.GetMembers())
+                                if (sym.IsStatic || sym.IsImplicitlyDeclared) continue;
+                                string normMember = NormalizeName(sym.Name);
+                                if (normMember != normParam) continue;
+
+                                if (sym is IFieldSymbol f2 && !f2.IsConst)
                                 {
-                                    if (sym.IsStatic || sym.IsImplicitlyDeclared) continue;
-                                    string normMember = NormalizeName(sym.Name);
-                                    if (normMember != normParam) continue;
-
-                                    if (sym is IFieldSymbol f2 && !f2.IsConst)
-                                    {
-                                        found = sym; foundType = f2.Type; foundIsField = true; break;
-                                    }
-                                    else if (sym is IPropertySymbol p2 && !p2.IsIndexer && p2.GetMethod != null)
-                                    {
-                                        found = sym; foundType = p2.Type; foundIsField = false; break;
-                                    }
+                                    found = sym; foundType = f2.Type; foundIsField = true; break;
                                 }
-                                if (found != null) break;
+                                else if (sym is IPropertySymbol p2 && !p2.IsIndexer && p2.GetMethod != null)
+                                {
+                                    found = sym; foundType = p2.Type; foundIsField = false; break;
+                                }
                             }
+                            if (found != null) break;
+                        }
 
-                            if (found != null && foundType != null)
-                            {
-                                bool mono = IsMonomorphicByDefault(foundType);
-                                bool isAcc = found.DeclaredAccessibility == Accessibility.Public ||
-                                             found.DeclaredAccessibility == Accessibility.Internal;
+                        if (found != null && foundType != null)
+                        {
+                            bool mono = IsMonomorphicByDefault(foundType);
+                            bool isAcc = found.DeclaredAccessibility == Accessibility.Public ||
+                                         found.DeclaredAccessibility == Accessibility.Internal;
 
-                                bool isRO = foundIsField ? ((IFieldSymbol)found).IsReadOnly : ((IPropertySymbol)found).SetMethod == null;
+                            bool isRO = foundIsField ? ((IFieldSymbol)found).IsReadOnly : ((IPropertySymbol)found).SetMethod == null;
 
-                                members.Add(new SerializedMember(
-                                    found.Name, param.Name, foundType, found.ContainingType, foundIsField,
-                                    Array.Empty<string>(), mono, isAcc, isRO,
-                                    isGetterOnly: false, isCtorParam: true, ctorParamName: param.Name));
-                                memberByNorm[normParam] = members.Count - 1;
-                            }
+                            members.Add(new SerializedMember(
+                                found.Name, param.Name, foundType, found.ContainingType, foundIsField,
+                                Array.Empty<string>(), mono, isAcc, isRO,
+                                isGetterOnly: false, isCtorParam: true, ctorParamName: param.Name));
+                            memberByNorm[normParam] = members.Count - 1;
                         }
                     }
                 }
@@ -375,19 +361,21 @@ namespace Ceras.SourceGenerator
 
         public static void ValidateCerasConstructor(SourceProductionContext context, Compilation compilation, INamedTypeSymbol type, List<SerializedMember> members, AttributeBag attrs)
         {
-            var ctors = type.InstanceConstructors.Where(c => HasAttribute(c, attrs.CerasConstructor)).ToList();
-            if (ctors.Count > 1)
+            var explicitCtors = type.InstanceConstructors.Where(c => HasAttribute(c, attrs.CerasConstructor)).ToList();
+            if (explicitCtors.Count > 1)
             {
                 context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorMultiple, type.Locations.FirstOrDefault(), type.Name));
                 return;
             }
 
-            if (ctors.Count == 1)
+            var ctor = GetBestConstructor(type, attrs.CerasConstructor);
+            if (ctor != null)
             {
-                var ctor = ctors[0];
                 if (ctor.DeclaredAccessibility != Accessibility.Public && ctor.DeclaredAccessibility != Accessibility.Internal)
                 {
-                    context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorNotAccessible, ctor.Locations.FirstOrDefault(), type.Name));
+                    // Only report error if it was explicitly marked or if it's the only choice and it's private
+                    if (explicitCtors.Count > 0)
+                        context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorNotAccessible, ctor.Locations.FirstOrDefault(), type.Name));
                 }
 
                 foreach (var param in ctor.Parameters)
@@ -444,19 +432,41 @@ namespace Ceras.SourceGenerator
             }
         }
 
+        /// <summary>
+        /// Finds the best constructor to use for serialization.
+        /// Priority: Explicit [CerasConstructor] > Public/Internal parameterless > Record primary constructor.
+        /// </summary>
+        public static IMethodSymbol? GetBestConstructor(INamedTypeSymbol type, INamedTypeSymbol? cerasConstructorAttr)
+        {
+            var ctors = type.InstanceConstructors;
+
+            // 1. Explicit [CerasConstructor]
+            if (cerasConstructorAttr != null)
+            {
+                var explicitCtor = ctors.FirstOrDefault(c => HasAttribute(c, cerasConstructorAttr));
+                if (explicitCtor != null) return explicitCtor;
+            }
+
+            // 2. Public/Internal parameterless
+            var parameterless = ctors.FirstOrDefault(c => c.Parameters.Length == 0 && (c.DeclaredAccessibility == Accessibility.Public || c.DeclaredAccessibility == Accessibility.Internal));
+            if (parameterless != null) return parameterless;
+
+            // 3. Record primary constructor (for records that don't have a parameterless one)
+            if (type.IsRecord)
+            {
+                // For records, if there's only one constructor and it has parameters, it's the primary one.
+                if (ctors.Length == 1) return ctors[0];
+                
+                // If there are multiple, the one with most parameters is a good heuristic for the primary constructor.
+                return ctors.OrderByDescending(c => c.Parameters.Length).FirstOrDefault();
+            }
+
+            return null;
+        }
+
         public static bool CanCerasConstruct(INamedTypeSymbol type, INamedTypeSymbol? cerasConstructorAttr)
         {
-            foreach (var member in type.GetMembers())
-            {
-                if (member is IMethodSymbol method && method.MethodKind == MethodKind.Constructor)
-                {
-                    if (HasAttribute(method, cerasConstructorAttr))
-                        return true;
-                    if (method.Parameters.Length == 0 && (method.DeclaredAccessibility == Accessibility.Public || method.DeclaredAccessibility == Accessibility.Internal))
-                        return true;
-                }
-            }
-            return false;
+            return GetBestConstructor(type, cerasConstructorAttr) != null;
         }
 
         [Flags]

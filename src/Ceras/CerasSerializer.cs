@@ -32,7 +32,14 @@ namespace Ceras
         internal static bool IsFormatterConstructed(Type type)
         {
             if (type.IsAbstract) return true;
-            lock (_formatterConstructedTypes) return _formatterConstructedTypes.Contains(type);
+            
+            // Check manual registration (The source generator calls AddFormatterConstructedType during UseFormatters)
+            lock (_formatterConstructedTypes)
+            {
+                if (_formatterConstructedTypes.Contains(type)) return true;
+            }
+
+            return false;
         }
 
         internal static bool IsPrimitiveType(Type type)
@@ -82,6 +89,19 @@ namespace Ceras
         {
             if (config != null && !config.Claim(this)) throw new CerasException("SerializerConfig already in use");
             Config = config ?? new SerializerConfig();
+
+            // Try to find and call the source-generated registration helper as early as possible
+            // to ensure constructed types are registered before any formatters are created.
+            var generatedType = Type.GetType("Ceras.Generated.GeneratedFormatters, Ceras.Generated") ??
+                                Type.GetType("Ceras.Generated.GeneratedFormatters");
+
+            if (generatedType != null)
+            {
+                var method = generatedType.GetMethod("UseFormatters", BindingFlags.Static | BindingFlags.Public);
+                if (method != null)
+                    method.Invoke(null, new object[] { Config });
+            }
+
             if (Config.ExternalObjectResolver == null) Config.ExternalObjectResolver = new ErrorResolver();
             TypeBinder = Config.Advanced.TypeBinder;
             DiscardObjectMethod = Config.Advanced.DiscardObjectMethod;
@@ -107,17 +127,6 @@ namespace Ceras
             _dynamicResolver = new ReflectionFallbackResolver(this);
 
             _knownTypes = Config.KnownTypes.ToArray();
-
-            // Try to find and call the source-generated registration helper
-            var generatedType = Type.GetType("Ceras.Generated.GeneratedFormatters, Ceras.Generated") ??
-                                Type.GetType("Ceras.Generated.GeneratedFormatters");
-
-            if (generatedType != null)
-            {
-                var method = generatedType.GetMethod("UseFormatters", BindingFlags.Static | BindingFlags.Public);
-                if (method != null)
-                    method.Invoke(null, new object[] { Config });
-            }
 
             foreach (var t in _knownTypes) ProtocolChecksum.Add(t.FullName); ProtocolChecksum.Finish();
             foreach (var t in _knownTypes) if (!t.ContainsGenericParameters) GetReferenceFormatter(t);

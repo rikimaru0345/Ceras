@@ -93,12 +93,12 @@ namespace Ceras.Formatters
                     if (value.GetType() != specificType) 
                     { 
                         _ceras.DiscardObjectMethod?.Invoke(value); 
-                        value = (T)entry.Constructor(); 
+                        value = (T)entry.Constructor.Value(); 
                     } 
                 } 
                 else 
                 {
-                    value = (T)entry.Constructor(); 
+                    value = (T)entry.Constructor.Value(); 
                 }
             }
             
@@ -117,11 +117,30 @@ namespace Ceras.Formatters
             var formatter = _ceras.GetSpecificFormatter(type);
             entry.SerializeDispatcher = CreateSpecificSerializerDispatcher(type, formatter);
             entry.DeserializeDispatcher = CreateSpecificDeserializerDispatcher(type, formatter);
-            entry.Constructor = CreateObjectConstructor(type);
+            entry.Constructor = new Lazy<Func<object>>(() => CreateObjectConstructor(type, formatter));
             return entry;
         }
 
-        Func<object> CreateObjectConstructor(Type type) { if (type.IsArray) return () => null; if (CerasSerializer.IsFormatterConstructed(type) || type.IsValueType) return () => null; var tc = _ceras.Config.GetTypeConfig(type, false).TypeConstruction; if (tc == null) throw new InvalidOperationException($"No ctor for '{type.FullName}'"); if (tc.HasDataArguments || tc is ConstructNull) return () => null; return tc.GetRefFormatterConstructor(); }
+        Func<object> CreateObjectConstructor(Type type, IFormatter specificFormatter) 
+        { 
+            if (type.IsArray || type.IsValueType) return () => null;
+            
+            // The definitive check: did the source generator or user register this type as handling its own construction?
+            if (CerasSerializer.IsFormatterConstructed(type)) return () => null;
+
+            var formatterType = specificFormatter.GetType();
+            bool isReflectionFallback = formatterType.IsGenericType && formatterType.GetGenericTypeDefinition() == typeof(ReflectionFallbackFormatter<>);
+            
+            // If it's NOT reflection fallback, AND not registered as formatter-constructed, 
+            // then it MUST be a generated formatter for a type with a parameterless constructor.
+            // ReferenceFormatter MUST provide the instance.
+
+            var tc = _ceras.Config.GetTypeConfig(type, false).TypeConstruction; 
+            if (tc == null) throw new InvalidOperationException($"No ctor for '{type.FullName}'"); 
+            if (tc.HasDataArguments || tc is ConstructNull) return () => null; 
+            return tc.GetRefFormatterConstructor(); 
+        }
+
         static SerializeDelegate<T> CreateSpecificSerializerDispatcher(Type type, IFormatter specificFormatter)
         {
             var method = specificFormatter.GetType().ResolveSerializeMethod(type);
@@ -145,7 +164,21 @@ namespace Ceras.Formatters
             return helper.Deserialize;
         }
 
-        class DispatcherEntry { public readonly Type Type; public Func<object> Constructor; public readonly bool IsType, IsExternalRootObject, IsValueType; public SerializeDelegate<T> SerializeDispatcher; public DeserializeDelegate<T> DeserializeDispatcher; public DispatcherEntry(Type type) { Type = type; IsType = typeof(Type).IsAssignableFrom(type); IsExternalRootObject = typeof(IExternalRootObject).IsAssignableFrom(type); IsValueType = type.IsValueType; } }
+        class DispatcherEntry 
+        { 
+            public readonly Type Type; 
+            public Lazy<Func<object>> Constructor; 
+            public readonly bool IsType, IsExternalRootObject, IsValueType; 
+            public SerializeDelegate<T> SerializeDispatcher; 
+            public DeserializeDelegate<T> DeserializeDispatcher; 
+            public DispatcherEntry(Type type) 
+            { 
+                Type = type; 
+                IsType = typeof(Type).IsAssignableFrom(type); 
+                IsExternalRootObject = typeof(IExternalRootObject).IsAssignableFrom(type); 
+                IsValueType = type.IsValueType; 
+            } 
+        }
     }
 
     interface IReflectionSerializer<TBase>
@@ -193,7 +226,7 @@ namespace Ceras.Formatters
     public sealed class ReferenceFormatter_KnownSealedType<T> : IFormatter<T> where T : class
     {
         const int Null = -1, NewValueSameType = -3, Bias = 5;
-        readonly CerasSerializer _ceras; readonly IFormatter<T> _formatter; readonly Func<object> _constructor;
+        readonly CerasSerializer _ceras; readonly IFormatter<T> _formatter; readonly Lazy<Func<object>> _constructor;
         public ReferenceFormatter_KnownSealedType(CerasSerializer ceras)
         {
             _ceras = ceras;
@@ -202,17 +235,19 @@ namespace Ceras.Formatters
             if (!type.IsSealed) throw new InvalidOperationException("Not sealed");
             _formatter = (IFormatter<T>)ceras.GetSpecificFormatter(type);
 
-            if (type.IsArray || CerasSerializer.IsFormatterConstructed(type))
-            {
-                _constructor = () => null;
-            }
-            else
-            {
-                var tc = _ceras.Config.GetTypeConfig(type, false).TypeConstruction;
-                if (tc == null) throw new InvalidOperationException($"No ctor for '{type.FullName}'");
-                if (tc.HasDataArguments || tc is ConstructNull) _constructor = () => null;
-                else _constructor = tc.GetRefFormatterConstructor();
-            }
+            _constructor = new Lazy<Func<object>>(() => CreateObjectConstructor(type, _formatter));
+        }
+
+        Func<object> CreateObjectConstructor(Type type, IFormatter specificFormatter)
+        {
+            if (type.IsArray || type.IsValueType) return () => null;
+            
+            if (CerasSerializer.IsFormatterConstructed(type)) return () => null;
+
+            var tc = _ceras.Config.GetTypeConfig(type, false).TypeConstruction;
+            if (tc == null) throw new InvalidOperationException($"No ctor for '{type.FullName}'");
+            if (tc.HasDataArguments || tc is ConstructNull) return () => null;
+            return tc.GetRefFormatterConstructor();
         }
         
         public void SerializeUntyped(IBufferWriter<byte> writer, object value)
@@ -251,7 +286,7 @@ namespace Ceras.Formatters
             var objId = SerializerBinary.ReadUInt32Bias(ref reader, Bias); 
             if (objId == Null) { if (value != null) _ceras.DiscardObjectMethod?.Invoke(value); value = default; return; } 
             if (objId >= 0) { value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId); return; } 
-            if (value == null) value = (T)_constructor(); 
+            if (value == null) value = (T)_constructor.Value(); 
             var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>(); 
             objectProxy.Value = value; 
             _formatter.Deserialize(ref reader, ref objectProxy.Value); 
