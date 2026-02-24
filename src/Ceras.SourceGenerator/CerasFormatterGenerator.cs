@@ -1137,11 +1137,37 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         {
             if (type is INamedTypeSymbol namedColl && namedColl.TypeArguments.Length > 0)
             {
+                // Check if it's a dictionary (implements IDictionary<K, V>)
+                bool isDict = false;
+                ITypeSymbol keyType = null;
+                ITypeSymbol valType = null;
+
                 var fqn = namedColl.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                if (fqn.StartsWith("global::System.Collections.Generic.IDictionary<"))
+                if (fqn.StartsWith("global::System.Collections.Generic.IDictionary<") || fqn.StartsWith("global::System.Collections.Generic.Dictionary<"))
                 {
-                    string k = namedColl.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    string v = namedColl.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    isDict = true;
+                    keyType = namedColl.TypeArguments[0];
+                    valType = namedColl.TypeArguments[1];
+                }
+                else
+                {
+                    foreach (var iface in namedColl.AllInterfaces)
+                    {
+                        var ifaceFqn = iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                        if (ifaceFqn.StartsWith("global::System.Collections.Generic.IDictionary<"))
+                        {
+                            isDict = true;
+                            keyType = iface.TypeArguments[0];
+                            valType = iface.TypeArguments[1];
+                            break;
+                        }
+                    }
+                }
+
+                if (isDict)
+                {
+                    string k = keyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    string v = valType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     string kvp = $"global::System.Collections.Generic.KeyValuePair<{k}, {v}>";
                     return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {kvp}>";
                 }
