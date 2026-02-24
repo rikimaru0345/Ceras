@@ -83,19 +83,12 @@ namespace Ceras.Test
             var obj = new ConstructorTest(5);
             var ceras = new CerasSerializer();
 
-            bool success = false;
-            try
-            {
-                // Expected to throw: no default ctor
-                var data = ceras.Serialize(obj);
-                var clone = ceras.Deserialize<ConstructorTest>(data);
-            }
-            catch (Exception)
-            {
-                success = true;
-            }
+            // Ceras is now smart enough to find the constructor automatically 
+            // because 'int x' parameter matches 'public int x' field.
+            var data = ceras.Serialize(obj);
+            var clone = ceras.Deserialize<ConstructorTest>(data);
             
-            Assert.True(success, "objects with no ctor and no TypeConfig should not serialize");
+            Assert.Equal(obj.x, clone.x);
         }
 
 

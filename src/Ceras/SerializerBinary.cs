@@ -408,6 +408,20 @@ namespace Ceras
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteUInt16Fixed(IBufferWriter<byte> writer, ushort value)
+        {
+            WriteUInt16Fixed<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteUInt16Fixed<TWriter>(TWriter writer, ushort value) where TWriter : IBufferWriter<byte>
+        {
+            var span = writer.GetSpan(2);
+            BinaryPrimitives.WriteUInt16LittleEndian(span, value);
+            writer.Advance(2);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static short ReadInt16Fixed(ref SequenceReader<byte> reader)
         {
             if (reader.UnreadSpan.Length >= 2)
@@ -420,6 +434,21 @@ namespace Ceras
             if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
             reader.Advance(2);
             return BinaryPrimitives.ReadInt16LittleEndian(temp);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ushort ReadUInt16Fixed(ref SequenceReader<byte> reader)
+        {
+            if (reader.UnreadSpan.Length >= 2)
+            {
+                ushort val = BinaryPrimitives.ReadUInt16LittleEndian(reader.UnreadSpan);
+                reader.Advance(2);
+                return val;
+            }
+            Span<byte> temp = stackalloc byte[2];
+            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            reader.Advance(2);
+            return BinaryPrimitives.ReadUInt16LittleEndian(temp);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -503,6 +532,20 @@ namespace Ceras
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteUInt64Fixed(IBufferWriter<byte> writer, ulong value)
+        {
+            WriteUInt64Fixed<IBufferWriter<byte>>(writer, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteUInt64Fixed<TWriter>(TWriter writer, ulong value) where TWriter : IBufferWriter<byte>
+        {
+            var span = writer.GetSpan(8);
+            BinaryPrimitives.WriteUInt64LittleEndian(span, value);
+            writer.Advance(8);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static long ReadInt64Fixed(ref SequenceReader<byte> reader)
         {
             if (reader.UnreadSpan.Length >= 8)
@@ -515,6 +558,21 @@ namespace Ceras
             if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
             reader.Advance(8);
             return BinaryPrimitives.ReadInt64LittleEndian(temp);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ulong ReadUInt64Fixed(ref SequenceReader<byte> reader)
+        {
+            if (reader.UnreadSpan.Length >= 8)
+            {
+                ulong val = BinaryPrimitives.ReadUInt64LittleEndian(reader.UnreadSpan);
+                reader.Advance(8);
+                return val;
+            }
+            Span<byte> temp = stackalloc byte[8];
+            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            reader.Advance(8);
+            return BinaryPrimitives.ReadUInt64LittleEndian(temp);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

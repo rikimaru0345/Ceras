@@ -230,12 +230,12 @@ namespace Ceras.SourceGenerator
                 case SpecialType.System_SByte: return "WriteByte";
                 case SpecialType.System_Char: return "WriteInt16Fixed";
                 case SpecialType.System_Int16: return "WriteInt16Fixed";
-                case SpecialType.System_UInt16: return "WriteInt16Fixed";
+                case SpecialType.System_UInt16: return "WriteUInt16Fixed";
                 case SpecialType.System_Int32: return "WriteInt32";
                 case SpecialType.System_UInt32: return "WriteUInt32";
                 case SpecialType.System_Single: return "WriteFloat32Fixed";
                 case SpecialType.System_Int64: return "WriteInt64Fixed";
-                case SpecialType.System_UInt64: return "WriteInt64Fixed";
+                case SpecialType.System_UInt64: return "WriteUInt64Fixed";
                 case SpecialType.System_Double: return "WriteDouble64Fixed";
             }
             string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -258,12 +258,12 @@ namespace Ceras.SourceGenerator
                 case SpecialType.System_SByte: readMethod = "ReadByte"; prefix = "(sbyte)"; break;
                 case SpecialType.System_Char: readMethod = "ReadInt16Fixed"; prefix = "(char)"; break;
                 case SpecialType.System_Int16: readMethod = "ReadInt16Fixed"; break;
-                case SpecialType.System_UInt16: readMethod = "ReadInt16Fixed"; prefix = "(ushort)"; break;
+                case SpecialType.System_UInt16: readMethod = "ReadUInt16Fixed"; break;
                 case SpecialType.System_Int32: readMethod = "ReadInt32"; break;
                 case SpecialType.System_UInt32: readMethod = "ReadUInt32"; break;
                 case SpecialType.System_Single: readMethod = "ReadFloat32Fixed"; break;
                 case SpecialType.System_Int64: readMethod = "ReadInt64Fixed"; break;
-                case SpecialType.System_UInt64: readMethod = "ReadInt64Fixed"; prefix = "(ulong)"; break;
+                case SpecialType.System_UInt64: readMethod = "ReadUInt64Fixed"; break;
                 case SpecialType.System_Double: readMethod = "ReadDouble64Fixed"; break;
                 default:
                     string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
