@@ -777,7 +777,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         var seenFieldNames = new HashSet<string>();
         foreach (var m in members)
         {
-            if (IsPrimitive(m.Type)) continue;
+            if (IsFastPrimitive(m.Type)) continue;
 
             string fieldName = MakeFormatterFieldName(m.Type);
             if (!seenFieldNames.Add(fieldName)) continue;
@@ -827,7 +827,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             string fieldName = MakeFormatterFieldName(m.Type);
             string getAccess = GetGetAccess(m, typeFqn);
 
-            if (IsPrimitive(m.Type))
+            if (IsFastPrimitive(m.Type))
             {
                 string writeMethod = GetPrimitiveWriteMethod(m.Type);
                 string valueExp = getAccess;
@@ -866,7 +866,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 string fieldName = MakeFormatterFieldName(m.Type);
                 string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-                if (IsPrimitive(m.Type))
+                if (IsFastPrimitive(m.Type))
                 {
                     string readMethod = GetPrimitiveReadMethod(m.Type);
                     sb.AppendLine($"            _ctor_{m.Name} = global::Ceras.SerializerBinary.{readMethod};");
@@ -902,7 +902,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                                     // Assign non-ctor-param members that need post-construction assignment.
                                     foreach (var m in members.Where(m => !m.IsCtorParam))
                                     {
-                                        if (IsPrimitive(m.Type))
+                                        if (IsFastPrimitive(m.Type))
                                         {
                                             string readVal = $"_ctor_{m.Name}";
                                             WriteSetStatement(sb, m, typeFqn, readVal, 12);
@@ -931,7 +931,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                                         string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                                         string? refAccess = GetRefAccess(m, typeFqn);
                             
-                                        if (IsPrimitive(m.Type))
+                                        if (IsFastPrimitive(m.Type))
                                         {
                                             string readMethod = GetPrimitiveReadMethod(m.Type);
                                             string readExpr = $"global::Ceras.SerializerBinary.{readMethod}";
@@ -972,7 +972,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         sb.AppendLine();
     }
 
-    static bool IsPrimitive(ITypeSymbol type)
+    static bool IsFastPrimitive(ITypeSymbol type)
     {
         switch (type.SpecialType)
         {
@@ -990,6 +990,11 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             case SpecialType.System_Double:
                 return true;
         }
+
+        string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (fqn == "global::System.Guid" || fqn == "global::System.DateTime" || fqn == "global::System.TimeSpan")
+            return true;
+
         return false;
     }
 
@@ -997,7 +1002,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
     {
         switch (type.SpecialType)
         {
-            case SpecialType.System_Boolean: return "WriteByte"; 
+            case SpecialType.System_Boolean: return "WriteByte";
             case SpecialType.System_Byte: return "WriteByte";
             case SpecialType.System_SByte: return "WriteByte";
             case SpecialType.System_Char: return "WriteInt16Fixed";
@@ -1010,6 +1015,12 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             case SpecialType.System_UInt64: return "WriteInt64Fixed";
             case SpecialType.System_Double: return "WriteDouble64Fixed";
         }
+
+        string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (fqn == "global::System.Guid") return "WriteGuid";
+        if (fqn == "global::System.DateTime") return "WriteDateTime";
+        if (fqn == "global::System.TimeSpan") return "WriteTimeSpan";
+
         throw new NotSupportedException();
     }
 
@@ -1030,6 +1041,12 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             case SpecialType.System_UInt64: return "(ulong)ReadInt64Fixed(ref reader)";
             case SpecialType.System_Double: return "ReadDouble64Fixed(ref reader)";
         }
+
+        string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (fqn == "global::System.Guid") return "ReadGuid(ref reader)";
+        if (fqn == "global::System.DateTime") return "ReadDateTime(ref reader)";
+        if (fqn == "global::System.TimeSpan") return "ReadTimeSpan(ref reader)";
+
         throw new NotSupportedException();
     }
 
@@ -1055,8 +1072,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             case SpecialType.System_String: return "global::Ceras.Formatters.IFormatter<string>";
         }
 
-        if (typeFqn == "global::System.DateTime") return "global::Ceras.Resolvers.StandardFormatterResolver.DateTimeFormatter";
-        if (typeFqn == "global::System.TimeSpan") return "global::Ceras.Resolvers.StandardFormatterResolver.TimeSpanFormatter";
+        if (typeFqn == "global::System.DateTime") return "global::Ceras.Formatters.DateTimeFormatter";
+        if (typeFqn == "global::System.TimeSpan") return "global::Ceras.Formatters.TimeSpanFormatter";
         if (typeFqn == "global::System.Guid") return "global::Ceras.Formatters.GuidFormatter";
 
             // User-defined types marked with [GenerateFormatter]

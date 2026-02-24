@@ -308,6 +308,62 @@ namespace Ceras
         #region Fixed Length Primitives
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteGuid<TWriter>(TWriter writer, Guid value) where TWriter : IBufferWriter<byte>
+        {
+            var span = writer.GetSpan(16);
+            Unsafe.WriteUnaligned(ref MemoryMarshal.GetReference(span), value);
+            writer.Advance(16);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteGuid(IBufferWriter<byte> writer, Guid value) => WriteGuid<IBufferWriter<byte>>(writer, value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Guid ReadGuid(ref SequenceReader<byte> reader)
+        {
+            if (reader.UnreadSpan.Length >= 16)
+            {
+                Guid val = Unsafe.ReadUnaligned<Guid>(ref MemoryMarshal.GetReference(reader.UnreadSpan));
+                reader.Advance(16);
+                return val;
+            }
+            Span<byte> temp = stackalloc byte[16];
+            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            reader.Advance(16);
+            return Unsafe.ReadUnaligned<Guid>(ref MemoryMarshal.GetReference(temp));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteDateTime<TWriter>(TWriter writer, DateTime value) where TWriter : IBufferWriter<byte>
+        {
+            WriteInt64Fixed(writer, value.ToBinary());
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteDateTime(IBufferWriter<byte> writer, DateTime value) => WriteDateTime<IBufferWriter<byte>>(writer, value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DateTime ReadDateTime(ref SequenceReader<byte> reader)
+        {
+            return DateTime.FromBinary(ReadInt64Fixed(ref reader));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteTimeSpan<TWriter>(TWriter writer, TimeSpan value) where TWriter : IBufferWriter<byte>
+        {
+            WriteInt64Fixed(writer, value.Ticks);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteTimeSpan(IBufferWriter<byte> writer, TimeSpan value) => WriteTimeSpan<IBufferWriter<byte>>(writer, value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static TimeSpan ReadTimeSpan(ref SequenceReader<byte> reader)
+        {
+            return new TimeSpan(ReadInt64Fixed(ref reader));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteByte(IBufferWriter<byte> writer, byte value)
         {
             WriteByte<IBufferWriter<byte>>(writer, value);

@@ -115,10 +115,10 @@ namespace Ceras.Formatters
             if (type == typeof(T))
                 return (SerializeDelegate<T>)Delegate.CreateDelegate(typeof(SerializeDelegate<T>), specificFormatter, method);
 
-            return (writer, value) =>
-            {
-                method.Invoke(specificFormatter, new object[] { writer, value });
-            };
+            // Use a helper class to avoid boxing and object[] allocation
+            var helperType = typeof(ReflectionSerializationHelper<,>).MakeGenericType(typeof(T), type);
+            var helper = (IReflectionSerializer<T>)Activator.CreateInstance(helperType, specificFormatter);
+            return helper.Serialize;
         }
         static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher(Type type, IFormatter specificFormatter)
         {
@@ -133,6 +133,26 @@ namespace Ceras.Formatters
         }
 
         class DispatcherEntry { public readonly Type Type; public Func<object> Constructor; public readonly bool IsType, IsExternalRootObject, IsValueType; public SerializeDelegate<T> SerializeDispatcher; public DeserializeDelegate<T> DeserializeDispatcher; public DispatcherEntry(Type type) { Type = type; IsType = typeof(Type).IsAssignableFrom(type); IsExternalRootObject = typeof(IExternalRootObject).IsAssignableFrom(type); IsValueType = type.IsValueType; } }
+    }
+
+    interface IReflectionSerializer<TBase>
+    {
+        void Serialize(IBufferWriter<byte> writer, TBase value);
+    }
+
+    class ReflectionSerializationHelper<TBase, TSpecific> : IReflectionSerializer<TBase>
+        where TSpecific : TBase
+    {
+        readonly IFormatter<TSpecific> _formatter;
+        public ReflectionSerializationHelper(IFormatter specificFormatter)
+        {
+            _formatter = (IFormatter<TSpecific>)specificFormatter;
+        }
+
+        public void Serialize(IBufferWriter<byte> writer, TBase value)
+        {
+            _formatter.Serialize(writer, (TSpecific)value);
+        }
     }
 
     interface IReflectionDeserializer<TBase>

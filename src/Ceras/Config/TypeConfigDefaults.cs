@@ -149,13 +149,24 @@ namespace Ceras
                 memberConfig.SetIncludeWithReason(SerializationOverride.ForceInclude, "[Include] attribute on member");
 
             // Success: persistent name (from attribute or normal member name)
+            var serializedAs = memberInfo.GetCustomAttribute<SerializedAsAttribute>();
+            if (serializedAs != null)
+            {
+                memberConfig.PersistentName = serializedAs.Name;
+                CerasHelpers.VerifyName(serializedAs.Name);
+            }
+
             var prevName = memberInfo.GetCustomAttribute<PreviousNameAttribute>();
             if (prevName != null)
             {
-                memberConfig.PersistentName = prevName.Name;
-                //VerifyName(attrib.Name);
-                //foreach (var n in attrib.AlternativeNames)
-                //    VerifyName(n);
+                if (string.IsNullOrEmpty(memberConfig.PersistentName) || memberConfig.PersistentName == memberInfo.Name)
+                    memberConfig.PersistentName = prevName.Name;
+
+                if (prevName.Name != null)
+                    CerasHelpers.VerifyName(prevName.Name);
+
+                foreach (var n in prevName.AlternativeNames)
+                    CerasHelpers.VerifyName(n);
             }
         }
 

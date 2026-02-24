@@ -254,12 +254,20 @@ namespace Ceras.Formatters
             }
         }
 
+        object[] _callbackArgs;
         void InvokeCallback(MethodInfo method, object target)
         {
             if (method == null) return;
 
-            var args = method.GetParameters().Length == 0 ? null : new object[] { _ceras };
-            method.Invoke(target, args);
+            if (method.GetParameters().Length == 0)
+            {
+                method.Invoke(target, null);
+            }
+            else
+            {
+                var args = _callbackArgs ??= new object[] { _ceras };
+                method.Invoke(target, args);
+            }
         }
 
         static MethodInfo GetMethodByAttribute(Type objectType, Type attributeType)

@@ -27,6 +27,7 @@ namespace Ceras.Resolvers
             _primitiveFormatters.GetOrAddValueRef(typeof(DateTime)) = new DateTimeFormatter();
             _primitiveFormatters.GetOrAddValueRef(typeof(DateTimeOffset)) = new DateTimeOffsetFormatter();
             _primitiveFormatters.GetOrAddValueRef(typeof(TimeSpan)) = new TimeSpanFormatter();
+            _primitiveFormatters.GetOrAddValueRef(typeof(Guid)) = new GuidFormatter();
             _primitiveFormatters.GetOrAddValueRef(typeof(BitVector32)) = new BitVector32Formatter();
             _primitiveFormatters.GetOrAddValueRef(typeof(BigInteger)) = new BigIntegerFormatter();
             _primitiveFormatters.GetOrAddValueRef(typeof(Uri)) = new UriFormatter();
@@ -88,36 +89,6 @@ namespace Ceras.Resolvers
                 TValue v = default; _valueFormatter.Deserialize(ref reader, ref v);
                 kvp = new KeyValuePair<TKey, TValue>(k, v);
             }
-        }
-
-        class DateTimeFormatter : FormatterBase<DateTime>
-        {
-            public override void Serialize(IBufferWriter<byte> writer, DateTime value) => SerializerBinary.WriteInt64Fixed(writer, value.ToBinary());
-            public override void Deserialize(ref SequenceReader<byte> reader, ref DateTime value) => value = DateTime.FromBinary(SerializerBinary.ReadInt64Fixed(ref reader));
-        }
-
-        class DateTimeOffsetFormatter : FormatterBase<DateTimeOffset>
-        {
-            public override void Serialize(IBufferWriter<byte> writer, DateTimeOffset value) { SerializerBinary.WriteInt64Fixed(writer, value.Ticks); SerializerBinary.WriteInt16Fixed(writer, (short)value.Offset.TotalMinutes); }
-            public override void Deserialize(ref SequenceReader<byte> reader, ref DateTimeOffset value) => value = new DateTimeOffset(SerializerBinary.ReadInt64Fixed(ref reader), TimeSpan.FromMinutes(SerializerBinary.ReadInt16Fixed(ref reader)));
-        }
-
-        class TimeSpanFormatter : FormatterBase<TimeSpan>
-        {
-            public override void Serialize(IBufferWriter<byte> writer, TimeSpan value) => SerializerBinary.WriteInt64Fixed(writer, value.Ticks);
-            public override void Deserialize(ref SequenceReader<byte> reader, ref TimeSpan value) => value = new TimeSpan(SerializerBinary.ReadInt64Fixed(ref reader));
-        }
-
-        class BitVector32Formatter : FormatterBase<BitVector32>
-        {
-            public override void Serialize(IBufferWriter<byte> writer, BitVector32 value) => SerializerBinary.WriteInt32Fixed(writer, value.Data);
-            public override void Deserialize(ref SequenceReader<byte> reader, ref BitVector32 value) => value = new BitVector32(SerializerBinary.ReadInt32Fixed(ref reader));
-        }
-
-        class BigIntegerFormatter : FormatterBase<BigInteger>
-        {
-            public override void Serialize(IBufferWriter<byte> writer, BigInteger value) { var data = value.ToByteArray(); SerializerBinary.WriteUInt32(writer, (uint)data.Length); writer.Write(data); }
-            public override void Deserialize(ref SequenceReader<byte> reader, ref BigInteger value) { int length = (int)SerializerBinary.ReadUInt32(ref reader); byte[] bytes = new byte[length]; reader.TryCopyTo(bytes); reader.Advance(length); value = new BigInteger(bytes); }
         }
     }
 }
