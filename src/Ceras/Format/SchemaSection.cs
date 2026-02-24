@@ -196,8 +196,8 @@ namespace Ceras.Format
                     if (!typeToId.ContainsKey(type))
                     {
                         typeToId[type] = id;
-                        registry.TryGetInfo(type, out var info);
-                        queue.Enqueue((type, id, info));
+                        if (registry.TryGetInfo(type, out var info))
+                            queue.Enqueue((type, id, info));
                     }
                     return id;
                 }
@@ -211,8 +211,8 @@ namespace Ceras.Format
                     if (!typeToId.ContainsKey(t))
                     {
                         typeToId[t] = id;
-                        registry.TryGetInfo(t, out var info);
-                        queue.Enqueue((t, id, info));
+                        if (registry.TryGetInfo(t, out var info))
+                            queue.Enqueue((t, id, info));
                     }
                     return id;
                 }
@@ -356,12 +356,13 @@ namespace Ceras.Format
         {
             var span = writer.GetSpan(5);
             int written = 0;
-            while (value >= 0x80)
+            do
             {
-                span[written++] = (byte)((value & 0x7F) | 0x80);
+                byte b = (byte)(value & 0x7F);
                 value >>= 7;
-            }
-            span[written++] = (byte)value;
+                if (value != 0) b |= 0x80;
+                span[written++] = b;
+            } while (value != 0);
             writer.Advance(written);
         }
 

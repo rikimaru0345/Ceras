@@ -34,15 +34,19 @@ namespace Ceras
             // Core robust formatters
             config.ConfigType<string>().CustomFormatter = new RobustStringFormatter();
             config.ConfigType<Type>().CustomFormatter = new RobustTypeFormatter(config.Robust.SchemaRegistry);
+
+            // Ensure all primitives are handled robustly (non-raw) if they are used
+            // in a version-tolerant context.
+            // Note: In a real implementation we might want a RobustPrimitiveResolver.
         }
 
-        public static byte[] Save<T>(T rootObject, uint gameVersion, CerasSerializer ceras)
+        public static byte[] Save<T>(T rootObject, uint robustVersion, CerasSerializer ceras)
         {
             var registry = ceras.Config.Robust.SchemaRegistry;
             var buffer = new byte[4096];
             int offset = 0;
 
-            WriteHeaderPlaceholder(ref buffer, ref offset, gameVersion);
+            WriteHeaderPlaceholder(ref buffer, ref offset, robustVersion);
             int rootTypeId = GetTypeId(typeof(T), registry);
             var typeToId = SchemaSection.Write(ref buffer, ref offset, registry);
 
@@ -62,11 +66,11 @@ namespace Ceras
             offset += data.Length;
 
             int stringTableStart = internTable.Flush(ref buffer, ref offset);
-            PatchHeader(buffer, offset, gameVersion, dataStart, stringTableStart, registry);
+            PatchHeader(buffer, offset, robustVersion, dataStart, stringTableStart, registry);
             return buffer[..offset];
         }
 
-        public static T Load<T>(byte[] data, uint currentGameVersion, CerasSerializer ceras)
+        public static T Load<T>(byte[] data, uint currentRobustVersion, CerasSerializer ceras)
         {
             if (data == null) throw new ArgumentNullException(nameof(data));
             if (data.Length < HeaderSize) throw new InvalidOperationException("Header too short");
@@ -77,7 +81,7 @@ namespace Ceras
 
             var registry = ceras.Config.Robust.SchemaRegistry;
             uint robustVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetGameVersion));
-            if (robustVersion > currentGameVersion) throw new InvalidOperationException("Save from newer version");
+            if (robustVersion > currentRobustVersion) throw new InvalidOperationException("Save from newer version");
 
             ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(OffsetFingerprint));
             long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetDataSection));
@@ -115,7 +119,7 @@ namespace Ceras
             finally { RobustContext.End(); }
         }
 
-        static void WriteHeaderPlaceholder(ref byte[] buffer, ref int offset, uint gameVersion)
+        static void WriteHeaderPlaceholder(ref byte[] buffer, ref int offset, uint robustVersion)
         {
             SerializerBinary.EnsureCapacity(ref buffer, offset, HeaderSize);
             buffer[offset + 0] = (byte)'C';
@@ -123,11 +127,11 @@ namespace Ceras
             buffer[offset + 2] = (byte)'R';
             buffer[offset + 3] = (byte)'A';
             buffer[offset + 4] = (byte)FormatVersion;
-            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(offset + 5), gameVersion);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(offset + 5), robustVersion);
             offset += HeaderSize;
         }
 
-        static void PatchHeader(byte[] buffer, int totalLength, uint gameVersion, long dataSectionOffset, long stringTableOffset, SchemaRegistry registry)
+        static void PatchHeader(byte[] buffer, int totalLength, uint robustVersion, long dataSectionOffset, long stringTableOffset, SchemaRegistry registry)
         {
             BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(OffsetFingerprint), registry.ComputeFingerprint());
             BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(OffsetDataSection), dataSectionOffset);

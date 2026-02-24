@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using Ceras.Format;
 
 namespace Ceras
 {

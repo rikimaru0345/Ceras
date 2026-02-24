@@ -47,12 +47,17 @@ namespace Ceras.Format
         public void Register(Type type, SchemaTypeInfo info)
         {
             if (type == null) throw new ArgumentNullException(nameof(type));
-            if (info == null) throw new ArgumentNullException(nameof(info));
 
             lock (_lock)
             {
                 if (_byType.ContainsKey(type))
                     return; // idempotent
+
+                if (info == null)
+                {
+                    if (WellKnownTypes.IsWellKnown(type)) return;
+                    info = CreateSchemaForUserType(type);
+                }
 
                 var entry = new Entry { Id = _nextId++, Info = info, Type = type };
 
@@ -102,6 +107,22 @@ namespace Ceras.Format
                 var info = CreateSchemaForGeneric(type);
                 Register(type, info);
             }
+            else
+            {
+                Register(type, null);
+            }
+        }
+
+        static SchemaTypeInfo CreateSchemaForUserType(Type type)
+        {
+            // Simple description for types that weren't source-generated but need to be robustly handled.
+            // We use the full name as the stable name to avoid collisions.
+            return new SchemaTypeInfo(
+                stableName: type.FullName ?? type.Name,
+                previousTypeNames: Array.Empty<string>(),
+                kind: type.IsValueType ? SchemaTypeKind.Struct : SchemaTypeKind.Class,
+                fields: Array.Empty<SchemaFieldInfo>(), // traversal engine will use reflection
+                fixedByteSize: 0);
         }
 
         static SchemaTypeInfo CreateSchemaForGeneric(Type type)

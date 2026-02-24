@@ -26,6 +26,7 @@ namespace Ceras.Format
         readonly CerasSerializer                       _serializer;
         readonly SchemaRegistry                        _registry;
         readonly List<object>                          _objectCache = new();
+        readonly uint                                  _maxCollectionSize;
 
         public SchemaTraversalEngine(
             Dictionary<string, OldTypeSchema> oldSchemas,
@@ -35,9 +36,10 @@ namespace Ceras.Format
         {
             _oldByName       = oldSchemas;
             _stringTable     = stringTable;
-            _robustVersion = robustVersion;
+            _robustVersion   = robustVersion;
             _serializer      = serializer;
             _registry        = serializer.Config.Robust.SchemaRegistry;
+            _maxCollectionSize = serializer.Config.Advanced.SizeLimits.MaxCollectionSize;
 
             _oldById = new Dictionary<int, OldTypeSchema>();
             foreach (var s in oldSchemas.Values)
@@ -171,7 +173,12 @@ namespace Ceras.Format
             else
                 typeId = GetOldTypeId(targetType);
 
-            if (!_oldById.TryGetValue(typeId, out var oldSchema)) return null;
+            if (!_oldById.TryGetValue(typeId, out var oldSchema))
+            {
+                _objectCache.Add(null);
+                SkipUserType(typeId, ref reader);
+                return null;
+            }
             return ReadUserTypeInstance(oldSchema, targetType, ref reader);
         }
 
@@ -234,30 +241,48 @@ namespace Ceras.Format
         object ReadArray(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
             uint count = SerializerBinary.ReadUInt32(ref reader);
+            if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
+
             Type elementType = targetType?.IsArray == true ? targetType.GetElementType() : null;
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
 
             var arr = Array.CreateInstance(elementType, (int)count);
-            for (int i = 0; i < count; i++) arr.SetValue(ReadValue(oldElemTypeId.Value, elementType, ref reader), i);
+            var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
+
+            for (int i = 0; i < count; i++) 
+            {
+                var val = ReadValue(oldElemTypeId.Value, elementType, ref reader);
+                arr.SetValue(Coerce(val, coerce, elementType), i);
+            }
             return arr;
         }
 
         object ReadList(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
             uint count = SerializerBinary.ReadUInt32(ref reader);
+            if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
+
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
 
             var list = (System.Collections.IList)Activator.CreateInstance(targetType);
-            for (int i = 0; i < count; i++) list.Add(ReadValue(oldElemTypeId.Value, elementType, ref reader));
+            var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
+
+            for (int i = 0; i < count; i++) 
+            {
+                var val = ReadValue(oldElemTypeId.Value, elementType, ref reader);
+                list.Add(Coerce(val, coerce, elementType));
+            }
             return list;
         }
 
         object ReadDictionary(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
             uint count = SerializerBinary.ReadUInt32(ref reader);
+            if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
+
             Type keyType = targetType?.FindClosedArg(typeof(IDictionary<,>), 0);
             Type valType = targetType?.FindClosedArg(typeof(IDictionary<,>), 1);
             int? oldKeyTid = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
@@ -270,45 +295,78 @@ namespace Ceras.Format
             }
 
             var dict = (System.Collections.IDictionary)Activator.CreateInstance(targetType);
-            for (int i = 0; i < count; i++) dict.Add(ReadValue(oldKeyTid.Value, keyType, ref reader), ReadValue(oldValTid.Value, valType, ref reader));
+            var kCoerce = MigrationPlanBuilder.DetectCoercion(oldKeyTid.Value, keyType);
+            var vCoerce = MigrationPlanBuilder.DetectCoercion(oldValTid.Value, valType);
+
+            for (int i = 0; i < count; i++) 
+            {
+                var k = ReadValue(oldKeyTid.Value, keyType, ref reader);
+                var v = ReadValue(oldValTid.Value, valType, ref reader);
+                dict.Add(Coerce(k, kCoerce, keyType), Coerce(v, vCoerce, valType));
+            }
             return dict;
         }
 
         object ReadHashSet(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
             uint count = SerializerBinary.ReadUInt32(ref reader);
+            if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
+
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
 
             var set = Activator.CreateInstance(targetType);
             var addMethod = targetType.GetMethod("Add", new[] { elementType });
-            for (int i = 0; i < count; i++) addMethod.Invoke(set, new[] { ReadValue(oldElemTypeId.Value, elementType, ref reader) });
+            var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
+
+            for (int i = 0; i < count; i++) 
+            {
+                var val = ReadValue(oldElemTypeId.Value, elementType, ref reader);
+                addMethod.Invoke(set, new[] { Coerce(val, coerce, elementType) });
+            }
             return set;
         }
 
         object ReadQueue(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
             uint count = SerializerBinary.ReadUInt32(ref reader);
+            if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
+
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
 
             var queue = Activator.CreateInstance(targetType);
             var enqueueMethod = targetType.GetMethod("Enqueue", new[] { elementType });
-            for (int i = 0; i < count; i++) enqueueMethod.Invoke(queue, new[] { ReadValue(oldElemTypeId.Value, elementType, ref reader) });
+            var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
+
+            for (int i = 0; i < count; i++) 
+            {
+                var val = ReadValue(oldElemTypeId.Value, elementType, ref reader);
+                enqueueMethod.Invoke(queue, new[] { Coerce(val, coerce, elementType) });
+            }
             return queue;
         }
 
         object ReadStack(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
         {
             uint count = SerializerBinary.ReadUInt32(ref reader);
+            if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
+
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
 
             var values = new object[count];
-            for (int i = 0; i < count; i++) values[i] = ReadValue(oldElemTypeId.Value, elementType, ref reader);
+            var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
+
+            for (int i = 0; i < count; i++) 
+            {
+                var val = ReadValue(oldElemTypeId.Value, elementType, ref reader);
+                values[i] = Coerce(val, coerce, elementType);
+            }
+
             var stack = Activator.CreateInstance(targetType);
             var pushMethod = targetType.GetMethod("Push", new[] { elementType });
             for (int i = (int)count - 1; i >= 0; i--) pushMethod.Invoke(stack, new[] { values[i] });

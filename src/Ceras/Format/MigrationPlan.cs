@@ -167,7 +167,7 @@ namespace Ceras.Format
             return null;
         }
 
-        static CoercionKind DetectCoercion(int oldTypeId, Type newFieldType)
+        internal static CoercionKind DetectCoercion(int oldTypeId, Type newFieldType)
         {
             if (oldTypeId == WellKnownTypes.Int32 && newFieldType == typeof(long)) return CoercionKind.Int32ToInt64;
             if (oldTypeId == WellKnownTypes.Int16 && newFieldType == typeof(int)) return CoercionKind.Int16ToInt32;

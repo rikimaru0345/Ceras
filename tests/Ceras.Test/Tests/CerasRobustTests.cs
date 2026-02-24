@@ -61,8 +61,8 @@ namespace Ceras.Test
         {
             var ceras = CreateSerializer();
             var hero = new SaveHero { Name = "Aria", Level = 12, Hp = 98.5f };
-            byte[] data  = CerasRobust.Save(hero, gameVersion: 1, ceras);
-            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentGameVersion: 1, ceras);
+            byte[] data  = CerasRobust.Save(hero, robustVersion: 1, ceras);
+            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentRobustVersion: 1, ceras);
 
             Assert.Equal(hero.Name,  clone.Name);
             Assert.Equal(hero.Level, clone.Level);
@@ -74,8 +74,8 @@ namespace Ceras.Test
         {
             var ceras = CreateSerializer();
             var hero = new SaveHero { Name = null, Level = 5, Hp = 10f };
-            byte[] data  = CerasRobust.Save(hero, gameVersion: 1, ceras);
-            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentGameVersion: 1, ceras);
+            byte[] data  = CerasRobust.Save(hero, robustVersion: 1, ceras);
+            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentRobustVersion: 1, ceras);
 
             Assert.Null(clone.Name);
         }
@@ -85,8 +85,8 @@ namespace Ceras.Test
         {
             var ceras = CreateSerializer();
             var hero = new SaveHero { Name = "X", Level = 1, Hp = 1f, CachedDps = 999f };
-            byte[] data  = CerasRobust.Save(hero, gameVersion: 1, ceras);
-            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentGameVersion: 1, ceras);
+            byte[] data  = CerasRobust.Save(hero, robustVersion: 1, ceras);
+            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentRobustVersion: 1, ceras);
 
             Assert.Equal(0f, clone.CachedDps);
         }
@@ -96,8 +96,8 @@ namespace Ceras.Test
         {
             var ceras = CreateSerializer();
             var inv = new RobustInventory { Gold = 100, Tag = "rare", Note = "rare" };
-            byte[] data  = CerasRobust.Save(inv, gameVersion: 1, ceras);
-            RobustInventory cl = CerasRobust.Load<RobustInventory>(data, currentGameVersion: 1, ceras);
+            byte[] data  = CerasRobust.Save(inv, robustVersion: 1, ceras);
+            RobustInventory cl = CerasRobust.Load<RobustInventory>(data, currentRobustVersion: 1, ceras);
 
             Assert.Equal("rare", cl.Tag);
             Assert.Equal("rare", cl.Note);
@@ -109,7 +109,7 @@ namespace Ceras.Test
         public void Header_MagicBytes_Are_CERA()
         {
             var ceras = CreateSerializer();
-            byte[] data = CerasRobust.Save(new SaveHero(), gameVersion: 1, ceras);
+            byte[] data = CerasRobust.Save(new SaveHero(), robustVersion: 1, ceras);
             Assert.Equal((byte)'C', data[0]);
             Assert.Equal((byte)'E', data[1]);
             Assert.Equal((byte)'R', data[2]);
@@ -120,7 +120,7 @@ namespace Ceras.Test
         public void Header_FormatVersion_IsOne()
         {
             var ceras = CreateSerializer();
-            byte[] data = CerasRobust.Save(new SaveHero(), gameVersion: 1, ceras);
+            byte[] data = CerasRobust.Save(new SaveHero(), robustVersion: 1, ceras);
             Assert.Equal(CerasRobust.FormatVersion, data[CerasRobust.OffsetFormatVersion]);
         }
 
@@ -128,7 +128,7 @@ namespace Ceras.Test
         public void Header_GameVersion_RoundTrips()
         {
             var ceras = CreateSerializer();
-            byte[] data = CerasRobust.Save(new SaveHero(), gameVersion: 42u, ceras);
+            byte[] data = CerasRobust.Save(new SaveHero(), robustVersion: 42u, ceras);
             uint gv = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(CerasRobust.OffsetGameVersion));
             Assert.Equal(42u, gv);
         }
@@ -137,7 +137,7 @@ namespace Ceras.Test
         public void Header_Fingerprint_MatchesRegistry()
         {
             var ceras = CreateSerializer();
-            byte[]  data = CerasRobust.Save(new SaveHero(), gameVersion: 1, ceras);
+            byte[]  data = CerasRobust.Save(new SaveHero(), robustVersion: 1, ceras);
             ulong   fp   = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(CerasRobust.OffsetFingerprint));
             Assert.Equal(ceras.Config.Robust.SchemaRegistry.ComputeFingerprint(), fp);
         }
@@ -146,7 +146,7 @@ namespace Ceras.Test
         public void Header_DataOffset_IsAfterSchemaSection()
         {
             var ceras = CreateSerializer();
-            byte[] data = CerasRobust.Save(new SaveHero(), gameVersion: 1, ceras);
+            byte[] data = CerasRobust.Save(new SaveHero(), robustVersion: 1, ceras);
             long dataOff = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(CerasRobust.OffsetDataSection));
             Assert.True(dataOff > CerasRobust.HeaderSize,
                 $"Data section offset ({dataOff}) should be after the header ({CerasRobust.HeaderSize}).");
@@ -156,7 +156,7 @@ namespace Ceras.Test
         public void Header_StringTableOffset_IsAfterDataSection()
         {
             var ceras = CreateSerializer();
-            byte[] data = CerasRobust.Save(new SaveHero(), gameVersion: 1, ceras);
+            byte[] data = CerasRobust.Save(new SaveHero(), robustVersion: 1, ceras);
             long dataOff   = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(CerasRobust.OffsetDataSection));
             long tableOff  = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(CerasRobust.OffsetStringTable));
             Assert.True(tableOff > dataOff,
@@ -167,7 +167,7 @@ namespace Ceras.Test
         public void TotalLength_IsAtLeastHeaderSize()
         {
             var ceras = CreateSerializer();
-            byte[] data = CerasRobust.Save(new SaveHero(), gameVersion: 1, ceras);
+            byte[] data = CerasRobust.Save(new SaveHero(), robustVersion: 1, ceras);
             Assert.True(data.Length >= CerasRobust.HeaderSize);
         }
 
@@ -182,7 +182,7 @@ namespace Ceras.Test
 
             // Tag == Note == "duplicate" → should be interned once
             var inv = new RobustInventory { Gold = 0, Tag = "duplicate", Note = "duplicate" };
-            byte[] data = CerasRobust.Save(inv, gameVersion: 1, ceras);
+            byte[] data = CerasRobust.Save(inv, robustVersion: 1, ceras);
             long tableOff = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(CerasRobust.OffsetStringTable));
 
             // Read string table
@@ -203,27 +203,27 @@ namespace Ceras.Test
         public void Load_BadMagic_Throws()
         {
             var ceras = CreateSerializer();
-            byte[] data = CerasRobust.Save(new SaveHero(), gameVersion: 1, ceras);
+            byte[] data = CerasRobust.Save(new SaveHero(), robustVersion: 1, ceras);
             data[0] = (byte)'X'; // corrupt magic
             Assert.Throws<InvalidOperationException>(
-                () => CerasRobust.Load<SaveHero>(data, currentGameVersion: 1, ceras));
+                () => CerasRobust.Load<SaveHero>(data, currentRobustVersion: 1, ceras));
         }
 
         [Fact]
         public void Load_SaveVersionNewerThanCurrent_Throws()
         {
             var ceras = CreateSerializer();
-            byte[] data = CerasRobust.Save(new SaveHero(), gameVersion: 10, ceras);
+            byte[] data = CerasRobust.Save(new SaveHero(), robustVersion: 10, ceras);
             Assert.Throws<InvalidOperationException>(
-                () => CerasRobust.Load<SaveHero>(data, currentGameVersion: 5, ceras));
+                () => CerasRobust.Load<SaveHero>(data, currentRobustVersion: 5, ceras));
         }
 
         [Fact]
         public void Load_SaveVersionEqualsCurrentVersion_Succeeds()
         {
             var ceras = CreateSerializer();
-            byte[] data  = CerasRobust.Save(new SaveHero { Name = "V", Level = 1, Hp = 1 }, gameVersion: 7, ceras);
-            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentGameVersion: 7, ceras);
+            byte[] data  = CerasRobust.Save(new SaveHero { Name = "V", Level = 1, Hp = 1 }, robustVersion: 7, ceras);
+            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentRobustVersion: 7, ceras);
             Assert.Equal("V", clone.Name);
         }
 
@@ -232,8 +232,8 @@ namespace Ceras.Test
         {
             var ceras = CreateSerializer();
             // Same schema — no migration needed, just an older game version
-            byte[] data  = CerasRobust.Save(new SaveHero { Name = "Old", Level = 3, Hp = 5 }, gameVersion: 1, ceras);
-            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentGameVersion: 99, ceras);
+            byte[] data  = CerasRobust.Save(new SaveHero { Name = "Old", Level = 3, Hp = 5 }, robustVersion: 1, ceras);
+            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentRobustVersion: 99, ceras);
             Assert.Equal("Old", clone.Name);
         }
 
@@ -242,7 +242,7 @@ namespace Ceras.Test
         {
             var ceras = CreateSerializer();
             Assert.Throws<InvalidOperationException>(
-                () => CerasRobust.Load<SaveHero>(new byte[4], currentGameVersion: 1, ceras));
+                () => CerasRobust.Load<SaveHero>(new byte[4], currentRobustVersion: 1, ceras));
         }
 
         [Fact]
@@ -250,7 +250,7 @@ namespace Ceras.Test
         {
             var ceras = CreateSerializer();
             var hero = new SaveHero { Name = "V", Level = 1, Hp = 1f };
-            byte[] data = CerasRobust.Save(hero, gameVersion: 1, ceras);
+            byte[] data = CerasRobust.Save(hero, robustVersion: 1, ceras);
 
             // Corrupt the fingerprint in the header to force slow path
             BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(CerasRobust.OffsetFingerprint), 0xDEADBEEFCAFEBABEul);
@@ -262,7 +262,7 @@ namespace Ceras.Test
 
             // Slow path: schema section in the file matches current schema exactly
             // -> migration plan has no changes -> values are read correctly
-            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentGameVersion: 1, ceras);
+            SaveHero clone = CerasRobust.Load<SaveHero>(data, currentRobustVersion: 1, ceras);
             Assert.Equal(hero.Name,  clone.Name);
             Assert.Equal(hero.Level, clone.Level);
             Assert.Equal(hero.Hp,    clone.Hp);
