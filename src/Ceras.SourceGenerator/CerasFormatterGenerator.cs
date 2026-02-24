@@ -23,13 +23,13 @@ namespace Ceras.SourceGenerator;
 [Generator]
 public sealed class CerasFormatterGenerator : IIncrementalGenerator
 {
-    const string GenerateFormatterFqn = "Ceras.GenerateFormatterAttribute";
+    const string GenerateFormatterFqn = "Ceras.CerasSerializableAttribute";
     const string IncludeFqn = "Ceras.IncludeAttribute";
     const string ExcludeFqn = "Ceras.ExcludeAttribute";
     const string MemberConfigFqn = "Ceras.MemberConfigAttribute";
     const string PreviousNameFqn = "Ceras.PreviousNameAttribute";
     const string PreviousTypeNameFqn = "Ceras.PreviousTypeNameAttribute";
-    const string SerializedAsFqn = "Ceras.SerializedAsAttribute";
+    const string SerializedAsFqn = "Ceras.CerasStableNameAttribute";
     const string MonomorphicFqn = "Ceras.MonomorphicAttribute";
     const string PolymorphicFqn = "Ceras.PolymorphicAttribute";
     const string ExcludeFromDiscoveryFqn = "Ceras.ExcludeFromDiscoveryAttribute";
@@ -82,7 +82,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         foreach (var attr in attributes)
         {
             if (attr.AttributeClass is { IsGenericType: true } &&
-                attr.AttributeClass.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).StartsWith("global::Ceras.GenerateFormatterAttribute<"))
+                attr.AttributeClass.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).StartsWith("global::Ceras.CerasSerializableAttribute<"))
             {
                 if (attr.AttributeClass.TypeArguments[0] is INamedTypeSymbol target)
                     results.Add(target);
@@ -160,18 +160,18 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         }
 
         // --- DiscoverSubtypes expansion -------------------------------------------
-        // For any annotated type that has DiscoverSubtypes = true, scan the whole
-        // compilation and collect every non-abstract concrete type that implements
-        // or inherits from it.  The VersionTolerant flag is inherited from the root.
+        // For any annotated type that has DiscoverSubtypes = true (now the default), 
+        // scan the whole compilation and collect every non-abstract concrete type that 
+        // implements or inherits from it.
         var expanded = new Dictionary<INamedTypeSymbol, bool /* vt */>(SymbolEqualityComparer.Default);
-        var discoverRoots = new List<(INamedTypeSymbol Root, bool Vt)>();
+        var discoverRoots = new List<INamedTypeSymbol>();
 
         foreach (var t in types)
         {
             if (HasDiscoverSubtypes(t, generateFmtAttr))
-                discoverRoots.Add((t, IsVersionTolerant(t, generateFmtAttr)));
-            else
-                expanded[t] = IsVersionTolerant(t, generateFmtAttr);
+                discoverRoots.Add(t);
+            
+            expanded[t] = true; // Always version tolerant now
         }
 
         if (discoverRoots.Count > 0)
@@ -185,8 +185,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 if (candidate.DeclaredAccessibility == Accessibility.Private ||
                     candidate.DeclaredAccessibility == Accessibility.Protected)
                     continue;
-                // Skip types that already have an explicit [GenerateFormatter] — they
-                // carry their own VersionTolerant value and are already in `expanded`.
+                // Skip types that already have an explicit [CerasSerializable] — they
+                // are already in `expanded`.
                 if (expanded.ContainsKey(candidate))
                     continue;
 
@@ -198,17 +198,11 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 if (MatchesBlacklist(candidate))
                     continue;
 
-                foreach (var (root, vt) in discoverRoots)
+                foreach (var root in discoverRoots)
                 {
                     if (ImplementsOrInherits(candidate, root))
                     {
-                        // Most-derived explicit annotation wins for VersionTolerant;
-                        // fall back to the root's value.
-                        bool candidateVt = vt;
-                        if (HasExplicitVersionTolerant(candidate, generateFmtAttr, out bool explicitVt))
-                            candidateVt = explicitVt;
-
-                        expanded[candidate] = candidateVt;
+                        expanded[candidate] = true;
                         break;
                     }
                 }
@@ -407,7 +401,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
     static bool HasDiscoverSubtypes(INamedTypeSymbol type, INamedTypeSymbol? generateFmtAttr)
     {
-        if (generateFmtAttr == null) return false;
+        if (generateFmtAttr == null) return true; // Default is true now
         foreach (var attr in type.GetAttributes())
         {
             if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, generateFmtAttr))
@@ -416,31 +410,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                 if (na.Key == "DiscoverSubtypes" && na.Value.Value is bool b)
                     return b;
         }
-        return false;
-    }
-
-    /// <summary>
-    /// Returns true if the type has an explicit [GenerateFormatter(VersionTolerant = ...)] attribute
-    /// (without DiscoverSubtypes).  Used to let concrete types override the root's flag.
-    /// </summary>
-    static bool HasExplicitVersionTolerant(INamedTypeSymbol type, INamedTypeSymbol? generateFmtAttr, out bool vt)
-    {
-        vt = false;
-        if (generateFmtAttr == null) return false;
-        foreach (var attr in type.GetAttributes())
-        {
-            if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, generateFmtAttr))
-                continue;
-            foreach (var na in attr.NamedArguments)
-            {
-                if (na.Key == "VersionTolerant" && na.Value.Value is bool b)
-                {
-                    vt = b;
-                    return true;
-                }
-            }
-        }
-        return false;
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -1136,7 +1106,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         if (typeFqn == "global::System.TimeSpan") return "global::Ceras.Formatters.TimeSpanFormatter";
         if (typeFqn == "global::System.Guid") return "global::Ceras.Formatters.GuidFormatter";
 
-        // User-defined types marked with [GenerateFormatter]
+        // User-defined types marked with [CerasSerializable]
         if (type is INamedTypeSymbol named && HasAttribute(named, attrs.GenerateFormatter))
         {
             if (!named.IsAbstract && named.TypeKind != TypeKind.Interface)
@@ -1280,40 +1250,6 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
     // Attribute / type helpers
     // -------------------------------------------------------------------------
 
-    static bool IsVersionTolerant(INamedTypeSymbol type, INamedTypeSymbol? generateFmtAttr)
-    {
-        // Check standard attribute on the type
-        if (generateFmtAttr != null)
-        {
-            foreach (var attr in type.GetAttributes())
-            {
-                if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, generateFmtAttr))
-                    continue;
-                foreach (var na in attr.NamedArguments)
-                    if (na.Key == "VersionTolerant" && na.Value.Value is bool b)
-                        return b;
-            }
-        }
-
-        // Check generic attribute on assembly or other types
-        var assemblyAttrs = type.ContainingAssembly.GetAttributes();
-        foreach (var attr in assemblyAttrs)
-        {
-            if (attr.AttributeClass is { IsGenericType: true } &&
-                attr.AttributeClass.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).StartsWith("global::Ceras.GenerateFormatterAttribute<"))
-            {
-                if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass.TypeArguments[0], type))
-                {
-                    foreach (var na in attr.NamedArguments)
-                        if (na.Key == "VersionTolerant" && na.Value.Value is bool b)
-                            return b;
-                }
-            }
-        }
-
-        return false;
-    }
-
     static string GetStableTypeName(INamedTypeSymbol type, INamedTypeSymbol? generateFmtAttr)
     {
         if (generateFmtAttr != null)
@@ -1333,7 +1269,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         foreach (var attr in assemblyAttrs)
         {
             if (attr.AttributeClass is { IsGenericType: true } &&
-                attr.AttributeClass.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).StartsWith("global::Ceras.GenerateFormatterAttribute<"))
+                attr.AttributeClass.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).StartsWith("global::Ceras.CerasSerializableAttribute<"))
             {
                 if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass.TypeArguments[0], type))
                 {
@@ -2098,15 +2034,15 @@ static class Diag
     public static readonly DiagnosticDescriptor NoSerializableMembers = new(
         id: "CERAS001",
         title: "No serializable members found",
-        messageFormat: "Type '{0}' has [GenerateFormatter] but no serializable members were found. Check [Include]/[Exclude] attributes and TargetMembers config.",
+        messageFormat: "Type '{0}' has [CerasSerializable] but no serializable members were found. Check [Include]/[Exclude] attributes and TargetMembers config.",
         category: "Ceras.SourceGenerator",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
     public static readonly DiagnosticDescriptor InterfaceOrAbstractWithoutDiscoverSubtypes = new(
         id: "CERAS002",
-        title: "[GenerateFormatter] on interface/abstract type without DiscoverSubtypes",
-        messageFormat: "'{0}' is an {1} with [GenerateFormatter] but DiscoverSubtypes is not set to true. " +
+        title: "[CerasSerializable] on interface/abstract type without DiscoverSubtypes",
+        messageFormat: "'{0}' is an {1} with [CerasSerializable] but DiscoverSubtypes is not set to true. " +
                        "No concrete subtypes will be automatically registered for serialization through this type. " +
                        "Add DiscoverSubtypes = true to have the generator find all implementations automatically.",
         category: "Ceras.SourceGenerator",

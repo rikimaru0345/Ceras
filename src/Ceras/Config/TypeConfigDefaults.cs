@@ -149,7 +149,7 @@ namespace Ceras
                 memberConfig.SetIncludeWithReason(SerializationOverride.ForceInclude, "[Include] attribute on member");
 
             // Success: persistent name (from attribute or normal member name)
-            var serializedAs = memberInfo.GetCustomAttribute<SerializedAsAttribute>();
+            var serializedAs = memberInfo.GetCustomAttribute<CerasStableNameAttribute>();
             if (serializedAs != null)
             {
                 memberConfig.PersistentName = serializedAs.Name;

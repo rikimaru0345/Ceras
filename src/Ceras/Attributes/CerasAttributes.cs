@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 
 namespace Ceras
@@ -223,34 +223,26 @@ namespace Ceras
     /// that implements or inherits from it and generates formatters for all of them.
     /// </summary>
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum | AttributeTargets.Interface)]
-    public class GenerateFormatterAttribute : Attribute
+    public class CerasSerializableAttribute : Attribute
     {
         /// <summary>The stable name used in the binary schema. Defaults to the simple class name.</summary>
         public string StableName { get; }
 
         /// <summary>
-        /// When true, the source generator also emits a schema descriptor and registers it with
-        /// <see cref="Ceras.Savegame.SavegameSchemaRegistry"/>. Required for the Ceras savegame
-        /// format's version-tolerance (add/remove/rename fields across game updates).
-        /// </summary>
-        public bool VersionTolerant { get; set; }
-
-        /// <summary>
         /// When true (and placed on an interface or abstract/base class), the source generator
         /// scans the entire compilation and automatically generates formatters for every
         /// non-abstract concrete type that implements or extends the marked type.
-        /// The <see cref="VersionTolerant"/> flag is inherited by all discovered subtypes.
         /// </summary>
-        public bool DiscoverSubtypes { get; set; }
+        public bool DiscoverSubtypes { get; set; } = true;
 
-        public GenerateFormatterAttribute(string stableName = null)
+        public CerasSerializableAttribute(string stableName = null)
         {
             StableName = stableName;
         }
     }
 
     /// <summary>
-    /// When using <see cref="GenerateFormatterAttribute.DiscoverSubtypes"/>, you can put this
+    /// When using <see cref="CerasSerializableAttribute.DiscoverSubtypes"/>, you can put this
     /// on a specific class to prevent the generator from creating a formatter for it.
     /// </summary>
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
@@ -259,7 +251,7 @@ namespace Ceras
     /// <summary>
     /// Prevents the Ceras source generator from automatically discovering and generating
     /// formatters for types in the specified namespace or matching the pattern (e.g. "Godot.*").
-    /// Types with an explicit <see cref="GenerateFormatterAttribute"/> will still be processed.
+    /// Types with an explicit <see cref="CerasSerializableAttribute"/> will still be processed.
     /// </summary>
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
     public class CerasGeneratorBlacklistAttribute : Attribute
@@ -269,13 +261,13 @@ namespace Ceras
     }
 
     /// <summary>
-    /// Generic version of <see cref="GenerateFormatterAttribute"/> for better type safety.
+    /// Generic version of <see cref="CerasSerializableAttribute"/> for better type safety.
     /// Can be used on any type or the assembly itself to generate a formatter for the specified type <typeparamref name="T"/>.
     /// </summary>
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Assembly, AllowMultiple = true)]
-    public class GenerateFormatterAttribute<T> : GenerateFormatterAttribute
+    public class CerasSerializableAttribute<T> : CerasSerializableAttribute
     {
-        public GenerateFormatterAttribute(string stableName = null) : base(stableName)
+        public CerasSerializableAttribute(string stableName = null) : base(stableName)
         {
         }
     }
@@ -297,10 +289,10 @@ namespace Ceras
     /// Set this once and the C# member can be freely renamed without needing <see cref="PreviousNameAttribute"/>.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-    public class SerializedAsAttribute : Attribute
+    public class CerasStableNameAttribute : Attribute
     {
         public string Name { get; }
-        public SerializedAsAttribute(string name) { Name = name; }
+        public CerasStableNameAttribute(string name) { Name = name; }
     }
 
     /// <summary>

@@ -4,9 +4,16 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Ceras.Savegame
+namespace Ceras
 {
-    public static class CerasSave
+    using Ceras.Savegame;
+    using Ceras.Helpers;
+
+    /// <summary>
+    /// Robust serialization for persistent storage (savegames, databases).
+    /// Always includes a schema header for version tolerance and migration.
+    /// </summary>
+    public static class CerasRobust
     {
         internal const int OffsetMagic = 0;
         internal const int OffsetFormatVersion = 4 + OffsetMagic;
@@ -19,17 +26,14 @@ namespace Ceras.Savegame
         public const int HeaderSize = 4 + OffsetChecksum;
         public const int FormatVersion = 1;
 
-        public static void ConfigureSavegame(SerializerConfig config)
+        public static void Configure(SerializerConfig config)
         {
             if (config == null) throw new ArgumentNullException(nameof(config));
             config.Advanced.EmbedChecksum = false;
             
-            // Core savegame formatters
+            // Core robust formatters
             config.ConfigType<string>().CustomFormatter = new SavegameStringFormatter();
             config.ConfigType<Type>().CustomFormatter = new SavegameTypeFormatter(config.Savegame.SchemaRegistry);
-            
-            // In the new architecture, we want the SchemaRegistry to be populated
-            // by the source generator or manual registration.
         }
 
         public static byte[] Save<T>(T rootObject, uint gameVersion, CerasSerializer ceras)
@@ -118,7 +122,7 @@ namespace Ceras.Savegame
             buffer[offset + 1] = (byte)'E';
             buffer[offset + 2] = (byte)'R';
             buffer[offset + 3] = (byte)'A';
-            buffer[offset + 4] = FormatVersion;
+            buffer[offset + 4] = (byte)FormatVersion;
             BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(offset + 5), gameVersion);
             offset += HeaderSize;
         }
@@ -129,7 +133,7 @@ namespace Ceras.Savegame
             BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(OffsetDataSection), dataSectionOffset);
             BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(OffsetStringTable), stringTableOffset);
             BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(OffsetChecksum), 0);
-            uint crc = Helpers.HashHelpers.CalculateCrc32(buffer.AsSpan(0, totalLength));
+            uint crc = Ceras.Helpers.HashHelpers.CalculateCrc32(buffer.AsSpan(0, totalLength));
             BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(OffsetChecksum), crc);
         }
 
@@ -139,7 +143,5 @@ namespace Ceras.Savegame
             if (registry.TryGetId(type, out id)) return id;
             return WellKnownTypes.Null;
         }
-
-        static void EnsureCapacity(ref byte[] buffer, int required) => SerializerBinary.EnsureCapacity(ref buffer, 0, required);
     }
 }

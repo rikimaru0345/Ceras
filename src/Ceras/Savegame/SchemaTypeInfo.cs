@@ -12,12 +12,12 @@ namespace Ceras.Savegame
 
     /// <summary>
     /// Compile-time description of a single serializable type, emitted by the source generator
-    /// for every <c>[GenerateFormatter(VersionTolerant = true)]</c> type and registered with
-    /// <see cref="SavegameSchemaRegistry"/> at startup.
+    /// for every <c>[CerasSerializable]</c> type and registered with
+    /// <see cref="SchemaRegistry"/> at startup.
     /// </summary>
     public sealed class SchemaTypeInfo
     {
-        /// <summary>Stable wire name (from <c>[GenerateFormatter("Name")]</c> or simple class name).</summary>
+        /// <summary>Stable wire name (from <c>[CerasSerializable("Name")]</c> or simple class name).</summary>
         public string StableName { get; }
 
         /// <summary>Old wire names from <c>[PreviousTypeName]</c>. May be empty.</summary>
@@ -73,7 +73,7 @@ namespace Ceras.Savegame
     /// <summary>Describes a single serialized field within a <see cref="SchemaTypeInfo"/>.</summary>
     public sealed class SchemaFieldInfo
     {
-        /// <summary>Stable wire name (from <c>[SerializedAs]</c> or C# member name).</summary>
+        /// <summary>Stable wire name (from <c>[CerasStableName]</c> or C# member name).</summary>
         public string StableName { get; }
 
         /// <summary>Old wire names from <c>[PreviousName]</c>. May be empty.</summary>

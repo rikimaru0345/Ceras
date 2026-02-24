@@ -95,7 +95,7 @@ namespace Ceras.Savegame
                         newField = null;
                     else
                     {
-                        var sa = newField.GetCustomAttribute<SerializedAsAttribute>();
+                        var sa = newField.GetCustomAttribute<CerasStableNameAttribute>();
                         mappedStableNames.Add(sa?.Name ?? newField.Name);
                     }
                 }
@@ -139,7 +139,7 @@ namespace Ceras.Savegame
             foreach (var f in type.GetFields(
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
             {
-                var sa = f.GetCustomAttribute<SerializedAsAttribute>();
+                var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
                 string stableName = sa?.Name ?? f.Name;
                 map.TryAdd(stableName, f);
 
