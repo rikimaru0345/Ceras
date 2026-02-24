@@ -233,7 +233,7 @@ namespace Ceras
                 if(typeConfig.TypeConstruction == null)
                     typeConfig.TypeConstruction = ConstructNull.Instance;
 
-                typeConfig.TargetMembers = TargetMember.AllFields;
+                typeConfig.TargetMembers = TargetMember.AllFields | TargetMember.PublicProperties;
                 typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
                 return;
             }

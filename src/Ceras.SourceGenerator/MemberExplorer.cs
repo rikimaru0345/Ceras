@@ -394,6 +394,11 @@ namespace Ceras.SourceGenerator
                 }
             }
 
+            if (type.IsValueType)
+            {
+                return TargetMemberKind.AllFields | TargetMemberKind.PublicProperties;
+            }
+
             return TargetMemberKind.AllPublic;
         }
 
