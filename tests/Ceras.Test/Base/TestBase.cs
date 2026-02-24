@@ -94,6 +94,20 @@ namespace Ceras.Test
 
         public T Clone<T>(T source, SerializerConfig config = null)
         {
+            if (config != null)
+            {
+                // Try to find and call the source-generated registration helper
+                var generatedType = Type.GetType("Ceras.Generated.GeneratedFormatters, Ceras.Generated") ??
+                                    Type.GetType("Ceras.Generated.GeneratedFormatters");
+
+                if (generatedType != null)
+                {
+                    var method = generatedType.GetMethod("UseFormatters", BindingFlags.Static | BindingFlags.Public);
+                    if (method != null)
+                        method.Invoke(null, new object[] { config });
+                }
+            }
+
             var ceras = new CerasSerializer(config);
 
             // Savegame formatters (SavegameTypeFormatter and SavegameStringFormatter) require 

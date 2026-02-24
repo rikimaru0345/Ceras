@@ -466,9 +466,25 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                     // only if the containing type has a formatter that sets them directly.
                     // For generated formatters, we allow it with [Include].
                     if (field.IsConst) continue;
-                    if (!hasInclude && !IsFieldIncluded(field, currentTargetKind)) continue;
 
-                    members.Add(MakeMember(field.Name, field.Type, isField: true, member, attrs, isGetterOnly: false));
+                    bool isFieldGetterOnly = field.IsReadOnly && IsCollectionType(field.Type);
+                    bool isFieldPublic = field.DeclaredAccessibility == Accessibility.Public;
+
+                    if (!hasInclude && !IsFieldIncluded(field, currentTargetKind))
+                    {
+                        // Not included by default visibility.
+                        // For getter-only collections, we only allow it if it is public OR explicitly included.
+                        if (!isFieldGetterOnly) continue;
+                        if (!isFieldPublic && !hasInclude) continue;
+                    }
+                    else if (field.IsReadOnly && !isFieldGetterOnly && !hasInclude)
+                    {
+                        // It's a readonly non-collection field and not explicitly included.
+                        // We skip it to avoid CERAS011 later unless the user specifically asked for it.
+                        continue;
+                    }
+
+                    members.Add(MakeMember(field.Name, field.Type, isField: true, member, attrs, isGetterOnly: isFieldGetterOnly));
                 }
                 else if (member is IPropertySymbol prop)
                 {
@@ -477,12 +493,16 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                     if (prop.GetMethod == null) continue;
 
                     bool isGetterOnly = prop.IsReadOnly || prop.SetMethod == null;
+                    bool isPropPublic = prop.DeclaredAccessibility == Accessibility.Public;
 
                     if (isGetterOnly)
                     {
                         // Getter-only COLLECTION properties can be populated in-place by Ceras.
                         // All other getter-only properties require a setter.
-                        if (!hasInclude && !IsCollectionType(prop.Type)) continue;
+                        if (!IsCollectionType(prop.Type)) continue;
+                        
+                        // Only allow if public or explicitly included
+                        if (!isPropPublic && !hasInclude) continue;
                     }
                     else
                     {
