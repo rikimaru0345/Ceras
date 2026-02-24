@@ -177,6 +177,7 @@ namespace Ceras.Test
         public void DuplicateStrings_WriteOnlyOnce_InStringTable()
         {
             var config = new SerializerConfig();
+            Ceras.Generated.GeneratedFormatters.UseFormatters(config);
             CerasRobust.Configure(config);
             var ceras = new CerasSerializer(config);
 

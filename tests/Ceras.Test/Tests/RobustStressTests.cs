@@ -26,6 +26,7 @@ namespace Ceras.Test
         public void Robust_SizeLimits_PreventsOOM()
         {
             var config = new SerializerConfig();
+            Ceras.Generated.GeneratedFormatters.UseFormatters(config);
             CerasRobust.Configure(config);
             config.Advanced.SizeLimits.MaxCollectionSize = 100; // Small limit
             var ceras = new CerasSerializer(config);

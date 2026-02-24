@@ -9,11 +9,13 @@ namespace Ceras.Test
 {
     public enum StateEnum { Off, On }
 
+    [CerasSerializable]
     public class HeroWithEnum
     {
         public StateEnum State;
     }
 
+    [CerasSerializable]
     public class HeroWithList
     {
         public List<int> Scores;
@@ -33,18 +35,9 @@ namespace Ceras.Test
         public void Robust_Enum_RoundTrip()
         {
             var ceras = CreateSerializer();
-            var registry = ceras.Config.Robust.SchemaRegistry;
 
             var hero = new HeroWithEnum { State = StateEnum.On };
             
-            // Manual registration for test-only type
-            registry.Register(typeof(StateEnum), new SchemaTypeInfo(
-                "StateEnum", Array.Empty<string>(), SchemaTypeKind.Enum, Array.Empty<SchemaFieldInfo>(), 4,
-                new[] { new SchemaEnumValueInfo("Off", 0), new SchemaEnumValueInfo("On", 1) }, "System.Int32"));
-            registry.Register(typeof(HeroWithEnum), new SchemaTypeInfo(
-                "HeroWithEnum", Array.Empty<string>(), SchemaTypeKind.Class, 
-                new[] { new SchemaFieldInfo("State", Array.Empty<string>(), "Ceras.Test.StateEnum", true) }, 0));
-
             byte[] data = CerasRobust.Save(hero, 1, ceras);
             var clone = CerasRobust.Load<HeroWithEnum>(data, 1, ceras);
 
@@ -55,14 +48,8 @@ namespace Ceras.Test
         public void Robust_List_RoundTrip()
         {
             var ceras = CreateSerializer();
-            var registry = ceras.Config.Robust.SchemaRegistry;
 
             var hero = new HeroWithList { Scores = new List<int> { 1, 2, 3 } };
-
-            // Manual registration
-            registry.Register(typeof(HeroWithList), new SchemaTypeInfo(
-                "HeroWithList", Array.Empty<string>(), SchemaTypeKind.Class,
-                new[] { new SchemaFieldInfo("Scores", Array.Empty<string>(), "System.Collections.Generic.List`1[[System.Int32]]", true) }, 0));
 
             byte[] data = CerasRobust.Save(hero, 1, ceras);
             var clone = CerasRobust.Load<HeroWithList>(data, 1, ceras);

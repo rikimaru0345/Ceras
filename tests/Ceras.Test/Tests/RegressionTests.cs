@@ -57,8 +57,8 @@ namespace Ceras.Test
         public void Fix_Dictionary_InjectionMismatch()
         {
             var config = new SerializerConfig();
-            CerasRobust.Configure(config);
             Ceras.Generated.GeneratedFormatters.UseFormatters(config);
+            CerasRobust.Configure(config);
             
             var ceras = new CerasSerializer(config);
 
@@ -86,8 +86,8 @@ namespace Ceras.Test
         public void Fix_Array_InjectionMismatch()
         {
             var config = new SerializerConfig();
-            CerasRobust.Configure(config);
             Ceras.Generated.GeneratedFormatters.UseFormatters(config);
+            CerasRobust.Configure(config);
             
             var ceras = new CerasSerializer(config);
 
@@ -103,11 +103,63 @@ namespace Ceras.Test
             Assert.Single(cloned.Weapons);
             Assert.Equal("Sword", cloned.Weapons[0].Name);
         }
+
+        // -------------------------------------------------------------------
+        // Struct with Auto-Properties (Enforcement)
+        // -------------------------------------------------------------------
+
+        [Fact]
+        public void Fix_StructWithAutoProps_ThrowsEarlier_IfMissingAttribute()
+        {
+            var config = new SerializerConfig();
+            CerasRobust.Configure(config); // This sets AllowReflectionFallback = false
+            var ceras = new CerasSerializer(config);
+
+            var model = new LegacyModel { Item = new LegacyCostItem("Test", 10) };
+
+            // This should throw InvalidOperationException because it's missing [CerasSerializable]
+            // and reflection is disabled.
+            var ex = Assert.Throws<InvalidOperationException>(() => ceras.Serialize(model));
+            Assert.Contains("reflection-based fallback is disabled", ex.ToString());
+        }
+
+        [Fact]
+        public void Fix_StructWithAutoProps_StillThrowsWarning_IfReflectionExplicitlyEnabled()
+        {
+            var config = new SerializerConfig();
+            config.Advanced.AllowReflectionFallback = true;
+            var ceras = new CerasSerializer(config);
+
+            var model = new LegacyModel { Item = new LegacyCostItem("Test", 10) };
+
+            // If user explicitly enables reflection, they still get the helpful warning about structs.
+            var ex = Assert.Throws<System.Reflection.TargetInvocationException>(() => ceras.Serialize(model));
+            Assert.Contains("backing-fields", ex.ToString());
+        }
     }
 
     [CerasSerializable]
     public class ArrayMemberModel
     {
         public Weapon[] Weapons;
+    }
+
+    // A struct with only auto-properties and no [CerasSerializable]
+    public struct LegacyCostItem
+    {
+        public string Name { get; set; }
+        public int Amount { get; set; }
+
+        public LegacyCostItem(string name, int amount)
+        {
+            Name = name;
+            Amount = amount;
+        }
+    }
+
+    [CerasSerializable]
+    public class LegacyModel
+    {
+        public LegacyCostItem Item;
     }
 }

@@ -30,6 +30,7 @@ namespace Ceras
         {
             if (config == null) throw new ArgumentNullException(nameof(config));
             config.Advanced.EmbedChecksum = false;
+            config.Advanced.AllowReflectionFallback = false;
             
             // Core robust formatters
             config.ConfigType<string>().CustomFormatter = new RobustStringFormatter();
