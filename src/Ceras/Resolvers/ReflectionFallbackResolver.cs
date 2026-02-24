@@ -19,8 +19,7 @@
     
             public IFormatter GetFormatter(Type type)
             {
-                if (!_ceras.Config.Advanced.AllowReflectionFallback)
-                    throw new InvalidOperationException($"No specialized or generated formatter found for type '{type.FriendlyName(true)}', and reflection-based fallback is disabled in SerializerConfig.Advanced.AllowReflectionFallback. Please add [GenerateFormatter] to the type or register a custom formatter.");
+                _ceras.VerifyReflectionFallbackAllowed(type);
 
                 var meta = _ceras.GetTypeMetaData(type);
     

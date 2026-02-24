@@ -231,8 +231,22 @@ namespace Ceras
         internal void VerifyReflectionFallbackAllowed(Type type)
         {
             if (!Config.Advanced.AllowReflectionFallback)
-                throw new InvalidOperationException($"No specialized or generated formatter found for type '{type.FriendlyName(true)}', and reflection-based fallback is disabled in SerializerConfig.Advanced.AllowReflectionFallback. Please add [GenerateFormatter] to the type or register a custom formatter.");
+            {
+                string contextMsg = "";
+                if (_contextStack.Count > 0)
+                {
+                    var ctx = _contextStack.Peek();
+                    string memberPart = ctx.Member != null ? $"member '{ctx.Member.Name}'" : "a member";
+                    contextMsg = $"\n(This type was encountered while processing {memberPart} in type '{ctx.Type.FriendlyName(true)}')";
+                }
+
+                throw new InvalidOperationException($"No specialized or generated formatter found for type '{type.FriendlyName(true)}', and reflection-based fallback is disabled in SerializerConfig.Advanced.AllowReflectionFallback. Please add [GenerateFormatter] to the type or register a custom formatter.{contextMsg}");
+            }
         }
+
+        readonly Stack<(Type Type, MemberInfo Member)> _contextStack = new Stack<(Type, MemberInfo)>();
+        internal void PushContext(Type type, MemberInfo member) => _contextStack.Push((type, member));
+        internal void PopContext() => _contextStack.Pop();
 
         void PrepareStaticSerializationDispatchers(TypeMetaData meta)
         {
@@ -257,6 +271,7 @@ namespace Ceras
         public Type PeekType(byte[] buffer) { var seq = new ReadOnlySequence<byte>(buffer); var reader = new SequenceReader<byte>(seq); Type t = null; GetFormatter<Type>().Deserialize(ref reader, ref t); return t; }
         public IEnumerable<IFormatterResolver> GetFormatterResolvers() { foreach (var r in _resolvers) yield return r; yield return _dynamicResolver; }
         IFormatterResolver ICerasAdvanced.GetFormatterResolver<TResolver>() => Advanced.GetFormatterResolvers().OfType<TResolver>().FirstOrDefault();
+        void ICerasAdvanced.PrepareFormatter(IFormatter formatter) => PrepareFormatter(formatter);
 
         public IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
         public IFormatter<T> GetSpecificFormatter<T>() => (IFormatter<T>)GetSpecificFormatter(typeof(T));
@@ -373,6 +388,9 @@ namespace Ceras
             if (initMethod != null)
                 initMethod.Invoke(formatter, null);
 
+            var itf = ReflectionHelper.FindClosedType(formatterType, typeof(IFormatter<>));
+            Type targetType = itf?.GetGenericArguments()[0];
+
             if (formatterType.GetCustomAttribute<CerasNoInjectAttribute>() != null) return;
             var config = formatterType.GetCustomAttribute<CerasInjectAttribute>() ?? CerasInjectAttribute.Default;
             var fields = formatterType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
@@ -388,29 +406,38 @@ namespace Ceras
                 else if (ft == typeof(SchemaRegistry)) SafeInject(formatter, f, Config.Robust.SchemaRegistry);
                 else if (typeof(IFormatter).IsAssignableFrom(ft))
                 {
-                    var itf = ReflectionHelper.FindClosedType(ft, typeof(IFormatter<>));
-                    if (itf == null) continue;
-                    var fmtType = itf.GetGenericArguments()[0];
+                    var itfMember = ReflectionHelper.FindClosedType(ft, typeof(IFormatter<>));
+                    if (itfMember == null) continue;
+                    var fmtType = itfMember.GetGenericArguments()[0];
                     bool noRef = f.GetCustomAttribute<CerasNoReference>() != null;
-                    if (ft.IsGenericType && ft.GetGenericTypeDefinition() == typeof(IFormatter<>)) SafeInject(formatter, f, noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatter(fmtType));
-                    else if (ReflectionHelper.IsAssignableToGenericType(ft, typeof(IFormatter<>)))
+
+                    if (targetType != null) PushContext(targetType, null);
+                    try
                     {
-                        // If the field is typed to a specific formatter implementation (like CollectionFormatter),
-                        // we should use GetSpecificFormatter to ensure we get a matching instance.
-                        // ReferenceFormatter<T> is usually not assignable to CollectionFormatter<T, TItem>.
-                        var rf = noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatter(fmtType);
-                        if (ft.IsAssignableFrom(rf.GetType()))
+                        if (ft.IsGenericType && ft.GetGenericTypeDefinition() == typeof(IFormatter<>)) SafeInject(formatter, f, noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatter(fmtType));
+                        else if (ReflectionHelper.IsAssignableToGenericType(ft, typeof(IFormatter<>)))
                         {
-                            SafeInject(formatter, f, rf);
-                        }
-                        else
-                        {
-                            var df = GetSpecificFormatter(fmtType);
-                            if (ft.IsAssignableFrom(df.GetType()))
-                                SafeInject(formatter, f, df);
+                            // If the field is typed to a specific formatter implementation (like CollectionFormatter),
+                            // we should use GetSpecificFormatter to ensure we get a matching instance.
+                            // ReferenceFormatter<T> is usually not assignable to CollectionFormatter<T, TItem>.
+                            var rf = noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatter(fmtType);
+                            if (ft.IsAssignableFrom(rf.GetType()))
+                            {
+                                SafeInject(formatter, f, rf);
+                            }
                             else
-                                throw new InvalidOperationException($"Injection mismatch for {fmtType.Name}: expected {ft.Name} but got {df.GetType().Name}");
+                            {
+                                var df = GetSpecificFormatter(fmtType);
+                                if (ft.IsAssignableFrom(df.GetType()))
+                                    SafeInject(formatter, f, df);
+                                else
+                                    throw new InvalidOperationException($"Injection mismatch for {fmtType.Name}: expected {ft.Name} but got {df.GetType().Name}");
+                            }
                         }
+                    }
+                    finally
+                    {
+                        if (targetType != null) PopContext();
                     }
                 }
             }
@@ -435,6 +462,7 @@ namespace Ceras
         T Clone<T>(T obj);
         IEnumerable<IFormatterResolver> GetFormatterResolvers();
         IFormatterResolver GetFormatterResolver<TResolver>() where TResolver : IFormatterResolver;
+        void PrepareFormatter(IFormatter formatter);
     }
 
     struct InstanceData { public TypeCache TypeCache; public ObjectCache ObjectCache; public IExternalRootObject CurrentRoot; public object UserContext; public HashSet<Type> EncounteredSchemaTypes; }

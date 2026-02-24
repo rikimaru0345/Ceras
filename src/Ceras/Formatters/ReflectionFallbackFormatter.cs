@@ -59,8 +59,16 @@ namespace Ceras.Formatters
 
                 // Monomorphic members (value types, sealed classes) skip ReferenceFormatter markers in generated code.
                 // We must match this behavior for byte identity.
-                var formatter = m.IsMonomorphic ? _ceras.GetSpecificFormatter(m.MemberType) : _ceras.GetReferenceFormatter(m.MemberType);
-                _members[i] = (m.Member, formatter, m.IsMonomorphic);
+                _ceras.PushContext(type, m.Member);
+                try
+                {
+                    var formatter = m.IsMonomorphic ? _ceras.GetSpecificFormatter(m.MemberType) : _ceras.GetReferenceFormatter(m.MemberType);
+                    _members[i] = (m.Member, formatter, m.IsMonomorphic);
+                }
+                finally
+                {
+                    _ceras.PopContext();
+                }
             }
 
             _onBeforeSerialize = GetMethodByAttribute(type, typeof(OnBeforeSerializeAttribute));
