@@ -434,7 +434,7 @@ namespace Ceras.SourceGenerator
 
         /// <summary>
         /// Finds the best constructor to use for serialization.
-        /// Priority: Explicit [CerasConstructor] > Public/Internal parameterless > Record primary constructor.
+        /// Priority: Explicit [CerasConstructor] > Public/Internal parameterless > Constructor with most matching parameters.
         /// </summary>
         public static IMethodSymbol? GetBestConstructor(INamedTypeSymbol type, INamedTypeSymbol? cerasConstructorAttr)
         {
@@ -451,14 +451,33 @@ namespace Ceras.SourceGenerator
             var parameterless = ctors.FirstOrDefault(c => c.Parameters.Length == 0 && (c.DeclaredAccessibility == Accessibility.Public || c.DeclaredAccessibility == Accessibility.Internal));
             if (parameterless != null) return parameterless;
 
-            // 3. Record primary constructor (for records that don't have a parameterless one)
-            if (type.IsRecord)
+            // 3. Heuristic: Find the ctor with most parameters that can be fully satisfied by serializable members
+            // This covers records and classes with primary constructors or multiple constructor options.
+            var sortedCtors = ctors.Where(c => c.DeclaredAccessibility == Accessibility.Public || c.DeclaredAccessibility == Accessibility.Internal)
+                                   .OrderByDescending(c => c.Parameters.Length).ToList();
+
+            // We need a context-free way to check members here, or we pass them in.
+            // For now, let's use a simplified member check based on what Ceras generally serializes.
+            var members = type.GetMembers().Where(m => !m.IsStatic && (m is IFieldSymbol || m is IPropertySymbol)).ToList();
+
+            foreach (var c in sortedCtors)
             {
-                // For records, if there's only one constructor and it has parameters, it's the primary one.
-                if (ctors.Length == 1) return ctors[0];
-                
-                // If there are multiple, the one with most parameters is a good heuristic for the primary constructor.
-                return ctors.OrderByDescending(c => c.Parameters.Length).FirstOrDefault();
+                if (c.Parameters.Length == 0) continue;
+
+                bool allMatch = true;
+                foreach (var p in c.Parameters)
+                {
+                    string normParam = NormalizeName(p.Name);
+                    bool hasMatch = members.Any(m => NormalizeName(m.Name) == normParam);
+                    
+                    if (!hasMatch)
+                    {
+                        allMatch = false;
+                        break;
+                    }
+                }
+
+                if (allMatch) return c;
             }
 
             return null;

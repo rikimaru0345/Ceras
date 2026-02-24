@@ -43,47 +43,72 @@ namespace Ceras
             if (typeConfig.TypeConstruction != null)
                 return;
 
-
-            if(typeConfig.TypeConstruction == null)
-                if (CerasSerializer.IsFormatterConstructed(typeConfig.Type) || (typeConfig.Type.IsStatic()) || typeConfig.Type.IsArray)
-                {
-                    typeConfig.TypeConstruction = TypeConstruction.Null();
-                    return;
-                }
-
+            if (CerasSerializer.IsFormatterConstructed(typeConfig.Type) || (typeConfig.Type.IsStatic()) || typeConfig.Type.IsArray)
+            {
+                typeConfig.TypeConstruction = TypeConstruction.Null();
+                return;
+            }
 
             var type = typeConfig.Type;
-            MethodBase ctor;
+            MethodBase selectedCtor = null;
 
-            // Try hint by attribute
+            // 1. Try hint by attribute
             IEnumerable<MethodBase> methods = type.GetMethods(BindingFlagsStatic).Cast<MethodBase>().Concat(type.GetConstructors(BindingFlagsCtor));
             var cerasCtors = methods.Where(m => m.GetCustomAttribute<CerasConstructorAttribute>() != null).ToArray();
 
             if (cerasCtors.Length > 1)
             {
-                // Multiple matches
                 throw new InvalidConfigException($"There are multiple constructors on your type '{typeConfig.Type.FriendlyName()}' that have the '[CerasConstructor]' attribute, so its unclear which one to use. Only one constructor in this type can have the attribute.");
             }
             else if (cerasCtors.Length == 1)
             {
-                // Single match
-                ctor = cerasCtors[0];
+                selectedCtor = cerasCtors[0];
             }
             else
             {
-                // No match, try default ctor
-                ctor = type.GetConstructors(BindingFlagsCtor).FirstOrDefault(c => c.GetParameters().Length == 0);
+                // 2. Try default (parameterless) ctor
+                selectedCtor = type.GetConstructors(BindingFlagsCtor).FirstOrDefault(c => c.GetParameters().Length == 0);
+
+                if (selectedCtor == null)
+                {
+                    // 3. Heuristic: Find the ctor with most parameters that can be fully satisfied by serializable members
+                    var allCtors = type.GetConstructors(BindingFlagsCtor).OrderByDescending(c => c.GetParameters().Length).ToList();
+                    var members = typeConfig.Members.Where(m => m.ComputeFinalInclusionFast()).ToList();
+
+                    foreach (var c in allCtors)
+                    {
+                        var parameters = c.GetParameters();
+                        if (parameters.Length == 0) continue; // already handled
+
+                        bool allMatch = true;
+                        foreach (var p in parameters)
+                        {
+                            bool hasMatch = members.Any(m => string.Equals(MiscHelpers.CleanMemberName(m.Member.Name), p.Name, StringComparison.OrdinalIgnoreCase) ||
+                                                            string.Equals(m.Member.Name, p.Name, StringComparison.OrdinalIgnoreCase));
+                            if (!hasMatch)
+                            {
+                                allMatch = false;
+                                break;
+                            }
+                        }
+
+                        if (allMatch)
+                        {
+                            selectedCtor = c;
+                            break;
+                        }
+                    }
+                }
             }
             
             // Apply this ctor or factory
-            if (ctor != null)
+            if (selectedCtor != null)
             {
-                if (ctor is ConstructorInfo constructorInfo)
+                if (selectedCtor is ConstructorInfo constructorInfo)
                     typeConfig.TypeConstruction = TypeConstruction.ByConstructor(constructorInfo);
-                else if (ctor is MethodInfo methodInfo)
+                else if (selectedCtor is MethodInfo methodInfo)
                     typeConfig.TypeConstruction = TypeConstruction.ByStaticMethod(methodInfo);
             }
-
 
             if (type.IsValueType && typeConfig.TypeConstruction == null)
                 typeConfig.TypeConstruction = ConstructNull.Instance;

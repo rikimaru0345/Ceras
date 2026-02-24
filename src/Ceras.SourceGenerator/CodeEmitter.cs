@@ -97,10 +97,6 @@ namespace Ceras.SourceGenerator
             // --- Deserialize -------------------------------------------------------
             sb.AppendLine($"        public void Deserialize(ref global::System.Buffers.SequenceReader<byte> reader, ref {typeFqn} value)");
             sb.AppendLine("        {");
-            if (type.IsReferenceType)
-            {
-                sb.AppendLine($"            if (value == null) throw new global::System.InvalidOperationException($\"The instance of type '{{typeof({typeFqn}).FullName}}' was null. For types with a parameterless constructor, the instance must be provided by ReferenceFormatter.\");");
-            }
 
             bool hasCtorParams = members.Any(m => m.IsCtorParam);
 
@@ -155,6 +151,11 @@ namespace Ceras.SourceGenerator
             else
             {
                 // Normal path
+                if (type.IsReferenceType)
+                {
+                    sb.AppendLine($"            if (value == null) throw new global::System.InvalidOperationException($\"The instance of type '{{typeof({typeFqn}).FullName}}' was null. For types with a parameterless constructor, the instance must be provided by ReferenceFormatter.\");");
+                }
+
                 foreach (var m in members)
                 {
                     string fieldName = MakeFormatterFieldName(m.Type);
