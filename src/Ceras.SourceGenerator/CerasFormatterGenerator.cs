@@ -559,7 +559,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                         // but storing the exact constructor parameter name for named-arg emission.
                         var existing = members[idx];
                         members[idx] = new SerializedMember(
-                            existing.Name, existing.StableName, existing.Type,
+                            existing.Name, existing.StableName, existing.Type, existing.DeclaringType,
                             existing.IsField, existing.PreviousNames, existing.IsMonomorphic,
                             existing.IsAccessible, existing.IsReadOnly, existing.IsGetterOnly, isCtorParam: true, 
                             ctorParamName: param.Name);
@@ -604,7 +604,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
                             // StableName = param.Name for wire format; CtorParamName = param.Name for named-arg call.
                             members.Add(new SerializedMember(
-                                found.Name, param.Name, foundType, foundIsField,
+                                found.Name, param.Name, foundType, found.ContainingType, foundIsField,
                                 Array.Empty<string>(), mono, isAcc, isRO,
                                 isGetterOnly: false, isCtorParam: true, ctorParamName: param.Name));
                             memberByNorm[normParam] = members.Count - 1;
@@ -746,7 +746,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             isAccessible = getterAcc && setterAcc;
         }
 
-        return new SerializedMember(name, stableName, type, isField,
+        return new SerializedMember(name, stableName, type, symbol.ContainingType, isField,
             previousNames.ToArray(), isMonomorphic, isAccessible, isReadOnly, isGetterOnly);
     }
 
@@ -1726,7 +1726,9 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
     static void WritePartialClassHelper(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
     {
-        var privateMembers = members.Where(m => !m.IsAccessible).ToList();
+        // Only generate helpers for members that are actually declared in THIS type.
+        // Members declared in base types will have their helpers generated in those base types' partial parts.
+        var privateMembers = members.Where(m => !m.IsAccessible && SymbolEqualityComparer.Default.Equals(m.DeclaringType, type)).ToList();
         if (privateMembers.Count == 0) return;
 
         var sb = new StringBuilder();
@@ -1814,9 +1816,11 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
     {
         if (m.IsAccessible)
             return $"value.{m.Name}";
+
+        string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         if (m.IsField && !m.IsReadOnly)
-            return $"{typeFqn}.__ceras_ref_{m.Name}(value)";
-        return $"{typeFqn}.__ceras_get_{m.Name}(value)";
+            return $"{declaringTypeFqn}.__ceras_ref_{m.Name}(value)";
+        return $"{declaringTypeFqn}.__ceras_get_{m.Name}(value)";
     }
 
     static string? GetRefAccess(SerializedMember m, string typeFqn)
@@ -1825,7 +1829,9 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             return null;
         if (m.IsAccessible)
             return $"value.{m.Name}";
-        return $"{typeFqn}.__ceras_ref_{m.Name}(value)";
+
+        string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        return $"{declaringTypeFqn}.__ceras_ref_{m.Name}(value)";
     }
 
     static void WriteSetStatement(StringBuilder sb, SerializedMember m, string typeFqn, string valueExpr, int indent)
@@ -1838,13 +1844,17 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         {
             sb.AppendLine($"{prefix}value.{m.Name} = {valueExpr};");
         }
-        else if (m.IsField)
-        {
-            sb.AppendLine($"{prefix}{typeFqn}.__ceras_ref_{m.Name}(value) = {valueExpr};");
-        }
         else
         {
-            sb.AppendLine($"{prefix}{typeFqn}.__ceras_set_{m.Name}(value, {valueExpr});");
+            string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (m.IsField)
+            {
+                sb.AppendLine($"{prefix}{declaringTypeFqn}.__ceras_ref_{m.Name}(value) = {valueExpr};");
+            }
+            else
+            {
+                sb.AppendLine($"{prefix}{declaringTypeFqn}.__ceras_set_{m.Name}(value, {valueExpr});");
+            }
         }
     }
 
@@ -1966,6 +1976,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         public string Name { get; } // C# member name
         public string StableName { get; } // wire name ([SerializedAs] or Name)
         public ITypeSymbol Type { get; }
+        public INamedTypeSymbol DeclaringType { get; }
         public bool IsField { get; }
         public string[] PreviousNames { get; }
         public bool IsMonomorphic { get; }
@@ -1979,7 +1990,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         public bool IsReadOnly { get; }
 
         public SerializedMember(
-            string name, string stableName, ITypeSymbol type, bool isField,
+            string name, string stableName, ITypeSymbol type, INamedTypeSymbol declaringType, bool isField,
             string[] previousNames, bool isMonomorphic, bool isAccessible,
             bool isReadOnly,
             bool isGetterOnly = false,
@@ -1988,6 +1999,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             Name = name;
             StableName = stableName;
             Type = type;
+            DeclaringType = declaringType;
             IsField = isField;
             PreviousNames = previousNames;
             IsMonomorphic = isMonomorphic;
