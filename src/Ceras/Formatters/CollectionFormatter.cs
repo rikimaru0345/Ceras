@@ -126,17 +126,22 @@ namespace Ceras.Formatters
     }
 
     public class CollectionFormatter<TCollection, TItem> : FormatterBase<TCollection>
-        where TCollection : ICollection<TItem>
     {
         readonly IFormatter<TItem> _itemFormatter;
         readonly uint _maxSize;
         readonly Func<int, TCollection> _capacityConstructor;
+        
+        readonly Action<TCollection> _clearMethod;
+        readonly Action<TCollection, TItem> _addMethod;
+        readonly Func<TCollection, int> _getCountMethod;
 
         public CollectionFormatter(CerasSerializer serializer)
         {
             _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(typeof(TItem));
             _maxSize = serializer.Config.Advanced.SizeLimits.MaxCollectionSize;
             var collectionType = typeof(TCollection);
+            
+            // Resolve capacity constructor
             if (collectionType.IsGenericType)
             {
                 var def = collectionType.GetGenericTypeDefinition();
@@ -148,28 +153,70 @@ namespace Ceras.Formatters
                 }
             }
             if (_capacityConstructor == null) _capacityConstructor = _ => (TCollection)Activator.CreateInstance(collectionType);
+
+            // Resolve access methods
+            if (typeof(ICollection<TItem>).IsAssignableFrom(collectionType))
+            {
+                _clearMethod = c => ((ICollection<TItem>)c).Clear();
+                _addMethod = (c, i) => ((ICollection<TItem>)c).Add(i);
+                _getCountMethod = c => ((ICollection<TItem>)c).Count;
+            }
+            else
+            {
+                var clear = collectionType.GetMethod("Clear", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                var add = collectionType.GetMethod("Add", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(TItem) }, null);
+                var count = collectionType.GetProperty("Count", BindingFlags.Public | BindingFlags.Instance);
+
+                if (clear != null) _clearMethod = (Action<TCollection>)Delegate.CreateDelegate(typeof(Action<TCollection>), clear);
+                if (add != null) _addMethod = (Action<TCollection, TItem>)Delegate.CreateDelegate(typeof(Action<TCollection, TItem>), add);
+                if (count != null) _getCountMethod = (Func<TCollection, int>)Delegate.CreateDelegate(typeof(Func<TCollection, int>), count.GetGetMethod());
+            }
         }
 
         public override void Serialize(IBufferWriter<byte> writer, TCollection value)
         {
-            SerializerBinary.WriteUInt32(writer, (uint)value.Count);
+            if (value == null)
+            {
+                SerializerBinary.WriteUInt32Bias(writer, -1, 1);
+                return;
+            }
+
+            int count = _getCountMethod(value);
+            SerializerBinary.WriteUInt32Bias(writer, count, 1);
+            
             var f = _itemFormatter;
-            foreach (var item in value) f.Serialize(writer, item);
+            if (value is IEnumerable<TItem> enumerable)
+            {
+                foreach (var item in enumerable) f.Serialize(writer, item);
+            }
+            else
+            {
+                // Fallback for non-generic IEnumerable if needed, but TCollection usually implements it
+                var e = (System.Collections.IEnumerable)value;
+                foreach (var item in e) f.Serialize(writer, (TItem)item);
+            }
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref TCollection value)
         {
-            var itemCount = SerializerBinary.ReadUInt32(ref reader);
+            int itemCount = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            if (itemCount == -1)
+            {
+                value = default;
+                return;
+            }
+
             if (itemCount > _maxSize) throw new InvalidOperationException("Max size exceeded");
-            if (value == null) value = _capacityConstructor((int)itemCount);
-            else value.Clear();
+            
+            if (value == null) value = _capacityConstructor(itemCount);
+            else _clearMethod?.Invoke(value);
 
             var f = _itemFormatter;
             for (int i = 0; i < itemCount; i++)
             {
                 TItem item = default;
                 f.Deserialize(ref reader, ref item);
-                value.Add(item);
+                _addMethod(value, item);
             }
         }
     }

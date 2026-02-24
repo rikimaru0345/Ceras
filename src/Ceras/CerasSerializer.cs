@@ -370,9 +370,22 @@ namespace Ceras
                     if (ft.IsGenericType && ft.GetGenericTypeDefinition() == typeof(IFormatter<>)) SafeInject(formatter, f, noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatter(fmtType));
                     else if (ReflectionHelper.IsAssignableToGenericType(ft, typeof(IFormatter<>)))
                     {
+                        // If the field is typed to a specific formatter implementation (like CollectionFormatter),
+                        // we should use GetSpecificFormatter to ensure we get a matching instance.
+                        // ReferenceFormatter<T> is usually not assignable to CollectionFormatter<T, TItem>.
                         var rf = noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatter(fmtType);
-                        if (rf.GetType() == ft) SafeInject(formatter, f, rf);
-                        else { var df = GetSpecificFormatter(fmtType); if (df.GetType() == ft) SafeInject(formatter, f, df); else throw new InvalidOperationException("Injection mismatch for " + fmtType.Name); }
+                        if (ft.IsAssignableFrom(rf.GetType()))
+                        {
+                            SafeInject(formatter, f, rf);
+                        }
+                        else
+                        {
+                            var df = GetSpecificFormatter(fmtType);
+                            if (ft.IsAssignableFrom(df.GetType()))
+                                SafeInject(formatter, f, df);
+                            else
+                                throw new InvalidOperationException($"Injection mismatch for {fmtType.Name}: expected {ft.Name} but got {df.GetType().Name}");
+                        }
                     }
                 }
             }

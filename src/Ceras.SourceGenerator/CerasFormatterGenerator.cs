@@ -270,6 +270,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             previousNameAttr, previousTypeAttr, serializedAsAttr, monomorphicAttr,
             polymorphicAttr, generateFmtAttr, cerasConstructorAttr);
 
+        var allPrivateMembersByDeclaringType = new Dictionary<INamedTypeSymbol, List<SerializedMember>>(SymbolEqualityComparer.Default);
+
         foreach (var type in finalTypes)
         {
             // Interfaces and abstract types with DiscoverSubtypes = true are roots only;
@@ -300,10 +302,26 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
                     type.Name));
             }
 
+            // Collect private members for helper generation
+            foreach (var m in members)
+            {
+                if (!m.IsAccessible)
+                {
+                    if (!allPrivateMembersByDeclaringType.TryGetValue(m.DeclaringType, out var list))
+                    {
+                        list = new List<SerializedMember>();
+                        allPrivateMembersByDeclaringType[m.DeclaringType] = list;
+                    }
+                    // Avoid duplicates if multiple derived classes use the same base private member
+                    if (!list.Any(existing => existing.Name == m.Name))
+                        list.Add(m);
+                }
+            }
+
             // CERAS004/005/006/007: [CerasConstructor] validation
             ValidateCerasConstructor(context, compilation, type, members, attrBag);
 
-            // CERAS009: duplicate stable wire names
+            // CERAS009: duplicate stable wire name
             ValidateDuplicateWireNames(context, type, members);
 
             // CERAS010: partial requirement for private members
@@ -312,13 +330,16 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             // CERAS011: readonly members must be in ctor
             ValidateReadonlyMembers(context, type, members);
 
-            // Emit partial class with access helpers for private members
-            WritePartialClassHelper(context, type, members);
-
             // Use the VT flag from the expanded dict (which inherits from DiscoverSubtypes roots)
             // rather than re-checking only the type's own attribute.
             bool typeVt = expanded[type];
             WriteFormatterClass(sb, type, members, attrBag, typeVt);
+        }
+
+        // Generate all required access helpers
+        foreach (var kvp in allPrivateMembersByDeclaringType)
+        {
+            WritePartialClassHelper(context, kvp.Key, kvp.Value);
         }
 
         sb.AppendLine("}"); // close namespace
@@ -646,11 +667,20 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         if (type is IArrayTypeSymbol) return true;
         if (type is INamedTypeSymbol named)
         {
+            var fqn = named.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (fqn.StartsWith("global::System.Collections.Generic.ICollection<") ||
+                fqn.StartsWith("global::System.Collections.Generic.IDictionary<") ||
+                fqn == "global::System.Collections.ICollection" ||
+                fqn == "global::System.Collections.IDictionary")
+                return true;
+
             foreach (var iface in named.AllInterfaces)
             {
                 var ifaceFqn = iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 if (ifaceFqn.StartsWith("global::System.Collections.Generic.ICollection<") ||
-                    ifaceFqn == "global::System.Collections.ICollection")
+                    ifaceFqn.StartsWith("global::System.Collections.Generic.IDictionary<") ||
+                    ifaceFqn == "global::System.Collections.ICollection" ||
+                    ifaceFqn == "global::System.Collections.IDictionary")
                     return true;
             }
         }
@@ -1096,42 +1126,58 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         if (typeFqn == "global::System.TimeSpan") return "global::Ceras.Formatters.TimeSpanFormatter";
         if (typeFqn == "global::System.Guid") return "global::Ceras.Formatters.GuidFormatter";
 
-            // User-defined types marked with [GenerateFormatter]
-            if (type is INamedTypeSymbol named && HasAttribute(named, attrs.GenerateFormatter))
+        // User-defined types marked with [GenerateFormatter]
+        if (type is INamedTypeSymbol named && HasAttribute(named, attrs.GenerateFormatter))
+        {
+            string generatedName = MakeFormatterClassName(named);
+            return $"global::Ceras.Generated.{generatedName}";
+        }
+
+        // Arrays
+        if (type is IArrayTypeSymbol arr)
+        {
+            string elemFqn = arr.ElementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            // Use the specialized collection formatter
+            return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {elemFqn}>";
+        }
+
+        // Standard Collections (without [GenerateFormatter])
+        if (IsCollectionType(type))
+        {
+            if (type is INamedTypeSymbol namedColl && namedColl.TypeArguments.Length > 0)
             {
-                if (type.IsValueType)
+                var fqn = namedColl.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                if (fqn.StartsWith("global::System.Collections.Generic.IDictionary<"))
                 {
-                    string generatedName = MakeFormatterClassName(named);
-                    return $"global::Ceras.Generated.{generatedName}";
+                    string k = namedColl.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    string v = namedColl.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    string kvp = $"global::System.Collections.Generic.KeyValuePair<{k}, {v}>";
+                    return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {kvp}>";
                 }
-            }
-        
-            // Arrays
-            if (type is IArrayTypeSymbol arr)
-            {
-                string elemFqn = arr.ElementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                // Use the specialized collection formatter
+
+                string elemFqn = namedColl.TypeArguments[namedColl.TypeArguments.Length - 1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {elemFqn}>";
             }
-        
-            // Reference types or non-monomorphic types
-            if (!type.IsValueType && !isMonomorphic)
-            {
-                return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
-            }
-        
-            if (!type.IsValueType && isMonomorphic)
-            {
-                // If it's a sealed class, we can use ReferenceFormatter_KnownSealedType
-                if (type.IsSealed)
-                    return $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>";
-        
-                return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
-            }
-        
-            // Fallback to interface
-            return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
         }
+
+        // Reference types or non-monomorphic types
+        if (!type.IsValueType && !isMonomorphic)
+        {
+            return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+        }
+
+        if (!type.IsValueType && isMonomorphic)
+        {
+            // If it's a sealed class, we can use ReferenceFormatter_KnownSealedType
+            if (type.IsSealed)
+                return $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>";
+
+            return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+        }
+
+        // Fallback to interface
+        return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
+    }
     static void WriteSchemaDescriptor(
         StringBuilder sb,
         INamedTypeSymbol type,
