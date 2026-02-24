@@ -70,12 +70,44 @@ namespace Ceras.Test
                 }
             };
 
-            var blob = ceras.Serialize(model);
-            var cloned = ceras.Deserialize<InjectionMismatchReproModel>(blob);
+            var blob = CerasRobust.Save(model, 1, ceras);
+            var cloned = CerasRobust.Load<InjectionMismatchReproModel>(blob, 1, ceras);
 
             Assert.NotNull(cloned.States);
             Assert.Single(cloned.States);
             Assert.Equal(42, ((ReproStateImpl)cloned.States[1]).Value);
         }
+
+        // -------------------------------------------------------------------
+        // Array Injection Mismatch Repro
+        // -------------------------------------------------------------------
+
+        [Fact]
+        public void Fix_Array_InjectionMismatch()
+        {
+            var config = new SerializerConfig();
+            CerasRobust.Configure(config);
+            Ceras.Generated.GeneratedFormatters.UseFormatters(config);
+            
+            var ceras = new CerasSerializer(config);
+
+            var model = new ArrayMemberModel
+            {
+                Weapons = new[] { new Weapon { Name = "Sword" } }
+            };
+
+            var blob = CerasRobust.Save(model, 1, ceras);
+            var cloned = CerasRobust.Load<ArrayMemberModel>(blob, 1, ceras);
+
+            Assert.NotNull(cloned.Weapons);
+            Assert.Single(cloned.Weapons);
+            Assert.Equal("Sword", cloned.Weapons[0].Name);
+        }
+    }
+
+    [CerasSerializable]
+    public class ArrayMemberModel
+    {
+        public Weapon[] Weapons;
     }
 }

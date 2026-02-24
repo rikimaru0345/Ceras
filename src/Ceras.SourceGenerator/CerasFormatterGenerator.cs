@@ -1128,8 +1128,8 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         if (type is IArrayTypeSymbol arr)
         {
             string elemFqn = arr.ElementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            // Use the specialized collection formatter
-            return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {elemFqn}>";
+            // Use the specialized array formatter
+            return $"global::Ceras.Formatters.ArrayFormatter<{elemFqn}>";
         }
 
         // Standard Collections (without [GenerateFormatter])
