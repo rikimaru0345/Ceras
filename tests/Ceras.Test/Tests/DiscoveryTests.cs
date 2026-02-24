@@ -1,6 +1,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 using Ceras;
 using Ceras.Formatters;
@@ -19,6 +20,7 @@ namespace Ceras.Test
         public List<DiscoveryNestedChild> NestedChildren;
         public IPolymorphicBase Polymorphic;
         public DiscoveryRecord Record;
+        public BannedType Banned;
     }
 
     // Discovered via 'Child' field
@@ -48,6 +50,12 @@ namespace Ceras.Test
     // Records should use their primary constructor automatically.
     // They are discovered via propagation from DiscoveryRoot.
     public record DiscoveryRecord(int Id, string Name);
+
+    [Exclude]
+    public class BannedType
+    {
+        public int Secret;
+    }
 
     public class DiscoveryTests : TestBase
     {
@@ -98,6 +106,27 @@ namespace Ceras.Test
             Assert.Equal(original.Record, clone.Record);
             Assert.Equal(123, clone.Record.Id);
             Assert.Equal("RecordItem", clone.Record.Name);
+        }
+
+        [Fact]
+        public void BannedTypeWorks()
+        {
+            var config = new SerializerConfig();
+            GeneratedFormatters.UseFormatters(config);
+
+            var rootType = typeof(DiscoveryRoot);
+            var tc = config.ConfigType(rootType);
+            
+            var bannedMember = tc.Members.First(m => m.Member.Name == "Banned");
+            Assert.False(bannedMember.ComputeFinalInclusionFast());
+
+            // Round-trip check
+            var ceras = new CerasSerializer(config);
+            var original = new DiscoveryRoot { Banned = new BannedType { Secret = 999 } };
+            var data = ceras.Serialize(original);
+            var clone = ceras.Deserialize<DiscoveryRoot>(data);
+
+            Assert.Null(clone.Banned);
         }
     }
 }

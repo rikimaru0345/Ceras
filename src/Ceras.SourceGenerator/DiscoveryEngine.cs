@@ -90,6 +90,8 @@ namespace Ceras.SourceGenerator
 
             void ExploreType(ITypeSymbol type, INamedTypeSymbol parent, string? parentPath)
             {
+                if (HasAttribute(type, attrs.Exclude)) return;
+
                 // Unwrap arrays and collections
                 if (type is IArrayTypeSymbol arr)
                 {

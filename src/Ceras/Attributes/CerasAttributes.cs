@@ -9,9 +9,11 @@ namespace Ceras
 
     /// <summary>
     /// Add this to a field or property to force Ceras to ignore it.
+    /// When applied to a type (class, struct, interface), it prevents Ceras from ever serializing 
+    /// any members of that type, effectively banning it from all serialization.
     /// Check out the tutorial to see in what order attributes, the ShouldSerialize callback and other settings are evaluated.
     /// </summary>
-    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Interface)]
     public sealed class ExcludeAttribute : Attribute { }
 
     /// <summary>

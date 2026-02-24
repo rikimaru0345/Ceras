@@ -35,6 +35,12 @@ namespace Ceras.SourceGenerator
                     if (!seenNames.Add(member.Name))
                         continue;
 
+                    ITypeSymbol? memberType = (member as IFieldSymbol)?.Type ?? (member as IPropertySymbol)?.Type;
+                    if (memberType == null) continue;
+
+                    if (HasAttribute(memberType, attrs.Exclude))
+                        continue;
+
                     bool hasInclude = attrs.Include != null && HasAttribute(member, attrs.Include);
                     bool hasExclude = attrs.Exclude != null && HasAttribute(member, attrs.Exclude);
 

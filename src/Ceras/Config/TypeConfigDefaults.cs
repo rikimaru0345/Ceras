@@ -181,6 +181,14 @@ namespace Ceras
                 CerasHelpers.VerifyName(serializedAs.Name);
             }
 
+            // Type check: is the type of this member marked with [Exclude]?
+            var memberType = memberConfig.MemberType;
+            if (memberType.GetCustomAttribute<ExcludeAttribute>(true) != null)
+            {
+                memberConfig.ExcludeWithReason($"Type '{memberType.FriendlyName()}' is marked with [Exclude]");
+                return;
+            }
+
             var prevName = memberInfo.GetCustomAttribute<PreviousNameAttribute>();
             if (prevName != null)
             {
