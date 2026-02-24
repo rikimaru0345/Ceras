@@ -510,9 +510,9 @@ namespace Tutorial
         public void Step8_DataUpgrade()
         {
             /*
-             * Ceras now supports robust, version-tolerant serialization via the 'CerasSave' system.
+             * Ceras now supports robust, version-tolerant serialization via the 'CerasRobust' system.
              * It allows for adding, removing, and renaming members while maintaining compatibility
-             * with old savegames.
+             * with old robust formats.
              * 
              * For transient data (like networking), Ceras remains fast and compact,
              * trading off versioning support for maximum performance.

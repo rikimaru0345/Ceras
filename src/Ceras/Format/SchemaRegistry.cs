@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Ceras.Savegame
+namespace Ceras.Format
 {
     /// <summary>
     /// Runtime registry of all types registered via <c>[GenerateFormatter(VersionTolerant = true)]</c>.

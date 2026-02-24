@@ -3,26 +3,26 @@ using System.Collections.Generic;
 using System.Linq;
 using Ceras;
 using Ceras.Generated;
-using Ceras.Savegame;
+using Ceras.Format;
 using Xunit;
 
 namespace Ceras.Test
 {
     // ── Additional test models ────────────────────────────────────────────────
 
-    [GenerateFormatter("Potion", VersionTolerant = true)]
+    [CerasSerializable]
     [PreviousTypeName("Ceras.Test.OldPotion")]
     [MemberConfig(TargetMember.PublicFields)]
     public class Potion
     {
-        [SerializedAs("Heal")]
+        [CerasStableName("Heal")]
         public int HealAmount;
 
         [PreviousName("OldLabel")]
         public string Label;
     }
 
-    [GenerateFormatter("Point2", VersionTolerant = true)]
+    [CerasSerializable]
     public struct Point2
     {
         public float X;
@@ -37,7 +37,7 @@ namespace Ceras.Test
         {
             var config = new SerializerConfig();
             GeneratedFormatters.UseFormatters(config);
-            return config.Savegame.SchemaRegistry;
+            return config.Robust.SchemaRegistry;
         }
 
         // ── Round-trip helpers ────────────────────────────────────────────────
@@ -54,8 +54,7 @@ namespace Ceras.Test
 
         // ── Basic presence ────────────────────────────────────────────────────
 
-        [Fact]
-        public void Write_ThenRead_ContainsAllRegisteredTypes()
+        [Fact] public void Write_ThenRead_ContainsAllRegisteredTypes()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
@@ -66,19 +65,10 @@ namespace Ceras.Test
                     $"Missing stable name '{info.StableName}' after round-trip.");
         }
 
-        [Fact]
-        public void NonVersionTolerantType_NotInSectionMap()
-        {
-            var registry = CreateRegistry();
-            var map = RoundTrip(registry);
-            // NoSchemaType (from SchemaRegistryTests.cs) has no stable name in the registry
-            Assert.False(map.ContainsKey(nameof(NoSchemaType)));
-        }
 
         // ── Type-ID round-trip ────────────────────────────────────────────────
 
-        [Fact]
-        public void TypeId_RoundTrips()
+        [Fact] public void TypeId_RoundTrips()
         {
             var registry = CreateRegistry();
             registry.TryGetId(typeof(Weapon), out int expectedId);
@@ -88,8 +78,7 @@ namespace Ceras.Test
 
         // ── StableName / PreviousNames ────────────────────────────────────────
 
-        [Fact]
-        public void StableName_RoundTrips()
+        [Fact] public void StableName_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
@@ -97,8 +86,7 @@ namespace Ceras.Test
             Assert.Equal("Potion", map["Potion"].StableName);
         }
 
-        [Fact]
-        public void PreviousTypeName_RoundTrips()
+        [Fact] public void PreviousTypeName_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
@@ -110,16 +98,14 @@ namespace Ceras.Test
 
         // ── Kind ──────────────────────────────────────────────────────────────
 
-        [Fact]
-        public void ClassKind_RoundTrips()
+        [Fact] public void ClassKind_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
             Assert.Equal(SchemaTypeKind.Class, map["Weapon"].Kind);
         }
 
-        [Fact]
-        public void StructKind_RoundTrips()
+        [Fact] public void StructKind_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
@@ -128,8 +114,7 @@ namespace Ceras.Test
 
         // ── Fields ────────────────────────────────────────────────────────────
 
-        [Fact]
-        public void FieldCount_RoundTrips()
+        [Fact] public void FieldCount_RoundTrips()
         {
             var registry = CreateRegistry();
             registry.TryGetInfo(typeof(Weapon), out var info);
@@ -137,16 +122,14 @@ namespace Ceras.Test
             Assert.Equal(info.Fields.Length, map["Weapon"].Fields.Length);
         }
 
-        [Fact]
-        public void FieldStableName_RoundTrips()
+        [Fact] public void FieldStableName_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
             Assert.Contains(map["Weapon"].Fields, f => f.StableName == "Damage");
         }
 
-        [Fact]
-        public void FieldPreviousName_RoundTrips()
+        [Fact] public void FieldPreviousName_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
@@ -155,8 +138,7 @@ namespace Ceras.Test
             Assert.Contains("OldName", nameField.PreviousNames);
         }
 
-        [Fact]
-        public void FieldIsMonomorphic_RoundTrips()
+        [Fact] public void FieldIsMonomorphic_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
@@ -165,8 +147,7 @@ namespace Ceras.Test
             Assert.True(weight.IsMonomorphic);
         }
 
-        [Fact]
-        public void FieldTypeId_WellKnown_RoundTrips()
+        [Fact] public void FieldTypeId_WellKnown_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
@@ -174,8 +155,7 @@ namespace Ceras.Test
             Assert.Equal(WellKnownTypes.Int32, dmg.TypeId);
         }
 
-        [Fact]
-        public void FieldTypeId_String_RoundTrips()
+        [Fact] public void FieldTypeId_String_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
@@ -185,8 +165,7 @@ namespace Ceras.Test
 
         // ── Fixed byte size ───────────────────────────────────────────────────
 
-        [Fact]
-        public void FixedByteSize_Struct_RoundTrips()
+        [Fact] public void FixedByteSize_Struct_RoundTrips()
         {
             var registry = CreateRegistry();
             registry.TryGetInfo(typeof(Vec2Struct), out var info);
@@ -194,8 +173,7 @@ namespace Ceras.Test
             Assert.Equal(info.FixedByteSize, map["Vec2Struct"].FixedByteSize);
         }
 
-        [Fact]
-        public void FixedByteSize_Class_IsZero()
+        [Fact] public void FixedByteSize_Class_IsZero()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
@@ -224,8 +202,7 @@ namespace Ceras.Test
             Assert.Equal(wOff, rOff); // same number of bytes consumed
         }
 
-        [Fact]
-        public void Leb128_SingleByte_Values_WriteOneByte()
+        [Fact] public void Leb128_SingleByte_Values_WriteOneByte()
         {
             var buf  = new byte[8];
             int off  = 0;
@@ -233,8 +210,7 @@ namespace Ceras.Test
             Assert.Equal(1, off);
         }
 
-        [Fact]
-        public void Leb128_128_WritesTwoBytes()
+        [Fact] public void Leb128_128_WritesTwoBytes()
         {
             var buf = new byte[8];
             int off = 0;
@@ -244,8 +220,7 @@ namespace Ceras.Test
 
         // ── Buffer growth ─────────────────────────────────────────────────────
 
-        [Fact]
-        public void Write_WithTinyInitialBuffer_GrowsAndSucceeds()
+        [Fact] public void Write_WithTinyInitialBuffer_GrowsAndSucceeds()
         {
             var registry = CreateRegistry();
             var buffer = new byte[1]; // far too small
@@ -256,8 +231,7 @@ namespace Ceras.Test
 
         // ── Idempotency ───────────────────────────────────────────────────────
 
-        [Fact]
-        public void WriteReadWrite_ProducesIdenticalBytes()
+        [Fact] public void Write_WriteReadWrite_ProducesIdenticalBytes()
         {
             var registry = CreateRegistry();
             var buf1 = new byte[1024];

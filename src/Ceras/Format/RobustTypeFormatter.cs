@@ -2,20 +2,20 @@ using System;
 using System.Buffers;
 using Ceras.Formatters;
 
-namespace Ceras.Savegame
+namespace Ceras.Format
 {
     /// <summary>
-    /// In savegame format, we don't write CLR type names for polymorphic fields.
+    /// In robust format format, we don't write CLR type names for polymorphic fields.
     /// We write schema type-IDs (LEB128).
     /// </summary>
-    sealed class SavegameTypeFormatter : FormatterBase<Type>
+    sealed class RobustTypeFormatter : FormatterBase<Type>
     {
         readonly SchemaRegistry _registry;
         readonly ITypeBinder _typeBinder = new SimpleTypeBinder(); // Fallback binder
 
         const int FullNameMarker = 127; // Special marker for unregistered types
 
-        public SavegameTypeFormatter(SchemaRegistry registry)
+        public RobustTypeFormatter(SchemaRegistry registry)
         {
             _registry = registry;
         }
@@ -34,7 +34,7 @@ namespace Ceras.Savegame
                 return;
             }
 
-            var typeToId = SavegameContext.TypeToId;
+            var typeToId = RobustContext.TypeToId;
             if (typeToId != null && typeToId.TryGetValue(value, out int id))
             {
                 SchemaSection.WriteLeb128(writer, (uint)id);
@@ -72,7 +72,7 @@ namespace Ceras.Savegame
             if (WellKnownTypes.TryGetType((int)id, out value))
                 return;
 
-            var idToType = SavegameContext.IdToType;
+            var idToType = RobustContext.IdToType;
             if (idToType != null)
             {
                 if (idToType.TryGetValue((int)id, out value))

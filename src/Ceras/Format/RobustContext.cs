@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 
-namespace Ceras.Savegame
+namespace Ceras.Format
 {
-    static class SavegameContext
+    static class RobustContext
     {
         [ThreadStatic]
         static ContextData _current;

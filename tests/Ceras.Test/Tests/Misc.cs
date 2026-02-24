@@ -155,7 +155,7 @@ namespace Ceras.Test
 			var obj = new NonGeneratedType { Value = 42 };
 
 			// Should throw because NonGeneratedType is not primitive, has no custom formatter,
-			// and is not marked with [GenerateFormatter] (and even if it was, we didn't call GeneratedFormatters.UseFormatters)
+			// and is not marked with [CerasSerializable] (and even if it was, we didn't call GeneratedFormatters.UseFormatters)
 			Assert.Throws<InvalidOperationException>(() => ceras.Serialize(obj));
 		}
 

@@ -7,7 +7,7 @@ using Ceras.Test;
 
 namespace Ceras.TestDebugger
 {
-    public class SavegameRepro
+    public class RobustRepro
     {
         public static void Run()
         {

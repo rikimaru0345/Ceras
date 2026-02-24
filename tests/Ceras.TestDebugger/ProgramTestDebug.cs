@@ -15,7 +15,7 @@
     {
         static void Main(string[] args)
         {
-            SavegameRepro.Run();
+            RobustRepro.Run();
             return;
 #if NET45
             global::System.Console.WriteLine("Running on NET4.5");

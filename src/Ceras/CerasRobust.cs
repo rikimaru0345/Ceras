@@ -6,11 +6,11 @@ using System.Text;
 
 namespace Ceras
 {
-    using Ceras.Savegame;
+    using Ceras.Format;
     using Ceras.Helpers;
 
     /// <summary>
-    /// Robust serialization for persistent storage (savegames, databases).
+    /// Robust serialization for persistent storage (robust formats, databases).
     /// Always includes a schema header for version tolerance and migration.
     /// </summary>
     public static class CerasRobust
@@ -32,13 +32,13 @@ namespace Ceras
             config.Advanced.EmbedChecksum = false;
             
             // Core robust formatters
-            config.ConfigType<string>().CustomFormatter = new SavegameStringFormatter();
-            config.ConfigType<Type>().CustomFormatter = new SavegameTypeFormatter(config.Savegame.SchemaRegistry);
+            config.ConfigType<string>().CustomFormatter = new RobustStringFormatter();
+            config.ConfigType<Type>().CustomFormatter = new RobustTypeFormatter(config.Robust.SchemaRegistry);
         }
 
         public static byte[] Save<T>(T rootObject, uint gameVersion, CerasSerializer ceras)
         {
-            var registry = ceras.Config.Savegame.SchemaRegistry;
+            var registry = ceras.Config.Robust.SchemaRegistry;
             var buffer = new byte[4096];
             int offset = 0;
 
@@ -49,12 +49,12 @@ namespace Ceras
             int dataStart = offset;
             
             var internTable = new StringInternTable();
-            SavegameContext.BeginWrite(internTable, typeToId);
+            RobustContext.BeginWrite(internTable, typeToId);
             
             var writer = new ArrayBufferWriter<byte>();
             SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
             try { ceras.Serialize(writer, rootObject); }
-            finally { SavegameContext.End(); }
+            finally { RobustContext.End(); }
 
             var data = writer.WrittenSpan;
             SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
@@ -75,9 +75,9 @@ namespace Ceras
             if (data[0] != (byte)'C' || data[1] != (byte)'E' || data[2] != (byte)'R' || data[3] != (byte)'A')
                 throw new InvalidOperationException("Invalid magic");
 
-            var registry = ceras.Config.Savegame.SchemaRegistry;
-            uint saveGameVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetGameVersion));
-            if (saveGameVersion > currentGameVersion) throw new InvalidOperationException("Save from newer version");
+            var registry = ceras.Config.Robust.SchemaRegistry;
+            uint robustVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetGameVersion));
+            if (robustVersion > currentGameVersion) throw new InvalidOperationException("Save from newer version");
 
             ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(OffsetFingerprint));
             long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetDataSection));
@@ -95,7 +95,7 @@ namespace Ceras
             for (int i = 0; i < 128; i++) if (WellKnownTypes.TryGetType(i, out var wkType)) idToType[i] = wkType;
             foreach (var s in fileSchemas.Values) if (registry.TryResolveType(s.StableName, out var type)) idToType[s.TypeId] = type;
 
-            SavegameContext.BeginRead(table, idToType);
+            RobustContext.BeginRead(table, idToType);
             try
             {
                 var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, (int)stringTableOffset - (int)dataSectionOffset);
@@ -104,7 +104,7 @@ namespace Ceras
 
                 if (schemaFingerprint != currentFingerprint)
                 {
-                    var engine = new SchemaTraversalEngine(fileSchemas, table, saveGameVersion, ceras);
+                    var engine = new SchemaTraversalEngine(fileSchemas, table, robustVersion, ceras);
                     return engine.ReadRoot<T>(ref reader);
                 }
 
@@ -112,7 +112,7 @@ namespace Ceras
                 ceras.Deserialize(ref reader, ref value);
                 return value;
             }
-            finally { SavegameContext.End(); }
+            finally { RobustContext.End(); }
         }
 
         static void WriteHeaderPlaceholder(ref byte[] buffer, ref int offset, uint gameVersion)

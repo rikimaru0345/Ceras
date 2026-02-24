@@ -82,14 +82,27 @@ namespace Ceras.Formatters
             if (objId == InlineType) { Type type = null; _typeFormatter.Deserialize(ref reader, ref type); value = (T)(object)type; return; }
             if (objId >= 0) { value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId); return; }
             if (objId == ExternalObject) { int externalId = SerializerBinary.ReadInt32Fixed(ref reader); _ceras.Config.ExternalObjectResolver.Resolve(externalId, out value); return; }
-            Type specificType = (objId == NewValue) ? null : typeof(T);
+            var specificType = (objId == NewValue) ? null : typeof(T);
             if (objId == NewValue) _typeFormatter.Deserialize(ref reader, ref specificType);
             var entry = GetOrCreateEntry(specificType);
             
-            if (!entry.IsValueType) { if (value != null) { if (value.GetType() != specificType) { _ceras.DiscardObjectMethod?.Invoke(value); value = (T)entry.Constructor(); } } else value = (T)entry.Constructor(); }
+            if (!entry.IsValueType) 
+            { 
+                if (value != null) 
+                { 
+                    if (value.GetType() != specificType) 
+                    { 
+                        _ceras.DiscardObjectMethod?.Invoke(value); 
+                        value = (T)entry.Constructor(); 
+                    } 
+                } 
+                else 
+                {
+                    value = (T)entry.Constructor(); 
+                }
+            }
             
             var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
-            if (value == null && !entry.IsValueType) value = (T)entry.Constructor();
             objectProxy.Value = value;
             try { entry.DeserializeDispatcher(ref reader, ref objectProxy.Value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType.FullName}'", e); }
             value = objectProxy.Value;

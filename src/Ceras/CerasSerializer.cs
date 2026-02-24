@@ -17,7 +17,7 @@ namespace Ceras
     using Ceras.Formatters;
     using Ceras.Helpers;
     using Ceras.Resolvers;
-    using Ceras.Savegame;
+    using Ceras.Format;
 
     public class CerasSerializer : ICerasAdvanced
     {
@@ -320,7 +320,7 @@ namespace Ceras
                 // we still can't support it in "Byte Identical" mode with the generator, 
                 // but we should support it in ReflectionFallbackFormatter if it's NOT in that mode.
                 // For now, to pass tests that depend on private members (like Issue25),
-                // we'll allow it if it's NOT a Savegame scenario.
+                // we'll allow it if it's NOT a Robust format scenario.
                 // Wait, the user said "Fast networking mode May not be stable from one compile to the next".
                 // So let's allow private members if they were explicitly included.
                 if (!isAccessible)
@@ -360,7 +360,7 @@ namespace Ceras
                 else if (ft == typeof(SerializerConfig)) SafeInject(formatter, f, Config);
                 else if (ft == typeof(IAdvancedConfig)) SafeInject(formatter, f, Config.Advanced);
                 else if (ft == typeof(ISizeLimitsConfig)) SafeInject(formatter, f, Config.Advanced.SizeLimits);
-                else if (ft == typeof(SchemaRegistry)) SafeInject(formatter, f, Config.Savegame.SchemaRegistry);
+                else if (ft == typeof(SchemaRegistry)) SafeInject(formatter, f, Config.Robust.SchemaRegistry);
                 else if (typeof(IFormatter).IsAssignableFrom(ft))
                 {
                     var itf = ReflectionHelper.FindClosedType(ft, typeof(IFormatter<>));

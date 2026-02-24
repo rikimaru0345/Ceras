@@ -150,7 +150,7 @@ namespace Ceras.Test.Tests
 
     // --- Helper Types for In-Place ---
 
-    [GenerateFormatter]
+    [CerasSerializable]
     public class AllReadonlyCollections
     {
         public readonly List<float> ListField = new List<float>();
@@ -200,7 +200,7 @@ namespace Ceras.Test.Tests
         }
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     public class CustomCollectionContainer
     {
         public readonly CustomList Items = new CustomList();
@@ -225,7 +225,7 @@ namespace Ceras.Test.Tests
         public int GetBasePrivate() => _basePrivate;
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     public partial class DeepDerived : MidBase
     {
         public int PublicField;
@@ -242,7 +242,7 @@ namespace Ceras.Test.Tests
         public int GetBasePrivate() => _basePrivate;
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     public partial class DerivedFromOverride : BaseWithOverride
     {
         public int DerivedField;
@@ -257,14 +257,14 @@ namespace Ceras.Test.Tests
         public int GetAbstractPrivate() => _absPrivate;
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     [MemberConfig(TargetMember.All)]
     public partial class ConcreteFromAbstract : AbstractBase
     {
         public int Value;
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     public partial class PrivatePropObj
     {
         [Include]

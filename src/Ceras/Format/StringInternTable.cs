@@ -3,7 +3,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Ceras.Savegame
+namespace Ceras.Format
 {
     sealed class StringInternTable
     {

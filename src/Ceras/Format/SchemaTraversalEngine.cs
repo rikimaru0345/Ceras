@@ -7,7 +7,7 @@ using System.Runtime.CompilerServices;
 using Ceras;
 using Ceras.Helpers;
 
-namespace Ceras.Savegame
+namespace Ceras.Format
 {
     sealed class SchemaTraversalEngine
     {
@@ -22,7 +22,7 @@ namespace Ceras.Savegame
         readonly Dictionary<int, OldTypeSchema>        _oldById;
         readonly Dictionary<string, TypeMigrationPlan> _plans;
         readonly string[]                              _stringTable;
-        readonly uint                                  _saveGameVersion;
+        readonly uint                                  _robustVersion;
         readonly CerasSerializer                       _serializer;
         readonly SchemaRegistry                        _registry;
         readonly List<object>                          _objectCache = new();
@@ -30,14 +30,14 @@ namespace Ceras.Savegame
         public SchemaTraversalEngine(
             Dictionary<string, OldTypeSchema> oldSchemas,
             string[]                          stringTable,
-            uint                              saveGameVersion,
+            uint                              robustVersion,
             CerasSerializer                   serializer)
         {
             _oldByName       = oldSchemas;
             _stringTable     = stringTable;
-            _saveGameVersion = saveGameVersion;
+            _robustVersion = robustVersion;
             _serializer      = serializer;
-            _registry        = serializer.Config.Savegame.SchemaRegistry;
+            _registry        = serializer.Config.Robust.SchemaRegistry;
 
             _oldById = new Dictionary<int, OldTypeSchema>();
             foreach (var s in oldSchemas.Values)
@@ -127,7 +127,7 @@ namespace Ceras.Savegame
                 {
                     uint id = SchemaSection.ReadLeb128(ref reader);
                     if (id == WellKnownTypes.Null) return null;
-                    var idToType = SavegameContext.IdToType;
+                    var idToType = RobustContext.IdToType;
                     if (idToType != null && idToType.TryGetValue((int)id, out var t)) return t;
                     return null;
                 }
@@ -479,7 +479,7 @@ namespace Ceras.Savegame
         void FireCallback(object obj, TypeMigrationPlan plan, string[] addedFields, HashSet<string> skippedFields)
         {
             if (plan.OnAfterDeserialize == null) return;
-            var ctx = new MigrationContext(true, _saveGameVersion, skippedFields, new HashSet<string>(addedFields ?? Array.Empty<string>(), StringComparer.Ordinal));
+            var ctx = new MigrationContext(true, _robustVersion, skippedFields, new HashSet<string>(addedFields ?? Array.Empty<string>(), StringComparer.Ordinal));
             plan.OnAfterDeserialize.Invoke(obj, new object[] { ctx });
         }
     }

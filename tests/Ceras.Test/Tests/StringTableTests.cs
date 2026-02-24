@@ -1,5 +1,5 @@
 using System;
-using Ceras.Savegame;
+using Ceras.Format;
 using Xunit;
 
 namespace Ceras.Test

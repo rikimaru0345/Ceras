@@ -45,7 +45,7 @@ namespace Ceras.Test
         });
         protected Func<SerializerConfig> Config_WithVersioning => () => CreateConfig(x =>
         {
-            Ceras.Savegame.CerasSave.ConfigureSavegame(x);
+            Ceras.CerasRobust.Configure(x);
             x.UseImmutableFormatters();
         });
 
@@ -57,7 +57,7 @@ namespace Ceras.Test
             {
                 () => new SerializerConfig(),
                 () => CreateConfig(x => { x.Advanced.UseReinterpretFormatter = false; x.UseImmutableFormatters(); }),
-                () => CreateConfig(x => { Ceras.Savegame.CerasSave.ConfigureSavegame(x); x.UseImmutableFormatters(); }),
+                () => CreateConfig(x => { Ceras.CerasRobust.Configure(x); x.UseImmutableFormatters(); }),
             };
         }
 
@@ -110,15 +110,15 @@ namespace Ceras.Test
 
             var ceras = new CerasSerializer(config);
 
-            // Savegame formatters (SavegameTypeFormatter and SavegameStringFormatter) require 
-            // a SavegameContext which is only set up by CerasSave.Save and Load.
-            // If we are using the savegame config, we must use those methods.
-            bool isSavegame = config != null && config.GetExistingTypeConfig(typeof(Type), false)?.CustomFormatter is Ceras.Savegame.SavegameTypeFormatter;
+            // Robustters (RobustTypeFormatter and RobustStringFormatter) require 
+            // a RobustContext which is only set up by CerasRobust.Save and Load.
+            // If we are using the robust config, we must use those methods.
+            bool isRobust = config != null && config.GetExistingTypeConfig(typeof(Type), false)?.CustomFormatter is Ceras.Format.RobustTypeFormatter;
 
-            if (isSavegame)
+            if (isRobust)
             {
-                var savegameData = Ceras.Savegame.CerasSave.Save(source, 1, ceras);
-                var cloneResult = Ceras.Savegame.CerasSave.Load<T>(savegameData, 1, ceras);
+                var robustData = Ceras.CerasRobust.Save(source, 1, ceras);
+                var cloneResult = Ceras.CerasRobust.Load<T>(robustData, 1, ceras);
                 _callsToClone++;
                 return cloneResult;
             }

@@ -2,9 +2,9 @@ using System;
 using System.Buffers;
 using Ceras.Formatters;
 
-namespace Ceras.Savegame
+namespace Ceras.Format
 {
-    sealed class SavegameStringFormatter : FormatterBase<string>
+    sealed class RobustStringFormatter : FormatterBase<string>
     {
         public override void Serialize(IBufferWriter<byte> writer, string value)
         {
@@ -14,8 +14,8 @@ namespace Ceras.Savegame
                 return;
             }
 
-            var table = SavegameContext.InternTable;
-            if (table == null) throw new InvalidOperationException("SavegameContext not active");
+            var table = RobustContext.InternTable;
+            if (table == null) throw new InvalidOperationException("RobustContext not active");
 
             int index = table.GetIndex(value);
             SerializerBinary.WriteInt32Fixed(writer, index);
@@ -30,8 +30,8 @@ namespace Ceras.Savegame
                 return;
             }
 
-            var table = SavegameContext.StringTable;
-            if (table == null) throw new InvalidOperationException("SavegameContext not active");
+            var table = RobustContext.StringTable;
+            if (table == null) throw new InvalidOperationException("RobustContext not active");
 
             if (index < 0 || index >= table.Length) throw new InvalidOperationException("Invalid string table index");
             value = table[index];

@@ -6,7 +6,7 @@ namespace Ceras.Test
 {
     /// <summary>
     /// Tests that verify the source-generator produces formatters that actually work.
-    /// The types below are marked with [GenerateFormatter] so the Ceras.SourceGenerator
+    /// The types below are marked with [CerasSerializable] so the Ceras.SourceGenerator
     /// will emit formatter code into CerasGeneratedFormatters.g.cs at compile time.
     /// </summary>
     public class SourceGeneratorFormatters : TestBase
@@ -113,18 +113,18 @@ namespace Ceras.Test
     }
 
     // -------------------------------------------------------------------------
-    // Test types — marked with [GenerateFormatter] so the source generator
+    // Test types — marked with [CerasSerializable] so the source generator
     // emits formatters for them at compile time.
     // -------------------------------------------------------------------------
 
-    [GenerateFormatter]
+    [CerasSerializable]
     public class SimpleFieldModel
     {
         public string Name;
         public int    Age;
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     [MemberConfig(TargetMember.PublicProperties)]
     public class PropertyModel
     {
@@ -132,7 +132,7 @@ namespace Ceras.Test
         public float Y { get; set; }
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     public class ReadonlyCtorModel
     {
         public readonly int Value;
@@ -144,7 +144,7 @@ namespace Ceras.Test
         }
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     public class InitCtorModel
     {
         public int Value { get; init; }

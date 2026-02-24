@@ -4,7 +4,7 @@
     using Resolvers;
     using System;
     using System.Collections.Generic;
-    using Ceras.Savegame;
+    using Ceras.Format;
     using Exceptions;
     using Helpers;
 
@@ -23,7 +23,7 @@
     /// You shouldn't share a single instance of a SerializerConfig either
     /// </para>
     /// </summary>
-    public class SerializerConfig : IAdvancedConfig, ISizeLimitsConfig, IWarningConfig, ISavegameConfig
+    public class SerializerConfig : IAdvancedConfig, ISizeLimitsConfig, IWarningConfig, IRobustConfig
     {
         bool _isSealed; // todo
         internal bool IsSealed => _isSealed;
@@ -43,12 +43,12 @@
         #region Basic Settings
 
         /// <summary>
-        /// Savegame format specific configuration.
+        /// Robust format specific configuration.
         /// </summary>
-        public ISavegameConfig Savegame => this;
+        public IRobustConfig Robust => this;
 
-        SavegameConfig _savegameConfig = new SavegameConfig();
-        SchemaRegistry ISavegameConfig.SchemaRegistry => _savegameConfig.SchemaRegistry;
+        RobustConfig _robustConfig = new RobustConfig();
+        SchemaRegistry IRobustConfig.SchemaRegistry => _robustConfig.SchemaRegistry;
 
         /// <summary>
         /// If you want to, you can add all the types you want to serialize to this collection.
@@ -448,7 +448,7 @@
         SaveAsJpg = 3,
     }
 
-    public interface ISavegameConfig
+    public interface IRobustConfig
     {
         /// <summary>
         /// The registry containing all version-tolerant type schemas.
@@ -456,7 +456,7 @@
         SchemaRegistry SchemaRegistry { get; }
     }
 
-    internal class SavegameConfig
+    internal class RobustConfig
     {
         public readonly SchemaRegistry SchemaRegistry = new SchemaRegistry();
     }

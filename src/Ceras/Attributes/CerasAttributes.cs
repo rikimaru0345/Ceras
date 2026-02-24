@@ -108,7 +108,7 @@ namespace Ceras
 
     /// <summary>
     /// Add this to a member if you have changed the name.
-    /// Ceras will use this to map old field names to the new one in the Savegame migration engine.
+    /// Ceras will use this to map old field names to the new one in the Robust format migration engine.
     /// You can also use this to simply override what name is used to serialize the member, so as long as the attribute is around and does not change you can freely rename the member itself; this can be used to make the resulting serialized data smaller.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
@@ -273,7 +273,7 @@ namespace Ceras
     }
 
     /// <summary>
-    /// Declares a previous CLR type name for this class/struct so that the savegame migration
+    /// Declares a previous CLR type name for this class/struct so that the robust format migration
     /// engine can map old binary data (written under the old name) to the current type.
     /// Can be applied multiple times if the type has been renamed more than once.
     /// </summary>

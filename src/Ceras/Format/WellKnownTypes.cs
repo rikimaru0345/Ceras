@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Ceras.Savegame
+namespace Ceras.Format
 {
     /// <summary>
     /// Type IDs 0–127 are permanently reserved for well-known .NET types.

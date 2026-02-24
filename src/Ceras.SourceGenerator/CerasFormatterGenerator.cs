@@ -17,8 +17,8 @@ namespace Ceras.SourceGenerator;
 /// old AotGeneratorApp produced, but runs automatically at compile time.
 ///
 /// When [GenerateFormatter(VersionTolerant = true)] is used, a SchemaTypeInfo static
-/// field is also emitted and registered with SavegameSchemaRegistry for use by the
-/// Ceras savegame format's migration engine.
+/// field is also emitted and registered with SchemaRegistry for use by the
+/// Ceras robust format format's migration engine.
 /// </summary>
 [Generator]
 public sealed class CerasFormatterGenerator : IIncrementalGenerator
@@ -220,7 +220,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         sb.AppendLine("using Ceras;");
         sb.AppendLine("using Ceras.Formatters;");
         sb.AppendLine("using Ceras.Helpers;");
-        sb.AppendLine("using Ceras.Savegame;");
+        sb.AppendLine("using Ceras.Format;");
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine("using System.Buffers;");
@@ -251,7 +251,7 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
             if (vt)
             {
-                sb.AppendLine($"            config.Savegame.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
+                sb.AppendLine($"            config.Robust.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
             }
         }
 
@@ -1112,7 +1112,15 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
             if (!named.IsAbstract && named.TypeKind != TypeKind.Interface)
             {
                 string generatedName = MakeFormatterClassName(named);
-                return $"global::Ceras.Generated.{generatedName}";
+                string innerFormatter = $"global::Ceras.Generated.{generatedName}";
+
+                if (type.IsValueType)
+                    return innerFormatter;
+
+                if (type.IsSealed)
+                    return $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>";
+
+                return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
             }
         }
 
@@ -1188,32 +1196,32 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
         string underlyingType = null;
         if (type.TypeKind == TypeKind.Enum)
         {
-            kind = "global::Ceras.Savegame.SchemaTypeKind.Enum";
+            kind = "global::Ceras.Format.SchemaTypeKind.Enum";
             underlyingType = type.EnumUnderlyingType?.ToDisplayString(SortKeyFormat);
         }
         else
         {
             kind = type.IsValueType
-                ? "global::Ceras.Savegame.SchemaTypeKind.Struct"
-                : "global::Ceras.Savegame.SchemaTypeKind.Class";
+                ? "global::Ceras.Format.SchemaTypeKind.Struct"
+                : "global::Ceras.Format.SchemaTypeKind.Class";
         }
 
         // Fixed byte size
         int fixedSize = ComputeFixedByteSize(type);
 
-        sb.AppendLine($"        internal static readonly global::Ceras.Savegame.SchemaTypeInfo Schema =");
-        sb.AppendLine($"            new global::Ceras.Savegame.SchemaTypeInfo(");
+        sb.AppendLine($"        internal static readonly global::Ceras.Format.SchemaTypeInfo Schema =");
+        sb.AppendLine($"            new global::Ceras.Format.SchemaTypeInfo(");
         sb.AppendLine($"                stableName: {QuoteString(stableTypeName)},");
         sb.Append($"                previousTypeNames: ");
         WriteStringArray(sb, prevTypeNames);
         sb.AppendLine($",");
         sb.AppendLine($"                kind: {kind},");
-        sb.AppendLine($"                fields: new global::Ceras.Savegame.SchemaFieldInfo[]");
+        sb.AppendLine($"                fields: new global::Ceras.Format.SchemaFieldInfo[]");
         sb.AppendLine($"                {{");
         foreach (var m in members)
         {
             string typeName = m.Type.ToDisplayString(SortKeyFormat); // CLR name, no global::
-            sb.Append($"                    new global::Ceras.Savegame.SchemaFieldInfo(");
+            sb.Append($"                    new global::Ceras.Format.SchemaFieldInfo(");
             sb.Append($"{QuoteString(m.StableName)}, ");
             WriteStringArrayInline(sb, m.PreviousNames);
             sb.Append($", {QuoteString(typeName)}, {(m.IsMonomorphic ? "true" : "false")}");
@@ -1224,13 +1232,13 @@ public sealed class CerasFormatterGenerator : IIncrementalGenerator
 
         if (type.TypeKind == TypeKind.Enum)
         {
-            sb.AppendLine($"                enumValues: new global::Ceras.Savegame.SchemaEnumValueInfo[]");
+            sb.AppendLine($"                enumValues: new global::Ceras.Format.SchemaEnumValueInfo[]");
             sb.AppendLine($"                {{");
             foreach (var member in type.GetMembers())
             {
                 if (member is IFieldSymbol field && field.HasConstantValue)
                 {
-                    sb.AppendLine($"                    new global::Ceras.Savegame.SchemaEnumValueInfo({QuoteString(field.Name)}, {field.ConstantValue}),");
+                    sb.AppendLine($"                    new global::Ceras.Format.SchemaEnumValueInfo({QuoteString(field.Name)}, {field.ConstantValue}),");
                 }
             }
             sb.AppendLine($"                }},");

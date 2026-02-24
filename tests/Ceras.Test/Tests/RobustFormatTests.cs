@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Ceras;
 using Ceras.Generated;
-using Ceras.Savegame;
+using Ceras.Format;
 using Xunit;
 
 namespace Ceras.Test
@@ -19,21 +19,21 @@ namespace Ceras.Test
         public List<int> Scores;
     }
 
-    public class SavegameFormatTests : TestBase
+    public class RobustFormatTests : TestBase
     {
         CerasSerializer CreateSerializer()
         {
             var config = new SerializerConfig();
             GeneratedFormatters.UseFormatters(config);
-            CerasSave.ConfigureSavegame(config);
+            CerasRobust.Configure(config);
             return new CerasSerializer(config);
         }
 
         [Fact]
-        public void Savegame_Enum_RoundTrip()
+        public void Robust_Enum_RoundTrip()
         {
             var ceras = CreateSerializer();
-            var registry = ceras.Config.Savegame.SchemaRegistry;
+            var registry = ceras.Config.Robust.SchemaRegistry;
 
             var hero = new HeroWithEnum { State = StateEnum.On };
             
@@ -45,17 +45,17 @@ namespace Ceras.Test
                 "HeroWithEnum", Array.Empty<string>(), SchemaTypeKind.Class, 
                 new[] { new SchemaFieldInfo("State", Array.Empty<string>(), "Ceras.Test.StateEnum", true) }, 0));
 
-            byte[] data = CerasSave.Save(hero, 1, ceras);
-            var clone = CerasSave.Load<HeroWithEnum>(data, 1, ceras);
+            byte[] data = CerasRobust.Save(hero, 1, ceras);
+            var clone = CerasRobust.Load<HeroWithEnum>(data, 1, ceras);
 
             Assert.Equal(StateEnum.On, clone.State);
         }
 
         [Fact]
-        public void Savegame_List_RoundTrip()
+        public void Robust_List_RoundTrip()
         {
             var ceras = CreateSerializer();
-            var registry = ceras.Config.Savegame.SchemaRegistry;
+            var registry = ceras.Config.Robust.SchemaRegistry;
 
             var hero = new HeroWithList { Scores = new List<int> { 1, 2, 3 } };
 
@@ -64,8 +64,8 @@ namespace Ceras.Test
                 "HeroWithList", Array.Empty<string>(), SchemaTypeKind.Class,
                 new[] { new SchemaFieldInfo("Scores", Array.Empty<string>(), "System.Collections.Generic.List`1[[System.Int32]]", true) }, 0));
 
-            byte[] data = CerasSave.Save(hero, 1, ceras);
-            var clone = CerasSave.Load<HeroWithList>(data, 1, ceras);
+            byte[] data = CerasRobust.Save(hero, 1, ceras);
+            var clone = CerasRobust.Load<HeroWithList>(data, 1, ceras);
 
             Assert.NotNull(clone.Scores);
             Assert.Equal(3, clone.Scores.Count);
@@ -73,10 +73,10 @@ namespace Ceras.Test
         }
 
         [Fact]
-        public void Savegame_Polymorphic_RoundTrip()
+        public void Robust_Polymorphic_RoundTrip()
         {
             var ceras = CreateSerializer();
-            var registry = ceras.Config.Savegame.SchemaRegistry;
+            var registry = ceras.Config.Robust.SchemaRegistry;
 
             var hero = new HeroWithPolymorphic { Extra = new ExtraInfo { Note = "Special" } };
 
@@ -88,21 +88,21 @@ namespace Ceras.Test
                 "HeroWithPolymorphic", Array.Empty<string>(), SchemaTypeKind.Class,
                 new[] { new SchemaFieldInfo("Extra", Array.Empty<string>(), "System.Object", false) }, 0));
 
-            byte[] data = CerasSave.Save(hero, 1, ceras);
-            var clone = CerasSave.Load<HeroWithPolymorphic>(data, 1, ceras);
+            byte[] data = CerasRobust.Save(hero, 1, ceras);
+            var clone = CerasRobust.Load<HeroWithPolymorphic>(data, 1, ceras);
 
             Assert.IsType<ExtraInfo>(clone.Extra);
             Assert.Equal("Special", ((ExtraInfo)clone.Extra).Note);
         }
     }
 
-    [GenerateFormatter(VersionTolerant = true)]
+    [CerasSerializable]
     public class HeroWithPolymorphic
     {
         public object Extra;
     }
 
-    [GenerateFormatter(VersionTolerant = true)]
+    [CerasSerializable]
     public class ExtraInfo
     {
         public string Note;

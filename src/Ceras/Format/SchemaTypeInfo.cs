@@ -1,6 +1,6 @@
 using System;
 
-namespace Ceras.Savegame
+namespace Ceras.Format
 {
     public enum SchemaTypeKind : byte
     {

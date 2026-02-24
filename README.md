@@ -35,12 +35,12 @@ var bytes = ceras.Serialize(p);
 - **Full** support for reference persistence (including circular references!)
 - **Full** support for polymorphism / inheritance / interfaces
 - Can serialize objects into parts as "ExtenalObjects" (useful in many many scenarios)
-- **New: Specialized Savegame Format** with version-tolerance, string interning, and schema-based migration.
+- **New: Specialized Robust format Format** with version-tolerance, string interning, and schema-based migration.
 - ***[full feature list (and planned features)](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)***
 
-## Savegame Format (Version Tolerant)
+## Robust format Format (Version Tolerant)
 
-Ceras now includes a specialized **savegame format** designed for persistent storage that must survive game updates. It adds a self-describing schema section to each file, allowing you to add, remove, or rename fields without breaking compatibility.
+Ceras now includes a specialized **robust format format** designed for persistent storage that must survive game updates. It adds a self-describing schema section to each file, allowing you to add, remove, or rename fields without breaking compatibility.
 
 ### Why use it?
 - **Robust Versioning**: Safely add/remove fields or rename classes between game versions.
@@ -73,21 +73,21 @@ public class Player
 ```csharp
 var config = new SerializerConfig();
 GeneratedFormatters.UseFormatters(config);
-CerasSave.ConfigureSavegame(config);
+CerasRobust.ConfigureRobust format(config);
 
 var ceras = new CerasSerializer(config);
 ```
 
-**3. Use the `CerasSave` API:**
+**3. Use the `CerasRobust` API:**
 
 ```csharp
 uint currentGameVersion = 1;
 
 // Save
-byte[] data = CerasSave.Save(myPlayer, currentGameVersion, ceras);
+byte[] data = CerasRobust.Save(myPlayer, currentGameVersion, ceras);
 
 // Load (automatically migrates if the save was from an older version)
-var player = CerasSave.Load<Player>(data, currentGameVersion, ceras);
+var player = CerasRobust.Load<Player>(data, currentGameVersion, ceras);
 ```
 
 ### Advanced Migration
@@ -136,7 +136,7 @@ I've added many features over time and whenever someone can think of a good scen
 
 Examples:
 - **Settings:**
-Saving objects to disk quickly without much trouble: settings, savegames, whatever it  is. With pretty much zero config.
+Saving objects to disk quickly without much trouble: settings, robust formats, whatever it  is. With pretty much zero config.
 See steps 1 and 2 in the [Usage Guide](https://github.com/rikimaru0345/Ceras/blob/master/src/Tutorial/Tutorial.cs#L22)
 
 - **Splitting:**

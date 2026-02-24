@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Ceras.Savegame
+namespace Ceras.Format
 {
     /// <summary>
     /// Passed to <c>[OnAfterDeserialize]</c> methods when an object was loaded from a save

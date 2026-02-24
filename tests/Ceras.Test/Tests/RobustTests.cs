@@ -5,11 +5,11 @@
 using System.Buffers;
 
 // ---------------------------------------------------------------------------
-// Savegame scenario tests for the Ceras source generator.
+// Robust scenario tests for the Ceras source generator.
 //
 // These tests answer two key questions:
 //   1. Does the source generator handle realistic, complex object graphs?
-//   2. How do generated formatters interact with the 'CerasSave' system?
+//   2. How do generated formatters interact with the 'CerasRobust' system?
 //
 // The short answer to (2):
 //   Generated formatters do NOT embed field names in the binary — they write
@@ -17,7 +17,7 @@ using System.Buffers;
 //   compact.
 //
 //   Robust versioning (adding/removing/renaming fields) is handled by the
-//   'CerasSave' system, which uses the migration engine and SchemaTypeInfo
+//   'CerasRobust' system, which uses the migration engine and SchemaTypeInfo
 //   emitted by the source generator when 'VersionTolerant = true' is used.
 // ---------------------------------------------------------------------------
 
@@ -28,25 +28,25 @@ using Xunit;
 using Ceras;
 using Ceras.Formatters;
 using Ceras.Helpers;
-using Ceras.Savegame;
+using Ceras.Format;
 using Ceras.Generated;
 
 namespace Ceras.Test
 {
     // -----------------------------------------------------------------------
-    // Savegame model — all types annotated with [GenerateFormatter]
+    // Robust model — all types annotated with [CerasSerializable]
     // -----------------------------------------------------------------------
 
-    [GenerateFormatter]
+    [CerasSerializable]
     [MemberConfig(TargetMember.PublicFields)]
-    public class SaveGame
+    public class RobustData
     {
         public Player    Player;
         public string    Version;   // game version string, e.g. "1.0"
         public int       PlaytimeSeconds;
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     [MemberConfig(TargetMember.PublicFields)]
     public class Player
     {
@@ -58,7 +58,7 @@ namespace Ceras.Test
         public List<Quest>    ActiveQuests;
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     [MemberConfig(TargetMember.PublicFields)]
     public class PlayerStats
     {
@@ -67,7 +67,7 @@ namespace Ceras.Test
         public int Intelligence;
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     [MemberConfig(TargetMember.PublicFields)]
     public class Inventory
     {
@@ -75,7 +75,7 @@ namespace Ceras.Test
         public int        MaxCapacity;
     }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     [MemberConfig(TargetMember.PublicFields)]
     public class Item
     {
@@ -87,7 +87,7 @@ namespace Ceras.Test
 
     public enum ItemRarity { Common = 0, Uncommon = 1, Rare = 2, Epic = 3, Legendary = 4 }
 
-    [GenerateFormatter]
+    [CerasSerializable]
     [MemberConfig(TargetMember.PublicFields)]
     public class Quest
     {
@@ -100,7 +100,7 @@ namespace Ceras.Test
     // Test class
     // -----------------------------------------------------------------------
 
-    public class SavegameTests : TestBase
+    public class RobustTests : TestBase
     {
         SerializerConfig GeneratedConfig()
         {
@@ -109,7 +109,7 @@ namespace Ceras.Test
             return c;
         }
 
-        SaveGame MakeSaveGame() => new SaveGame
+        RobustData MakeRobustData() => new RobustData
         {
             Version        = "1.0",
             PlaytimeSeconds = 3661,
@@ -142,12 +142,12 @@ namespace Ceras.Test
         // -------------------------------------------------------------------
 
         [Fact]
-        public void Savegame_FullRoundTrip_GeneratedFormatter()
+        public void Robust_FullRoundTrip_GeneratedFormatter()
         {
             var ceras    = new CerasSerializer(GeneratedConfig());
-            var original = MakeSaveGame();
+            var original = MakeRobustData();
 
-            var clone = ceras.Deserialize<SaveGame>(ceras.Serialize(original));
+            var clone = ceras.Deserialize<RobustData>(ceras.Serialize(original));
 
             Assert.Equal(original.Version,        clone.Version);
             Assert.Equal(original.PlaytimeSeconds, clone.PlaytimeSeconds);
@@ -180,7 +180,7 @@ namespace Ceras.Test
         // -------------------------------------------------------------------
 
         [Fact]
-        public void Savegame_NullAndEmptyCollections()
+        public void Robust_NullAndEmptyCollections()
         {
             var ceras = new CerasSerializer(GeneratedConfig());
 
@@ -205,7 +205,7 @@ namespace Ceras.Test
         // -------------------------------------------------------------------
 
         [Fact]
-        public void Savegame_EnumRoundTrip()
+        public void Robust_EnumRoundTrip()
         {
             var ceras = new CerasSerializer(GeneratedConfig());
 
@@ -223,7 +223,7 @@ namespace Ceras.Test
         // -------------------------------------------------------------------
 
         [Fact]
-        public void Savegame_GeneratedAndDynamic_ByteIdentical()
+        public void Robust_GeneratedAndDynamic_ByteIdentical()
         {
             var generatedCeras = new CerasSerializer(GeneratedConfig());
             var dynamicCeras   = new CerasSerializer(new SerializerConfig());
