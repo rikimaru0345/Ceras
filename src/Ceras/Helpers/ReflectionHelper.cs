@@ -411,7 +411,14 @@
                 return null;
 
             if (matches.Count > 1)
+            {
+                // If we have multiple matches, we might be able to resolve it by preferring non-generic methods
+                var nonGenericMatches = matches.Where(m => !m.IsGenericMethod).ToArray();
+                if (nonGenericMatches.Length == 1)
+                    return nonGenericMatches[0];
+
                 throw new AmbiguousMatchException("The given parameters can match more than one method overload.");
+            }
 
             return matches[0];
         }
