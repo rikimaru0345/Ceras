@@ -64,8 +64,12 @@ namespace Ceras.Formatters
         {
             BanBase(typeof(System.Collections.IEnumerator), "Enumerators are potentially infinite, and also most likely have no way to be instantiated at deserialization-time. If you think this is a mistake, report it as a github issue or provide a custom IFormatter for this case.");
 
+            // Delegates/Actions/Funcs/Events
+            BanBase(typeof(Delegate), "Serialization of delegates, actions, functions, or events is not supported by default. These types contain internal state and references to methods that cannot be reliably restored.");
 
-
+            // Reflection types
+            BanCustom(t => typeof(System.Reflection.MemberInfo).IsAssignableFrom(t) && t != typeof(Type) && (t.FullName == null || !t.FullName.StartsWith("System.RuntimeType")), "Serialization of reflection metadata (MethodInfo, PropertyInfo, etc) is not supported.");
+            BanBase(typeof(System.Reflection.Assembly), "Serialization of Assembly objects is not supported.");
 
             string reasonExploit = "This type can be exploited when deserializing malicious data";
 
@@ -114,12 +118,19 @@ namespace Ceras.Formatters
 
         internal static void ThrowIfBanned(Type type)
         {
+            if (IsBanned(type, out var ban))
+                throw new BannedTypeException($"The type '{type.FullName}' cannot be serialized, please mark the field/property that caused this Type to be included with the [Exclude] attribute or filter it out using the 'ShouldSerialize' callback. Specific reason for this type being banned: \"{ban.BanReason}\". You should open an issue on GitHub or join the Discord server for support.");
+        }
+
+        internal static bool IsBanned(Type type) => IsBanned(type, out _);
+
+        static bool IsBanned(Type type, out BannedType foundBan)
+        {
             for (var i = 0; i < _bannedTypes.Count; i++)
             {
                 var ban = _bannedTypes[i];
 
                 bool isBanned = false;
-
 
                 if (ban.Type != null)
                 {
@@ -147,7 +158,6 @@ namespace Ceras.Formatters
                                 break;
                             }
 
-
                             if (t.GetInterfaces().Any(x => x.FullName == ban.FullName))
                             {
                                 isBanned = true;
@@ -163,19 +173,21 @@ namespace Ceras.Formatters
                             isBanned = true;
                     }
                 }
-                else if(ban.CustomIsBannedCheck != null)
+                else if (ban.CustomIsBannedCheck != null)
                 {
                     if (ban.CustomIsBannedCheck(type))
                         isBanned = true;
                 }
-                else
-                {
-                    Debug.Assert(false, "unreachable");
-                }
 
                 if (isBanned)
-                    throw new BannedTypeException($"The type '{type.FullName}' cannot be serialized, please mark the field/property that caused this Type to be included with the [Exclude] attribute or filter it out using the 'ShouldSerialize' callback. Specific reason for this type being banned: \"{ban.BanReason}\". You should open an issue on GitHub or join the Discord server for support.");
+                {
+                    foundBan = ban;
+                    return true;
+                }
             }
+
+            foundBan = default;
+            return false;
         }
 
         internal static void ThrowIfNonspecific(Type type)

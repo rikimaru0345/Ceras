@@ -49,6 +49,7 @@ namespace Ceras
 
             WriteHeaderPlaceholder(ref buffer, ref offset, robustVersion);
             int rootTypeId = GetTypeId(typeof(T), registry);
+            
             var typeToId = SchemaSection.Write(ref buffer, ref offset, registry);
 
             int dataStart = offset;
@@ -76,11 +77,14 @@ namespace Ceras
             if (data == null) throw new ArgumentNullException(nameof(data));
             if (data.Length < HeaderSize) throw new InvalidOperationException("Header too short");
             
+            var registry = ceras.Config.Robust.SchemaRegistry;
+            // Ensure the root type is registered so we can resolve its schema
+            registry.TryGetId(typeof(T), out _);
+
             // Check magic "CERA"
             if (data[0] != (byte)'C' || data[1] != (byte)'E' || data[2] != (byte)'R' || data[3] != (byte)'A')
                 throw new InvalidOperationException("Invalid magic");
 
-            var registry = ceras.Config.Robust.SchemaRegistry;
             uint robustVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetGameVersion));
             if (robustVersion > currentRobustVersion) throw new InvalidOperationException("Save from newer version");
 
@@ -98,7 +102,20 @@ namespace Ceras
 
             var idToType = new Dictionary<int, Type>();
             for (int i = 0; i < 128; i++) if (WellKnownTypes.TryGetType(i, out var wkType)) idToType[i] = wkType;
-            foreach (var s in fileSchemas.Values) if (registry.TryResolveType(s.StableName, out var type)) idToType[s.TypeId] = type;
+            foreach (var s in fileSchemas.Values)
+            {
+                try
+                {
+                    if (registry.TryResolveType(s.StableName, out var type))
+                    {
+                        if (type != null) idToType[s.TypeId] = type;
+                    }
+                }
+                catch (Exception e)
+                {
+                    throw new Exception($"Error resolving type with stable name '{s.StableName}': {e.Message}", e);
+                }
+            }
 
             RobustContext.BeginRead(table, idToType);
             try

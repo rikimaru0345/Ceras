@@ -50,45 +50,78 @@
             return type.FullName;
         }
 
-        public Type GetTypeFromBase(string baseTypeName)
-        {
-            foreach (var a in _searchAssemblies)
-            {
-                var t = a.GetType(baseTypeName);
-                if (t != null)
-                    return t;
-            }
-
-            foreach (var a in CustomSearchAssemblies)
-            {
-                if (_searchAssemblies.Contains(a))
-                    continue; // We've already searched there
-
-                var t = a.GetType(baseTypeName);
-                if (t != null)
+                public Type GetTypeFromBase(string baseTypeName)
                 {
-                    _searchAssemblies.Add(a);
-                    return t;
+                    try
+                    {
+                        var t = Type.GetType(baseTypeName);
+                        if (t != null) return t;
+                    }
+                    catch (Exception e)
+                    {
+                        throw new Exception($"Error during initial Type.GetType('{baseTypeName}'): {e.Message}", e);
+                    }
+        
+                    foreach (var a in _searchAssemblies)
+                    {
+                        try
+                        {
+                            var t = a.GetType(baseTypeName);
+                            if (t != null)
+                                return t;
+                        }
+                        catch (Exception e)
+                        {
+                            throw new Exception($"Error resolving type '{baseTypeName}' in assembly '{a.FullName}': {e.Message}", e);
+                        }
+                    }
+        
+                    foreach (var a in CustomSearchAssemblies)
+                    {
+                        if (_searchAssemblies.Contains(a))
+                            continue; // We've already searched there
+        
+                        try
+                        {
+                            var t = a.GetType(baseTypeName);
+                            if (t != null)
+                            {
+                                _searchAssemblies.Add(a);
+                                return t;
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            throw new Exception($"Error resolving type '{baseTypeName}' in custom search assembly '{a.FullName}': {e.Message}", e);
+                        }
+                    }
+        
+                    // Oh no... did the user forget to add the right assembly??
+                    // Lets search in everything that's loaded...
+                    foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        if (_searchAssemblies.Contains(a) || CustomSearchAssemblies.Contains(a))
+                            continue; // We've already searched there
+        
+                        try
+                        {
+                            var t = a.GetType(baseTypeName);
+                            if (t != null)
+                            {
+                                _searchAssemblies.Add(a);
+                                return t;
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            // Some assemblies might throw when GetType is called (e.g. dynamic assemblies or invalid names)
+                            // We log this but keep searching.
+                            // System.Diagnostics.Debug.WriteLine($"[Ceras] Warning: failed to search assembly '{a.FullName}' for type '{baseTypeName}': {e.Message}");
+                        }
+                    }
+        
+                    throw new Exception("Cannot find type " + baseTypeName + " after searching in all user provided assemblies and all loaded assemblies. Is the type in some plugin-module that was not yet loaded? Or did the assembly that contains the type change (ie the type got removed)?");
                 }
-            }
-
-            // Oh no... did the user forget to add the right assembly??
-            // Lets search in everything that's loaded...
-            foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                if (_searchAssemblies.Contains(a) || CustomSearchAssemblies.Contains(a))
-                    continue; // We've already searched there
-
-                var t = a.GetType(baseTypeName);
-                if (t != null)
-                {
-                    _searchAssemblies.Add(a);
-                    return t;
-                }
-            }
-
-            throw new Exception("Cannot find type " + baseTypeName + " after searching in all user provided assemblies and all loaded assemblies. Is the type in some plugin-module that was not yet loaded? Or did the assembly that contains the type change (ie the type got removed)?");
-        }
 
         public Type GetTypeFromBaseAndArguments(string baseTypeName, params Type[] genericTypeArguments)
         {

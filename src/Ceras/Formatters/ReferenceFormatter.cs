@@ -58,6 +58,14 @@ namespace Ceras.Formatters
         {
             if (ReferenceEquals(value, null)) { SerializerBinary.WriteUInt32Bias(writer, Null, Bias); return; }
             var specificType = value.GetType();
+
+            if (BannedTypes.IsBanned(specificType))
+            {
+                // We should only skip it if it is NOT one of the types we actually MUST be able to serialize.
+                SerializerBinary.WriteUInt32Bias(writer, Null, Bias);
+                return;
+            }
+
             var entry = GetOrCreateEntry(specificType);
             if (entry.IsType) { SerializerBinary.WriteUInt32Bias(writer, InlineType, Bias); _typeFormatter.Serialize(writer, (Type)(object)value); return; }
             if (entry.IsExternalRootObject) { var externalObj = (IExternalRootObject)value; if (!ReferenceEquals(_ceras.InstanceData.CurrentRoot, value)) { SerializerBinary.WriteUInt32Bias(writer, ExternalObject, Bias); SerializerBinary.WriteInt32Fixed(writer, externalObj.GetReferenceId()); _ceras.Config.OnExternalObject?.Invoke(externalObj); return; } }
@@ -104,17 +112,22 @@ namespace Ceras.Formatters
             
             var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
             objectProxy.Value = value;
-            try { entry.DeserializeDispatcher(ref reader, ref objectProxy.Value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType.FullName}'", e); }
+            try { entry.DeserializeDispatcher(ref reader, ref objectProxy.Value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType?.FullName ?? typeof(T).FullName}'", e); }
             value = objectProxy.Value;
         }
 
         DispatcherEntry GetOrCreateEntry(Type type)
         {
+            if (type == null) throw new ArgumentNullException(nameof(type));
+
             ref var entry = ref _dispatchers.GetOrAddValueRef(type);
             if (entry != null) return entry;
             entry = new DispatcherEntry(type);
             if (entry.IsType) return entry;
+            
             var formatter = _ceras.GetSpecificFormatter(type);
+            if (formatter == null) throw new InvalidOperationException($"Could not find specific formatter for type '{type.FullName}'");
+
             entry.SerializeDispatcher = CreateSpecificSerializerDispatcher(type, formatter);
             entry.DeserializeDispatcher = CreateSpecificDeserializerDispatcher(type, formatter);
             entry.Constructor = new Lazy<Func<object>>(() => CreateObjectConstructor(type, formatter));

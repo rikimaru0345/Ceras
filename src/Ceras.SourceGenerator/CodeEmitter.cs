@@ -385,7 +385,7 @@ namespace Ceras.SourceGenerator
             sb.AppendLine($"                {{");
             foreach (var m in members)
             {
-                string typeName = m.Type.ToDisplayString(SortKeyFormat);
+                string typeName = GetRobustName(m.Type);
                 sb.Append($"                    new global::Ceras.Format.SchemaFieldInfo(");
                 sb.Append($"{QuoteString(m.StableName)}, ");
                 WriteStringArrayInline(sb, m.PreviousNames);
@@ -424,7 +424,7 @@ namespace Ceras.SourceGenerator
                         return sn;
                 }
             }
-            return type.Name;
+            return GetRobustName(type);
         }
 
         static void WriteStringArray(StringBuilder sb, List<string> strings)

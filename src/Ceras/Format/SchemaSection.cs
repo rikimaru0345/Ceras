@@ -186,8 +186,11 @@ namespace Ceras.Format
         static int ResolveId(string clrName, Dictionary<Type, int> typeToId, Queue<(Type, int, SchemaTypeInfo)> queue, SchemaRegistry registry)
         {
             if (clrName == null) return WellKnownTypes.Null;
+
             int wk = ResolveWellKnownId(clrName);
             if (wk >= 0) return wk;
+
+            // Console.WriteLine($"DEBUG: SchemaSection.ResolveId('{clrName}')");
 
             if (registry.TryResolveType(clrName, out var type))
             {
@@ -203,19 +206,26 @@ namespace Ceras.Format
                 }
             }
 
-            var t = Type.GetType(clrName);
-            if (t != null)
+            try
             {
-                if (registry.TryGetId(t, out int id))
+                var t = Type.GetType(clrName);
+                if (t != null)
                 {
-                    if (!typeToId.ContainsKey(t))
+                    if (registry.TryGetId(t, out int id))
                     {
-                        typeToId[t] = id;
-                        if (registry.TryGetInfo(t, out var info))
-                            queue.Enqueue((t, id, info));
+                        if (!typeToId.ContainsKey(t))
+                        {
+                            typeToId[t] = id;
+                            if (registry.TryGetInfo(t, out var info))
+                                queue.Enqueue((t, id, info));
+                        }
+                        return id;
                     }
-                    return id;
                 }
+            }
+            catch (Exception e)
+            {
+                throw new Exception($"Error in SchemaSection.ResolveId for '{clrName}': {e.Message}", e);
             }
 
             return WellKnownTypes.Null;

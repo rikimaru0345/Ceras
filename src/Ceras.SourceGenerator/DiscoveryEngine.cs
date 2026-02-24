@@ -92,6 +92,8 @@ namespace Ceras.SourceGenerator
             {
                 if (HasAttribute(type, attrs.Exclude)) return;
 
+                if (IsBanned(type)) return;
+
                 // Unwrap arrays and collections
                 if (type is IArrayTypeSymbol arr)
                 {

@@ -51,6 +51,29 @@ namespace Ceras.SourceGenerator
             return sb.ToString();
         }
 
+        public static string GetRobustName(ITypeSymbol type)
+        {
+            var sb = new StringBuilder();
+            BuildRobustName(sb, type);
+            return sb.ToString();
+        }
+
+        static void BuildRobustName(StringBuilder sb, ITypeSymbol type)
+        {
+            if (type.ContainingType != null)
+            {
+                BuildRobustName(sb, type.ContainingType);
+                sb.Append('+');
+            }
+            else if (type.ContainingNamespace != null && !type.ContainingNamespace.IsGlobalNamespace)
+            {
+                sb.Append(type.ContainingNamespace.ToDisplayString());
+                sb.Append('.');
+            }
+
+            sb.Append(type.MetadataName);
+        }
+
         public static string QuoteString(string s) => s == null ? "null" : $"\"{s}\"";
 
         public static string NormalizeName(string name)

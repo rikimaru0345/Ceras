@@ -38,6 +38,9 @@ namespace Ceras.SourceGenerator
                     ITypeSymbol? memberType = (member as IFieldSymbol)?.Type ?? (member as IPropertySymbol)?.Type;
                     if (memberType == null) continue;
 
+                    if (IsBanned(memberType))
+                        continue;
+
                     if (HasAttribute(memberType, attrs.Exclude))
                         continue;
 
@@ -207,6 +210,46 @@ namespace Ceras.SourceGenerator
                         ifaceFqn == "global::System.Collections.ICollection" ||
                         ifaceFqn == "global::System.Collections.IDictionary")
                         return true;
+                }
+            }
+            return false;
+        }
+
+        public static bool IsBanned(ITypeSymbol type)
+        {
+            if (type is INamedTypeSymbol named)
+            {
+                var fqn = named.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                
+                // Delegates, Actions, Funcs
+                if (fqn == "global::System.Delegate" || fqn == "global::System.MulticastDelegate") return true;
+                var cur = named.BaseType;
+                while (cur != null)
+                {
+                    var baseFqn = cur.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    if (baseFqn == "global::System.Delegate" || baseFqn == "global::System.MulticastDelegate") return true;
+                    cur = cur.BaseType;
+                }
+
+                // Reflection metadata
+                if (fqn.StartsWith("global::System.Reflection."))
+                {
+                    if (fqn == "global::System.Reflection.MemberInfo") return true;
+                    if (fqn == "global::System.Reflection.MethodInfo") return true;
+                    if (fqn == "global::System.Reflection.PropertyInfo") return true;
+                    if (fqn == "global::System.Reflection.FieldInfo") return true;
+                    if (fqn == "global::System.Reflection.EventInfo") return true;
+                    if (fqn == "global::System.Reflection.ConstructorInfo") return true;
+                    if (fqn == "global::System.Reflection.Assembly") return true;
+                }
+
+                // Enumerators
+                if (fqn == "global::System.Collections.IEnumerator") return true;
+                foreach (var iface in named.AllInterfaces)
+                {
+                    var ifaceFqn = iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    if (ifaceFqn == "global::System.Collections.IEnumerator") return true;
+                    if (ifaceFqn.StartsWith("global::System.Collections.Generic.IEnumerator<")) return true;
                 }
             }
             return false;

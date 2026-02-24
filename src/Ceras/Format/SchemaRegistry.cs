@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
+using Ceras.Formatters;
 
 namespace Ceras.Format
 {
@@ -115,26 +117,55 @@ namespace Ceras.Format
 
         static SchemaTypeInfo CreateSchemaForUserType(Type type)
         {
+            string typeFullName = type.FullName ?? type.Name;
             // Simple description for types that weren't source-generated but need to be robustly handled.
             // We use the full name as the stable name to avoid collisions.
+            var fields = new List<SchemaFieldInfo>();
+            foreach (var f in type.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
+            {
+                if (f.GetCustomAttribute<ExcludeAttribute>() != null) continue;
+                if (f.GetCustomAttribute<NonSerializedAttribute>() != null) continue;
+
+                if (BannedTypes.IsBanned(f.FieldType))
+                {
+                    if (f.GetCustomAttribute<IncludeAttribute>() == null)
+                    {
+                        continue;
+                    }
+                }
+
+                var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
+                string stableName = sa?.Name ?? f.Name;
+                string fieldTypeName = f.FieldType.FullName ?? f.FieldType.Name;
+                
+                bool isMonomorphic = f.FieldType.IsValueType || f.FieldType.IsSealed;
+                if (f.GetCustomAttribute<MonomorphicAttribute>() != null) isMonomorphic = true;
+                if (f.GetCustomAttribute<PolymorphicAttribute>() != null) isMonomorphic = false;
+
+                fields.Add(new SchemaFieldInfo(stableName, new string[0], fieldTypeName, isMonomorphic));
+            }
+
             return new SchemaTypeInfo(
-                stableName: type.FullName ?? type.Name,
+                stableName: typeFullName,
                 previousTypeNames: Array.Empty<string>(),
                 kind: type.IsValueType ? SchemaTypeKind.Struct : SchemaTypeKind.Class,
-                fields: Array.Empty<SchemaFieldInfo>(), // traversal engine will use reflection
+                fields: fields.ToArray(),
                 fixedByteSize: 0);
         }
 
         static SchemaTypeInfo CreateSchemaForGeneric(Type type)
         {
+            string typeFullName = type.FullName ?? type.Name;
             var def = type.GetGenericTypeDefinition();
             var args = type.GetGenericArguments();
             var argNames = new string[args.Length];
             for (int i = 0; i < args.Length; i++)
+            {
                 argNames[i] = args[i].FullName ?? args[i].Name;
+            }
 
             return new SchemaTypeInfo(
-                stableName: type.FullName ?? type.Name,
+                stableName: typeFullName,
                 previousTypeNames: Array.Empty<string>(),
                 kind: SchemaTypeKind.GenericInstantiation,
                 fields: Array.Empty<SchemaFieldInfo>(),

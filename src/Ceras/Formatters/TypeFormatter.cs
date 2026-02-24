@@ -29,6 +29,15 @@ namespace Ceras.Formatters
                 return;
             }
 
+            if (BannedTypes.IsBanned(type))
+            {
+                // We should only skip it if it is NOT one of the types we actually MUST be able to serialize.
+                // Currently Type is not banned, but maybe something else is.
+                // If it is banned, we write Null.
+                SerializerBinary.WriteUInt32Bias(writer, Null, Bias);
+                return;
+            }
+
             var typeCache = _ceras.InstanceData.TypeCache;
             if (typeCache.TryGetExistingObjectId(type, out int id))
             {

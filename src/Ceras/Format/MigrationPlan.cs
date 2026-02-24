@@ -46,8 +46,10 @@ namespace Ceras.Format
                 // Only index by the canonical stable name (not aliases)
                 if (kv.Key != old.StableName) continue;
                 if (result.ContainsKey(old.StableName)) continue;
-                if (old.Kind == SchemaTypeKind.GenericInstantiation)
-                    continue;
+                
+                // Generic instantiations are handled by the traversal engine directly?
+                // Actually they might still need plans if they're user-defined generic classes!
+                if (old.Kind == SchemaTypeKind.GenericInstantiation) continue;
 
                 result[old.StableName] = BuildOne(old, oldById, registry);
             }
@@ -91,6 +93,7 @@ namespace Ceras.Format
                     coerce = DetectCoercion(oldField.TypeId, newField.FieldType);
                     bool compatible = coerce != CoercionKind.None
                         || TypeIdsCompatible(oldField.TypeId, newField.FieldType, oldById, registry);
+                    
                     if (!compatible)
                         newField = null;
                     else
@@ -115,7 +118,12 @@ namespace Ceras.Format
             }
             else
             {
-                plan.AddedFieldNames = Array.Empty<string>();
+                // Fallback to reflection for unregistered types
+                var added = new List<string>();
+                foreach (var kv in currentFieldMap)
+                    if (!mappedStableNames.Contains(kv.Key))
+                        added.Add(kv.Key);
+                plan.AddedFieldNames = added.ToArray();
             }
 
             plan.HasChanges = plan.AddedFieldNames.Length > 0
@@ -139,8 +147,14 @@ namespace Ceras.Format
             foreach (var f in type.GetFields(
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
             {
+                if (f.GetCustomAttribute<ExcludeAttribute>() != null) continue;
+                if (f.GetCustomAttribute<NonSerializedAttribute>() != null) continue;
+
                 var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
                 string stableName = sa?.Name ?? f.Name;
+                
+                // If it's a private field without an attribute, it might be a backing field.
+                // For now we just include it if it's not excluded.
                 map.TryAdd(stableName, f);
 
                 foreach (var pn in f.GetCustomAttributes<PreviousNameAttribute>())
@@ -164,6 +178,7 @@ namespace Ceras.Format
             foreach (var prev in old.PreviousNames)
                 if (currentFieldMap.TryGetValue(prev, out fi))
                     return fi;
+            
             return null;
         }
 
@@ -184,9 +199,14 @@ namespace Ceras.Format
             {
                 if (oldTypeId == newId) return true;
 
+                // Object can accept anything
+                if (newId == WellKnownTypes.Object) return true;
+
                 // Generic case: old List<int> (201) vs current List<int> (newId=17)
                 if (oldById.TryGetValue(oldTypeId, out var old) && old.Kind == SchemaTypeKind.GenericInstantiation)
+                {
                     return old.DefinitionTypeId == newId;
+                }
 
                 return false;
             }
@@ -194,14 +214,19 @@ namespace Ceras.Format
             // 2. User type case: Match by stable name
             if (oldById.TryGetValue(oldTypeId, out var oldSchema))
             {
+                Console.WriteLine($"DEBUG:   oldTypeId is user type '{oldSchema.StableName}'");
                 if (registry.TryGetInfo(newFieldType, out var currentInfo))
                 {
                     if (currentInfo.StableName == oldSchema.StableName) return true;
                     foreach (var prev in currentInfo.PreviousTypeNames)
                         if (prev == oldSchema.StableName) return true;
                 }
+                
+                // Unregistered type fallback
+                if (newFieldType.FullName == oldSchema.StableName) return true;
             }
 
+            Console.WriteLine("DEBUG:   Types are INCOMPATIBLE");
             return false;
         }
 

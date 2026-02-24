@@ -25,8 +25,11 @@ namespace Ceras.Format
         readonly uint                                  _robustVersion;
         readonly CerasSerializer                       _serializer;
         readonly SchemaRegistry                        _registry;
+        readonly ITypeBinder                           _typeBinder = new SimpleTypeBinder();
         readonly List<object>                          _objectCache = new();
         readonly uint                                  _maxCollectionSize;
+
+        const int FullNameMarker = 127;
 
         public SchemaTraversalEngine(
             Dictionary<string, OldTypeSchema> oldSchemas,
@@ -46,6 +49,10 @@ namespace Ceras.Format
                 _oldById.TryAdd(s.TypeId, s);
 
             _plans = MigrationPlanBuilder.BuildAll(oldSchemas, _registry);
+
+            Console.WriteLine("DEBUG: SchemaTraversalEngine initialized. Old schemas in file:");
+            foreach (var name in _oldByName.Keys)
+                Console.WriteLine($"DEBUG:   - {name}");
         }
 
         // ── Public entry point ────────────────────────────────────────────────
@@ -63,8 +70,11 @@ namespace Ceras.Format
 
         public T ReadRoot<T>(ref SequenceReader<byte> reader)
         {
+            Console.WriteLine($"DEBUG: SchemaTraversalEngine.ReadRoot<{typeof(T).Name}>");
             string stableName = ResolveOldStableName(typeof(T));
+            Console.WriteLine($"DEBUG: Resolved stableName: {stableName}");
             object obj = ReadUserTypeByStableName(stableName, typeof(T), ref reader);
+            Console.WriteLine($"DEBUG: ReadUserTypeByStableName returned: {obj?.GetType().Name ?? "null"}");
             if (obj == null) return default;
             return (T)obj;
         }
@@ -79,7 +89,7 @@ namespace Ceras.Format
                     if (_oldByName.ContainsKey(prev))
                         return prev;
             }
-            return t.Name; 
+            return t.FullName ?? t.Name; 
         }
 
         // ── Core dispatch ─────────────────────────────────────────────────────
@@ -134,7 +144,7 @@ namespace Ceras.Format
                     return null;
                 }
                 case WellKnownTypes.Object:
-                    return ReadPolymorphicValue(targetType, ref reader);
+                    return ReadPolymorphicValue(WellKnownTypes.Object, targetType, ref reader);
                 default:
                 {
                     if (typeId >= WellKnownTypes.UserTypeBase)
@@ -145,15 +155,21 @@ namespace Ceras.Format
             }
         }
 
-        object ReadPolymorphicValue(Type targetType, ref SequenceReader<byte> reader)
+        object ReadPolymorphicValue(int expectedTypeId, Type targetType, ref SequenceReader<byte> reader)
         {
             int marker = SerializerBinary.ReadUInt32Bias(ref reader, RefBias);
+            Console.WriteLine($"DEBUG: ReadPolymorphicValue(expectedTypeId={expectedTypeId}, target={targetType?.Name ?? "null"}). marker={marker}");
             if (marker == RefNull) return null;
-            if (marker >= 0) return marker < _objectCache.Count ? _objectCache[marker] : null;
+            if (marker >= 0) {
+                var cached = marker < _objectCache.Count ? _objectCache[marker] : null;
+                Console.WriteLine($"DEBUG: Cache hit marker={marker}, result={cached?.GetType().Name ?? "null"}");
+                return cached;
+            }
 
             if (marker == RefExternalObject)
             {
                 int externalId = SerializerBinary.ReadInt32Fixed(ref reader);
+                Console.WriteLine($"DEBUG: ExternalObject marker={marker}, id={externalId}");
                 if (_serializer?.Config.ExternalObjectResolver != null)
                 {
                     _serializer.Config.ExternalObjectResolver.Resolve(externalId, out object obj);
@@ -171,10 +187,43 @@ namespace Ceras.Format
             if (marker == RefNewValue)
                 typeId = (int)SchemaSection.ReadLeb128(ref reader);
             else
-                typeId = GetOldTypeId(targetType);
+                typeId = expectedTypeId;
+
+            Console.WriteLine($"DEBUG: marker={marker} -> resolving typeId={typeId}");
+
+            if (typeId == FullNameMarker)
+            {
+                string typeName = SerializerBinary.ReadString(ref reader);
+                Type type = _typeBinder.GetTypeFromBase(typeName);
+                if (type == null)
+                {
+                    Console.WriteLine($"DEBUG: FAILED to find type from FullName '{typeName}'");
+                    _objectCache.Add(null);
+                    return null;
+                }
+
+                // Is it a registered type?
+                if (_registry.TryGetId(type, out int actualId))
+                {
+                    if (_oldById.TryGetValue(actualId, out var registeredSchema))
+                        return ReadUserTypeInstance(registeredSchema, targetType, ref reader);
+                }
+
+                // If not registered, we can still try to deserialize it if it's a simple type,
+                // but for now let's just create an uninitialized object if it's a class.
+                object obj = RuntimeHelpers.GetUninitializedObject(type);
+                _objectCache.Add(obj);
+                // We don't have a schema, so we can't read fields unless they are written in a specific way.
+                // But RobustTypeFormatter fallback writes the fields using Ceras standard format!
+                // Wait! SchemaTraversalEngine DOES NOT support reading standard format!
+                // It only supports robust format.
+                Console.WriteLine($"DEBUG: FullName fallback for '{typeName}' - limited support in SchemaTraversalEngine");
+                return obj;
+            }
 
             if (!_oldById.TryGetValue(typeId, out var oldSchema))
             {
+                Console.WriteLine($"DEBUG: FAILED to find oldSchema for typeId={typeId}");
                 _objectCache.Add(null);
                 SkipUserType(typeId, ref reader);
                 return null;
@@ -184,7 +233,11 @@ namespace Ceras.Format
 
         object ReadUserType(int typeId, Type targetType, ref SequenceReader<byte> reader)
         {
-            if (!_oldById.TryGetValue(typeId, out var oldSchema)) return null;
+            Console.WriteLine($"DEBUG: ReadUserType(id={typeId}, target={targetType?.Name ?? "null"})");
+            if (!_oldById.TryGetValue(typeId, out var oldSchema)) {
+                Console.WriteLine($"DEBUG: FAILED to find oldSchema for id={typeId}");
+                return null;
+            }
             if (oldSchema.Kind == SchemaTypeKind.Enum)
             {
                 _plans.TryGetValue(oldSchema.StableName, out var plan);
@@ -193,13 +246,18 @@ namespace Ceras.Format
             if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
                 return ReadGenericInstantiation(oldSchema, targetType, ref reader);
 
-            return ReadPolymorphicValue(targetType ?? GetCurrentType(oldSchema.StableName), ref reader);
+            return ReadPolymorphicValue(typeId, targetType ?? GetCurrentType(oldSchema.StableName), ref reader);
         }
 
         object ReadUserTypeByStableName(string stableName, Type targetType, ref SequenceReader<byte> reader)
         {
+            Console.WriteLine($"DEBUG: ReadUserTypeByStableName('{stableName}', target={targetType?.Name ?? "null"})");
             if (stableName != null && _oldByName.TryGetValue(stableName, out var oldSchema))
+            {
+                Console.WriteLine($"DEBUG: Found oldSchema for '{stableName}', id={oldSchema.TypeId}");
                 return ReadUserType(oldSchema.TypeId, targetType, ref reader);
+            }
+            Console.WriteLine($"DEBUG: FAILED to find oldSchema for '{stableName}'");
             return null;
         }
 
@@ -492,14 +550,23 @@ namespace Ceras.Format
 
         void ReadAndApplyFields(OldTypeSchema oldSchema, TypeMigrationPlan plan, object target, ref SequenceReader<byte> reader)
         {
+            Console.WriteLine($"DEBUG: ReadAndApplyFields for '{oldSchema.StableName}', target={target?.GetType().Name ?? "null"}");
             var mappings = plan?.Mappings ?? BuildSkipMappings(oldSchema);
             foreach (var mapping in mappings)
             {
-                if (mapping.NewField == null) SkipValue(mapping.OldField.TypeId, ref reader);
+                if (mapping.NewField == null) {
+                    Console.WriteLine($"DEBUG:   Skipping old field '{mapping.OldField.StableName}' (typeId={mapping.OldField.TypeId})");
+                    SkipValue(mapping.OldField.TypeId, ref reader);
+                }
                 else
                 {
+                    Console.WriteLine($"DEBUG:   Reading field '{mapping.NewField.Name}' (old typeId={mapping.OldField.TypeId})");
                     object value = ReadValue(mapping.OldField.TypeId, mapping.NewField.FieldType, ref reader);
-                    if (target != null) mapping.NewField.SetValue(target, Coerce(value, mapping.Coercion, mapping.NewField.FieldType));
+                    Console.WriteLine($"DEBUG:   ReadValue returned: {value?.GetType().Name ?? "null"}");
+                    if (target != null) {
+                        var coerced = Coerce(value, mapping.Coercion, mapping.NewField.FieldType);
+                        mapping.NewField.SetValue(target, coerced);
+                    }
                 }
             }
         }

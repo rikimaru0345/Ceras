@@ -287,7 +287,23 @@ namespace Ceras
 
         internal TypeMetaData GetTypeMetaData(Type type) { ref var meta = ref _metaData.GetOrAddValueRef(type); return meta ?? CreateMetaData(type, false); }
         internal TypeMetaData GetStaticTypeMetaData(Type type) { ref var meta = ref _staticMetaData.GetOrAddValueRef(type); return meta ?? CreateMetaData(type, true); }
-        TypeMetaData CreateMetaData(Type type, bool isStatic) { var dict = isStatic ? _staticMetaData : _metaData; ref var meta = ref dict.GetOrAddValueRef(type); if (meta != null) return meta; BannedTypes.ThrowIfBanned(type); bool isPrim = IsPrimitiveType(type), isFrame = _frameworkAssemblies.Contains(type.Assembly); meta = new TypeMetaData(type, isPrim ? null : Config.GetTypeConfig(type, isStatic), isFrame, isPrim); if (!isPrim) meta.PrimarySchema = CreatePrimarySchema(type, isStatic); return meta; }
+        TypeMetaData CreateMetaData(Type type, bool isStatic)
+        {
+            var dict = isStatic ? _staticMetaData : _metaData;
+            ref var meta = ref dict.GetOrAddValueRef(type);
+            if (meta != null)
+                return meta;
+
+            // If it's a banned type, we still create metadata for it, 
+            // but we might want to flag it or handle it specifically.
+            // BannedTypes.ThrowIfBanned(type); 
+
+            bool isPrim = IsPrimitiveType(type), isFrame = _frameworkAssemblies.Contains(type.Assembly);
+            meta = new TypeMetaData(type, isPrim ? null : Config.GetTypeConfig(type, isStatic), isFrame, isPrim);
+            if (!isPrim)
+                meta.PrimarySchema = CreatePrimarySchema(type, isStatic);
+            return meta;
+        }
 
         Schema CreatePrimarySchema(Type type, bool isStatic)
         {

@@ -580,6 +580,10 @@
             if (_serializationOverride != SerializationOverride.NoOverride)
                 return new InclusionExclusionResult(_serializationOverride == SerializationOverride.ForceInclude, _explicitInclusionReason);
 
+            // Banned types
+            if (BannedTypes.IsBanned(MemberType))
+                return new InclusionExclusionResult(false, $"The type '{MemberType.FriendlyName(true)}' is banned from serialization by default and the member has no [Include] attribute.");
+
             // [NonSerialized]
             if (HasNonSerializedAttribute && TypeConfig.Config.Advanced.RespectNonSerializedAttribute)
                 return new InclusionExclusionResult(false, $"Member has [NonSerializedAttribute] and 'RespectNonSerializedAttribute' is set in the config.");
