@@ -227,7 +227,7 @@ namespace Ceras.SourceGenerator
                 while (cur != null)
                 {
                     var baseFqn = cur.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    if (baseFqn == "global::System.Delegate" || baseFqn == "global::System.MulticastDelegate") return true;
+                    if (baseFqn == "global::System.Delegate" || baseFqn == "global::System.MulticastDelegate" || baseFqn == "global::Godot.GodotObject") return true;
                     cur = cur.BaseType;
                 }
 
@@ -385,6 +385,19 @@ namespace Ceras.SourceGenerator
             foreach (var iface in type.AllInterfaces)
             {
                 foreach (var attr in iface.GetAttributes())
+                {
+                    if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, memberConfigAttr))
+                    {
+                        if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is int val)
+                            return (TargetMemberKind)val;
+                    }
+                }
+            }
+
+            // 3. Check containing assembly for a global default
+            if (type.ContainingAssembly != null)
+            {
+                foreach (var attr in type.ContainingAssembly.GetAttributes())
                 {
                     if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, memberConfigAttr))
                     {

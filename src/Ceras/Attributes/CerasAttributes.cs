@@ -7,13 +7,13 @@ namespace Ceras
     using Helpers;
 
 
-    /// <summary>
-    /// Add this to a field or property to force Ceras to ignore it.
-    /// When applied to a type (class, struct, interface), it prevents Ceras from ever serializing 
-    /// any members of that type, effectively banning it from all serialization.
-    /// Check out the tutorial to see in what order attributes, the ShouldSerialize callback and other settings are evaluated.
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Interface)]
+	/// <summary>
+	/// Add this to a field or property to force Ceras to ignore it.
+	/// When applied to a type (class, struct, interface), it prevents Ceras from ever serializing
+	/// any members of that type, effectively banning it from all serialization.
+	/// Check out the tutorial to see in what order attributes, the ShouldSerialize callback and other settings are evaluated.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Interface)]
     public sealed class ExcludeAttribute : Attribute { }
 
     /// <summary>
@@ -44,11 +44,11 @@ namespace Ceras
     }
 
 
-    /// <summary>
-    /// Configure what members to include by default in this type, you can also add [Exclude] and [Include] to individual members as well to override the member config.
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Interface)]
-    public sealed class MemberConfigAttribute : Attribute
+	/// <summary>
+	/// Configure what members to include by default in this type, you can also add [Exclude] and [Include] to individual members as well to override the member config.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Interface | AttributeTargets.Assembly)]
+	public sealed class MemberConfigAttribute : Attribute
     {
         public TargetMember TargetMembers { get; set; }
         public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
@@ -144,11 +144,11 @@ namespace Ceras
     {
     }
 
-    
-    /// <summary>
-    /// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
-    /// </summary>
-    public class OnBeforeSerializeAttribute : Attribute
+
+	/// <summary>
+	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// </summary>
+	public class OnBeforeSerializeAttribute : Attribute
     {
     }
 
@@ -158,11 +158,11 @@ namespace Ceras
     public class OnAfterSerializeAttribute : Attribute
     {
     }
-    
-    /// <summary>
-    /// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
-    /// </summary>
-    public class OnBeforeDeserializeAttribute : Attribute
+
+	/// <summary>
+	/// Add this to a method of a class you serialize/deserialize. Ceras will call it during serialization.
+	/// </summary>
+	public class OnBeforeDeserializeAttribute : Attribute
     {
     }
 
@@ -243,19 +243,12 @@ namespace Ceras
         }
     }
 
-    /// <summary>
-    /// When using <see cref="CerasSerializableAttribute.DiscoverSubtypes"/>, you can put this
-    /// on a specific class to prevent the generator from creating a formatter for it.
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
-    public class ExcludeFromDiscoveryAttribute : Attribute { }
-
-    /// <summary>
-    /// Prevents the Ceras source generator from automatically discovering and generating
-    /// formatters for types in the specified namespace or matching the pattern (e.g. "Godot.*").
-    /// Types with an explicit <see cref="CerasSerializableAttribute"/> will still be processed.
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+	/// <summary>
+	/// Prevents the Ceras source generator from automatically discovering and generating
+	/// formatters for types in the specified namespace or matching the pattern (e.g. "Godot.*").
+	/// Types with an explicit <see cref="CerasSerializableAttribute"/> will still be processed.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
     public class CerasGeneratorBlacklistAttribute : Attribute
     {
         public string Pattern { get; }

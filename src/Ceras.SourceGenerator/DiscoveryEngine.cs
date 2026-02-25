@@ -234,11 +234,16 @@ namespace Ceras.SourceGenerator
 
         static bool MatchesBlacklist(INamedTypeSymbol type, List<string> blacklistPatterns)
         {
-            string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
-            foreach (var p in blacklistPatterns)
+            var cur = type;
+            while (cur != null)
             {
-                if (p.EndsWith("*")) { if (fqn.StartsWith(p.Substring(0, p.Length - 1))) return true; }
-                else if (fqn == p) return true;
+                string fqn = cur.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
+                foreach (var p in blacklistPatterns)
+                {
+                    if (p.EndsWith("*")) { if (fqn.StartsWith(p.Substring(0, p.Length - 1))) return true; }
+                    else if (fqn == p) return true;
+                }
+                cur = cur.BaseType;
             }
             return false;
         }
