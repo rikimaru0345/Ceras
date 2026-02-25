@@ -56,17 +56,17 @@ namespace Ceras.SourceGenerator
                     {
                         if (field.IsConst) continue;
 
-                        bool isFieldGetterOnly = field.IsReadOnly && IsCollectionType(field.Type);
+                        bool isFieldGetterOnly = field.IsReadOnly;
                         bool isFieldPublic = field.DeclaredAccessibility == Accessibility.Public;
 
                         if (!hasInclude && !IsFieldIncluded(field, currentTargetKind))
                         {
-                            if (!isFieldGetterOnly) continue;
+                            if (field.Type.IsValueType) continue; // Cannot populate value types in-place
                             if (!isFieldPublic && !hasInclude) continue;
                         }
-                        else if (field.IsReadOnly && !isFieldGetterOnly && !hasInclude)
+                        else if (field.IsReadOnly && !hasInclude)
                         {
-                            continue;
+                            if (field.Type.IsValueType) continue; // Cannot populate value types in-place
                         }
 
                         members.Add(MakeMember(field.Name, field.Type, isField: true, member, attrs, isGetterOnly: isFieldGetterOnly));
@@ -81,7 +81,7 @@ namespace Ceras.SourceGenerator
 
                         if (isGetterOnly)
                         {
-                            if (!IsCollectionType(prop.Type)) continue;
+                            if (prop.Type.IsValueType) continue; // Cannot populate value types in-place
                             if (!isPropPublic && !hasInclude) continue;
                         }
                         else

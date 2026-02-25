@@ -51,6 +51,31 @@ namespace Ceras.Test
     // They are discovered via propagation from DiscoveryRoot.
     public record DiscoveryRecord(int Id, string Name);
 
+    // Discovery through getter-only members (Reference types)
+    [CerasSerializable]
+    [MemberConfig(TargetMember.All, ReadonlyFieldHandling.Members)]
+    public partial class GetterOnlyRoot
+    {
+        // Reference type field initialized in-place
+        public readonly DiscoveryChild ChildField = new DiscoveryChild { Name = "FieldInit" };
+        
+        // Reference type property initialized in-place
+        public DiscoveryChild ChildProp { get; } = new DiscoveryChild { Name = "PropInit" };
+
+        // Reference type initialized in ctor
+        public readonly DiscoveryChild ChildCtor;
+
+        // Value types should be IGNORED even if they are readonly/getter-only
+        // (because Ceras can't populate them in-place)
+        public readonly int IgnoredInt = 42;
+        public float IgnoredFloat { get; } = 3.14f;
+
+        public GetterOnlyRoot()
+        {
+            ChildCtor = new DiscoveryChild { Name = "CtorInit" };
+        }
+    }
+
     [Exclude]
     public class BannedType
     {
@@ -59,6 +84,53 @@ namespace Ceras.Test
 
     public class DiscoveryTests : TestBase
     {
+        [Fact]
+        public void GetterOnlyDiscovery_WorksForReferenceTypes()
+        {
+            var config = new SerializerConfig();
+            config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+            GeneratedFormatters.UseFormatters(config);
+            var ceras = new CerasSerializer(config);
+
+            // 1. Verify that ChildField, ChildProp, and ChildCtor were all discovered
+            // (meaning DiscoveryChild has a generated formatter assigned)
+            Assert.NotNull(config.ConfigType<DiscoveryChild>().CustomFormatter);
+            Assert.NotNull(config.ConfigType<GetterOnlyRoot>().CustomFormatter);
+
+            // 2. Round-trip test
+            var original = new GetterOnlyRoot();
+            original.ChildField.Name = "ModifiedField";
+            original.ChildProp.Name = "ModifiedProp";
+            original.ChildCtor.Name = "ModifiedCtor";
+
+            var data = ceras.Serialize(original);
+            
+            // Create a fresh instance for deserialization to simulate a real scenario
+            // where the ctor has already run and we want to populate the existing objects.
+            var clone = new GetterOnlyRoot();
+            ceras.Deserialize(ref clone, data);
+
+            // 3. Assert population worked
+            Assert.Equal("ModifiedField", clone.ChildField.Name);
+            Assert.Equal("ModifiedProp", clone.ChildProp.Name);
+            Assert.Equal("ModifiedCtor", clone.ChildCtor.Name);
+
+            // 4. Verify members list
+            var tc = config.ConfigType<GetterOnlyRoot>();
+            
+            // Reference types should be INCLUDED (because we enabled ReadonlyFieldHandling.Members)
+            Assert.Contains(tc.Members, m => m.Member.Name == "ChildField" && m.ComputeFinalInclusionFast());
+            Assert.Contains(tc.Members, m => m.Member.Name == "ChildProp" && m.ComputeFinalInclusionFast());
+            Assert.Contains(tc.Members, m => m.Member.Name == "ChildCtor" && m.ComputeFinalInclusionFast());
+
+            // Value types should be EXCLUDED (because they are computed/readonly value types)
+            var ignoredIntMember = tc.Members.FirstOrDefault(m => m.Member.Name == "IgnoredInt");
+            Assert.True(ignoredIntMember == null || !ignoredIntMember.ComputeFinalInclusionFast());
+
+            var ignoredFloatMember = tc.Members.FirstOrDefault(m => m.Member.Name == "IgnoredFloat");
+            Assert.True(ignoredFloatMember == null || !ignoredFloatMember.ComputeFinalInclusionFast());
+        }
+
         [Fact]
         public void RecursiveDiscovery_And_Records_Work()
         {

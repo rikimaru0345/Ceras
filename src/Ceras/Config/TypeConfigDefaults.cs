@@ -143,6 +143,13 @@ namespace Ceras
                 var readOnlyConfig = f.GetCustomAttribute<ReadonlyConfigAttribute>(true);
                 if(readOnlyConfig != null)
                 memberConfig.ReadonlyFieldHandling = readOnlyConfig.ReadonlyFieldHandling;
+
+                // Getter-only fields (readonly) are allowed if they are reference types
+                if (memberConfig.IsReadonlyField && memberConfig.MemberType.IsValueType)
+                {
+                    memberConfig.ExcludeWithReason("Readonly field of value type (cannot be populated in-place)");
+                    return;
+                }
             }
             else if (memberInfo is PropertyInfo p)
             {
@@ -205,17 +212,13 @@ namespace Ceras
 
         static bool ShouldSkipProperty(MemberConfig m)
         {
-            var p = (PropertyInfo)m.Member;
-
-            // There's no way we can serialize a prop that we can't write.
-            // If it would have a { private set; } that would work, but it doesn't.
-            var accessors = p.GetAccessors(true);
-
-            if (accessors.Length <= 1)
+            if (m.IsGetterOnly)
             {
-                // It's a "computed" property, which has no concept of writing.
-                m.ExcludeWithReason("Computed Property (has no 'set' function, not even a private one)");
-                return true;
+                if (m.MemberType.IsValueType)
+                {
+                    m.ExcludeWithReason("Getter-only property of value type (cannot be populated in-place)");
+                    return true;
+                }
             }
 
             return false;

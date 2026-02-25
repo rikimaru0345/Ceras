@@ -468,7 +468,7 @@
         /// <para>Example 1: int Time => Environment.TickCount;</para>
         /// <para>Example 2: string Name { get; }</para>
         /// </summary>
-        public bool IsComputedProperty { get; }
+        public bool IsGetterOnly { get; }
 
         internal bool HasNonSerializedAttribute;
 
@@ -530,7 +530,7 @@
 
             IsCompilerGenerated = member.GetCustomAttribute<CompilerGeneratedAttribute>() != null;
             IsReadonlyField = member is FieldInfo f && f.IsInitOnly;
-            IsComputedProperty = member is PropertyInfo p && p.GetSetMethod(true) == null;
+            IsGetterOnly = member is PropertyInfo p && p.GetSetMethod(true) == null;
         }
 
 
