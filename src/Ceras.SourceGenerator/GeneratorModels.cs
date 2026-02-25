@@ -35,6 +35,15 @@ namespace Ceras.SourceGenerator
         }
     }
 
+    [Flags]
+    internal enum AccessHelperRequirement
+    {
+        None = 0,
+        Read = 1 << 0,
+        Write = 1 << 1,
+        Both = Read | Write
+    }
+
     internal sealed class SerializedMember
     {
         // ... (existing properties)
@@ -49,12 +58,15 @@ namespace Ceras.SourceGenerator
         public bool IsCtorParam { get; }
         public string? CtorParamName { get; }
         public bool IsAccessible { get; }
+        public bool IsReadAccessible { get; }
+        public bool IsWriteAccessible { get; }
         public bool IsReadOnly { get; }
 
         public SerializedMember(
             string name, string stableName, ITypeSymbol type, INamedTypeSymbol declaringType, bool isField,
             string[] previousNames, bool isMonomorphic, bool isAccessible,
-            bool isReadOnly, bool isGetterOnly, bool isCtorParam = false, string? ctorParamName = null)
+            bool isReadOnly, bool isGetterOnly, bool isCtorParam = false, string? ctorParamName = null,
+            bool? isReadAccessible = null, bool? isWriteAccessible = null)
         {
             Name = name;
             StableName = stableName;
@@ -64,6 +76,8 @@ namespace Ceras.SourceGenerator
             PreviousNames = previousNames;
             IsMonomorphic = isMonomorphic;
             IsAccessible = isAccessible;
+            IsReadAccessible = isReadAccessible ?? isAccessible;
+            IsWriteAccessible = isWriteAccessible ?? isAccessible;
             IsReadOnly = isReadOnly;
             IsGetterOnly = isGetterOnly;
             IsCtorParam = isCtorParam;

@@ -176,7 +176,7 @@ namespace Ceras.SourceGenerator
 
                 foreach (var m in members)
                 {
-                    if (!m.IsAccessible)
+                    if (MemberExplorer.NeedsAccessHelper(m))
                     {
                         if (!SymbolEqualityComparer.Default.Equals(m.DeclaringType.ContainingAssembly, compilation.Assembly))
                         {

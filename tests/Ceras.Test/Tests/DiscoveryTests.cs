@@ -76,6 +76,23 @@ namespace Ceras.Test
         }
     }
 
+    // A type that has private members but DOES NOT need to be partial
+    // because all private members are handled via ctor or populating in-place
+    [CerasSerializable]
+    public class NoPartialNeeded
+    {
+        [Include]
+        public string Name { get; private set; } // Read accessible! Write handled by ctor
+
+        [Include]
+        public DiscoveryChild Child { get; } = new DiscoveryChild(); // Read accessible! Handled by in-place pop
+
+        public NoPartialNeeded(string name)
+        {
+            Name = name;
+        }
+    }
+
     [Exclude]
     public class BannedType
     {
@@ -84,6 +101,28 @@ namespace Ceras.Test
 
     public class DiscoveryTests : TestBase
     {
+        [Fact]
+        public void NoPartialNeeded_WhenMembersHandledByCtorOrPop()
+        {
+            var config = new SerializerConfig();
+            GeneratedFormatters.UseFormatters(config);
+            var ceras = new CerasSerializer(config);
+
+            // 1. Verify discovery worked
+            Assert.NotNull(config.ConfigType<NoPartialNeeded>().CustomFormatter);
+
+            // 2. Round-trip test
+            var original = new NoPartialNeeded("OriginalName");
+            original.Child.Name = "OriginalChild";
+
+            var data = ceras.Serialize(original);
+            var clone = ceras.Deserialize<NoPartialNeeded>(data);
+
+            // 3. Assert values
+            Assert.Equal("OriginalName", clone.Name);
+            Assert.Equal("OriginalChild", clone.Child.Name);
+        }
+
         [Fact]
         public void GetterOnlyDiscovery_WorksForReferenceTypes()
         {

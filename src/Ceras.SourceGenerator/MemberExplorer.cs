@@ -119,7 +119,8 @@ namespace Ceras.SourceGenerator
                             existing.Name, existing.StableName, existing.Type, existing.DeclaringType,
                             existing.IsField, existing.PreviousNames, existing.IsMonomorphic,
                             existing.IsAccessible, existing.IsReadOnly, existing.IsGetterOnly, isCtorParam: true, 
-                            ctorParamName: param.Name);
+                            ctorParamName: param.Name,
+                            isReadAccessible: existing.IsReadAccessible, isWriteAccessible: existing.IsWriteAccessible);
                     }
                     else
                     {
@@ -158,7 +159,8 @@ namespace Ceras.SourceGenerator
                             members.Add(new SerializedMember(
                                 found.Name, param.Name, foundType, found.ContainingType, foundIsField,
                                 Array.Empty<string>(), mono, isAcc, isRO,
-                                isGetterOnly: false, isCtorParam: true, ctorParamName: param.Name));
+                                isGetterOnly: false, isCtorParam: true, ctorParamName: param.Name,
+                                isReadAccessible: isAcc, isWriteAccessible: isAcc));
                             memberByNorm[normParam] = members.Count - 1;
                         }
                     }
@@ -305,30 +307,34 @@ namespace Ceras.SourceGenerator
             bool isAccessible = symbol.DeclaredAccessibility == Accessibility.Public ||
                                 symbol.DeclaredAccessibility == Accessibility.Internal;
 
+            bool isReadAccessible = isAccessible;
+            bool isWriteAccessible = isAccessible;
+
             bool isReadOnly = isField ? ((IFieldSymbol)symbol).IsReadOnly : (((IPropertySymbol)symbol).SetMethod == null || ((IPropertySymbol)symbol).SetMethod.IsInitOnly);
 
             if (symbol is IPropertySymbol prop)
             {
-                bool getterAcc = prop.GetMethod != null &&
+                isReadAccessible = prop.GetMethod != null &&
                                  (prop.GetMethod.DeclaredAccessibility == Accessibility.Public ||
                                   prop.GetMethod.DeclaredAccessibility == Accessibility.Internal);
 
-                bool setterAcc = true;
+                isWriteAccessible = true;
                 if (prop.SetMethod != null)
                 {
-                    setterAcc = prop.SetMethod.DeclaredAccessibility == Accessibility.Public ||
-                                prop.SetMethod.DeclaredAccessibility == Accessibility.Internal;
+                    isWriteAccessible = prop.SetMethod.DeclaredAccessibility == Accessibility.Public ||
+                                        prop.SetMethod.DeclaredAccessibility == Accessibility.Internal;
                 }
                 else if (!isGetterOnly)
                 {
-                    setterAcc = false;
+                    isWriteAccessible = false;
                 }
 
-                isAccessible = getterAcc && setterAcc;
+                isAccessible = isReadAccessible && isWriteAccessible;
             }
 
             return new SerializedMember(name, stableName, type, symbol.ContainingType, isField,
-                previousNames.ToArray(), isMonomorphic, isAccessible, isReadOnly, isGetterOnly);
+                previousNames.ToArray(), isMonomorphic, isAccessible, isReadOnly, isGetterOnly,
+                isReadAccessible: isReadAccessible, isWriteAccessible: isWriteAccessible);
         }
 
         public static bool IsMonomorphicByDefault(ITypeSymbol type)
@@ -479,14 +485,44 @@ namespace Ceras.SourceGenerator
 
         public static void ValidatePartialRequirement(SourceProductionContext context, Compilation compilation, INamedTypeSymbol type, List<SerializedMember> members)
         {
-            if (members.Any(m => !m.IsAccessible && SymbolEqualityComparer.Default.Equals(m.DeclaringType, type)))
+            var triggered = members
+                .Select(m => (Member: m, Req: GetAccessHelperRequirement(m)))
+                .Where(x => x.Req != AccessHelperRequirement.None && SymbolEqualityComparer.Default.Equals(x.Member.DeclaringType, type))
+                .ToList();
+
+            if (triggered.Count > 0)
             {
                 if (!IsPartial(type))
                 {
-                    context.ReportDiagnostic(Diagnostic.Create(Diag.PartialRequired, type.Locations.FirstOrDefault(), type.Name));
+                    var details = triggered.Select(x =>
+                    {
+                        var reason = x.Req == AccessHelperRequirement.Both ? "read/write" : x.Req.ToString().ToLowerInvariant();
+                        return $"{x.Member.Name} ({reason})";
+                    });
+                    var names = string.Join(", ", details);
+                    context.ReportDiagnostic(Diagnostic.Create(Diag.PartialRequired, type.Locations.FirstOrDefault(), type.Name, names));
                 }
             }
         }
+
+        public static AccessHelperRequirement GetAccessHelperRequirement(SerializedMember m)
+        {
+            AccessHelperRequirement req = AccessHelperRequirement.None;
+
+            if (!m.IsReadAccessible)
+                req |= AccessHelperRequirement.Read;
+
+            if (!m.IsWriteAccessible)
+            {
+                bool handledElsewhere = m.IsCtorParam || m.IsGetterOnly;
+                if (!handledElsewhere)
+                    req |= AccessHelperRequirement.Write;
+            }
+
+            return req;
+        }
+
+        public static bool NeedsAccessHelper(SerializedMember m) => GetAccessHelperRequirement(m) != AccessHelperRequirement.None;
 
         public static void ValidateReadonlyMembers(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
         {

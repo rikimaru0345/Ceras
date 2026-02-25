@@ -469,6 +469,10 @@ namespace Ceras.SourceGenerator
         {
             string prefix = new string(' ', indent);
             if (m.IsAccessible) { sb.AppendLine($"{prefix}value.{m.Name} = {valueExpr};"); return; }
+            
+            // If it's handled by ctor, we don't need to set it (and we might not have a setter helper!)
+            if (m.IsCtorParam) return;
+
             string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             if (m.IsField) sb.AppendLine($"{prefix}{declaringTypeFqn}.__ceras_ref_{m.Name}(value) = {valueExpr};");
             else sb.AppendLine($"{prefix}{declaringTypeFqn}.__ceras_set_{m.Name}(value, {valueExpr});");
