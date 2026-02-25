@@ -453,7 +453,7 @@ namespace Ceras.SourceGenerator
 
         static string GetGetAccess(SerializedMember m, string typeFqn)
         {
-            if (m.IsAccessible) return $"value.{m.Name}";
+            if (m.IsReadAccessible) return $"value.{m.Name}";
             string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             if (m.IsField) return $"{declaringTypeFqn}.__ceras_ref_{m.Name}(value)";
             return $"{declaringTypeFqn}.__ceras_get_{m.Name}(value)";
@@ -468,7 +468,7 @@ namespace Ceras.SourceGenerator
         static void WriteSetStatement(StringBuilder sb, SerializedMember m, string typeFqn, string valueExpr, int indent)
         {
             string prefix = new string(' ', indent);
-            if (m.IsAccessible) { sb.AppendLine($"{prefix}value.{m.Name} = {valueExpr};"); return; }
+            if (m.IsWriteAccessible) { sb.AppendLine($"{prefix}value.{m.Name} = {valueExpr};"); return; }
             
             // If it's handled by ctor, we don't need to set it (and we might not have a setter helper!)
             if (m.IsCtorParam) return;

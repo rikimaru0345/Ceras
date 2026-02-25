@@ -431,7 +431,6 @@ namespace LiveTesting
             config.DefaultTargets = TargetMember.AllPublic;
             var knownTypes = new[] { typeof(Person), typeof(List<>), typeof(Person[]) };
             config.KnownTypes.AddRange(knownTypes);
-            config.PreserveReferences = false;
             _ceras = new CerasSerializer(config);
 
             //
@@ -1028,7 +1027,6 @@ namespace LiveTesting
             config.KnownTypes.Add(typeof(Person));
             config.KnownTypes.Add(typeof(List<>));
             config.KnownTypes.Add(typeof(Person[]));
-            config.PreserveReferences = false;
 
             _cerasNoRefs = new CerasSerializer(config);
 
