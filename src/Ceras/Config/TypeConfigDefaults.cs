@@ -37,12 +37,6 @@ namespace Ceras
             //
             // Constructor
             ApplyConstructorDefaults(typeConfig);
-
-            //
-            // Special case: Struct with auto-properties
-            // We do this after ApplyConstructorDefaults because if a constructor was found,
-            // the struct might be serializable even if it only has auto-properties.
-            CheckStructWithAutoProps(typeConfig);
         }
 
         static void ApplyConstructorDefaults(TypeConfig typeConfig)
@@ -133,14 +127,23 @@ namespace Ceras
             if (type.IsValueType && typeConfig.Config.Warnings.ExceptionOnStructWithAutoProperties)
             {
                 var allDataMembers = type.GetAllDataMembers().ToArray();
+                
+                // Ceras serializes structs by their fields. 
+                // Auto-properties use compiler-generated backing-fields which are excluded by default.
+                // We want to detect if the user has ONLY auto-properties and NO other "real" fields, 
+                // as this would result in an empty (or unexpectedly small) serialized object.
+                var normalFields = allDataMembers.OfType<FieldInfo>()
+                                                .Where(f => f.GetCustomAttribute<System.Runtime.CompilerServices.CompilerGeneratedAttribute>() == null)
+                                                .ToArray();
+
                 var autoProps = allDataMembers.OfType<PropertyInfo>().Where(p =>
                 {
                     var get = p.GetGetMethod(true);
                     return get != null && get.GetCustomAttribute<System.Runtime.CompilerServices.CompilerGeneratedAttribute>() != null;
                 }).ToArray();
 
-                // If all members are auto-props (which are excluded by default), give a better error
-                if (allDataMembers.Length > 0 && allDataMembers.Length == autoProps.Length)
+                // If we found auto-props but NO normal fields, give the warning.
+                if (autoProps.Length > 0 && normalFields.Length == 0)
                 {
                     var msg = $"The struct '{type.FriendlyName()}' cannot be serialized because it only consists of auto-properties. " +
                               "Ceras serializes structs by their fields, but auto-properties use hidden backing-fields that are excluded by default. " +

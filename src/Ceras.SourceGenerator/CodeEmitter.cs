@@ -41,10 +41,23 @@ namespace Ceras.SourceGenerator
             if (vt)
                 WriteSchemaDescriptor(sb, type, members, attrs);
 
+            bool hasCtorParams = members.Any(m => m.IsCtorParam);
+
+            // When a [CerasConstructor] is used, getter-only members cannot be read into
+            // a temp and then assigned post-ctor (the property has no setter). Instead we
+            // emit them LAST — after the ctor call — so the new object's already-initialized
+            // instances can be populated in-place, exactly like the normal (no-ctor) path.
+            // Serialize must use the same order so the binary layout stays consistent.
+            var nonGetterOnlyMembers = hasCtorParams ? members.Where(m => !m.IsGetterOnly).ToList() : null;
+            var getterOnlyMembers    = hasCtorParams ? members.Where(m =>  m.IsGetterOnly).ToList() : null;
+
             // --- Serialize ---------------------------------------------------------
             sb.AppendLine($"        public override void Serialize(global::System.Buffers.IBufferWriter<byte> writer, {typeFqn} value)");
             sb.AppendLine("        {");
-            foreach (var m in members)
+
+            // For ctor types: non-getter-only first, getter-only last (matches Deserialize order below).
+            var serializeMembers = hasCtorParams ? nonGetterOnlyMembers.Concat(getterOnlyMembers) : members;
+            foreach (var m in serializeMembers)
             {
                 string fieldName = MakeFormatterFieldName(m.Type);
                 string getAccess = GetGetAccess(m, typeFqn);
@@ -69,54 +82,56 @@ namespace Ceras.SourceGenerator
             sb.AppendLine($"        public override void Deserialize(ref global::System.Buffers.SequenceReader<byte> reader, ref {typeFqn} value)");
             sb.AppendLine("        {");
 
-            bool hasCtorParams = members.Any(m => m.IsCtorParam);
-
             if (hasCtorParams)
             {
-                // [CerasConstructor] path
-                foreach (var m in members)
+                // [CerasConstructor] path.
+                // Phase 1: read non-getter-only members into temps (these may include ctor args).
+                foreach (var m in nonGetterOnlyMembers)
                 {
                     string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     sb.AppendLine($"            {memberTypeFqn} _ctor_{m.Name} = default;");
                 }
 
-                foreach (var m in members)
+                foreach (var m in nonGetterOnlyMembers)
                 {
                     string fieldName = MakeFormatterFieldName(m.Type);
-                    string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
                     if (IsFastPrimitive(m.Type))
                     {
                         string readExpr = GetPrimitiveReadExpression(m.Type, "reader");
                         sb.AppendLine($"            _ctor_{m.Name} = {readExpr};");
                     }
-                    else if (m.IsGetterOnly)
-                    {
-                        string getAccess = GetGetAccess(m, typeFqn);
-                        sb.AppendLine($"            if (value != null) _ctor_{m.Name} = {getAccess};");
-                        sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref _ctor_{m.Name});");
-                    }
                     else
                     {
                         sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref _ctor_{m.Name});");
                     }
                 }
 
+                // Phase 2: construct the object.
                 var ctorArgParts = members.Where(m => m.IsCtorParam).Select(m => $"{m.CtorParamName}: _ctor_{m.Name}");
                 string ctorArgs = string.Join(", ", ctorArgParts);
                 sb.AppendLine($"            value = new {typeFqn}({ctorArgs});");
 
-                foreach (var m in members.Where(m => !m.IsCtorParam))
+                // Phase 3: assign non-ctor-param writable members.
+                foreach (var m in nonGetterOnlyMembers.Where(m => !m.IsCtorParam))
                 {
                     if (IsFastPrimitive(m.Type))
-                    {
                         WriteSetStatement(sb, m, typeFqn, $"_ctor_{m.Name}", 12);
-                    }
-                    else if (m.IsGetterOnly) { }
                     else
-                    {
                         WriteSetStatement(sb, m, typeFqn, $"_ctor_{m.Name}", 12);
-                    }
+                }
+
+                // Phase 4: read getter-only members directly into the new object's instances (in-place).
+                // The ctor guarantees these are non-null, so we can deserialize straight into them.
+                foreach (var m in getterOnlyMembers)
+                {
+                    string fieldName = MakeFormatterFieldName(m.Type);
+                    string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    string getAccess = GetGetAccess(m, typeFqn);
+                    string tmp = "_m_" + m.Name;
+                    sb.AppendLine($"            {memberTypeFqn} {tmp} = {getAccess};");
+                    sb.AppendLine($"            if ({tmp} == null) global::Ceras.Helpers.CerasThrowHelper.ThrowGetterOnlyNull(\"{m.Name}\", typeof({typeFqn}).FullName);");
+                    sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
                 }
             }
             else

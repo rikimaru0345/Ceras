@@ -44,6 +44,10 @@ namespace Ceras.Formatters
             var typeConfig = _ceras.Config.GetTypeConfig(type, isStatic);
             typeConfig.VerifyConstructionMethod();
 
+            // Structs with only auto-properties cannot be serialized using reflection
+            // because their backing-fields are hidden and excluded by default.
+            TypeConfigDefaults.CheckStructWithAutoProps(typeConfig);
+
             var meta = isStatic ? _ceras.GetStaticTypeMetaData(type) : _ceras.GetTypeMetaData(type);
             var schema = meta.PrimarySchema;
 
@@ -120,38 +124,44 @@ namespace Ceras.Formatters
 
             InvokeCallback(_onBeforeSerialize, target);
 
+            // When using a [CerasConstructor], getter-only members are serialized last to
+            // match the Deserialize order (they are read after ctor construction).
+            if (_ctorOrFactory != null)
+            {
+                SerializeMembers(writer, target, getterOnly: false);
+                SerializeMembers(writer, target, getterOnly: true);
+            }
+            else
+            {
+                SerializeMembers(writer, target, getterOnly: null);
+            }
+
+            InvokeCallback(_onAfterSerialize, target);
+        }
+
+        void SerializeMembers(IBufferWriter<byte> writer, object target, bool? getterOnly)
+        {
             for (int i = 0; i < _members.Length; i++)
             {
                 var m = _members[i];
-                object memberValue = null;
+                bool isGetterOnly = m.member is PropertyInfo p && p.GetSetMethod(true) == null;
+                if (getterOnly.HasValue && isGetterOnly != getterOnly.Value) continue;
 
+                object memberValue = null;
                 if (m.member is FieldInfo f)
                     memberValue = f.GetValue(target);
-                else if (m.member is PropertyInfo p)
-                    memberValue = p.GetValue(target);
+                else if (m.member is PropertyInfo prop)
+                    memberValue = prop.GetValue(target);
 
                 try
                 {
-                    if (m.isMonomorphic)
-                    {
-                        // Direct call to specific formatter to skip ReferenceFormatter overhead.
-                        // We must use reflection to call typed Serialize<TMember> if we want to be 100% sure it skips markers.
-                        // But wait! SpecificFormatter.Serialize UNTYPED might still be called.
-                        // Let's use SerializeUntyped, but ENSURE the formatter is NOT a ReferenceFormatter.
-                        m.formatter.SerializeUntyped(writer, memberValue);
-                    }
-                    else
-                    {
-                        m.formatter.SerializeUntyped(writer, memberValue);
-                    }
+                    m.formatter.SerializeUntyped(writer, memberValue);
                 }
                 catch (Exception e)
                 {
                     throw new Ceras.Exceptions.CerasException($"Error while serializing member '{m.member.Name}' of type '{typeof(T).FullName}'", e);
                 }
             }
-
-            InvokeCallback(_onAfterSerialize, target);
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
@@ -187,16 +197,21 @@ namespace Ceras.Formatters
             {
                 if (_ctorOrFactory != null)
                 {
-                    // Buffered read
+                    // Phase 1: read non-getter-only members into a buffer (these include ctor args).
+                    // Getter-only members are read after construction so they can be populated in-place.
                     object[] memberValues = new object[_members.Length];
                     FakeContainer fake = new FakeContainer();
                     for (int i = 0; i < _members.Length; i++)
                     {
+                        bool isGetterOnly = _members[i].member is PropertyInfo gop && gop.GetSetMethod(true) == null;
+                        if (isGetterOnly) continue;
+
                         _members[i].formatter.DeserializeUntyped(ref reader, fake, FakeContainer.ValueField);
                         memberValues[i] = fake.Value;
                         fake.Value = null;
                     }
 
+                    // Phase 2: construct.
                     object[] args = new object[_parameterToMemberIndex.Length];
                     for (int i = 0; i < args.Length; i++)
                         args[i] = memberValues[_parameterToMemberIndex[i]];
@@ -208,10 +223,9 @@ namespace Ceras.Formatters
 
                     InvokeCallback(_onBeforeDeserialize, value);
 
-                    // Assign rest of members
+                    // Phase 3: assign writable non-ctor-param members.
                     for (int i = 0; i < _members.Length; i++)
                     {
-                        // Don't overwrite members that were passed to the constructor
                         if (Array.IndexOf(_parameterToMemberIndex, i) != -1)
                             continue;
 
@@ -220,6 +234,20 @@ namespace Ceras.Formatters
                             f.SetValue(value, memberValues[i]);
                         else if (m.member is PropertyInfo p && p.GetSetMethod(true) != null)
                             p.SetValue(value, memberValues[i]);
+                        // getter-only properties are handled in phase 4
+                    }
+
+                    // Phase 4: read getter-only members directly into the new object's instances (in-place).
+                    for (int i = 0; i < _members.Length; i++)
+                    {
+                        if (!(_members[i].member is PropertyInfo gop) || gop.GetSetMethod(true) != null)
+                            continue;
+
+                        var existing = gop.GetValue(value);
+                        if (existing == null)
+                            throw new InvalidOperationException($"Getter-only property '{gop.Name}' on '{typeof(T).FullName}' returned null after construction. It must be initialized by the constructor.");
+
+                        _members[i].formatter.DeserializeUntyped(ref reader, value, gop);
                     }
 
                     InvokeCallback(_onAfterDeserialize, value);

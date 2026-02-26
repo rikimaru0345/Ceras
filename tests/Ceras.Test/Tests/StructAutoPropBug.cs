@@ -6,20 +6,21 @@ using Ceras.Format;
 
 namespace Ceras.Test
 {
+    [CerasSerializable]
+    public struct CostItem
+    {
+        public string ItemName;
+        public int Count;
+
+        public CostItem(string itemName, int count)
+        {
+            ItemName = itemName;
+            Count = count;
+        }
+    }
+
     public class StructAutoPropBug : TestBase
     {
-        public struct CostItem
-        {
-            public string ItemName { get; set; }
-            public int Count { get; set; }
-
-            public CostItem(string itemName, int count)
-            {
-                ItemName = itemName;
-                Count = count;
-            }
-        }
-
         public class Container
         {
             public CostItem Cost;

@@ -25,5 +25,6 @@ namespace Ceras.Helpers
                     throw new ArgumentException($"Name '{name}' contains invalid character '{c}'");
             }
         }
+
     }
 }
