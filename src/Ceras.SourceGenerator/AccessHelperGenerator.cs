@@ -70,7 +70,8 @@ namespace Ceras.SourceGenerator
             if (!string.IsNullOrEmpty(ns))
                 sb.AppendLine("}");
 
-            string fileName = $"{type.Name}.Ceras.g.cs";
+            string typeName = TypeHelpers.SanitizeIdentifier(type.ToDisplayString(TypeHelpers.FullyQualifiedNoGlobal));
+            string fileName = $"{typeName}.Access.Ceras.g.cs";
             context.AddSource(fileName, Microsoft.CodeAnalysis.Text.SourceText.From(sb.ToString(), Encoding.UTF8));
         }
     }

@@ -20,7 +20,7 @@ namespace Ceras.SourceGenerator
             string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             string formatterName = MakeFormatterClassName(type);
 
-            sb.AppendLine($"    internal sealed class {formatterName} : global::Ceras.Formatters.IFormatter<{typeFqn}>");
+            sb.AppendLine($"    internal sealed class {formatterName} : global::Ceras.Formatters.FormatterBase<{typeFqn}>");
             sb.AppendLine("    {");
 
             // --- Formatter fields (one per distinct member type) -------------------
@@ -41,37 +41,8 @@ namespace Ceras.SourceGenerator
             if (vt)
                 WriteSchemaDescriptor(sb, type, members, attrs);
 
-            // --- SerializeUntyped --------------------------------------------------
-            sb.AppendLine($"        public void SerializeUntyped(global::System.Buffers.IBufferWriter<byte> writer, object value)");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            Serialize(writer, ({typeFqn})value);");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-
-            // --- DeserializeUntyped ------------------------------------------------
-            sb.AppendLine($"        public void DeserializeUntyped(ref global::System.Buffers.SequenceReader<byte> reader, object container, global::System.Reflection.MemberInfo member)");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            if (member is global::System.Reflection.FieldInfo f)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                var existing = f.GetValue(container);");
-            sb.AppendLine($"                {typeFqn} value = default;");
-            sb.AppendLine($"                if (existing is {typeFqn}) value = ({typeFqn})existing;");
-            sb.AppendLine($"                Deserialize(ref reader, ref value);");
-            sb.AppendLine($"                f.SetValue(container, value);");
-            sb.AppendLine("            }");
-            sb.AppendLine("            else if (member is global::System.Reflection.PropertyInfo p)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                var existing = p.GetValue(container);");
-            sb.AppendLine($"                {typeFqn} value = default;");
-            sb.AppendLine($"                if (existing is {typeFqn}) value = ({typeFqn})existing;");
-            sb.AppendLine($"                Deserialize(ref reader, ref value);");
-            sb.AppendLine($"                p.SetValue(container, value);");
-            sb.AppendLine("            }");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-
             // --- Serialize ---------------------------------------------------------
-            sb.AppendLine($"        public void Serialize(global::System.Buffers.IBufferWriter<byte> writer, {typeFqn} value)");
+            sb.AppendLine($"        public override void Serialize(global::System.Buffers.IBufferWriter<byte> writer, {typeFqn} value)");
             sb.AppendLine("        {");
             foreach (var m in members)
             {
@@ -95,7 +66,7 @@ namespace Ceras.SourceGenerator
             sb.AppendLine();
 
             // --- Deserialize -------------------------------------------------------
-            sb.AppendLine($"        public void Deserialize(ref global::System.Buffers.SequenceReader<byte> reader, ref {typeFqn} value)");
+            sb.AppendLine($"        public override void Deserialize(ref global::System.Buffers.SequenceReader<byte> reader, ref {typeFqn} value)");
             sb.AppendLine("        {");
 
             bool hasCtorParams = members.Any(m => m.IsCtorParam);
@@ -174,7 +145,7 @@ namespace Ceras.SourceGenerator
                             string getAccess = GetGetAccess(m, typeFqn);
                             string tmp = "_m_" + m.Name;
                             sb.AppendLine($"            {memberTypeFqn} {tmp} = {getAccess};");
-                            sb.AppendLine($"            if ({tmp} == null) throw new global::System.InvalidOperationException($\"Cannot deserialize getter-only member '{m.Name}' of type '{{typeof({typeFqn}).FullName}}' because it is null. In 'Members' mode, Ceras populates existing objects in-place and cannot assign a new reference to a getter-only member. Ensure the field or property is initialized (e.g. '= []' or '= new ...()') before deserialization, or use [Exclude] to skip it.\");");
+                            sb.AppendLine($"            if ({tmp} == null) global::Ceras.Helpers.CerasThrowHelper.ThrowGetterOnlyNull(\"{m.Name}\", typeof({typeFqn}).FullName);");
                             sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
                         }
                         else
