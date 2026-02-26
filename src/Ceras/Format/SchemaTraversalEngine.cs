@@ -264,12 +264,19 @@ namespace Ceras.Format
         object CreateInstance(Type type)
         {
             if (type == null) return null;
-            var tc = _serializer.Config.GetTypeConfig(type, false).TypeConstruction;
+            var typeConfig = _serializer.Config.GetTypeConfig(type, false);
+            var tc = typeConfig.TypeConstruction;
             if (tc != null && !tc.HasDataArguments && tc is not ConstructNull)
             {
                 var ctor = tc.GetRefFormatterConstructor();
                 if (ctor != null) return ctor();
             }
+
+            bool allowFallback = typeConfig.AllowUninitializedObjectFallback ?? _serializer.Config.Advanced.AllowUninitializedObjectFallback;
+
+            if (!allowFallback)
+                throw new Ceras.Exceptions.CerasException($"Type '{type.FullName}' has no parameterless constructor and no construction mode is configured. Fallback to GetUninitializedObject is disabled in SerializerConfig.Advanced.AllowUninitializedObjectFallback.");
+
             return RuntimeHelpers.GetUninitializedObject(type);
         }
 

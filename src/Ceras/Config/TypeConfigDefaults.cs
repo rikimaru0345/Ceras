@@ -25,6 +25,16 @@ namespace Ceras
             var type = typeConfig.Type;
 
             //
+            // Set default values from attributes
+            var memberConfigAttrib = type.GetCustomAttribute<MemberConfigAttribute>();
+            if (memberConfigAttrib != null)
+            {
+                typeConfig.ReadonlyFieldOverride = memberConfigAttrib.ReadonlyFieldHandling;
+                typeConfig.TargetMembers = memberConfigAttrib.TargetMembers;
+                typeConfig.AllowUninitializedObjectFallback = memberConfigAttrib.InternalAllowUninitializedObjectFallback;
+            }
+
+            //
             // Constructor
             ApplyConstructorDefaults(typeConfig);
 
@@ -33,15 +43,6 @@ namespace Ceras
             // We do this after ApplyConstructorDefaults because if a constructor was found,
             // the struct might be serializable even if it only has auto-properties.
             CheckStructWithAutoProps(typeConfig);
-
-            //
-            // Set default values from attributes
-            var memberConfigAttrib = type.GetCustomAttribute<MemberConfigAttribute>();
-            if (memberConfigAttrib != null)
-            {
-                typeConfig.ReadonlyFieldOverride = memberConfigAttrib.ReadonlyFieldHandling;
-                typeConfig.TargetMembers = memberConfigAttrib.TargetMembers;
-            }
         }
 
         static void ApplyConstructorDefaults(TypeConfig typeConfig)
@@ -119,6 +120,11 @@ namespace Ceras
 
             if (type.IsValueType && typeConfig.TypeConstruction == null)
                 typeConfig.TypeConstruction = ConstructNull.Instance;
+
+            // 4. Last resort: GetUninitializedObject (if allowed in config)
+            bool allowFallback = typeConfig.AllowUninitializedObjectFallback ?? typeConfig.Config.Advanced.AllowUninitializedObjectFallback;
+            if (typeConfig.TypeConstruction == null && allowFallback)
+                typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
         }
 
         internal static void CheckStructWithAutoProps(TypeConfig typeConfig)

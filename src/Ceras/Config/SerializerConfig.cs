@@ -230,6 +230,7 @@
         BitmapMode IAdvancedConfig.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
         IEqualityComparer<object> IAdvancedConfig.ObjectCacheComparer { get; set; }
         bool IAdvancedConfig.AllowReflectionFallback { get; set; } = true;
+        bool IAdvancedConfig.AllowUninitializedObjectFallback { get; set; } = false;
 
 		#endregion
 
@@ -362,6 +363,12 @@
         /// <para>Default: true</para>
         /// </summary>
         bool AllowReflectionFallback { get; set; }
+
+        /// <summary>
+        /// If set to false (default), Ceras will throw an exception if a type has no parameterless constructor and would have to fall back to <c>RuntimeHelpers.GetUninitializedObject</c>.
+        /// This is useful to ensure that objects are always properly initialized via a constructor.
+        /// </summary>
+        bool AllowUninitializedObjectFallback { get; set; }
     }
 
     public interface ISizeLimitsConfig

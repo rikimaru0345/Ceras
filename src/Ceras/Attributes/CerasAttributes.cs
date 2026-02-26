@@ -53,6 +53,15 @@ namespace Ceras
         public TargetMember TargetMembers { get; set; }
         public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
 
+        bool? _allowUninitializedObjectFallback;
+        public bool AllowUninitializedObjectFallback
+        {
+            get => _allowUninitializedObjectFallback ?? false;
+            set => _allowUninitializedObjectFallback = value;
+        }
+
+        internal bool? InternalAllowUninitializedObjectFallback => _allowUninitializedObjectFallback;
+
         public MemberConfigAttribute(TargetMember targetMembers = TargetMember.PublicFields, ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.ExcludeFromSerialization)
         {
             TargetMembers = targetMembers;

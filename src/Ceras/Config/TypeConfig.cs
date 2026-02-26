@@ -121,6 +121,7 @@
             get => _targetMembers;
         }
 
+        public bool? AllowUninitializedObjectFallback { get; set; }
 
         internal readonly List<MemberConfig> _allMembers;
         public IEnumerable<MemberConfig> Members => _allMembers.Where(m => !m.IsCompilerGenerated);
