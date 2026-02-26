@@ -52,6 +52,9 @@
 
                 public Type GetTypeFromBase(string baseTypeName)
                 {
+                    if (baseTypeName == null)
+                        throw new ArgumentNullException(nameof(baseTypeName), "The type name to resolve is null. This usually happens when a polymorphic field contains an object whose type is not marked with [CerasSerializable].");
+
                     try
                     {
                         var t = Type.GetType(baseTypeName);
