@@ -171,7 +171,7 @@ namespace Ceras.SourceGenerator
                 MemberExplorer.ValidateIncludeExcludeConflicts(context, type, attrBag);
                 var members = MemberExplorer.DiscoverMembers(context, type, attrBag);
 
-                if (members.Count == 0)
+                if (members.Count == 0 && TypeHelpers.HasAttribute(type, cerasSerializableAttr))
                 {
                     context.ReportDiagnostic(Diagnostic.Create(Diag.NoSerializableMembers, type.Locations.FirstOrDefault(), type.Name));
                 }

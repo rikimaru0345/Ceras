@@ -120,7 +120,7 @@ namespace Ceras.SourceGenerator
                         members[idx] = new SerializedMember(
                             existing.Name, existing.StableName, existing.Type, existing.DeclaringType,
                             existing.IsField, existing.PreviousNames, existing.IsMonomorphic,
-                            existing.IsAccessible, existing.IsReadOnly, existing.IsGetterOnly, isCtorParam: true, 
+                            existing.IsAccessible, existing.IsReadOnly, isGetterOnly: false, isCtorParam: true, 
                             ctorParamName: param.Name,
                             isReadAccessible: existing.IsReadAccessible, isWriteAccessible: existing.IsWriteAccessible);
                     }
@@ -389,8 +389,16 @@ namespace Ceras.SourceGenerator
                 cur = cur.BaseType;
             }
 
-            // 2. Check all implemented interfaces
-            foreach (var iface in type.AllInterfaces)
+            // 2. Check all implemented interfaces (recursively)
+            var allInterfaces = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            void AddInterfaces(INamedTypeSymbol i)
+            {
+                if (!allInterfaces.Add(i)) return;
+                foreach (var sub in i.AllInterfaces) AddInterfaces(sub);
+            }
+            foreach (var i in type.AllInterfaces) AddInterfaces(i);
+
+            foreach (var iface in allInterfaces)
             {
                 foreach (var attr in iface.GetAttributes())
                 {
