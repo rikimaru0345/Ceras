@@ -21,9 +21,10 @@ namespace Ceras.Format
 
         readonly Dictionary<Type,   Entry>  _byType       = new();
         readonly Dictionary<string, Entry>  _byStableName = new();
-        int    _nextId      = WellKnownTypes.UserTypeBase;
-        ulong? _fingerprint = null;
-        readonly object _lock = new();
+		int _nextId = WellKnownTypes.UserTypeBase;
+		int _sealedWatermark = -1;
+		ulong? _fingerprint = null;
+		readonly object _lock = new();
 
         /// <summary>
         /// Clears all registered types. Internal use only.
@@ -35,18 +36,35 @@ namespace Ceras.Format
                 _byType.Clear();
                 _byStableName.Clear();
                 _nextId = WellKnownTypes.UserTypeBase;
-                _fingerprint = null;
+				_sealedWatermark = -1;
+				_fingerprint = null;
             }
         }
 
-        // ── Registration ─────────────────────────────────────────────────────
+		/// <summary>
+		/// Freezes the current set of registered types as the "declared" schema.
+		/// Only types registered before this call contribute to the fingerprint.
+		/// Subsequent registrations (e.g. discovered generic instantiations) are
+		/// included in the schema block but do not change the fingerprint.
+		/// </summary>
+		public void Seal() {
+			lock (_lock) {
+				if (IsSealed) return;
+				_sealedWatermark = _nextId;
+				_fingerprint = null; // force recompute
+			}
+		}
 
-        /// <summary>
-        /// Called by the generated <c>GeneratedFormatters.UseFormatters</c> for every
-        /// <c>[CerasSerializable(VersionTolerant = true)]</c> type.
-        /// Safe to call multiple times with the same type (idempotent).
-        /// </summary>
-        public void Register(Type type, SchemaTypeInfo info)
+		public bool IsSealed => _sealedWatermark != -1;
+
+		// ── Registration ─────────────────────────────────────────────────────
+
+		/// <summary>
+		/// Called by the generated <c>GeneratedFormatters.UseFormatters</c> for every
+		/// <c>[CerasSerializable(VersionTolerant = true)]</c> type.
+		/// Safe to call multiple times with the same type (idempotent).
+		/// </summary>
+		public void Register(Type type, SchemaTypeInfo info)
         {
             if (type == null) throw new ArgumentNullException(nameof(type));
 
@@ -81,9 +99,9 @@ namespace Ceras.Format
             lock (_lock)
             {
                 if (_byType.TryGetValue(type, out var e)) { id = e.Id; return true; }
-                
-                // Automatic registration for types encountered at runtime (e.g. generic instantiations)
-                if (type != null && !WellKnownTypes.IsWellKnown(type))
+
+				// Automatic registration for types encountered at runtime (e.g. generic instantiations)
+				if (type != null && !WellKnownTypes.IsWellKnown(type))
                 {
                     EnsureRegisteredRecursive(type);
                     if (_byType.TryGetValue(type, out e)) { id = e.Id; return true; }
@@ -137,8 +155,8 @@ namespace Ceras.Format
                 var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
                 string stableName = sa?.Name ?? f.Name;
                 string fieldTypeName = f.FieldType.FullName ?? f.FieldType.Name;
-                
-                bool isMonomorphic = f.FieldType.IsValueType || f.FieldType.IsSealed;
+
+				bool isMonomorphic = f.FieldType.IsValueType || f.FieldType.IsSealed;
                 if (f.GetCustomAttribute<MonomorphicAttribute>() != null) isMonomorphic = true;
                 if (f.GetCustomAttribute<PolymorphicAttribute>() != null) isMonomorphic = false;
 
@@ -211,13 +229,15 @@ namespace Ceras.Format
             }
         }
 
-        // ── Fingerprint ───────────────────────────────────────────────────────
+		// ── Fingerprint ───────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Computes a stable fingerprint over all registered schemas.
-        /// Cached after the first call. Invalidated whenever a new type is registered.
-        /// </summary>
-        public ulong ComputeFingerprint()
+		/// <summary>
+		/// Computes a stable fingerprint over all registered schemas.
+		/// Cached after the first call. Invalidated whenever a new type is registered.
+		/// If <see cref="Seal()"/> has been called, only types registered before the seal
+		/// contribute to the fingerprint.
+		/// </summary>
+		public ulong ComputeFingerprint()
         {
             lock (_lock)
             {
@@ -225,9 +245,16 @@ namespace Ceras.Format
                     return _fingerprint.Value;
 
                 var sorted = new List<Entry>(_byType.Count);
-                foreach (var e in _byType.Values)
-                    sorted.Add(e);
-                sorted.Sort((a, b) => string.Compare(
+                foreach (var e in _byType.Values) {
+					// If sealed, only fingerprint entries below the watermark.
+					// This way we exclude discovered generic instantiations.
+					if (_sealedWatermark != -1 && e.Id >= _sealedWatermark)
+						continue;
+
+					sorted.Add(e);
+				}
+
+				sorted.Sort((a, b) => string.Compare(
                     a.Info.StableName, b.Info.StableName, StringComparison.Ordinal));
 
                 uint h1 = 0, h2 = 0x9e3779b9u;
@@ -236,8 +263,8 @@ namespace Ceras.Format
                     var info = entry.Info;
                     h1 = Combine(h1, Hash(info.StableName));
                     h2 = Combine(h2, (uint)info.Kind);
-                    
-                    if (info.Fields != null)
+
+					if (info.Fields != null)
                     {
                         foreach (var f in info.Fields)
                         {
@@ -259,8 +286,8 @@ namespace Ceras.Format
 
                 _fingerprint = ((ulong)h1 << 32) | h2;
                 return _fingerprint.Value;
-            } 
-        }
+			}
+		}
 
         static uint Hash(string s)
         {

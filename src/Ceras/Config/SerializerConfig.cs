@@ -25,9 +25,13 @@
 	/// </summary>
 	public class SerializerConfig : IAdvancedConfig, ISizeLimitsConfig, IWarningConfig, IRobustConfig
     {
-        bool _isSealed; // todo
+        bool _isSealed;
         internal bool IsSealed => _isSealed;
-        internal void Seal() => _isSealed = true;
+        internal void Seal()
+        {
+            _isSealed = true;
+            _robustConfig.SchemaRegistry.Seal();
+        }
 
         CerasSerializer _claimedBy;
         internal bool Claim(CerasSerializer ceras)

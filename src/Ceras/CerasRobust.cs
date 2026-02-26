@@ -44,14 +44,19 @@ namespace Ceras {
             int offset = 0;
 
             WriteHeaderPlaceholder(ref buffer, ref offset, robustVersion);
-            int rootTypeId = GetTypeId(typeof(T), registry);
 
-            // Snapshot the fingerprint BEFORE SchemaSection.Write — Write calls ResolveId which
-            // may call TryGetId for field-referenced types, triggering EnsureRegisteredRecursive
-            // and registering new generic instantiations into the registry.  The load path also
-            // computes the fingerprint before any such resolution, so both sides must use the
-            // same pre-Write baseline (the state after UseFormatters).
-            ulong schemaFingerprint = registry.ComputeFingerprint();
+			// Ensure the registry is sealed so that discovered generic instantiations
+			// don't affect the fingerprint.
+			registry.Seal();
+
+			int rootTypeId = GetTypeId(typeof(T), registry);
+
+			// Snapshot the fingerprint BEFORE SchemaSection.Write — Write calls ResolveId which
+			// may call TryGetId for field-referenced types, triggering EnsureRegisteredRecursive
+			// and registering new generic instantiations into the registry.  The load path also
+			// computes the fingerprint before any such resolution, so both sides must use the
+			// same pre-Write baseline (the state after UseFormatters).
+			ulong schemaFingerprint = registry.ComputeFingerprint();
 
             var internTable = new StringInternTable();
             var typeToId = SchemaSection.Write(ref buffer, ref offset, registry, internTable);
@@ -80,11 +85,15 @@ namespace Ceras {
             if (data.Length < HeaderSize) throw new InvalidOperationException("Header too short");
 
             var registry = ceras.Config.Robust.SchemaRegistry;
-            // Ensure the root type is registered so we can resolve its schema
-            registry.TryGetId(typeof(T), out _);
 
-            // Check magic "CERA"
-            if (data[0] != (byte)'C' || data[1] != (byte)'E' || data[2] != (byte)'R' || data[3] != (byte)'A')
+			// Ensure the registry is sealed before we start registering anything (like root type)
+			registry.Seal();
+
+			// Ensure the root type is registered so we can resolve its schema
+			registry.TryGetId(typeof(T), out _);
+
+			// Check magic "CERA"
+			if (data[0] != (byte)'C' || data[1] != (byte)'E' || data[2] != (byte)'R' || data[3] != (byte)'A')
                 throw new InvalidOperationException("Invalid magic");
 
             uint version = data[OffsetFormatVersion];
@@ -170,9 +179,10 @@ namespace Ceras {
             var sb = new StringBuilder();
             ulong currentFingerprint = registry.ComputeFingerprint();
             sb.AppendLine($"// Current fingerprint: {currentFingerprint:X16}");
+			sb.AppendLine($"// Sealed: {registry.IsSealed}");
 
-            var allEntries = registry.All().OrderBy(e => e.info.StableName, StringComparer.Ordinal).ToList();
-            sb.AppendLine($"// Type count: {allEntries.Count}");
+			var allEntries = registry.All().OrderBy(e => e.info.StableName, StringComparer.Ordinal).ToList();
+			sb.AppendLine($"// Type count: {allEntries.Count}");
             sb.AppendLine();
 
             foreach (var (type, id, info) in allEntries)
@@ -212,24 +222,24 @@ namespace Ceras {
                 {
                     if (data == null || data.Length < HeaderSize)
                         return "// Invalid or empty data";
-        
-                    uint version = data[OffsetFormatVersion];
-                    if (version != FormatVersion)
+
+			uint version = data[OffsetFormatVersion];
+			if (version != FormatVersion)
                         return $"// Format version mismatch. File: {version}, Library: {FormatVersion}";
-        
-                    ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(OffsetFingerprint));
-                    long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetDataSection));
+
+			ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(OffsetFingerprint));
+			long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetDataSection));
                     long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetStringTable));
-        
-                    var table = StringTable.Load(data, (int)stringTableOffset);
-        
-                    int schemaOffset = HeaderSize;
-                    var sequence = new System.Buffers.ReadOnlySequence<byte>(data, schemaOffset, (int)dataSectionOffset - schemaOffset);
+
+			var table = StringTable.Load(data, (int)stringTableOffset);
+
+			int schemaOffset = HeaderSize;
+			var sequence = new System.Buffers.ReadOnlySequence<byte>(data, schemaOffset, (int)dataSectionOffset - schemaOffset);
                     var schemaReader = new System.Buffers.SequenceReader<byte>(sequence);
                     var fileSchemas = SchemaSection.Read(ref schemaReader, table);
-        
-                    var sb = new StringBuilder();
-                    sb.AppendLine($"// File fingerprint: {schemaFingerprint:X16}");
+
+			var sb = new StringBuilder();
+			sb.AppendLine($"// File fingerprint: {schemaFingerprint:X16}");
                     uint gameVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetGameVersion));
                     sb.AppendLine($"// Game version: {gameVersion}");
                     sb.AppendLine($"// Type count: {fileSchemas.Count}");

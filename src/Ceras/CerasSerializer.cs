@@ -135,6 +135,8 @@ namespace Ceras
             InstanceData = _instanceDataPool.RentObject();
             if (Config.Advanced.SealTypesWhenUsingKnownTypes && _knownTypes.Length > 0) typeFormatter.Seal();
 
+            Config.Seal();
+
             void SetFormatters(Type type, IFormatter specific, IFormatter reference) { var meta = GetTypeMetaData(type); meta.SpecificFormatter = specific; meta.ReferenceFormatter = reference; }
         }
 
