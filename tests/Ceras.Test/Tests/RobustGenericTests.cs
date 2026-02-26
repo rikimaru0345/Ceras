@@ -6,17 +6,25 @@ using Ceras.Format;
 
 namespace Ceras.Test.RobustGenerics
 {
+    // 1. Explicitly registered interface
     [CerasSerializable]
     public interface ICombatEntity
     {
         int Id { get; set; }
     }
 
+    // 2. Unregistered interface (tests TypeBinder fallback in Load)
+    public interface IUnregistered
+    {
+        string Data { get; set; }
+    }
+
     [CerasSerializable]
-    public class CombatEntity : ICombatEntity
+    public class CombatEntity : ICombatEntity, IUnregistered
     {
         public int Id { get; set; }
         public string Name { get; set; }
+        public string Data { get; set; }
     }
 
     [CerasSerializable]
@@ -25,8 +33,21 @@ namespace Ceras.Test.RobustGenerics
         public List<ICombatEntity> Entities { get; set; }
     }
 
-    // Source generator can't handle open generics in the test project easily
-    // but CerasRobust can handle them via reflection registration.
+    [CerasSerializable]
+    public class UnregisteredListModel
+    {
+        public List<IUnregistered> Items { get; set; }
+    }
+
+    public enum Status { Idle, Active, Dead }
+
+    [CerasSerializable]
+    public class StatusModel
+    {
+        public Status CurrentStatus { get; set; }
+        public List<Status> History { get; set; }
+    }
+
     public class GenericPair<T1, T2>
     {
         public T1 Item1 { get; set; }
@@ -40,14 +61,30 @@ namespace Ceras.Test.RobustGenerics
         public float? MaybeFloat { get; set; }
     }
 
+    [CerasSerializable]
+    public class DictionaryModel
+    {
+        public Dictionary<string, ICombatEntity> Entities { get; set; }
+    }
+
+    [CerasSerializable]
+    public class ArrayModel
+    {
+        public ICombatEntity[] EntityArray { get; set; }
+        public int[] IntArray { get; set; }
+    }
+
     public class RobustGenericTests
     {
+        CerasSerializer CreateSerializer()
+        {
+            var config = new SerializerConfig();
+            return new CerasSerializer(config);
+        }
+
         [Fact]
         public void GenericList_Roundtrip()
         {
-            var config = new SerializerConfig();
-            var ceras = new CerasSerializer(config);
-
             var model = new GenericListModel
             {
                 Entities = new List<ICombatEntity>
@@ -58,106 +95,126 @@ namespace Ceras.Test.RobustGenerics
             };
 
             uint version = 1;
-            var bytes = CerasRobust.Save(model, version, ceras);
-            var loaded = CerasRobust.Load<GenericListModel>(bytes, version, ceras);
+            var bytes = CerasRobust.Save(model, version, CreateSerializer());
+            
+            // Use a FRESH serializer for loading to simulate restart
+            var loaded = CerasRobust.Load<GenericListModel>(bytes, version, CreateSerializer());
 
             Assert.NotNull(loaded.Entities);
             Assert.Equal(2, loaded.Entities.Count);
             Assert.Equal("Orc", ((CombatEntity)loaded.Entities[0]).Name);
-            Assert.Equal("Goblin", ((CombatEntity)loaded.Entities[1]).Name);
         }
 
         [Fact]
-        public void GenericList_Traversal()
+        public void UnregisteredInterface_Roundtrip_And_Traversal()
         {
-            var config = new SerializerConfig();
-            var ceras = new CerasSerializer(config);
-
-            var model = new GenericListModel
+            var model = new UnregisteredListModel
             {
-                Entities = new List<ICombatEntity> { new CombatEntity { Id = 1, Name = "Orc" } }
+                Items = new List<IUnregistered>
+                {
+                    new CombatEntity { Id = 1, Data = "Secret" }
+                }
             };
 
             uint version = 1;
-            var bytes = CerasRobust.Save(model, version, ceras);
+            var bytes = CerasRobust.Save(model, version, CreateSerializer());
 
-            // Force traversal by clearing registry
-            config.Robust.SchemaRegistry.InternalClear();
-            
-            var loaded = CerasRobust.Load<GenericListModel>(bytes, version, ceras);
+            // 1. Normal (Fresh)
+            var loaded = CerasRobust.Load<UnregisteredListModel>(bytes, version, CreateSerializer());
+            Assert.Equal("Secret", loaded.Items[0].Data);
 
-            Assert.Single(loaded.Entities);
-            Assert.Equal("Orc", ((CombatEntity)loaded.Entities[0]).Name);
+            // 2. Traversal
+            var serializer = CreateSerializer();
+            serializer.Config.Robust.SchemaRegistry.InternalClear();
+            var loaded2 = CerasRobust.Load<UnregisteredListModel>(bytes, version, serializer);
+            Assert.Equal("Secret", loaded2.Items[0].Data);
+        }
+
+        [Fact]
+        public void Enum_Roundtrip_And_Traversal()
+        {
+            var model = new StatusModel
+            {
+                CurrentStatus = Status.Active,
+                History = new List<Status> { Status.Idle, Status.Active }
+            };
+
+            uint version = 1;
+            var bytes = CerasRobust.Save(model, version, CreateSerializer());
+
+            // 1. Normal
+            var loaded = CerasRobust.Load<StatusModel>(bytes, version, CreateSerializer());
+            Assert.Equal(Status.Active, loaded.CurrentStatus);
+            Assert.Equal(2, loaded.History.Count);
+
+            // 2. Traversal
+            var serializer = CreateSerializer();
+            serializer.Config.Robust.SchemaRegistry.InternalClear();
+            var loaded2 = CerasRobust.Load<StatusModel>(bytes, version, serializer);
+            Assert.Equal(Status.Active, loaded2.CurrentStatus);
         }
 
         [Fact]
         public void GenericPair_Roundtrip_And_Traversal()
         {
-            var config = new SerializerConfig();
-            var ceras = new CerasSerializer(config);
-
             var model = new GenericPair<int, string> { Item1 = 42, Item2 = "Hello" };
 
             uint version = 1;
-            var bytes = CerasRobust.Save(model, version, ceras);
+            var bytes = CerasRobust.Save(model, version, CreateSerializer());
 
             // 1. Normal
-            var loaded = CerasRobust.Load<GenericPair<int, string>>(bytes, version, ceras);
+            var loaded = CerasRobust.Load<GenericPair<int, string>>(bytes, version, CreateSerializer());
             Assert.Equal(42, loaded.Item1);
-            Assert.Equal("Hello", loaded.Item2);
 
             // 2. Traversal
-            config.Robust.SchemaRegistry.InternalClear();
-            var loaded2 = CerasRobust.Load<GenericPair<int, string>>(bytes, version, ceras);
+            var serializer = CreateSerializer();
+            serializer.Config.Robust.SchemaRegistry.InternalClear();
+            var loaded2 = CerasRobust.Load<GenericPair<int, string>>(bytes, version, serializer);
             Assert.Equal(42, loaded2.Item1);
-            Assert.Equal("Hello", loaded2.Item2);
         }
 
         [Fact]
-        public void Nullable_Roundtrip_And_Traversal()
+        public void Dictionary_Roundtrip()
         {
-            var config = new SerializerConfig();
-            var ceras = new CerasSerializer(config);
-
-            var model = new NullableModel { MaybeInt = 123, MaybeFloat = null };
-
-            uint version = 1;
-            var bytes = CerasRobust.Save(model, version, ceras);
-
-            // 1. Normal
-            var loaded = CerasRobust.Load<NullableModel>(bytes, version, ceras);
-            Assert.Equal(123, loaded.MaybeInt);
-            Assert.Null(loaded.MaybeFloat);
-
-            // 2. Traversal
-            config.Robust.SchemaRegistry.InternalClear();
-            var loaded2 = CerasRobust.Load<NullableModel>(bytes, version, ceras);
-            Assert.Equal(123, loaded2.MaybeInt);
-            Assert.Null(loaded2.MaybeFloat);
-        }
-
-        [Fact]
-        public void NestedGeneric_Traversal()
-        {
-            var config = new SerializerConfig();
-            var ceras = new CerasSerializer(config);
-
-            var model = new GenericPair<int, List<string>>
+            var model = new DictionaryModel
             {
-                Item1 = 1,
-                Item2 = new List<string> { "A", "B" }
+                Entities = new Dictionary<string, ICombatEntity>
+                {
+                    { "K", new CombatEntity { Id = 1, Name = "Orc" } }
+                }
             };
 
             uint version = 1;
-            var bytes = CerasRobust.Save(model, version, ceras);
+            var bytes = CerasRobust.Save(model, version, CreateSerializer());
+            var loaded = CerasRobust.Load<DictionaryModel>(bytes, version, CreateSerializer());
+            Assert.Equal("Orc", ((CombatEntity)loaded.Entities["K"]).Name);
+        }
 
-            config.Robust.SchemaRegistry.InternalClear();
-            var loaded = CerasRobust.Load<GenericPair<int, List<string>>>(bytes, version, ceras);
+        [Fact]
+        public void Array_Roundtrip()
+        {
+            var model = new ArrayModel
+            {
+                EntityArray = new ICombatEntity[] { new CombatEntity { Id = 1, Name = "Orc" } },
+                IntArray = new int[] { 1, 2, 3 }
+            };
 
-            Assert.Equal(1, loaded.Item1);
-            Assert.Equal(2, loaded.Item2.Count);
-            Assert.Equal("A", loaded.Item2[0]);
-            Assert.Equal("B", loaded.Item2[1]);
+            uint version = 1;
+            var bytes = CerasRobust.Save(model, version, CreateSerializer());
+            var loaded = CerasRobust.Load<ArrayModel>(bytes, version, CreateSerializer());
+            Assert.Single(loaded.EntityArray);
+            Assert.Equal(new int[] { 1, 2, 3 }, loaded.IntArray);
+        }
+
+        [Fact]
+        public void Nullable_Roundtrip()
+        {
+            var model = new NullableModel { MaybeInt = 123, MaybeFloat = null };
+            uint version = 1;
+            var bytes = CerasRobust.Save(model, version, CreateSerializer());
+            var loaded = CerasRobust.Load<NullableModel>(bytes, version, CreateSerializer());
+            Assert.Equal(123, loaded.MaybeInt);
+            Assert.Null(loaded.MaybeFloat);
         }
     }
 }

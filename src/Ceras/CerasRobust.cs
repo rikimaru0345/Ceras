@@ -117,13 +117,66 @@ namespace Ceras {
 
             var idToType = new Dictionary<int, Type>();
             for (int i = 0; i < 128; i++) if (WellKnownTypes.TryGetType(i, out var wkType)) idToType[i] = wkType;
-            foreach (var s in fileSchemas.Values) {
-                try {
-                    if (registry.TryResolveType(s.StableName, out var type)) {
-                        if (type != null) idToType[s.TypeId] = type;
+
+            var typeBinder = ceras.Config.Advanced.TypeBinder;
+            var schemasById = new Dictionary<int, OldTypeSchema>();
+            foreach (var s in fileSchemas.Values) schemasById.TryAdd(s.TypeId, s);
+
+            Type ResolveById(int id)
+            {
+                if (idToType.TryGetValue(id, out var t)) return t;
+                if (!schemasById.TryGetValue(id, out var s)) return null;
+
+                // 1. Registry
+                if (registry.TryResolveType(s.StableName, out t))
+                {
+                    idToType[id] = t;
+                    return t;
+                }
+
+                // 2. Binder Fallback (for normal types / interfaces / enums)
+                if (s.Kind != SchemaTypeKind.GenericInstantiation)
+                {
+                    t = typeBinder.GetTypeFromBase(s.StableName);
+                    if (t != null)
+                    {
+                        idToType[id] = t;
+                        return t;
                     }
                 }
-                catch (Exception e) {
+                else
+                {
+                    // 3. Generic Reconstruction
+                    var defType = ResolveById(s.DefinitionTypeId);
+                    if (defType != null)
+                    {
+                        var argTypes = new Type[s.ArgTypeIds.Length];
+                        bool allResolved = true;
+                        for (int i = 0; i < s.ArgTypeIds.Length; i++)
+                        {
+                            argTypes[i] = ResolveById(s.ArgTypeIds[i]);
+                            if (argTypes[i] == null) { allResolved = false; break; }
+                        }
+                        if (allResolved)
+                        {
+                            t = defType.MakeGenericType(argTypes);
+                            idToType[id] = t;
+                            return t;
+                        }
+                    }
+                }
+
+                return null;
+            }
+
+            foreach (var s in fileSchemas.Values)
+            {
+                try
+                {
+                    ResolveById(s.TypeId);
+                }
+                catch (Exception e)
+                {
                     throw new Exception($"Error resolving type with stable name '{s.StableName}': {e.Message}", e);
                 }
             }

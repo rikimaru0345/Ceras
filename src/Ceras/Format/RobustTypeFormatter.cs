@@ -34,6 +34,14 @@ namespace Ceras.Format
                 return;
             }
 
+            // Arrays
+            if (value.IsArray)
+            {
+                SchemaSection.WriteLeb128(writer, (uint)WellKnownTypes.Array);
+                Serialize(writer, value.GetElementType());
+                return;
+            }
+
             // For closed generics that are based on well-known types (like List<int>),
             // we write the well-known ID of the base type, and then the arguments.
             if (value.IsGenericType && !value.IsGenericTypeDefinition)
@@ -98,6 +106,15 @@ namespace Ceras.Format
                 return;
             }
 
+            if (id == (uint)WellKnownTypes.Array)
+            {
+                Type elementType = null;
+                Deserialize(ref reader, ref elementType);
+                if (elementType == null) throw new Ceras.Exceptions.CerasException("Failed to deserialize element type for array");
+                value = elementType.MakeArrayType();
+                return;
+            }
+
             if (WellKnownTypes.TryGetType((int)id, out value))
             {
                 if (value.IsGenericTypeDefinition)
@@ -108,6 +125,7 @@ namespace Ceras.Format
                     {
                         Type arg = null;
                         Deserialize(ref reader, ref arg);
+                        if (arg == null) throw new Ceras.Exceptions.CerasException($"Failed to deserialize generic argument {i} for type '{value.Name}'");
                         args[i] = arg;
                     }
                     value = value.MakeGenericType(args);

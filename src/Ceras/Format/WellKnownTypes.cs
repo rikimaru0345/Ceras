@@ -145,7 +145,7 @@ namespace Ceras.Format
             if (TypeToId.TryGetValue(type, out id))
                 return true;
 
-            if (type.IsArray)
+            if (type == typeof(Array))
             {
                 id = Array;
                 return true;
