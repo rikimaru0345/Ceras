@@ -43,19 +43,20 @@ namespace Ceras {
             var buffer = new byte[4096];
             int offset = 0;
 
-            WriteHeaderPlaceholder(ref buffer, ref offset, robustVersion);
+			WriteHeaderPlaceholder(ref buffer, ref offset, robustVersion);
 
 			// Ensure the registry is sealed so that discovered generic instantiations
 			// don't affect the fingerprint.
-			registry.Seal();
-
-			int rootTypeId = GetTypeId(typeof(T), registry);
-
-			// Snapshot the fingerprint BEFORE SchemaSection.Write — Write calls ResolveId which
+			// So need to do it BEFORE SchemaSection.Write; bc it calls ResolveId which
 			// may call TryGetId for field-referenced types, triggering EnsureRegisteredRecursive
 			// and registering new generic instantiations into the registry.  The load path also
 			// computes the fingerprint before any such resolution, so both sides must use the
 			// same pre-Write baseline (the state after UseFormatters).
+			registry.Seal();
+
+			int rootTypeId = GetTypeId(typeof(T), registry);
+
+
 			ulong schemaFingerprint = registry.ComputeFingerprint();
 
             var internTable = new StringInternTable();
@@ -171,10 +172,46 @@ namespace Ceras {
             return WellKnownTypes.Null;
         }
 
-        /// <summary>
-        /// Dumps the current registry schema to a string so you can inspect it.
-        /// </summary>
-        public static string DumpSchema(SchemaRegistry registry)
+		struct NormalizedTypeSchema {
+			public int TypeId;
+			public string StableName;
+			public string[] PreviousNames;
+			public SchemaTypeKind Kind;
+			public (string Name, long Value)[] EnumValues;
+			public (string StableName, string TypeName, bool IsMono)[] Fields;
+			public string DefinitionName;
+			public string[] ArgTypeNames;
+		}
+
+		static void DumpEntry(StringBuilder sb, NormalizedTypeSchema s) {
+			switch (s.Kind) {
+				case SchemaTypeKind.Enum:
+					sb.AppendLine($"ENUM  [{s.TypeId}]  {s.StableName}");
+					if (s.EnumValues != null)
+						foreach (var ev in s.EnumValues)
+							sb.AppendLine($"      {ev.Name} = {ev.Value}");
+					break;
+
+				case SchemaTypeKind.GenericInstantiation:
+					sb.AppendLine($"GENERIC  [{s.TypeId}]  {s.StableName}  def={s.DefinitionName}  args=[{string.Join(", ", s.ArgTypeNames ?? Array.Empty<string>())}]");
+					break;
+
+				default:
+					sb.AppendLine($"{s.Kind.ToString().ToUpperInvariant()}  [{s.TypeId}]  {s.StableName}");
+					if (s.Fields != null)
+						foreach (var f in s.Fields)
+							sb.AppendLine($"      [{f.TypeName}]  {(f.IsMono ? "Mono" : "Poly")}  {f.StableName}");
+					break;
+			}
+
+			if (s.PreviousNames?.Length > 0)
+				sb.AppendLine($"      prev: {string.Join(", ", s.PreviousNames)}");
+		}
+
+		/// <summary>
+		/// Dumps the current registry schema to a string so you can inspect it.
+		/// </summary>
+		public static string DumpSchema(SchemaRegistry registry)
         {
             var sb = new StringBuilder();
             ulong currentFingerprint = registry.ComputeFingerprint();
@@ -183,94 +220,77 @@ namespace Ceras {
 
 			var allEntries = registry.All().OrderBy(e => e.info.StableName, StringComparer.Ordinal).ToList();
 			sb.AppendLine($"// Type count: {allEntries.Count}");
-            sb.AppendLine();
+			sb.AppendLine();
 
             foreach (var (type, id, info) in allEntries)
             {
-                switch (info.Kind)
-                {
-                    case SchemaTypeKind.Enum:
-                        sb.AppendLine($"ENUM  [{id}]  {info.StableName}");
-                        if (info.EnumValues != null)
-                            foreach (var ev in info.EnumValues)
-                                sb.AppendLine($"      {ev.Name} = {ev.Value}");
-                        break;
-
-                    case SchemaTypeKind.GenericInstantiation:
-                        sb.AppendLine($"GENERIC  [{id}]  {info.StableName}  def={info.UnderlyingTypeName}  args=[{string.Join(", ", info.ArgTypeNames ?? Array.Empty<string>())}]");
-                        break;
-
-                    default:
-                        sb.AppendLine($"{info.Kind.ToString().ToUpperInvariant()}  [{id}]  {info.StableName}");
-                        if (info.Fields != null)
-                            foreach (var f in info.Fields)
-								sb.AppendLine($"      [{f.TypeName}]  {(f.IsMonomorphic ? "Mono" : "Poly")}  {f.StableName}");
-						break;
-				}
-
-                if (info.PreviousTypeNames?.Length > 0)
-                    sb.AppendLine($"      prev: {string.Join(", ", info.PreviousTypeNames)}");
-            }
+				var s = new NormalizedTypeSchema {
+					TypeId = id,
+					StableName = info.StableName,
+					PreviousNames = info.PreviousTypeNames,
+					Kind = info.Kind,
+					EnumValues = info.EnumValues?.Select(ev => (ev.Name, ev.Value)).ToArray(),
+					Fields = info.Fields?.Select(f => (f.StableName, f.TypeName, f.IsMonomorphic)).ToArray(),
+					DefinitionName = info.UnderlyingTypeName,
+					ArgTypeNames = info.ArgTypeNames
+				};
+				DumpEntry(sb, s);
+			}
 
             return sb.ToString();
         }
 
-        /// <summary>
-        /// Dumps the schema from a serialized file or byte array so you can inspect it.
-        /// </summary>
-                public static string DumpSchema(byte[] data)
-                {
-                    if (data == null || data.Length < HeaderSize)
-                        return "// Invalid or empty data";
+		/// <summary>
+		/// Dumps the schema from a serialized file or byte array so you can inspect it.
+		/// </summary>
+		public static string DumpSchema(byte[] data) {
+			if (data == null || data.Length < HeaderSize)
+				return "// Invalid or empty data";
 
 			uint version = data[OffsetFormatVersion];
 			if (version != FormatVersion)
-                        return $"// Format version mismatch. File: {version}, Library: {FormatVersion}";
+				return $"// Format version mismatch. File: {version}, Library: {FormatVersion}";
 
 			ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(OffsetFingerprint));
 			long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetDataSection));
-                    long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetStringTable));
+			long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetStringTable));
 
 			var table = StringTable.Load(data, (int)stringTableOffset);
 
 			int schemaOffset = HeaderSize;
 			var sequence = new System.Buffers.ReadOnlySequence<byte>(data, schemaOffset, (int)dataSectionOffset - schemaOffset);
-                    var schemaReader = new System.Buffers.SequenceReader<byte>(sequence);
-                    var fileSchemas = SchemaSection.Read(ref schemaReader, table);
+			var schemaReader = new System.Buffers.SequenceReader<byte>(sequence);
+			var fileSchemas = SchemaSection.Read(ref schemaReader, table);
 
 			var sb = new StringBuilder();
 			sb.AppendLine($"// File fingerprint: {schemaFingerprint:X16}");
-                    uint gameVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetGameVersion));
-                    sb.AppendLine($"// Game version: {gameVersion}");
-                    sb.AppendLine($"// Type count: {fileSchemas.Count}");
-                    sb.AppendLine();
-                    foreach (var kv in fileSchemas.OrderBy(x => x.Key, StringComparer.Ordinal))
-            {
-                var s = kv.Value;
-                if (kv.Key != s.StableName) continue; // skip alias entries
+			uint gameVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetGameVersion));
+			sb.AppendLine($"// Game version: {gameVersion}");
+			sb.AppendLine($"// Type count: {fileSchemas.Count}");
+			sb.AppendLine();
 
-                switch (s.Kind)
-                {
-                    case SchemaTypeKind.Enum:
-                        sb.AppendLine($"ENUM  [{s.TypeId}]  {s.StableName}");
-                        foreach (var ev in s.EnumValues)
-                            sb.AppendLine($"      {ev.Name} = {ev.Value}");
-                        break;
+			var idToName = new Dictionary<int, string>();
+			for (int i = 0; i < 128; i++) if (WellKnownTypes.TryGetType(i, out var wkType)) idToName[i] = wkType.FullName ?? wkType.Name;
+			foreach (var s in fileSchemas.Values) idToName[s.TypeId] = s.StableName;
 
-                    case SchemaTypeKind.GenericInstantiation:
-                        sb.AppendLine($"GENERIC  [{s.TypeId}]  {s.StableName}  def={s.DefinitionTypeId}  args=[{string.Join(", ", s.ArgTypeIds)}]");
-                        break;
+			string Resolve(int id) => idToName.TryGetValue(id, out var name) ? name : $"ID:{id}";
 
-                    default:
-                        sb.AppendLine($"{s.Kind.ToString().ToUpperInvariant()}  [{s.TypeId}]  {s.StableName}");
-                        foreach (var f in s.Fields)
-							sb.AppendLine($"      [{f.TypeId}]  {(f.IsMonomorphic ? "Mono" : "Poly")}  {f.StableName}");
-						break;
-                }
+			foreach (var kv in fileSchemas.OrderBy(x => x.Key, StringComparer.Ordinal)) {
+				var fs = kv.Value;
+				if (kv.Key != fs.StableName) continue; // skip alias entries
 
-                if (s.PreviousNames.Length > 0)
-                    sb.AppendLine($"      prev: {string.Join(", ", s.PreviousNames)}");
-            }
+				var s = new NormalizedTypeSchema {
+					TypeId = fs.TypeId,
+					StableName = fs.StableName,
+					PreviousNames = fs.PreviousNames,
+					Kind = fs.Kind,
+					EnumValues = fs.EnumValues?.Select(ev => (ev.Name, ev.Value)).ToArray(),
+					Fields = fs.Fields?.Select(f => (f.StableName, Resolve(f.TypeId), f.IsMonomorphic)).ToArray(),
+					DefinitionName = Resolve(fs.DefinitionTypeId),
+					ArgTypeNames = fs.ArgTypeIds?.Select(Resolve).ToArray()
+				};
+				DumpEntry(sb, s);
+			}
 
             return sb.ToString();
         }
