@@ -51,6 +51,12 @@ namespace Ceras.SourceGenerator
             return sb.ToString();
         }
 
+        public static bool IsWellKnownType(INamedTypeSymbol type)
+        {
+            var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            return fqn.StartsWith("global::System.");
+        }
+
         public static string GetRobustName(ITypeSymbol type)
         {
             var sb = new StringBuilder();

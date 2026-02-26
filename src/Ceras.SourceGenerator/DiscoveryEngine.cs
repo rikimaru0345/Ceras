@@ -144,19 +144,7 @@ namespace Ceras.SourceGenerator
             return results;
         }
 
-        static bool IsWellKnownType(INamedTypeSymbol type)
-        {
-            var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            if (fqn.StartsWith("global::System."))
-            {
-                // Explore only if it's a collection we care about?
-                // No, we handle collections in ExploreType specifically.
-                return true;
-            }
-            return false;
-        }
-
-        static bool IsFastPrimitive(ITypeSymbol type)
+static bool IsFastPrimitive(ITypeSymbol type)
         {
             switch (type.SpecialType)
             {

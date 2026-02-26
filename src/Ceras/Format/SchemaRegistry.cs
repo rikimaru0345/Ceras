@@ -129,6 +129,23 @@ namespace Ceras.Format
             }
             else
             {
+                // Non-generic types must be pre-registered by the source-generated UseFormatters()
+                // before SchemaSection.Write runs. If we reach here after Seal(), the type was
+                // never registered at startup — its ID won't be in the schema section, so the
+                // stream would be unreadable. Throw now (at save time) with a clear message
+                // rather than silently writing corrupt data that fails to load.
+                //
+                // Exception: open generic type definitions (e.g. IEnumerable<>, IDictionary<,>)
+                // are only referenced for schema field-type metadata by SchemaSection.ResolveId,
+                // never as actual values in the data stream — so dynamic registration is fine.
+                if (IsSealed && !type.IsGenericTypeDefinition)
+                    throw new Ceras.Exceptions.CerasException(
+                        $"Type '{type.FullName}' was not pre-registered in the Ceras schema registry. " +
+                        $"It was encountered during serialization after the schema section was already written, " +
+                        $"so its ID cannot be stored — the save file would be unreadable. " +
+                        $"Fix: add [CerasSerializable] to '{type.Name}' (or to an interface/abstract base type " +
+                        $"that the source generator can discover it through) so it is registered by UseFormatters() at startup.");
+
                 Register(type, null);
             }
         }

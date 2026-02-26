@@ -66,6 +66,9 @@ namespace Ceras {
 
             RobustContext.BeginWrite(internTable, typeToId);
 
+            if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
+                Ceras.Helpers.ObjectCache.BeginSerializeTrace();
+
             var writer = new ArrayBufferWriter<byte>();
             SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
             try { ceras.Serialize(writer, rootObject); }
@@ -181,6 +184,9 @@ namespace Ceras {
                 }
             }
 
+            if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
+                Ceras.Helpers.ObjectCache.BeginDeserializeTrace();
+
             RobustContext.BeginRead(table, idToType);
             try {
                 var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, (int)stringTableOffset - (int)dataSectionOffset);
@@ -261,7 +267,18 @@ namespace Ceras {
 				sb.AppendLine($"      prev: {string.Join(", ", s.PreviousNames)}");
 		}
 
-		/// <summary>
+        // ── Reference-trace debug API ──────────────────────────────────────────────
+        public static bool DebugTraceEnabled
+        {
+            get => ObjectCache.DebugTraceEnabled;
+            set => ObjectCache.DebugTraceEnabled = value;
+        }
+
+        public static void DumpRefTraceComparison(string path)
+            => ObjectCache.DumpComparison(path);
+        // ──────────────────────────────────────────────────────────────────────────
+
+        /// <summary>
 		/// Dumps the current registry schema to a string so you can inspect it.
 		/// </summary>
 		public static string DumpSchema(SchemaRegistry registry)

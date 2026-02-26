@@ -2,11 +2,48 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Runtime.CompilerServices;
+    using System.Text;
 
     // Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
     class ObjectCache
     {
+        // ── Debug tracing ──────────────────────────────────────────────────────────
+        // Enable by setting DebugTraceEnabled = true before Save/Load.
+        // After both runs, call DumpComparison(path) to write a diff file.
+        internal static bool DebugTraceEnabled = false;
+        static readonly List<string> _serializeTrace    = new();
+        static readonly List<string> _deserializeTrace  = new();
+        static bool _traceIsSerialize; // true during Serialize, false during Deserialize
+
+        internal static void BeginSerializeTrace()   { _serializeTrace.Clear();   _traceIsSerialize = true;  }
+        internal static void BeginDeserializeTrace() { _deserializeTrace.Clear(); _traceIsSerialize = false; }
+
+        internal static void DumpComparison(string path)
+        {
+            var sb = new StringBuilder();
+            int max = Math.Max(_serializeTrace.Count, _deserializeTrace.Count);
+            int firstDiff = -1;
+            for (int i = 0; i < max; i++)
+            {
+                string s = i < _serializeTrace.Count   ? _serializeTrace[i]   : "<missing>";
+                string d = i < _deserializeTrace.Count ? _deserializeTrace[i] : "<missing>";
+                bool diff = s != d;
+                if (diff && firstDiff == -1) firstDiff = i;
+                sb.AppendLine($"{(diff ? ">>>" : "   ")} [{i:D5}]  SER={s}  |  DE={d}");
+            }
+            if (firstDiff >= 0)
+            {
+                sb.Insert(0, $"FIRST DIVERGENCE at index {firstDiff}\n\n");
+            }
+            else
+            {
+                sb.Insert(0, "No divergence found — traces are identical.\n\n");
+            }
+            File.WriteAllText(path, sb.ToString());
+        }
+        // ──────────────────────────────────────────────────────────────────────────
         // While serializing we add all encountered objects and give them an ID (their index), so when we encounter them again we can just write the index instead.
         readonly Dictionary<object, int> _serializationCache;
 
@@ -40,6 +77,9 @@
 
             _serializationCache.Add(value, id);
 
+            if (DebugTraceEnabled)
+                _serializeTrace.Add(value?.GetType().FullName ?? "null");
+
             return id;
         }
 
@@ -50,6 +90,9 @@
         {
             var p = RefProxyPool<T>.Rent();
             _deserializationCache.Add(p);
+
+            if (DebugTraceEnabled)
+                _deserializeTrace.Add(typeof(T).FullName);
 
             return p;
         }

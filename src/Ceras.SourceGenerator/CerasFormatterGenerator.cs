@@ -147,6 +147,31 @@ namespace Ceras.SourceGenerator
                 if (vt) sbUse.AppendLine($"            config.Robust.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
             }
 
+            // Register discovered interface and abstract types with minimal schemas.
+            // These types have no formatters but may appear as generic type arguments in
+            // serialized collections (e.g. List<ILogicalEntity>). Without pre-registration
+            // they get dynamically assigned IDs during serialization AFTER SchemaSection.Write
+            // has already run, so their IDs are never written to the schema section.
+            // On load, RobustContext.IdToType cannot resolve those IDs → null type →
+            // "Failed to deserialize generic argument 0 for type 'List`1'".
+            foreach (var type in finalTypes)
+            {
+                if (type.TypeKind != TypeKind.Interface && !type.IsAbstract) continue;
+                if (type.IsSealed) continue; // static classes (abstract+sealed) have no instances
+                if (IsWellKnownType(type)) continue;
+                if (type.TypeParameters.Length > 0) continue; // open generics: closed instantiations are handled at runtime
+
+                string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                string stableName = GetRobustName(type);
+                sbUse.AppendLine($"            config.Robust.SchemaRegistry.Register(typeof({typeFqn}),");
+                sbUse.AppendLine($"                new global::Ceras.Format.SchemaTypeInfo(");
+                sbUse.AppendLine($"                    stableName: {QuoteString(stableName)},");
+                sbUse.AppendLine($"                    previousTypeNames: global::System.Array.Empty<string>(),");
+                sbUse.AppendLine($"                    kind: global::Ceras.Format.SchemaTypeKind.Class,");
+                sbUse.AppendLine($"                    fields: global::System.Array.Empty<global::Ceras.Format.SchemaFieldInfo>(),");
+                sbUse.AppendLine($"                    fixedByteSize: 0));");
+            }
+
             sbUse.AppendLine("        }");
             sbUse.AppendLine("    }");
             sbUse.AppendLine("}");
