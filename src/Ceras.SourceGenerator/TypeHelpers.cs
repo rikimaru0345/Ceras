@@ -101,35 +101,44 @@ namespace Ceras.SourceGenerator
         /// Dictionary&lt;,&gt;, Queue&lt;T&gt;, Stack&lt;T&gt;) to get to the element/value type that Ceras actually
         /// needs a polymorphic formatter for.  Returns null if the type cannot be meaningfully unwrapped.
         /// </summary>
-        public static INamedTypeSymbol? UnwrapCollectionsAndNullable(ITypeSymbol type)
+        public static INamedTypeSymbol? UnwrapCollectionsAndNullable(Compilation compilation, ITypeSymbol type)
         {
             // Unwrap arrays: T[] -> T
             if (type is IArrayTypeSymbol arr)
-                return UnwrapCollectionsAndNullable(arr.ElementType);
+                return UnwrapCollectionsAndNullable(compilation, arr.ElementType);
 
             if (type is not INamedTypeSymbol named) return null;
 
             // Nullable<T> -> T
             if (named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T && named.TypeArguments.Length == 1)
-                return UnwrapCollectionsAndNullable(named.TypeArguments[0]);
+                return UnwrapCollectionsAndNullable(compilation, named.TypeArguments[0]);
 
             // Well-known single-element generic collections: List<T>, HashSet<T>, Queue<T>, Stack<T>
             if (named.IsGenericType && named.TypeArguments.Length == 1)
             {
-                var fqn = named.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                if (fqn is "global::System.Collections.Generic.List<T>"
-                        or "global::System.Collections.Generic.HashSet<T>"
-                        or "global::System.Collections.Generic.Queue<T>"
-                        or "global::System.Collections.Generic.Stack<T>")
-                    return UnwrapCollectionsAndNullable(named.TypeArguments[0]);
+                var listDef    = compilation.GetTypeByMetadataName("System.Collections.Generic.List`1");
+                var hashSetDef = compilation.GetTypeByMetadataName("System.Collections.Generic.HashSet`1");
+                var queueDef   = compilation.GetTypeByMetadataName("System.Collections.Generic.Queue`1");
+                var stackDef   = compilation.GetTypeByMetadataName("System.Collections.Generic.Stack`1");
+
+                var def = named.OriginalDefinition;
+                if (SymbolEqualityComparer.Default.Equals(def, listDef) ||
+                    SymbolEqualityComparer.Default.Equals(def, hashSetDef) ||
+                    SymbolEqualityComparer.Default.Equals(def, queueDef) ||
+                    SymbolEqualityComparer.Default.Equals(def, stackDef))
+                {
+                    return UnwrapCollectionsAndNullable(compilation, named.TypeArguments[0]);
+                }
             }
 
             // Dictionary<K,V>: unwrap the value type (keys are rarely polymorphic user types)
             if (named.IsGenericType && named.TypeArguments.Length == 2)
             {
-                var fqn = named.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                if (fqn == "global::System.Collections.Generic.Dictionary<TKey, TValue>")
-                    return UnwrapCollectionsAndNullable(named.TypeArguments[1]);
+                var dictDef = compilation.GetTypeByMetadataName("System.Collections.Generic.Dictionary`2");
+                if (SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, dictDef))
+                {
+                    return UnwrapCollectionsAndNullable(compilation, named.TypeArguments[1]);
+                }
             }
 
             return named;

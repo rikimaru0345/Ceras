@@ -186,7 +186,7 @@ namespace Ceras.SourceGenerator
                     // [Monomorphic] members: Ceras writes no type tag → no subtype registration needed.
                     if (m.IsMonomorphic) continue;
 
-                    var coreType = UnwrapCollectionsAndNullable(m.Type);
+                    var coreType = UnwrapCollectionsAndNullable(compilation, m.Type);
                     if (coreType == null) continue;
                     if (coreType.TypeKind != TypeKind.Interface && !coreType.IsAbstract) continue;
                     if (IsWellKnownOrBanned(coreType)) continue;
