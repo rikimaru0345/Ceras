@@ -48,11 +48,20 @@ namespace Ceras.Format
                 return;
             }
 
-            // Extreme fallback for unregistered types (mostly for tests or transition)
-            SchemaSection.WriteLeb128(writer, (uint)FullNameMarker);
-            var table = RobustContext.InternTable;
-            if (table == null) throw new InvalidOperationException("RobustContext not active");
-            SerializerBinary.WriteUInt32(writer, (uint)table.GetIndex(_typeBinder.GetBaseName(value)));
+            // A type that is unknown to the schema registry was encountered during serialization.
+            // This usually means a concrete subtype of a polymorphic field lacks [CerasSerializable],
+            // so no schema entry or formatter was generated for it.
+            // Failing here (at save time) gives a clear, actionable error instead of a cryptic crash
+            // later during loading (especially when the SchemaTraversalEngine is active after a schema change).
+            //
+            // Fix options:
+            //   (1) Add [CerasSerializable] to the interface/abstract base type of the field so that
+            //       all subtypes are auto-discovered and registered by the source generator.
+            //   (2) Manually register the type's formatter in UseFormatters / BuildSerializerConfig.
+            throw new Ceras.Exceptions.CerasException(
+                $"Type '{value.FullName}' is used as a polymorphic value but is not registered in the " +
+                $"Ceras schema registry. Add [CerasSerializable] to the interface or abstract base type " +
+                $"of the field that holds this value, or manually register a formatter for '{value.Name}'.");
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref Type value)

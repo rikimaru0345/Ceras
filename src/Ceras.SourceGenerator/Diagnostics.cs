@@ -117,5 +117,21 @@ namespace Ceras.SourceGenerator
             category: "Ceras.Info",
             defaultSeverity: DiagnosticSeverity.Info,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor PolymorphicFieldTypeNotSerializable = new(
+            id: "CERAS015",
+            title: "Polymorphic field type not in serialization graph",
+            messageFormat: "Member '{0}' in '{1}' has polymorphic type '{2}' (interface/abstract) not marked [CerasSerializable]. Concrete subtypes won't have formatters, causing a runtime crash. Add [CerasSerializable] to '{2}' so subtypes are auto-discovered, or add [Exclude] to the member.",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor PolymorphicFieldTypeImplicit = new(
+            id: "CERAS016",
+            title: "Polymorphic field type not explicitly marked [CerasSerializable]",
+            messageFormat: "Member '{0}' in '{1}' uses polymorphic type '{2}' (interface/abstract) which is not directly marked [CerasSerializable]. Subtypes are auto-discovered via member propagation, but this is implicit and fragile. Add [CerasSerializable] to '{2}' to make the intent clear.",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Warning,
+            isEnabledByDefault: true);
     }
 }

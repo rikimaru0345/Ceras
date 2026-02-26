@@ -95,5 +95,55 @@ namespace Ceras.SourceGenerator
             }
             return false;
         }
+
+        /// <summary>
+        /// Peels away Nullable&lt;T&gt;, arrays, and well-known generic collections (List&lt;T&gt;, HashSet&lt;T&gt;,
+        /// Dictionary&lt;,&gt;, Queue&lt;T&gt;, Stack&lt;T&gt;) to get to the element/value type that Ceras actually
+        /// needs a polymorphic formatter for.  Returns null if the type cannot be meaningfully unwrapped.
+        /// </summary>
+        public static INamedTypeSymbol? UnwrapCollectionsAndNullable(ITypeSymbol type)
+        {
+            // Unwrap arrays: T[] -> T
+            if (type is IArrayTypeSymbol arr)
+                return UnwrapCollectionsAndNullable(arr.ElementType);
+
+            if (type is not INamedTypeSymbol named) return null;
+
+            // Nullable<T> -> T
+            if (named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T && named.TypeArguments.Length == 1)
+                return UnwrapCollectionsAndNullable(named.TypeArguments[0]);
+
+            // Well-known single-element generic collections: List<T>, HashSet<T>, Queue<T>, Stack<T>
+            if (named.IsGenericType && named.TypeArguments.Length == 1)
+            {
+                var fqn = named.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                if (fqn is "global::System.Collections.Generic.List<T>"
+                        or "global::System.Collections.Generic.HashSet<T>"
+                        or "global::System.Collections.Generic.Queue<T>"
+                        or "global::System.Collections.Generic.Stack<T>")
+                    return UnwrapCollectionsAndNullable(named.TypeArguments[0]);
+            }
+
+            // Dictionary<K,V>: unwrap the value type (keys are rarely polymorphic user types)
+            if (named.IsGenericType && named.TypeArguments.Length == 2)
+            {
+                var fqn = named.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                if (fqn == "global::System.Collections.Generic.Dictionary<TKey, TValue>")
+                    return UnwrapCollectionsAndNullable(named.TypeArguments[1]);
+            }
+
+            return named;
+        }
+
+        /// <summary>
+        /// Returns true for types that Ceras handles natively (System.* well-known types) and therefore
+        /// don't need a user-side [CerasSerializable] entry in the discovery graph.
+        /// </summary>
+        public static bool IsWellKnownOrBanned(INamedTypeSymbol type)
+        {
+            if (type.SpecialType != SpecialType.None) return true; // primitives, string, object, …
+            var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            return fqn.StartsWith("global::System.");
+        }
     }
 }

@@ -194,9 +194,9 @@ namespace Ceras {
                         sb.AppendLine($"{info.Kind.ToString().ToUpperInvariant()}  [{id}]  {info.StableName}");
                         if (info.Fields != null)
                             foreach (var f in info.Fields)
-                                sb.AppendLine($"      [{f.TypeName}]  {(f.IsMonomorphic ? "M" : "P")}  {f.StableName}");
-                        break;
-                }
+								sb.AppendLine($"      [{f.TypeName}]  {(f.IsMonomorphic ? "Mono" : "Poly")}  {f.StableName}");
+						break;
+				}
 
                 if (info.PreviousTypeNames?.Length > 0)
                     sb.AppendLine($"      prev: {string.Join(", ", info.PreviousTypeNames)}");
@@ -208,32 +208,33 @@ namespace Ceras {
         /// <summary>
         /// Dumps the schema from a serialized file or byte array so you can inspect it.
         /// </summary>
-        public static string DumpSchema(byte[] data)
-        {
-            if (data == null || data.Length < HeaderSize)
-                return "// Invalid or empty data";
-
-            uint version = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetFormatVersion));
-            if (version != FormatVersion)
-                return $"// Format version mismatch. File: {version}, Library: {FormatVersion}";
-
-            ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(OffsetFingerprint));
-            long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetDataSection));
-            long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetStringTable));
-
-            var table = StringTable.Load(data, (int)stringTableOffset);
-
-            int schemaOffset = HeaderSize;
-            var sequence = new System.Buffers.ReadOnlySequence<byte>(data, schemaOffset, (int)dataSectionOffset - schemaOffset);
-            var schemaReader = new System.Buffers.SequenceReader<byte>(sequence);
-            var fileSchemas = SchemaSection.Read(ref schemaReader, table);
-
-            var sb = new StringBuilder();
-            sb.AppendLine($"// File fingerprint: {schemaFingerprint:X16}");
-            sb.AppendLine($"// Type count: {fileSchemas.Count}");
-            sb.AppendLine();
-
-            foreach (var kv in fileSchemas.OrderBy(x => x.Key, StringComparer.Ordinal))
+                public static string DumpSchema(byte[] data)
+                {
+                    if (data == null || data.Length < HeaderSize)
+                        return "// Invalid or empty data";
+        
+                    uint version = data[OffsetFormatVersion];
+                    if (version != FormatVersion)
+                        return $"// Format version mismatch. File: {version}, Library: {FormatVersion}";
+        
+                    ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(OffsetFingerprint));
+                    long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetDataSection));
+                    long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetStringTable));
+        
+                    var table = StringTable.Load(data, (int)stringTableOffset);
+        
+                    int schemaOffset = HeaderSize;
+                    var sequence = new System.Buffers.ReadOnlySequence<byte>(data, schemaOffset, (int)dataSectionOffset - schemaOffset);
+                    var schemaReader = new System.Buffers.SequenceReader<byte>(sequence);
+                    var fileSchemas = SchemaSection.Read(ref schemaReader, table);
+        
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"// File fingerprint: {schemaFingerprint:X16}");
+                    uint gameVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetGameVersion));
+                    sb.AppendLine($"// Game version: {gameVersion}");
+                    sb.AppendLine($"// Type count: {fileSchemas.Count}");
+                    sb.AppendLine();
+                    foreach (var kv in fileSchemas.OrderBy(x => x.Key, StringComparer.Ordinal))
             {
                 var s = kv.Value;
                 if (kv.Key != s.StableName) continue; // skip alias entries
@@ -253,8 +254,8 @@ namespace Ceras {
                     default:
                         sb.AppendLine($"{s.Kind.ToString().ToUpperInvariant()}  [{s.TypeId}]  {s.StableName}");
                         foreach (var f in s.Fields)
-                            sb.AppendLine($"      [{f.TypeId}]  {(f.IsMonomorphic ? "M" : "P")}  {f.StableName}");
-                        break;
+							sb.AppendLine($"      [{f.TypeId}]  {(f.IsMonomorphic ? "Mono" : "Poly")}  {f.StableName}");
+						break;
                 }
 
                 if (s.PreviousNames.Length > 0)

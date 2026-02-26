@@ -176,6 +176,45 @@ namespace Ceras.SourceGenerator
                     context.ReportDiagnostic(Diagnostic.Create(Diag.NoSerializableMembers, type.Locations.FirstOrDefault(), type.Name));
                 }
 
+                // CERAS015 / CERAS016: Check that every polymorphic field/property type is properly
+                // registered for serialization.  Polymorphic fields (interface or abstract class) need
+                // [CerasSerializable] on the declared type so Ceras can discover and register all concrete
+                // subtypes.  Without it, saving works accidentally (name written to stream) but loading
+                // after any schema change causes a cryptic null-type-name crash deep inside Ceras.
+                foreach (var m in members)
+                {
+                    // [Monomorphic] members: Ceras writes no type tag → no subtype registration needed.
+                    if (m.IsMonomorphic) continue;
+
+                    var coreType = UnwrapCollectionsAndNullable(m.Type);
+                    if (coreType == null) continue;
+                    if (coreType.TypeKind != TypeKind.Interface && !coreType.IsAbstract) continue;
+                    if (IsWellKnownOrBanned(coreType)) continue;
+
+                    var memberLocation = type.Locations.FirstOrDefault();
+                    var memberDisplay  = m.Name;
+                    var typeDisplay    = type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                    var coreDisplay    = coreType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+
+                    if (!results.ContainsKey(coreType))
+                    {
+                        // Hard error: type is completely outside the serialization graph.
+                        // Concrete subtypes will have NO formatters at all.
+                        context.ReportDiagnostic(Diagnostic.Create(
+                            Diag.PolymorphicFieldTypeNotSerializable,
+                            memberLocation, memberDisplay, typeDisplay, coreDisplay));
+                    }
+                    else if (!HasAttribute(coreType, cerasSerializableAttr))
+                    {
+                        // Soft warning: type is in the graph only via member propagation, not explicitly tagged.
+                        // Subtypes ARE discovered, but the setup is implicit and breaks if the type is removed
+                        // from the member list or if discovery logic changes.
+                        context.ReportDiagnostic(Diagnostic.Create(
+                            Diag.PolymorphicFieldTypeImplicit,
+                            memberLocation, memberDisplay, typeDisplay, coreDisplay));
+                    }
+                }
+
                 foreach (var m in members)
                 {
                     if (MemberExplorer.NeedsAccessHelper(m))
