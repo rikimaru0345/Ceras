@@ -61,10 +61,10 @@ namespace Ceras.Format
         {
             var sequence = new ReadOnlySequence<byte>(data, offset, data.Length - offset);
             var reader = new SequenceReader<byte>(sequence);
-            
-            T result = ReadRoot<T>(ref reader);
-            
-            offset += (int)reader.Consumed;
+
+			T result = ReadRoot<T>(ref reader);
+
+			offset += (int)reader.Consumed;
             return result;
         }
 
@@ -89,8 +89,8 @@ namespace Ceras.Format
                     if (_oldByName.ContainsKey(prev))
                         return prev;
             }
-            return t.FullName ?? t.Name; 
-        }
+			return t.FullName ?? t.Name;
+		}
 
         // ── Core dispatch ─────────────────────────────────────────────────────
 
@@ -212,11 +212,8 @@ namespace Ceras.Format
                 // but for now let's just create an uninitialized object if it's a class.
                 object obj = RuntimeHelpers.GetUninitializedObject(type);
                 _objectCache.Add(obj);
-                // We don't have a schema, so we can't read fields unless they are written in a specific way.
-                // But RobustTypeFormatter fallback writes the fields using Ceras standard format!
-                // Wait! SchemaTraversalEngine DOES NOT support reading standard format!
-                // It only supports robust format.
-                Console.WriteLine($"DEBUG: FullName fallback for '{typeName}' - limited support in SchemaTraversalEngine");
+				// We don't have a schema, so we can't read fields unless they are written in a specific way.
+				Console.WriteLine($"DEBUG: FullName fallback for '{typeName}' - limited support in SchemaTraversalEngine");
                 return obj;
             }
 
@@ -307,8 +304,8 @@ namespace Ceras.Format
             var arr = Array.CreateInstance(elementType, (int)count);
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
 
-            for (int i = 0; i < count; i++) 
-            {
+			for (int i = 0; i < count; i++)
+			{
                 var val = ReadValue(oldElemTypeId.Value, elementType, ref reader);
                 arr.SetValue(Coerce(val, coerce, elementType), i);
             }
@@ -327,8 +324,8 @@ namespace Ceras.Format
             var list = (System.Collections.IList)Activator.CreateInstance(targetType);
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
 
-            for (int i = 0; i < count; i++) 
-            {
+			for (int i = 0; i < count; i++)
+			{
                 var val = ReadValue(oldElemTypeId.Value, elementType, ref reader);
                 list.Add(Coerce(val, coerce, elementType));
             }
@@ -355,8 +352,8 @@ namespace Ceras.Format
             var kCoerce = MigrationPlanBuilder.DetectCoercion(oldKeyTid.Value, keyType);
             var vCoerce = MigrationPlanBuilder.DetectCoercion(oldValTid.Value, valType);
 
-            for (int i = 0; i < count; i++) 
-            {
+			for (int i = 0; i < count; i++)
+			{
                 var k = ReadValue(oldKeyTid.Value, keyType, ref reader);
                 var v = ReadValue(oldValTid.Value, valType, ref reader);
                 dict.Add(Coerce(k, kCoerce, keyType), Coerce(v, vCoerce, valType));
@@ -377,8 +374,8 @@ namespace Ceras.Format
             var addMethod = targetType.GetMethod("Add", new[] { elementType });
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
 
-            for (int i = 0; i < count; i++) 
-            {
+			for (int i = 0; i < count; i++)
+			{
                 var val = ReadValue(oldElemTypeId.Value, elementType, ref reader);
                 addMethod.Invoke(set, new[] { Coerce(val, coerce, elementType) });
             }
@@ -398,8 +395,8 @@ namespace Ceras.Format
             var enqueueMethod = targetType.GetMethod("Enqueue", new[] { elementType });
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
 
-            for (int i = 0; i < count; i++) 
-            {
+			for (int i = 0; i < count; i++)
+			{
                 var val = ReadValue(oldElemTypeId.Value, elementType, ref reader);
                 enqueueMethod.Invoke(queue, new[] { Coerce(val, coerce, elementType) });
             }
@@ -418,8 +415,8 @@ namespace Ceras.Format
             var values = new object[count];
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
 
-            for (int i = 0; i < count; i++) 
-            {
+			for (int i = 0; i < count; i++)
+			{
                 var val = ReadValue(oldElemTypeId.Value, elementType, ref reader);
                 values[i] = Coerce(val, coerce, elementType);
             }
@@ -466,9 +463,9 @@ namespace Ceras.Format
                 case SchemaTypeKind.Class: SkipPolymorphicValue(typeId, ref reader); break;
                 case SchemaTypeKind.Enum: SkipEnumValue(oldSchema, ref reader); break;
                 case SchemaTypeKind.GenericInstantiation:
-                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Array || oldSchema.DefinitionTypeId == WellKnownTypes.List || 
-                        oldSchema.DefinitionTypeId == WellKnownTypes.HashSet || oldSchema.DefinitionTypeId == WellKnownTypes.Queue || 
-                        oldSchema.DefinitionTypeId == WellKnownTypes.Stack)
+					if (oldSchema.DefinitionTypeId == WellKnownTypes.Array || oldSchema.DefinitionTypeId == WellKnownTypes.List ||
+						oldSchema.DefinitionTypeId == WellKnownTypes.HashSet || oldSchema.DefinitionTypeId == WellKnownTypes.Queue ||
+						oldSchema.DefinitionTypeId == WellKnownTypes.Stack)
                     {
                         uint count = SerializerBinary.ReadUInt32(ref reader);
                         int? elemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;

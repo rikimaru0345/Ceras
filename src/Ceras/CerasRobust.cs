@@ -54,10 +54,17 @@ namespace Ceras
             var internTable = new StringInternTable();
             var typeToId = SchemaSection.Write(ref buffer, ref offset, registry, internTable);
 
+            // Snapshot the fingerprint NOW — before ceras.Serialize runs, because serialization
+            // may call TryGetId for concrete generic types it encounters, which registers them
+            // into the registry and invalidates the fingerprint.  The load path computes the
+            // fingerprint from the same pre-serialization registry state (after UseFormatters),
+            // so both sides must agree on the same snapshot.
+            ulong schemaFingerprint = registry.ComputeFingerprint();
+
             int dataStart = offset;
-            
+
             RobustContext.BeginWrite(internTable, typeToId);
-            
+
             var writer = new ArrayBufferWriter<byte>();
             SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
             try { ceras.Serialize(writer, rootObject); }
@@ -69,7 +76,7 @@ namespace Ceras
             offset += data.Length;
 
             int stringTableStart = internTable.Flush(ref buffer, ref offset);
-            PatchHeader(buffer, offset, robustVersion, dataStart, stringTableStart, registry);
+            PatchHeader(buffer, offset, robustVersion, dataStart, stringTableStart, schemaFingerprint);
             return buffer[..offset];
         }
 
@@ -153,9 +160,9 @@ namespace Ceras
             offset += HeaderSize;
         }
 
-        static void PatchHeader(byte[] buffer, int totalLength, uint robustVersion, long dataSectionOffset, long stringTableOffset, SchemaRegistry registry)
+        static void PatchHeader(byte[] buffer, int totalLength, uint robustVersion, long dataSectionOffset, long stringTableOffset, ulong schemaFingerprint)
         {
-            BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(OffsetFingerprint), registry.ComputeFingerprint());
+            BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(OffsetFingerprint), schemaFingerprint);
             BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(OffsetDataSection), dataSectionOffset);
             BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(OffsetStringTable), stringTableOffset);
             BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(OffsetChecksum), 0);
