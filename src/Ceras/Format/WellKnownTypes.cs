@@ -151,12 +151,11 @@ namespace Ceras.Format
                 return true;
             }
 
-            if (type.IsGenericType)
+            if (type.IsGenericType && type.IsGenericTypeDefinition)
             {
-                var def = type.GetGenericTypeDefinition();
-                if (GenericDefToId.TryGetValue(def, out id))
+                if (GenericDefToId.TryGetValue(type, out id))
                     return true;
-                if (TupleDefToId.TryGetValue(def, out id))
+                if (TupleDefToId.TryGetValue(type, out id))
                     return true;
             }
 

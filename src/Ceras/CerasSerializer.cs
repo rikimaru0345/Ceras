@@ -32,9 +32,9 @@ namespace Ceras
         internal static bool IsFormatterConstructed(Type type)
         {
             if (type.IsAbstract) return true;
-            
-            // Check manual registration (The source generator calls AddFormatterConstructedType during UseFormatters)
-            lock (_formatterConstructedTypes)
+
+			// Check manual registration (The source generator calls AddFormatterConstructedType during UseFormatters)
+			lock (_formatterConstructedTypes)
             {
                 if (_formatterConstructedTypes.Contains(type)) return true;
             }
@@ -119,8 +119,16 @@ namespace Ceras
             PrepareFormatter(stringFormatter);
             SetFormatters(typeof(string), stringFormatter, stringFormatter);
 
-            var typeFormatter = new TypeFormatter(this);
-            var runtimeType = GetType().GetType();
+			IFormatter typeFormatter;
+			var typeTypeConfig = Config.GetExistingTypeConfig(typeof(Type), false);
+			if (typeTypeConfig?.CustomFormatter != null) {
+				typeFormatter = typeTypeConfig.CustomFormatter;
+				PrepareFormatter(typeFormatter);
+			}
+			else {
+				typeFormatter = new TypeFormatter(this);
+			}
+			var runtimeType = GetType().GetType();
             SetFormatters(typeof(Type), typeFormatter, typeFormatter);
             SetFormatters(runtimeType, typeFormatter, typeFormatter);
             _resolvers.Add(new ReflectionFormatterResolver(this));
@@ -133,9 +141,9 @@ namespace Ceras
 
             _instanceDataPool = new NoLockFactoryPool<InstanceData>(() => new InstanceData { ObjectCache = new ObjectCache(Config.Advanced.ObjectCacheComparer), TypeCache = new TypeCache(_knownTypes), EncounteredSchemaTypes = new HashSet<Type>() });
             InstanceData = _instanceDataPool.RentObject();
-            if (Config.Advanced.SealTypesWhenUsingKnownTypes && _knownTypes.Length > 0) typeFormatter.Seal();
+			if (Config.Advanced.SealTypesWhenUsingKnownTypes && _knownTypes.Length > 0 && typeFormatter is TypeFormatter tf) tf.Seal();
 
-            Config.Seal();
+			Config.Seal();
 
             void SetFormatters(Type type, IFormatter specific, IFormatter reference) { var meta = GetTypeMetaData(type); meta.SpecificFormatter = specific; meta.ReferenceFormatter = reference; }
         }
@@ -293,8 +301,14 @@ namespace Ceras
         IFormatter GetSpecificFormatter(Type type, TypeMetaData meta)
         {
             if (meta.SpecificFormatter != null) return meta.SpecificFormatter;
-            if (type.IsAbstract() || type.IsInterface || type.ContainsGenericParameters) throw new InvalidOperationException("Abstract/Interface/OpenGeneric not supported");
-            if (!meta.IsPrimitive && meta.TypeConfig.CustomFormatter != null) { meta.SpecificFormatter = meta.TypeConfig.CustomFormatter; FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type); PrepareFormatter(meta.SpecificFormatter); return meta.SpecificFormatter; }
+
+			if (type.IsAbstract() || type.IsInterface || type.ContainsGenericParameters) {
+				var msg = $"Type '{type.FriendlyName()}' is abstract, an interface, or an open generic type, and cannot be serialized directly.\n" +
+						  $"Metadata: IsAbstract={type.IsAbstract()}, IsInterface={type.IsInterface}, ContainsGenericParameters={type.ContainsGenericParameters}, IsFrameworkType={meta.IsFrameworkType}, IsPrimitive={meta.IsPrimitive}";
+				throw new InvalidOperationException(msg);
+			}
+
+			if (!meta.IsPrimitive && meta.TypeConfig.CustomFormatter != null) { meta.SpecificFormatter = meta.TypeConfig.CustomFormatter; FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type); PrepareFormatter(meta.SpecificFormatter); return meta.SpecificFormatter; }
             if (!meta.IsPrimitive && meta.TypeConfig.CustomResolver != null) { var f = meta.TypeConfig.CustomResolver(this, type); meta.SpecificFormatter = f ?? throw new InvalidOperationException("Null formatter"); FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type); PrepareFormatter(meta.SpecificFormatter); return meta.SpecificFormatter; }
             if (!meta.IsPrimitive) foreach (var r in _userResolvers) { var f = r(this, type); if (f != null) { meta.SpecificFormatter = f; FormatterHelper.ThrowOnMismatch(f, type); PrepareFormatter(f); return f; } }
             foreach (var r in _resolvers) { var f = r.GetFormatter(type); if (f != null) { meta.SpecificFormatter = f; PrepareFormatter(f); return f; } }
@@ -311,11 +325,11 @@ namespace Ceras
             if (meta != null)
                 return meta;
 
-            // If it's a banned type, we still create metadata for it, 
-            // but we might want to flag it or handle it specifically.
-            // BannedTypes.ThrowIfBanned(type); 
+			// If it's a banned type, we still create metadata for it,
+			// but we might want to flag it or handle it specifically.
+			// BannedTypes.ThrowIfBanned(type);
 
-            bool isPrim = IsPrimitiveType(type), isFrame = _frameworkAssemblies.Contains(type.Assembly);
+			bool isPrim = IsPrimitiveType(type), isFrame = _frameworkAssemblies.Contains(type.Assembly);
             meta = new TypeMetaData(type, isPrim ? null : Config.GetTypeConfig(type, isStatic), isFrame, isPrim);
             if (!isPrim)
                 meta.PrimarySchema = CreatePrimarySchema(type, isStatic);
@@ -358,14 +372,14 @@ namespace Ceras
                     if (getter != null && getter.IsStatic != isStatic) continue;
                 }
 
-                // IF the member is not accessible, but it's explicitly included (via attribute or config), 
-                // we still can't support it in "Byte Identical" mode with the generator, 
-                // but we should support it in ReflectionFallbackFormatter if it's NOT in that mode.
-                // For now, to pass tests that depend on private members (like Issue25),
-                // we'll allow it if it's NOT a Robust format scenario.
-                // Wait, the user said "Fast networking mode May not be stable from one compile to the next".
-                // So let's allow private members if they were explicitly included.
-                if (!isAccessible)
+				// IF the member is not accessible, but it's explicitly included (via attribute or config),
+				// we still can't support it in "Byte Identical" mode with the generator,
+				// but we should support it in ReflectionFallbackFormatter if it's NOT in that mode.
+				// For now, to pass tests that depend on private members (like Issue25),
+				// we'll allow it if it's NOT a Robust format scenario.
+				// Wait, the user said "Fast networking mode May not be stable from one compile to the next".
+				// So let's allow private members if they were explicitly included.
+				if (!isAccessible)
                 {
                     // If it was explicitly included, we allow it.
                     if (!mc.ComputeFinalInclusionFast())

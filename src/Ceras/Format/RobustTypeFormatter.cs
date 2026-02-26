@@ -34,6 +34,22 @@ namespace Ceras.Format
                 return;
             }
 
+            // For closed generics that are based on well-known types (like List<int>),
+            // we write the well-known ID of the base type, and then the arguments.
+            if (value.IsGenericType && !value.IsGenericTypeDefinition)
+            {
+                var def = value.GetGenericTypeDefinition();
+                if (WellKnownTypes.TryGetId(def, out wkId))
+                {
+                    SchemaSection.WriteLeb128(writer, (uint)wkId);
+                    var args = value.GetGenericArguments();
+                    SchemaSection.WriteLeb128(writer, (uint)args.Length);
+                    foreach (var arg in args)
+                        Serialize(writer, arg);
+                    return;
+                }
+            }
+
             var typeToId = RobustContext.TypeToId;
             if (typeToId != null && typeToId.TryGetValue(value, out int id))
             {
@@ -83,7 +99,21 @@ namespace Ceras.Format
             }
 
             if (WellKnownTypes.TryGetType((int)id, out value))
+            {
+                if (value.IsGenericTypeDefinition)
+                {
+                    uint argCount = SchemaSection.ReadLeb128(ref reader);
+                    Type[] args = new Type[argCount];
+                    for (int i = 0; i < argCount; i++)
+                    {
+                        Type arg = null;
+                        Deserialize(ref reader, ref arg);
+                        args[i] = arg;
+                    }
+                    value = value.MakeGenericType(args);
+                }
                 return;
+            }
 
             var idToType = RobustContext.IdToType;
             if (idToType != null)

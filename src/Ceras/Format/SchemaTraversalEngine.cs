@@ -288,7 +288,24 @@ namespace Ceras.Format
             if (oldSchema.DefinitionTypeId == WellKnownTypes.HashSet) return ReadHashSet(oldSchema, targetType, ref reader);
             if (oldSchema.DefinitionTypeId == WellKnownTypes.Queue) return ReadQueue(oldSchema, targetType, ref reader);
             if (oldSchema.DefinitionTypeId == WellKnownTypes.Stack) return ReadStack(oldSchema, targetType, ref reader);
-            return null;
+
+            // Arbitrary generic class or struct
+            _plans.TryGetValue(oldSchema.StableName, out var plan);
+            Type currentType = plan?.CurrentType ?? targetType;
+
+            if (currentType != null && currentType.IsValueType)
+            {
+                object structObj = CreateInstance(currentType);
+                ReadAndApplyFields(oldSchema, plan, structObj, ref reader);
+                return structObj;
+            }
+
+            object obj = CreateInstance(currentType);
+            int cacheIndex = _objectCache.Count;
+            _objectCache.Add(obj);
+            ReadAndApplyFields(oldSchema, plan, obj, ref reader);
+            _objectCache[cacheIndex] = obj;
+            return obj;
         }
 
         object ReadArray(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
