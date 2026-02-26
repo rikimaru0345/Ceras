@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 namespace Ceras
@@ -27,6 +27,12 @@ namespace Ceras
             //
             // Constructor
             ApplyConstructorDefaults(typeConfig);
+
+            //
+            // Special case: Struct with auto-properties
+            // We do this after ApplyConstructorDefaults because if a constructor was found,
+            // the struct might be serializable even if it only has auto-properties.
+            CheckStructWithAutoProps(typeConfig);
 
             //
             // Set default values from attributes
@@ -72,8 +78,9 @@ namespace Ceras
                 if (selectedCtor == null)
                 {
                     // 3. Heuristic: Find the ctor with most parameters that can be fully satisfied by serializable members
+                    // We must use all members here because some might be excluded by default but COULD be included if they match a ctor param
                     var allCtors = type.GetConstructors(BindingFlagsCtor).OrderByDescending(c => c.GetParameters().Length).ToList();
-                    var members = typeConfig.Members.Where(m => m.ComputeFinalInclusionFast()).ToList();
+                    var members = typeConfig._allMembers;
 
                     foreach (var c in allCtors)
                     {
@@ -114,6 +121,30 @@ namespace Ceras
                 typeConfig.TypeConstruction = ConstructNull.Instance;
         }
 
+        internal static void CheckStructWithAutoProps(TypeConfig typeConfig)
+        {
+            var type = typeConfig.Type;
+            if (type.IsValueType && typeConfig.Config.Warnings.ExceptionOnStructWithAutoProperties)
+            {
+                var allDataMembers = type.GetAllDataMembers().ToArray();
+                var autoProps = allDataMembers.OfType<PropertyInfo>().Where(p =>
+                {
+                    var get = p.GetGetMethod(true);
+                    return get != null && get.GetCustomAttribute<System.Runtime.CompilerServices.CompilerGeneratedAttribute>() != null;
+                }).ToArray();
+
+                // If all members are auto-props (which are excluded by default), give a better error
+                if (allDataMembers.Length > 0 && allDataMembers.Length == autoProps.Length)
+                {
+                    var msg = $"The struct '{type.FriendlyName()}' cannot be serialized because it only consists of auto-properties. " +
+                              "Ceras serializes structs by their fields, but auto-properties use hidden backing-fields that are excluded by default. " +
+                              "To fix this, either: 1. Use normal fields, 2. Add [CerasSerializable] and use the source generator, or 3. Disable this warning in SerializerConfig.Warnings.";
+
+                    throw new TargetInvocationException(new Exception(msg));
+                }
+            }
+        }
+
         // Use attributes on the members to further specialize the settings.
         // We're only setting some *defaults* here, that can later be overriden some more.
         internal static void ApplyMemberAttributes(MemberConfig memberConfig)
@@ -145,10 +176,14 @@ namespace Ceras
                 memberConfig.ReadonlyFieldHandling = readOnlyConfig.ReadonlyFieldHandling;
 
                 // Getter-only fields (readonly) are allowed if they are reference types
+                // or if we are using ForcedOverwrite
                 if (memberConfig.IsReadonlyField && memberConfig.MemberType.IsValueType)
                 {
-                    memberConfig.ExcludeWithReason("Readonly field of value type (cannot be populated in-place)");
-                    return;
+                    if (memberConfig.ComputeReadonlyHandling() != ReadonlyFieldHandling.ForcedOverwrite)
+                    {
+                        memberConfig.ExcludeWithReason("Readonly field of value type (cannot be populated in-place)");
+                        return;
+                    }
                 }
             }
             else if (memberInfo is PropertyInfo p)
@@ -217,6 +252,14 @@ namespace Ceras
                 if (m.MemberType.IsValueType)
                 {
                     m.ExcludeWithReason("Getter-only property of value type (cannot be populated in-place)");
+                    return true;
+                }
+
+                // If it's a reference type, we can populate it in-place IF we are in the right mode
+                var handling = m.ComputeReadonlyHandling();
+                if (handling != ReadonlyFieldHandling.Members && handling != ReadonlyFieldHandling.ForcedOverwrite)
+                {
+                    m.ExcludeWithReason("Getter-only property of reference type (can only be populated if ReadonlyFieldHandling is set to 'Members')");
                     return true;
                 }
             }

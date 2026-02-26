@@ -174,6 +174,7 @@ namespace Ceras.SourceGenerator
                             string getAccess = GetGetAccess(m, typeFqn);
                             string tmp = "_m_" + m.Name;
                             sb.AppendLine($"            {memberTypeFqn} {tmp} = {getAccess};");
+                            sb.AppendLine($"            if ({tmp} == null) throw new global::System.InvalidOperationException($\"Cannot deserialize getter-only member '{m.Name}' of type '{{typeof({typeFqn}).FullName}}' because it is null. In 'Members' mode, Ceras populates existing objects in-place and cannot assign a new reference to a getter-only member. Ensure the field or property is initialized (e.g. '= []' or '= new ...()') before deserialization, or use [Exclude] to skip it.\");");
                             sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
                         }
                         else
@@ -422,6 +423,12 @@ namespace Ceras.SourceGenerator
                     if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, generateFmtAttr)) continue;
                     if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is string sn && !string.IsNullOrEmpty(sn))
                         return sn;
+
+                    foreach (var na in attr.NamedArguments)
+                        if (na.Key == "StableName" && na.Value.Value is string sn2 && !string.IsNullOrEmpty(sn2))
+                            return sn2;
+
+                    return type.Name;
                 }
             }
             return GetRobustName(type);

@@ -217,6 +217,8 @@
 
         internal void VerifyConstructionMethod()
         {
+            TypeConfigDefaults.CheckStructWithAutoProps(this);
+
             if (TypeConstruction == null)
                 throw new CerasException($"You have not configured a construction mode for the type '{Type.FullName}' and it has no parameterless constructor. There are many ways Ceras can handle this, select one of the methods in the TypeConfig ('config.ConfigType<YourType>().ConstructBy(...)')");
 

@@ -8,22 +8,22 @@
     using Exceptions;
     using Helpers;
 
-    /// <summary>
-    /// Allows detailed configuration of the <see cref="CerasSerializer"/>. Advanced options can be found inside <see cref="Advanced"/>
-    ///
-    /// <para>
-    /// Keep in mind that changes to the config will make previously serialized data incompatible.
-    /// Or in other words: when you serialize something with one specific 'SerializerConfig' and you then later change some settings, you won't be able to deserialize the data again.
-    /// The SerializerConfig must be configured with the exact same settings!
-    /// There are some exceptions where settings-changes won't cause any issues, but they are not exactly common and you shouldn't rely on them.
-    /// </para>
-    /// 
-    /// <para>
-    /// For performance reasons <see cref="CerasSerializer"/>, <see cref="SerializerConfig"/>, and <see cref="TypeConfig"/> are not thread-safe!
-    /// You shouldn't share a single instance of a SerializerConfig either
-    /// </para>
-    /// </summary>
-    public class SerializerConfig : IAdvancedConfig, ISizeLimitsConfig, IWarningConfig, IRobustConfig
+	/// <summary>
+	/// Allows detailed configuration of the <see cref="CerasSerializer"/>. Advanced options can be found inside <see cref="Advanced"/>
+	///
+	/// <para>
+	/// Keep in mind that changes to the config will make previously serialized data incompatible.
+	/// Or in other words: when you serialize something with one specific 'SerializerConfig' and you then later change some settings, you won't be able to deserialize the data again.
+	/// The SerializerConfig must be configured with the exact same settings!
+	/// There are some exceptions where settings-changes won't cause any issues, but they are not exactly common and you shouldn't rely on them.
+	/// </para>
+	///
+	/// <para>
+	/// For performance reasons <see cref="CerasSerializer"/>, <see cref="SerializerConfig"/>, and <see cref="TypeConfig"/> are not thread-safe!
+	/// You shouldn't share a single instance of a SerializerConfig either
+	/// </para>
+	/// </summary>
+	public class SerializerConfig : IAdvancedConfig, ISizeLimitsConfig, IWarningConfig, IRobustConfig
     {
         bool _isSealed; // todo
         internal bool IsSealed => _isSealed;
@@ -50,28 +50,28 @@
         RobustConfig _robustConfig = new RobustConfig();
         SchemaRegistry IRobustConfig.SchemaRegistry => _robustConfig.SchemaRegistry;
 
-        /// <summary>
-        /// If you want to, you can add all the types you want to serialize to this collection.
-        /// When you add at least one Type to this list, Ceras will run in "sealed mode", which does 2 different things:
-        /// 
-        /// <para>
-        /// 1.) It improves performance.
-        /// Usually Ceras already only writes the type-name of an object when absolutely necessary. But sometimes you might have 'object' or 'interface' fields, in which case there's simply no way but to embed the type information. And this is where KnownTypes helps: Since the the types (and their order) are known, Ceras can write just a "TypeId" instead of the full name. This can save *a lot* of space and also increases performance (since less data has to be written).
-        /// </para>
-        ///
-        /// <para>
-        /// 2.) It protects against bugs and exploits.
-        /// When a new type (one that is not in the KnownTypes list) is encountered while reading/writing an exception is thrown!
-        /// You can be sure that you will never accidentally drag some object that you didn't intend to serialize (protecting against bugs).
-        /// It also prevents exploits when using Ceras to send objects over the network, because an attacker can not inject new object-types into your data (which, depending on what you do, could be *really* bad).
-        /// </para>
-        /// 
-        /// <para>Ceras refers to the types by their index in this list!</para>
-        /// So for deserialization the same types must be present in the same order! You can however have new types at the end of the list (so you can still load old data, as long as the types that an object was saved with are still present at the expected indices)
-        /// 
-        /// See the tutorial for more information.
-        /// </summary>
-        public List<Type> KnownTypes { get; internal set; } = new List<Type>();
+		/// <summary>
+		/// If you want to, you can add all the types you want to serialize to this collection.
+		/// When you add at least one Type to this list, Ceras will run in "sealed mode", which does 2 different things:
+		///
+		/// <para>
+		/// 1.) It improves performance.
+		/// Usually Ceras already only writes the type-name of an object when absolutely necessary. But sometimes you might have 'object' or 'interface' fields, in which case there's simply no way but to embed the type information. And this is where KnownTypes helps: Since the the types (and their order) are known, Ceras can write just a "TypeId" instead of the full name. This can save *a lot* of space and also increases performance (since less data has to be written).
+		/// </para>
+		///
+		/// <para>
+		/// 2.) It protects against bugs and exploits.
+		/// When a new type (one that is not in the KnownTypes list) is encountered while reading/writing an exception is thrown!
+		/// You can be sure that you will never accidentally drag some object that you didn't intend to serialize (protecting against bugs).
+		/// It also prevents exploits when using Ceras to send objects over the network, because an attacker can not inject new object-types into your data (which, depending on what you do, could be *really* bad).
+		/// </para>
+		///
+		/// <para>Ceras refers to the types by their index in this list!</para>
+		/// So for deserialization the same types must be present in the same order! You can however have new types at the end of the list (so you can still load old data, as long as the types that an object was saved with are still present at the expected indices)
+		///
+		/// See the tutorial for more information.
+		/// </summary>
+		public List<Type> KnownTypes { get; internal set; } = new List<Type>();
 
         /// <summary>
         /// If your object implement IExternalRootObject they are written as their external ID, so at deserialization-time you need to provide a resolver for Ceras so it can get back the Objects from their IDs.
@@ -81,14 +81,14 @@
         /// </summary>
         public IExternalObjectResolver ExternalObjectResolver { get; set; }
 
-        /// <summary>
-        /// If one of the objects in the graph implements IExternalRootObject, Ceras will only write its ID and then call this function. 
-        /// That means this external object for which only the ID was written, was not serialized itself. But often you want to sort of "collect" all the elements
-        /// that belong into an object-graph and save them at the same time. That's when you'd use this callback. 
-        /// Make sure to read the 'GameDatabase' example in the tutorial even if you're not making a game.
-        /// <para>Default: null</para>
-        /// </summary>
-        public Action<IExternalRootObject> OnExternalObject { get; set; } = null;
+		/// <summary>
+		/// If one of the objects in the graph implements IExternalRootObject, Ceras will only write its ID and then call this function.
+		/// That means this external object for which only the ID was written, was not serialized itself. But often you want to sort of "collect" all the elements
+		/// that belong into an object-graph and save them at the same time. That's when you'd use this callback.
+		/// Make sure to read the 'GameDatabase' example in the tutorial even if you're not making a game.
+		/// <para>Default: null</para>
+		/// </summary>
+		public Action<IExternalRootObject> OnExternalObject { get; set; } = null;
 
         /// <summary>
         /// A list of callbacks that Ceras calls when it needs a formatter for some type. The given methods in this list will be tried one after another until one of them returns a IFormatter instance. If all of them return null (or the list is empty) then Ceras will continue as usual, trying the built-in formatters.
@@ -183,14 +183,14 @@
         public TypeConfig<T> ConfigType<T>() => (TypeConfig<T>)GetTypeConfigForConfiguration(typeof(T));
 
 
-        /// <summary>
-        /// Usually you would just put attributes (like <see cref="MemberConfigAttribute"/>) on your types to define how they're serialized. But sometimes you want to configure some types that you don't control (like types from some external library you're using). In that case you'd use <see cref="ConfigType{T}"/>. But sometimes even that doesn't work, for example when some types are private, or too numerous, or generic (so they don't even exist as "closed" / specific types yet); so when you're in a situation like that, you'd use this <see cref="OnConfigNewType"/> to configure a type right when it's used.
-        /// <para>
-        /// Keep in mind that this callback will only be called when Ceras encounters it for the first time. 
-        /// That means it will not get called for any type that you have already configured using <see cref="ConfigType{T}"/>!
-        /// </para>
-        /// </summary>
-        public Action<TypeConfig> OnConfigNewType
+		/// <summary>
+		/// Usually you would just put attributes (like <see cref="MemberConfigAttribute"/>) on your types to define how they're serialized. But sometimes you want to configure some types that you don't control (like types from some external library you're using). In that case you'd use <see cref="ConfigType{T}"/>. But sometimes even that doesn't work, for example when some types are private, or too numerous, or generic (so they don't even exist as "closed" / specific types yet); so when you're in a situation like that, you'd use this <see cref="OnConfigNewType"/> to configure a type right when it's used.
+		/// <para>
+		/// Keep in mind that this callback will only be called when Ceras encounters it for the first time.
+		/// That means it will not get called for any type that you have already configured using <see cref="ConfigType{T}"/>!
+		/// </para>
+		/// </summary>
+		public Action<TypeConfig> OnConfigNewType
         {
             get => _onConfigNewType;
             set
@@ -203,14 +203,14 @@
         }
         Action<TypeConfig> _onConfigNewType;
 
-        #endregion
-        
-        #region Advanced
+		#endregion
 
-        /// <summary>
-        /// Advanced options. In here is everything that is very rarely used, dangerous, or otherwise special. 
-        /// </summary>
-        public IAdvancedConfig Advanced => this;
+		#region Advanced
+
+		/// <summary>
+		/// Advanced options. In here is everything that is very rarely used, dangerous, or otherwise special.
+		/// </summary>
+		public IAdvancedConfig Advanced => this;
 
         ISizeLimitsConfig IAdvancedConfig.SizeLimits => this;
         uint ISizeLimitsConfig.MaxStringLength { get; set; } = uint.MaxValue;
@@ -219,8 +219,8 @@
         uint ISizeLimitsConfig.MaxCollectionSize { get; set; } = uint.MaxValue;
 
         Action<object> IAdvancedConfig.DiscardObjectMethod { get; set; } = null;
-        ReadonlyFieldHandling IAdvancedConfig.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.ExcludeFromSerialization;
-        bool IAdvancedConfig.EmbedChecksum { get; set; } = false;
+		ReadonlyFieldHandling IAdvancedConfig.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.Members;
+		bool IAdvancedConfig.EmbedChecksum { get; set; } = false;
         bool IAdvancedConfig.PersistTypeCache { get; set; } = false;
         bool IAdvancedConfig.SealTypesWhenUsingKnownTypes { get; set; } = true;
         bool IAdvancedConfig.SkipCompilerGeneratedFields { get; set; } = true;
@@ -231,15 +231,15 @@
         IEqualityComparer<object> IAdvancedConfig.ObjectCacheComparer { get; set; }
         bool IAdvancedConfig.AllowReflectionFallback { get; set; } = true;
 
-        #endregion
-        
-        #region Warnings
+		#endregion
 
-        /// <summary>
-        /// Ceras can detect some common mistakes and notifies you of them by throwing exceptions.
-        /// In case you know better, you can disable those exceptions here.
-        /// </summary>
-        public IWarningConfig Warnings => this;
+		#region Warnings
+
+		/// <summary>
+		/// Ceras can detect some common mistakes and notifies you of them by throwing exceptions.
+		/// In case you know better, you can disable those exceptions here.
+		/// </summary>
+		public IWarningConfig Warnings => this;
 
         bool IWarningConfig.ExceptionOnStructWithAutoProperties { get; set; } = true;
 
@@ -269,51 +269,51 @@
         /// </summary>
         bool EmbedChecksum { get; set; }
 
-        /// <summary>
-        /// Determines whether to keep Type-To-Id maps after serialization/deserialization.
-        /// This is ***ONLY*** intended for networking, where the deserializer keeps the state as well, and all serialized data is ephemeral (not saved to anywhere)
-        /// This will likely save a huge amount of memory and cpu cycles over the lifespan of a network-session, because it will serialize type-information only once.
-        /// 
-        /// If the serializer is used as a network protocol serializer, this option should definitely be turned on!
-        /// Don't use this when serializing to anything persistent (files, database, ...) as you cannot deserialize any data if the deserializer type-cache is not in **EXACTLY**
-        /// the same configuration as it (unless you really know exactly what you're doing)
-        /// <para>Default: false</para>
-        /// </summary>
-        bool PersistTypeCache { get; set; }
+		/// <summary>
+		/// Determines whether to keep Type-To-Id maps after serialization/deserialization.
+		/// This is ***ONLY*** intended for networking, where the deserializer keeps the state as well, and all serialized data is ephemeral (not saved to anywhere)
+		/// This will likely save a huge amount of memory and cpu cycles over the lifespan of a network-session, because it will serialize type-information only once.
+		///
+		/// If the serializer is used as a network protocol serializer, this option should definitely be turned on!
+		/// Don't use this when serializing to anything persistent (files, database, ...) as you cannot deserialize any data if the deserializer type-cache is not in **EXACTLY**
+		/// the same configuration as it (unless you really know exactly what you're doing)
+		/// <para>Default: false</para>
+		/// </summary>
+		bool PersistTypeCache { get; set; }
 
-        /// <summary>
-        /// This setting is only used when KnownTypes is used (has >0 entries).
-        /// When set to true, and a new Type (so a Type that is not contained in KnownTypes) is encountered in either serialization or deserialization, an exception is thrown.
-        /// 
-        /// <para>!! Defaults to true to protect against exploits and bugs.</para>
-        /// <para>!! Don't disable this unless you know what you're doing.</para>
-        ///
-        /// If you use KnownTypes you're most likely using Ceras in a network-scenario.
-        /// If you then turn off this setting, you're basically allowing the other side (client or server) to construct whatever object they want on your side (which is known to be a huge attack vector for networked software).
-        ///
-        /// It also protects against bugs by ensuring you are 100% aware of all the types that get serialized.
-        /// You could easily end up including stuff like passwords, usernames, access-keys, ... completely by accident. 
-        /// 
-        /// The idea is that when someone uses KnownTypes, they have a fixed list of types they want to serialize (to minimize overhead from serializing type names initially),
-        /// which is usually done in networking scenarios;
-        /// While working on a project you might add more types or add new fields or things like that, and a common mistake is accidentally adding a new type (or even whole graph!)
-        /// to the object graph that was not intended; which is obviously extremely problematic (super risky if sensitive stuff gets suddenly dragged into the serialization)
-        /// <para>Default: true</para>
-        /// </summary>
-        bool SealTypesWhenUsingKnownTypes { get; set; }
+		/// <summary>
+		/// This setting is only used when KnownTypes is used (has >0 entries).
+		/// When set to true, and a new Type (so a Type that is not contained in KnownTypes) is encountered in either serialization or deserialization, an exception is thrown.
+		///
+		/// <para>!! Defaults to true to protect against exploits and bugs.</para>
+		/// <para>!! Don't disable this unless you know what you're doing.</para>
+		///
+		/// If you use KnownTypes you're most likely using Ceras in a network-scenario.
+		/// If you then turn off this setting, you're basically allowing the other side (client or server) to construct whatever object they want on your side (which is known to be a huge attack vector for networked software).
+		///
+		/// It also protects against bugs by ensuring you are 100% aware of all the types that get serialized.
+		/// You could easily end up including stuff like passwords, usernames, access-keys, ... completely by accident.
+		///
+		/// The idea is that when someone uses KnownTypes, they have a fixed list of types they want to serialize (to minimize overhead from serializing type names initially),
+		/// which is usually done in networking scenarios;
+		/// While working on a project you might add more types or add new fields or things like that, and a common mistake is accidentally adding a new type (or even whole graph!)
+		/// to the object graph that was not intended; which is obviously extremely problematic (super risky if sensitive stuff gets suddenly dragged into the serialization)
+		/// <para>Default: true</para>
+		/// </summary>
+		bool SealTypesWhenUsingKnownTypes { get; set; }
 
-        /// <summary>
-        /// !! Important:
-        /// You may believe you know what you're doing when including things compiler-generated fields, but there are tons of other problems you most likely didn't even realize unless you've read the github issue here: https://github.com/rikimaru0345/Ceras/issues/11. 
-        /// 
-        /// Hint: You may end up including all sorts of stuff like enumerator statemachines, delegates, remanants of 'dynamic' objects, ...
-        /// So here's your warning: Don't set this to false unless you know what you're doing.
-        /// 
-        /// This defaults to true, which means that fields marked as [CompilerGenerated] are skipped without asking your 'ShouldSerializeMember' function (if you have set one).
-        /// For 99% of all use cases this is exactly what you want. For more information read the 'readonly properties' section in the tutorial.
-        /// <para>Default: true</para>
-        /// </summary>
-        bool SkipCompilerGeneratedFields { get; set; }
+		/// <summary>
+		/// !! Important:
+		/// You may believe you know what you're doing when including things compiler-generated fields, but there are tons of other problems you most likely didn't even realize unless you've read the github issue here: https://github.com/rikimaru0345/Ceras/issues/11.
+		///
+		/// Hint: You may end up including all sorts of stuff like enumerator statemachines, delegates, remanants of 'dynamic' objects, ...
+		/// So here's your warning: Don't set this to false unless you know what you're doing.
+		///
+		/// This defaults to true, which means that fields marked as [CompilerGenerated] are skipped without asking your 'ShouldSerializeMember' function (if you have set one).
+		/// For 99% of all use cases this is exactly what you want. For more information read the 'readonly properties' section in the tutorial.
+		/// <para>Default: true</para>
+		/// </summary>
+		bool SkipCompilerGeneratedFields { get; set; }
 
         /// <summary>
         /// A TypeBinder simply converts a 'Type' to a string and back.

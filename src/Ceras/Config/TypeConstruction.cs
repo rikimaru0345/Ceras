@@ -78,6 +78,16 @@ namespace Ceras
                         continue;
 
                     var ctorParamStrings = string.Join(", ", parameters.Select(t => t.ParameterType.FriendlyName() + " " + t.Name));
+
+                    // Check if the member exists but is excluded — gives a much more actionable error than "not found"
+                    var excludedMatch = TypeConfig._allMembers.FirstOrDefault(mc =>
+                        (parameterInfo.Name.Equals(mc.Member.Name, StringComparison.OrdinalIgnoreCase) ||
+                         parameterInfo.Name.Equals(MiscHelpers.CleanMemberName(mc.Member.Name), StringComparison.OrdinalIgnoreCase))
+                        && !mc.ComputeFinalInclusionFast());
+
+                    if (excludedMatch != null)
+                        throw new CerasException($"Ceras automatically selected the constructor '({ctorParamStrings})' for type '{TypeConfig.Type.FriendlyName()}', but the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}' matches member '{excludedMatch.Member.Name}' which is excluded from serialization (reason: {excludedMatch.IncludeExcludeReason ?? "unknown"}). To fix this: either include the member with [Include], change ReadonlyFieldHandling, or configure a different constructor via ConfigType<T>().ConstructBy(...).");
+
                     throw new CerasException($"There is no mapping specified from the members of '{TypeConfig.Type.FriendlyName()}' to the constructor '({ctorParamStrings})'. Ceras has tried to automatically detect a mapping by matching the names of the fields/properties to the method parameters, but no source field or property could be found to populate the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}'");
                 }
                 else

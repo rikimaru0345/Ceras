@@ -82,15 +82,17 @@ namespace Ceras.SourceGenerator
                         if (isGetterOnly)
                         {
                             if (prop.Type.IsValueType) continue; // Cannot populate value types in-place
+                            
+                            // If it's NOT public, we ONLY include it if it has [Include]
                             if (!isPropPublic && !hasInclude) continue;
                         }
                         else
                         {
                             if (!isAccessible && !hasInclude && !IsPropertyIncluded(prop, currentTargetKind))
                                 continue;
-                        }
 
-                        if (!hasInclude && !IsPropertyIncluded(prop, currentTargetKind)) continue;
+                            if (!hasInclude && !IsPropertyIncluded(prop, currentTargetKind)) continue;
+                        }
 
                         members.Add(MakeMember(prop.Name, prop.Type, isField: false, member, attrs, isGetterOnly: isGetterOnly));
                     }
