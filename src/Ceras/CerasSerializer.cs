@@ -240,7 +240,7 @@ namespace Ceras
                     contextMsg = $"\n(This type was encountered while processing {memberPart} in type '{ctx.Type.FriendlyName(true)}')";
                 }
 
-                throw new InvalidOperationException($"No specialized or generated formatter found for type '{type.FriendlyName(true)}', and reflection-based fallback is disabled in SerializerConfig.Advanced.AllowReflectionFallback. Please add [GenerateFormatter] to the type or register a custom formatter.{contextMsg}");
+                throw new InvalidOperationException($"No specialized or generated formatter found for type '{type.FriendlyName(true)}', and reflection-based fallback is disabled in SerializerConfig.Advanced.AllowReflectionFallback. Please add [CerasSerializable] to the type or register a custom formatter.{contextMsg}");
             }
         }
 

@@ -13,13 +13,13 @@ namespace Ceras.SourceGenerator
         public readonly INamedTypeSymbol? SerializedAs;
         public readonly INamedTypeSymbol? Monomorphic;
         public readonly INamedTypeSymbol? Polymorphic;
-        public readonly INamedTypeSymbol? GenerateFormatter;
+        public readonly INamedTypeSymbol? CerasSerializable;
         public readonly INamedTypeSymbol? CerasConstructor;
 
         public AttributeBag(
             INamedTypeSymbol? include, INamedTypeSymbol? exclude, INamedTypeSymbol? memberConfig,
             INamedTypeSymbol? previousName, INamedTypeSymbol? previousType, INamedTypeSymbol? serializedAs,
-            INamedTypeSymbol? monomorphic, INamedTypeSymbol? polymorphic, INamedTypeSymbol? generateFmt,
+            INamedTypeSymbol? monomorphic, INamedTypeSymbol? polymorphic, INamedTypeSymbol? cerasSerializable,
             INamedTypeSymbol? cerasConstructor)
         {
             Include = include;
@@ -30,7 +30,7 @@ namespace Ceras.SourceGenerator
             SerializedAs = serializedAs;
             Monomorphic = monomorphic;
             Polymorphic = polymorphic;
-            GenerateFormatter = generateFmt;
+            CerasSerializable = cerasSerializable;
             CerasConstructor = cerasConstructor;
         }
     }

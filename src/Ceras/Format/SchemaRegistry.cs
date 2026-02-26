@@ -7,7 +7,7 @@ using Ceras.Formatters;
 namespace Ceras.Format
 {
     /// <summary>
-    /// Runtime registry of all types registered via <c>[GenerateFormatter(VersionTolerant = true)]</c>.
+    /// Runtime registry of all types registered via <c>[CerasSerializable(VersionTolerant = true)]</c>.
     /// Populated during startup by <c>GeneratedFormatters.UseFormatters(config)</c>.
     /// </summary>
     public sealed class SchemaRegistry
@@ -43,7 +43,7 @@ namespace Ceras.Format
 
         /// <summary>
         /// Called by the generated <c>GeneratedFormatters.UseFormatters</c> for every
-        /// <c>[GenerateFormatter(VersionTolerant = true)]</c> type.
+        /// <c>[CerasSerializable(VersionTolerant = true)]</c> type.
         /// Safe to call multiple times with the same type (idempotent).
         /// </summary>
         public void Register(Type type, SchemaTypeInfo info)

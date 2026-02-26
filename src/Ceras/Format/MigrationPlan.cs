@@ -153,6 +153,12 @@ namespace Ceras.Format
                 var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
                 string stableName = sa?.Name ?? f.Name;
                 
+                // Handle compiler-generated auto-property backing fields (e.g., <Map>k__BackingField)
+                if (sa == null && stableName.StartsWith("<") && stableName.EndsWith(">k__BackingField"))
+                {
+                    stableName = stableName.Substring(1, stableName.Length - 17);
+                }
+
                 // If it's a private field without an attribute, it might be a backing field.
                 // For now we just include it if it's not excluded.
                 map.TryAdd(stableName, f);

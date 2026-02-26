@@ -271,7 +271,7 @@ namespace Ceras.SourceGenerator
             if (typeFqn == "global::System.TimeSpan") return "global::Ceras.Formatters.TimeSpanFormatter";
             if (typeFqn == "global::System.Guid") return "global::Ceras.Formatters.GuidFormatter";
 
-            if (type is INamedTypeSymbol named && HasAttribute(named, attrs.GenerateFormatter))
+            if (type is INamedTypeSymbol named && HasAttribute(named, attrs.CerasSerializable))
             {
                 if (!named.IsAbstract && named.TypeKind != TypeKind.Interface)
                 {
@@ -334,7 +334,7 @@ namespace Ceras.SourceGenerator
 
         static void WriteSchemaDescriptor(StringBuilder sb, INamedTypeSymbol type, List<SerializedMember> members, AttributeBag attrs)
         {
-            string stableTypeName = GetStableTypeName(type, attrs.GenerateFormatter);
+            string stableTypeName = GetStableTypeName(type, attrs.CerasSerializable);
             var prevTypeNames = new List<string>();
             if (attrs.PreviousTypeName != null)
             {
@@ -385,13 +385,13 @@ namespace Ceras.SourceGenerator
             sb.AppendLine();
         }
 
-        static string GetStableTypeName(INamedTypeSymbol type, INamedTypeSymbol? generateFmtAttr)
+        static string GetStableTypeName(INamedTypeSymbol type, INamedTypeSymbol? cerasSerializableAttr)
         {
-            if (generateFmtAttr != null)
+            if (cerasSerializableAttr != null)
             {
                 foreach (var attr in type.GetAttributes())
                 {
-                    if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, generateFmtAttr)) continue;
+                    if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr)) continue;
                     if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is string sn && !string.IsNullOrEmpty(sn))
                         return sn;
 

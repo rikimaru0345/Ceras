@@ -58,7 +58,7 @@ namespace Ceras.SourceGenerator
         {
             types = types.Distinct(SymbolEqualityComparer.Default).Cast<INamedTypeSymbol>().ToImmutableArray();
 
-            var generateFmtAttr = compilation.GetTypeByMetadataName(GenerateFormatterFqn);
+            var cerasSerializableAttr = compilation.GetTypeByMetadataName(CerasSerializableFqn);
             var excludeFromDiscoveryAttr = compilation.GetTypeByMetadataName(ExcludeFromDiscoveryFqn);
             var blacklistAttr = compilation.GetTypeByMetadataName(BlacklistFqn);
             var includeAttr = compilation.GetTypeByMetadataName(IncludeFqn);
@@ -73,7 +73,7 @@ namespace Ceras.SourceGenerator
 
             var attrBag = new AttributeBag(includeAttr, excludeAttr, memberConfigAttr,
                 previousNameAttr, previousTypeAttr, serializedAsAttr, monomorphicAttr,
-                polymorphicAttr, generateFmtAttr, cerasConstructorAttr);
+                polymorphicAttr, cerasSerializableAttr, cerasConstructorAttr);
 
             var blacklistPatterns = new List<string>();
             foreach (var attr in compilation.Assembly.GetAttributes())

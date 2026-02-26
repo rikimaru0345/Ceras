@@ -13,7 +13,7 @@ namespace Ceras.Formatters
     /// <para>While the project's vision is to move towards 100% Source Generated formatters for performance and AOT compatibility, 
     /// this class remains essential for several reasons:</para>
     /// <list type="bullet">
-    /// <item><description>Third-Party Types: It can handle types from external libraries that cannot be marked with [GenerateFormatter].</description></item>
+    /// <item><description>Third-Party Types: It can handle types from external libraries that cannot be marked with [CerasSerializable].</description></item>
     /// <item><description>Private Access: Unlike generated code, it can use reflection to access private/protected state in legacy objects.</description></item>
     /// <item><description>Runtime Types: It supports types created at runtime (e.g., via Reflection.Emit or dynamic proxies) that are invisible to compile-time generators.</description></item>
     /// <item><description>Test Baseline: It serves as the "ground truth" for byte-identity verification in the test suite.</description></item>

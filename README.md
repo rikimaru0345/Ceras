@@ -53,7 +53,7 @@ Ceras now includes a specialized **robust format format** designed for persisten
 **1. Annotate your save types with `VersionTolerant = true`:**
 
 ```csharp
-[GenerateFormatter(VersionTolerant = true)]
+[CerasSerializable(VersionTolerant = true)]
 [PreviousTypeName("PlayerEntity")] // Handle class renames
 public class Player
 {
@@ -93,7 +93,7 @@ var player = CerasRobust.Load<Player>(data, currentGameVersion, ceras);
 ### Advanced Migration
 
 - **Field Mapping**: Fields are matched by their `[SerializedAs]` name, then by `[PreviousName]` aliases, and finally by their C# name.
-- **Type Mapping**: Classes and structs are matched by their `StableName` (from `[GenerateFormatter]`), then by `[PreviousTypeName]` aliases.
+- **Type Mapping**: Classes and structs are matched by their `StableName` (from `[CerasSerializable]`), then by `[PreviousTypeName]` aliases.
 - **Enum Migration**: Enums are automatically mapped by **name** rather than integer value. This allows you to reorder enum members or change their underlying values safely. If a value in the save file no longer exists in the current enum, it is reset to the default (0).
 - **Numeric Coercion**: The engine automatically handles common numeric upgrades (e.g. `int` -> `long`, `float` -> `double`) during migration.
 - **Monomorphic Optimization**: The source generator automatically detects sealed types and value types to skip unnecessary type-ID overhead. You can use `[Monomorphic]` or `[Polymorphic]` to override this behavior manually.
@@ -191,7 +191,7 @@ This replaces the old external AotGenerator tool and works automatically — no 
 using Ceras;
 
 // Standard attribute on the type
-[GenerateFormatter]
+[CerasSerializable]
 public class Player
 {
     public string Name;
@@ -200,7 +200,7 @@ public class Player
 
 // Or use the generic version anywhere (e.g. at the assembly level) 
 // to generate formatters for external types you don't control:
-[assembly: GenerateFormatter<ExternalLibrary.UserType>]
+[assembly: CerasSerializable<ExternalLibrary.UserType>]
 ```
 
 > **Automatic Registration**: Ceras will automatically look for and register your generated formatters in its constructor. You no longer need to manually call `GeneratedFormatters.UseFormatters(config)` (though you still can if you want to apply them to a specific config object manually).
@@ -230,13 +230,13 @@ This will save the generated C# code to `obj/Generated` (or your specified path)
 ### Polymorphic / runtime-only types
 
 The source generator only sees types that exist at compile time.
-For polymorphic scenarios (serializing an interface or base-class field whose concrete type varies at runtime), annotate **all concrete derived types** with `[GenerateFormatter]`:
+For polymorphic scenarios (serializing an interface or base-class field whose concrete type varies at runtime), annotate **all concrete derived types** with `[CerasSerializable]`:
 
 ```csharp
-[GenerateFormatter] public class Cat : Animal { ... }
-[GenerateFormatter] public class Dog : Animal { ... }
+[CerasSerializable] public class Cat : Animal { ... }
+[CerasSerializable] public class Dog : Animal { ... }
 // Animal itself also needs one if it is ever serialized directly:
-[GenerateFormatter] public abstract class Animal { ... }
+[CerasSerializable] public abstract class Animal { ... }
 ```
 
 If a concrete type is only known at runtime (e.g. loaded from a plugin assembly), it cannot be source-generated. In that case you have two options:

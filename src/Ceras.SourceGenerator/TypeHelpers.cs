@@ -15,7 +15,7 @@ namespace Ceras.SourceGenerator
         public const string SerializedAsFqn = "Ceras.CerasStableNameAttribute";
         public const string MonomorphicFqn = "Ceras.MonomorphicAttribute";
         public const string PolymorphicFqn = "Ceras.PolymorphicAttribute";
-        public const string GenerateFormatterFqn = "Ceras.CerasSerializableAttribute";
+        public const string CerasSerializableFqn = "Ceras.CerasSerializableAttribute";
 		public const string ExcludeFromDiscoveryFqn = "Ceras.ExcludeAttribute";
 		public const string BlacklistFqn = "Ceras.CerasGeneratorBlacklistAttribute";
         public const string CerasConstructorFqn = "Ceras.CerasConstructorAttribute";

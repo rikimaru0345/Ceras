@@ -61,7 +61,7 @@ namespace Ceras.SourceGenerator
 
                 // SUBTYPE DISCOVERY
                 // If it's something we should find subtypes for (interfaces, abstract classes, or polymorphic classes)
-                if (HasDiscoverSubtypes(currentType, attrs.GenerateFormatter))
+                if (HasDiscoverSubtypes(currentType, attrs.CerasSerializable))
                 {
                     // We only care about subtypes if it's not sealed and not a primitive/well-known
                     if (!currentType.IsSealed && currentType.TypeKind != TypeKind.Enum && !IsWellKnownType(currentType))
@@ -179,12 +179,12 @@ namespace Ceras.SourceGenerator
             return false;
         }
 
-        static bool HasDiscoverSubtypes(INamedTypeSymbol type, INamedTypeSymbol? generateFmtAttr)
+        static bool HasDiscoverSubtypes(INamedTypeSymbol type, INamedTypeSymbol? cerasSerializableAttr)
         {
             // If the type has [CerasSerializable], check the 'DiscoverSubtypes' property
             foreach (var attr in type.GetAttributes())
             {
-                if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, generateFmtAttr)) continue;
+                if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr)) continue;
                 foreach (var na in attr.NamedArguments)
                     if (na.Key == "DiscoverSubtypes" && na.Value.Value is bool b)
                         return b;

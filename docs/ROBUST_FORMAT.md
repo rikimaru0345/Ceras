@@ -190,7 +190,7 @@ Activated when the schema fingerprint in the header matches the fingerprint comp
 4. Read data section using generated formatters directly
 
 Generated formatters:
-- Are registered via `[GenerateFormatter]` and `GeneratedFormatters.UseFormatters(config)`
+- Are registered via `[CerasSerializable]` and `GeneratedFormatters.UseFormatters(config)`
 - Write/read fields in `SchemaMemberComparer` order (matches `DynamicFormatter` for compatibility)
 - Have no schema overhead — direct field access, injected sub-formatters, no boxing
 
@@ -228,11 +228,11 @@ No `Type.GetType`, no `Expression.Compile`. Pure schema arithmetic.
 
 ```csharp
 // Stable serialized name (independent of C# class name; can rename class freely)
-[GenerateFormatter("Player")]
+[CerasSerializable("Player")]
 public class PlayerEntity { ... }
 
 // Reactive rename (type was renamed after shipping)
-[GenerateFormatter]
+[CerasSerializable]
 [PreviousTypeName("MyGame.V1.PlayerInventory")]
 public class Inventory { ... }
 
@@ -250,7 +250,7 @@ public class Player {
 }
 ```
 
-Default stable name (no argument to `[GenerateFormatter]`): simple class name without namespace.
+Default stable name (no argument to `[CerasSerializable]`): simple class name without namespace.
 
 ---
 
@@ -284,4 +284,4 @@ Enums are serialized by **integer value** (compact, fast). The schema section em
 
 ## Schema Fingerprint
 
-Computed at application startup: xxHash64 over the canonical serialization of all `[GenerateFormatter]` type schemas in stable order (sorted by stable name). Written to file header on save. Compared on load — mismatch triggers slow path. Fingerprint covers field names, types, order, and all `[PreviousName]` entries.
+Computed at application startup: xxHash64 over the canonical serialization of all `[CerasSerializable]` type schemas in stable order (sorted by stable name). Written to file header on save. Compared on load — mismatch triggers slow path. Fingerprint covers field names, types, order, and all `[PreviousName]` entries.
