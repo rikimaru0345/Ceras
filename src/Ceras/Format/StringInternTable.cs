@@ -27,9 +27,27 @@ namespace Ceras.Format
         public int Flush(ref byte[] buffer, ref int offset)
         {
             var writer = new ArrayBufferWriter<byte>();
-            SchemaSection.WriteLeb128(writer, (uint)_indexToString.Count - 1);
-            for (int i = 1; i < _indexToString.Count; i++)
-                SchemaSection.WriteInlineString(writer, _indexToString[i]);
+            int count = _indexToString.Count - 1;
+            SchemaSection.WriteLeb128(writer, (uint)count);
+
+            string last = "";
+            for (int i = 1; i <= count; i++)
+            {
+                string current = _indexToString[i] ?? "";
+                
+                // 1. Find common prefix length
+                int commonLength = 0;
+                int minLen = Math.Min(last.Length, current.Length);
+                while (commonLength < minLen && last[commonLength] == current[commonLength])
+                    commonLength++;
+
+                // 2. Write (PrefixLength, Suffix)
+                SchemaSection.WriteLeb128(writer, (uint)commonLength);
+                string suffix = current.Substring(commonLength);
+                SchemaSection.WriteInlineString(writer, suffix);
+
+                last = current;
+            }
 
             var data = writer.WrittenSpan;
             SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
@@ -54,9 +72,24 @@ namespace Ceras.Format
             var sequence = new ReadOnlySequence<byte>(data, offset, data.Length - offset);
             var reader = new SequenceReader<byte>(sequence);
             uint count = SchemaSection.ReadLeb128(ref reader);
+            
             var table = new string[count + 1];
+            table[0] = null;
+            
+            string last = "";
             for (uint i = 1; i <= count; i++)
-                table[i] = SchemaSection.ReadInlineString(ref reader);
+            {
+                uint commonLength = SchemaSection.ReadLeb128(ref reader);
+                string suffix = SchemaSection.ReadInlineString(ref reader);
+                
+                if (commonLength > last.Length)
+                    throw new InvalidOperationException("Invalid Front Compression data: commonLength > last.Length");
+                
+                string current = last.Substring(0, (int)commonLength) + suffix;
+                table[i] = current;
+                last = current;
+            }
+            
             return table;
         }
     }

@@ -414,7 +414,7 @@ namespace Ceras.SourceGenerator
                         if (na.Key == "StableName" && na.Value.Value is string sn2 && !string.IsNullOrEmpty(sn2))
                             return sn2;
 
-                    return type.Name;
+                    return GetRobustName(type);
                 }
             }
             return GetRobustName(type);
