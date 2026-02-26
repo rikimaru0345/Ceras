@@ -86,7 +86,7 @@ namespace Ceras.Format
 
     public static class SchemaSection
     {
-        public static Dictionary<Type, int> Write(ref byte[] buffer, ref int offset, SchemaRegistry registry)
+        public static Dictionary<Type, int> Write(ref byte[] buffer, ref int offset, SchemaRegistry registry, StringInternTable internTable)
         {
             var typeToId = new Dictionary<Type, int>();
             var queue = new Queue<(Type type, int id, SchemaTypeInfo info)>();
@@ -108,13 +108,13 @@ namespace Ceras.Format
                 finalCount++;
 
                 WriteLeb128(entryWriter, (uint)id);
-                WriteInlineString(entryWriter, info.StableName);
+                WriteInternedString(entryWriter, info.StableName, internTable);
 
                 WriteLeb128(entryWriter, (uint)(info.PreviousTypeNames?.Length ?? 0));
                 if (info.PreviousTypeNames != null)
                 {
                     foreach (var prev in info.PreviousTypeNames)
-                        WriteInlineString(entryWriter, prev);
+                        WriteInternedString(entryWriter, prev, internTable);
                 }
 
                 entryWriter.GetSpan(1)[0] = (byte)info.Kind;
@@ -131,7 +131,7 @@ namespace Ceras.Format
                         {
                             foreach (var ev in info.EnumValues)
                             {
-                                WriteInlineString(entryWriter, ev.Name);
+                                WriteInternedString(entryWriter, ev.Name, internTable);
                                 BinaryPrimitives.WriteInt64LittleEndian(entryWriter.GetSpan(8), ev.Value);
                                 entryWriter.Advance(8);
                             }
@@ -145,11 +145,11 @@ namespace Ceras.Format
                         {
                             foreach (var field in info.Fields)
                             {
-                                WriteInlineString(entryWriter, field.StableName);
+                                WriteInternedString(entryWriter, field.StableName, internTable);
                                 WriteLeb128(entryWriter, (uint)(field.PreviousNames?.Length ?? 0));
                                 if (field.PreviousNames != null)
                                     foreach (var pn in field.PreviousNames)
-                                        WriteInlineString(entryWriter, pn);
+                                        WriteInternedString(entryWriter, pn, internTable);
 
                                 int fieldTypeId = ResolveId(field.TypeName, typeToId, queue, registry);
                                 WriteLeb128(entryWriter, (uint)fieldTypeId);
@@ -280,26 +280,26 @@ namespace Ceras.Format
             };
         }
 
-        public static Dictionary<string, OldTypeSchema> Read(byte[] buffer, ref int offset)
+        public static Dictionary<string, OldTypeSchema> Read(byte[] buffer, ref int offset, string[] stringTable)
         {
             var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset);
             var reader = new SequenceReader<byte>(seq);
-            var result = Read(ref reader);
+            var result = Read(ref reader, stringTable);
             offset += (int)reader.Consumed;
             return result;
         }
 
-        public static Dictionary<string, OldTypeSchema> Read(ref SequenceReader<byte> reader)
+        public static Dictionary<string, OldTypeSchema> Read(ref SequenceReader<byte> reader, string[] stringTable)
         {
             var byName = new Dictionary<string, OldTypeSchema>(StringComparer.Ordinal);
             uint count = ReadLeb128(ref reader);
             for (uint i = 0; i < count; i++)
             {
                 int    typeId     = (int)ReadLeb128(ref reader);
-                string stableName = ReadInlineString(ref reader);
+                string stableName = ReadInternedString(ref reader, stringTable);
                 uint prevCount = ReadLeb128(ref reader);
                 var  prevNames = new string[prevCount];
-                for (uint j = 0; j < prevCount; j++) prevNames[j] = ReadInlineString(ref reader);
+                for (uint j = 0; j < prevCount; j++) prevNames[j] = ReadInternedString(ref reader, stringTable);
 
                 reader.TryRead(out byte kindByte);
                 var kind = (SchemaTypeKind)kindByte;
@@ -313,7 +313,7 @@ namespace Ceras.Format
                         var vals = new OldEnumValue[valCount];
                         for (uint j = 0; j < valCount; j++)
                         {
-                            string name = ReadInlineString(ref reader);
+                            string name = ReadInternedString(ref reader, stringTable);
                             reader.TryReadLittleEndian(out long val);
                             vals[j] = new OldEnumValue(name, val);
                         }
@@ -326,10 +326,10 @@ namespace Ceras.Format
                         var fields = new OldFieldSchema[fieldCount];
                         for (uint j = 0; j < fieldCount; j++)
                         {
-                            string fStable = ReadInlineString(ref reader);
+                            string fStable = ReadInternedString(ref reader, stringTable);
                             uint fpCount = ReadLeb128(ref reader);
                             var fpNames = new string[fpCount];
-                            for (uint k = 0; k < fpCount; k++) fpNames[k] = ReadInlineString(ref reader);
+                            for (uint k = 0; k < fpCount; k++) fpNames[k] = ReadInternedString(ref reader, stringTable);
                             int fTypeId = (int)ReadLeb128(ref reader);
                             reader.TryRead(out byte flags);
                             fields[j] = new OldFieldSchema(fStable, fpNames, fTypeId, (flags & 1) != 0);
@@ -397,6 +397,17 @@ namespace Ceras.Format
                 shift += 7;
                 if (shift >= 35) throw new InvalidOperationException("LEB128 too long");
             }
+        }
+
+        internal static void WriteInternedString(IBufferWriter<byte> writer, string s, StringInternTable internTable)
+        {
+            int index = internTable.GetIndex(s);
+            SerializerBinary.WriteUInt32(writer, (uint)index);
+        }
+
+        internal static string ReadInternedString(ref SequenceReader<byte> reader, string[] stringTable)
+        {
+            return StringTable.ReadString(ref reader, stringTable);
         }
 
         internal static void WriteInlineString(IBufferWriter<byte> writer, string s)

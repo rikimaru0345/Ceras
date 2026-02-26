@@ -18,12 +18,12 @@ namespace Ceras.Format
             if (table == null) throw new InvalidOperationException("RobustContext not active");
 
             int index = table.GetIndex(value);
-            SerializerBinary.WriteInt32Fixed(writer, index);
+            SerializerBinary.WriteUInt32(writer, (uint)index);
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref string value)
         {
-            int index = SerializerBinary.ReadInt32Fixed(ref reader);
+            uint index = SerializerBinary.ReadUInt32(ref reader);
             if (index == 0)
             {
                 value = null;
@@ -33,8 +33,8 @@ namespace Ceras.Format
             var table = RobustContext.StringTable;
             if (table == null) throw new InvalidOperationException("RobustContext not active");
 
-            if (index < 0 || index >= table.Length) throw new InvalidOperationException("Invalid string table index");
-            value = table[index];
+            if (index >= (uint)table.Length) throw new InvalidOperationException("Invalid string table index");
+            value = table[(int)index];
         }
     }
 }

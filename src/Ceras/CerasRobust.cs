@@ -24,11 +24,12 @@ namespace Ceras
         internal const int OffsetStringTable = 8 + OffsetDataSection;
         internal const int OffsetChecksum = 8 + OffsetStringTable;
         public const int HeaderSize = 4 + OffsetChecksum;
-        public const int FormatVersion = 1;
+        public const int FormatVersion = 2;
 
         public static void Configure(SerializerConfig config)
         {
             if (config == null) throw new ArgumentNullException(nameof(config));
+            
             config.Advanced.EmbedChecksum = false;
             config.Advanced.AllowReflectionFallback = false;
             
@@ -50,11 +51,11 @@ namespace Ceras
             WriteHeaderPlaceholder(ref buffer, ref offset, robustVersion);
             int rootTypeId = GetTypeId(typeof(T), registry);
             
-            var typeToId = SchemaSection.Write(ref buffer, ref offset, registry);
+            var internTable = new StringInternTable();
+            var typeToId = SchemaSection.Write(ref buffer, ref offset, registry, internTable);
 
             int dataStart = offset;
             
-            var internTable = new StringInternTable();
             RobustContext.BeginWrite(internTable, typeToId);
             
             var writer = new ArrayBufferWriter<byte>();
@@ -85,6 +86,9 @@ namespace Ceras
             if (data[0] != (byte)'C' || data[1] != (byte)'E' || data[2] != (byte)'R' || data[3] != (byte)'A')
                 throw new InvalidOperationException("Invalid magic");
 
+            uint version = data[OffsetFormatVersion];
+            if (version != FormatVersion) throw new InvalidOperationException($"Format version mismatch. File: {version}, Library: {FormatVersion}");
+
             uint robustVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(OffsetGameVersion));
             if (robustVersion > currentRobustVersion) throw new InvalidOperationException("Save from newer version");
 
@@ -98,7 +102,7 @@ namespace Ceras
             int schemaOffset = HeaderSize;
             var sequence = new ReadOnlySequence<byte>(data, schemaOffset, (int)dataSectionOffset - schemaOffset);
             var schemaReader = new SequenceReader<byte>(sequence);
-            var fileSchemas = SchemaSection.Read(ref schemaReader);
+            var fileSchemas = SchemaSection.Read(ref schemaReader, table);
 
             var idToType = new Dictionary<int, Type>();
             for (int i = 0; i < 128; i++) if (WellKnownTypes.TryGetType(i, out var wkType)) idToType[i] = wkType;

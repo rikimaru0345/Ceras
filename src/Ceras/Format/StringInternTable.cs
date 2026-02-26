@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Ceras.Format
 {
-    sealed class StringInternTable
+    public sealed class StringInternTable
     {
         readonly Dictionary<string, int> _stringToIndex = new(StringComparer.Ordinal);
         readonly List<string> _indexToString = new() { null };
@@ -24,14 +24,6 @@ namespace Ceras.Format
             return index;
         }
 
-        public void WriteIndex(ref byte[] buffer, ref int offset, string s)
-        {
-            int index = GetIndex(s);
-            SerializerBinary.EnsureCapacity(ref buffer, offset, 4);
-            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(offset), index);
-            offset += 4;
-        }
-
         public int Flush(ref byte[] buffer, ref int offset)
         {
             var writer = new ArrayBufferWriter<byte>();
@@ -48,13 +40,12 @@ namespace Ceras.Format
         }
     }
 
-    static class StringTable
+    public static class StringTable
     {
-        public static string ReadString(byte[] buffer, ref int offset, string[] table)
+        public static string ReadString(ref SequenceReader<byte> reader, string[] table)
         {
-            int index = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(buffer.AsSpan(offset));
-            offset += 4;
-            if (index < 0 || index >= table.Length) throw new InvalidOperationException("String index out of range");
+            uint index = SerializerBinary.ReadUInt32(ref reader);
+            if (index >= (uint)table.Length) throw new InvalidOperationException("String index out of range");
             return table[index];
         }
 

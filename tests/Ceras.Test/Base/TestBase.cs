@@ -36,16 +36,19 @@ namespace Ceras.Test
         protected Func<SerializerConfig> Config_WithReinterpret => () => CreateConfig(x =>
         {
             x.Advanced.UseReinterpretFormatter = true;
+            x.Advanced.AllowReflectionFallback = true;
             x.UseImmutableFormatters();
         });
         protected Func<SerializerConfig> Config_NoReinterpret => () => CreateConfig(x =>
         {
             x.Advanced.UseReinterpretFormatter = false;
+            x.Advanced.AllowReflectionFallback = true;
             x.UseImmutableFormatters();
         });
         protected Func<SerializerConfig> Config_WithVersioning => () => CreateConfig(x =>
         {
             Ceras.CerasRobust.Configure(x);
+            x.Advanced.AllowReflectionFallback = true;
             x.UseImmutableFormatters();
         });
 
@@ -55,9 +58,9 @@ namespace Ceras.Test
         {
             _currentTestConfigurations = new Func<SerializerConfig>[]
             {
-                () => new SerializerConfig(),
-                () => CreateConfig(x => { x.Advanced.UseReinterpretFormatter = false; x.UseImmutableFormatters(); }),
-                () => CreateConfig(x => { Ceras.CerasRobust.Configure(x); x.UseImmutableFormatters(); }),
+                () => new SerializerConfig { Advanced = { AllowReflectionFallback = true } },
+                () => CreateConfig(x => { x.Advanced.UseReinterpretFormatter = false; x.Advanced.AllowReflectionFallback = true; x.UseImmutableFormatters(); }),
+                () => CreateConfig(x => { Ceras.CerasRobust.Configure(x); x.Advanced.AllowReflectionFallback = true; x.UseImmutableFormatters(); }),
             };
         }
 

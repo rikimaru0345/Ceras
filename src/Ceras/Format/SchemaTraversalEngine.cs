@@ -121,8 +121,7 @@ namespace Ceras.Format
                 }
                 case WellKnownTypes.String:
                 {
-                    int idx = SerializerBinary.ReadInt32Fixed(ref reader);
-                    return ReadStringFromTable(idx);
+                    return ReadStringFromTable(ref reader);
                 }
                 case WellKnownTypes.DateTime:
                     return new DateTime(SerializerBinary.ReadInt64Fixed(ref reader), DateTimeKind.Utc);
@@ -446,6 +445,7 @@ namespace Ceras.Format
             switch (typeId)
             {
                 case WellKnownTypes.Bool:
+                case WellKnownTypes.String: SerializerBinary.ReadUInt32(ref reader); return;
                 case WellKnownTypes.Int32: SerializerBinary.ReadInt32(ref reader); return;
                 case WellKnownTypes.UInt32: SerializerBinary.ReadUInt32(ref reader); return;
                 case WellKnownTypes.Object: SkipPolymorphicValue(WellKnownTypes.Object, ref reader); return;
@@ -592,7 +592,7 @@ namespace Ceras.Format
             };
         }
 
-        string ReadStringFromTable(int index) => (index == 0) ? null : ((uint)index < (uint)_stringTable.Length ? _stringTable[index] : null);
+        string ReadStringFromTable(ref SequenceReader<byte> reader) => StringTable.ReadString(ref reader, _stringTable);
 
         static HashSet<string> CollectSkippedFields(TypeMigrationPlan plan)
         {

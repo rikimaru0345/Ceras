@@ -37,6 +37,33 @@ namespace Ceras.Test
         {
             var config = new SerializerConfig();
             GeneratedFormatters.UseFormatters(config);
+            
+            // Manual registration for local types to ensure they have the stable names the tests expect
+            var potionInfo = new SchemaTypeInfo("Potion", new[] { "Ceras.Test.OldPotion" }, SchemaTypeKind.Class, new[] {
+                new SchemaFieldInfo("Heal", Array.Empty<string>(), "System.Int32", true),
+                new SchemaFieldInfo("Label", Array.Empty<string>(), "System.String", true)
+            }, 0);
+            config.Robust.SchemaRegistry.Register(typeof(Potion), potionInfo);
+
+            var weaponInfo = new SchemaTypeInfo("Weapon", Array.Empty<string>(), SchemaTypeKind.Class, new[] {
+                new SchemaFieldInfo("Damage", Array.Empty<string>(), "System.Int32", true),
+                new SchemaFieldInfo("Name", new[] { "OldName" }, "System.String", true),
+                new SchemaFieldInfo("Weight", Array.Empty<string>(), "System.Single", true)
+            }, 0);
+            config.Robust.SchemaRegistry.Register(typeof(Weapon), weaponInfo);
+
+            var point2Info = new SchemaTypeInfo("Point2", Array.Empty<string>(), SchemaTypeKind.Struct, new[] {
+                new SchemaFieldInfo("X", Array.Empty<string>(), "System.Single", true),
+                new SchemaFieldInfo("Y", Array.Empty<string>(), "System.Single", true)
+            }, 8);
+            config.Robust.SchemaRegistry.Register(typeof(Point2), point2Info);
+
+            var vec2Info = new SchemaTypeInfo("Vec2Struct", Array.Empty<string>(), SchemaTypeKind.Struct, new[] {
+                new SchemaFieldInfo("X", Array.Empty<string>(), "System.Single", true),
+                new SchemaFieldInfo("Y", Array.Empty<string>(), "System.Single", true)
+            }, 8);
+            config.Robust.SchemaRegistry.Register(typeof(Vec2Struct), vec2Info);
+
             return config.Robust.SchemaRegistry;
         }
 
@@ -46,10 +73,16 @@ namespace Ceras.Test
         {
             var buffer = new byte[1024];
             int offset = 0;
-            SchemaSection.Write(ref buffer, ref offset, registry);
+            var intern = new StringInternTable();
+            SchemaSection.Write(ref buffer, ref offset, registry, intern);
+
+            // Flush intern table so we can load it
+            int tableOffset = offset;
+            intern.Flush(ref buffer, ref tableOffset);
+            var stringTable = StringTable.Load(buffer, offset);
 
             int readOffset = 0;
-            return SchemaSection.Read(buffer, ref readOffset);
+            return SchemaSection.Read(buffer, ref readOffset, stringTable);
         }
 
         // ── Basic presence ────────────────────────────────────────────────────
@@ -225,7 +258,8 @@ namespace Ceras.Test
             var registry = CreateRegistry();
             var buffer = new byte[1]; // far too small
             int offset = 0;
-            SchemaSection.Write(ref buffer, ref offset, registry); // must not throw
+            var intern = new StringInternTable();
+            SchemaSection.Write(ref buffer, ref offset, registry, intern); // must not throw
             Assert.True(offset > 0);
         }
 
@@ -236,15 +270,20 @@ namespace Ceras.Test
             var registry = CreateRegistry();
             var buf1 = new byte[1024];
             int off1 = 0;
-            SchemaSection.Write(ref buf1, ref off1, registry);
+            var intern1 = new StringInternTable();
+            SchemaSection.Write(ref buf1, ref off1, registry, intern1);
 
             // Read back, then write again
             int rOff = 0;
-            SchemaSection.Read(buf1, ref rOff); // consume exactly off1 bytes
+            int tOff = off1;
+            intern1.Flush(ref buf1, ref tOff);
+            var table1 = StringTable.Load(buf1, off1);
+            SchemaSection.Read(buf1, ref rOff, table1); // consume exactly off1 bytes
 
             var buf2 = new byte[1024];
             int off2 = 0;
-            SchemaSection.Write(ref buf2, ref off2, registry);
+            var intern2 = new StringInternTable();
+            SchemaSection.Write(ref buf2, ref off2, registry, intern2);
 
             Assert.Equal(off1, off2);
             Assert.Equal(buf1[..off1], buf2[..off2]);

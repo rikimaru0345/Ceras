@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using Ceras.Format;
 using Xunit;
 
@@ -74,27 +75,32 @@ namespace Ceras.Test
             Assert.Equal(1, emptyIdx);
         }
 
-        // ── WriteIndex ────────────────────────────────────────────────────────
+        // ── WriteIndex (Manual VarInt Index) ─────────────────────────────────
 
-        [Fact]
-        public void WriteIndex_Null_WritesFourZeroBytes()
+        static void WriteVarIntIndex(IBufferWriter<byte> writer, StringInternTable table, string s)
         {
-            var table  = new StringInternTable();
-            var buf    = new byte[16];
-            int offset = 0;
-            table.WriteIndex(ref buf, ref offset, null);
-            Assert.Equal(4, offset);
-            Assert.Equal(0, System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(buf));
+            int index = table.GetIndex(s);
+            SerializerBinary.WriteUInt32(writer, (uint)index);
         }
 
         [Fact]
-        public void WriteIndex_AdvancesOffsetByFour()
+        public void WriteIndex_Null_WritesOneZeroByte()
         {
             var table  = new StringInternTable();
-            var buf    = new byte[16];
-            int offset = 2;
-            table.WriteIndex(ref buf, ref offset, "test");
-            Assert.Equal(6, offset);
+            var writer = new System.Buffers.ArrayBufferWriter<byte>();
+            WriteVarIntIndex(writer, table, null);
+            var buf = writer.WrittenSpan;
+            Assert.Equal(1, buf.Length);
+            Assert.Equal(0, buf[0]);
+        }
+
+        [Fact]
+        public void WriteIndex_AdvancesOffsetByVarIntSize()
+        {
+            var table  = new StringInternTable();
+            var writer = new System.Buffers.ArrayBufferWriter<byte>();
+            WriteVarIntIndex(writer, table, "test");
+            Assert.Equal(1, writer.WrittenCount); // Index 1 is 1 byte
         }
 
         // ── Flush / Load round-trip ───────────────────────────────────────────
@@ -202,12 +208,11 @@ namespace Ceras.Test
             var intern = new StringInternTable();
 
             // Simulate writing some string values inline
-            var dataBuf    = new byte[64];
-            int dataOffset = 0;
-            intern.WriteIndex(ref dataBuf, ref dataOffset, null);
-            intern.WriteIndex(ref dataBuf, ref dataOffset, "Excalibur");
-            intern.WriteIndex(ref dataBuf, ref dataOffset, "Mjolnir");
-            intern.WriteIndex(ref dataBuf, ref dataOffset, "Excalibur"); // duplicate
+            var writer = new System.Buffers.ArrayBufferWriter<byte>();
+            WriteVarIntIndex(writer, intern, null);
+            WriteVarIntIndex(writer, intern, "Excalibur");
+            WriteVarIntIndex(writer, intern, "Mjolnir");
+            WriteVarIntIndex(writer, intern, "Excalibur"); // duplicate
 
             // Flush string table into a separate buffer
             var tableBuf    = new byte[256];
@@ -216,12 +221,12 @@ namespace Ceras.Test
             var table       = StringTable.Load(tableBuf, tableStart);
 
             // Now read back all the inline indices
-            int readOffset = 0;
-            Assert.Null(   StringTable.ReadString(dataBuf, ref readOffset, table));
-            Assert.Equal("Excalibur", StringTable.ReadString(dataBuf, ref readOffset, table));
-            Assert.Equal("Mjolnir",   StringTable.ReadString(dataBuf, ref readOffset, table));
-            Assert.Equal("Excalibur", StringTable.ReadString(dataBuf, ref readOffset, table));
-            Assert.Equal(16, readOffset); // 4 indices × 4 bytes each
+            var reader = new System.Buffers.SequenceReader<byte>(new System.Buffers.ReadOnlySequence<byte>(writer.WrittenMemory));
+            Assert.Null(   StringTable.ReadString(ref reader, table));
+            Assert.Equal("Excalibur", StringTable.ReadString(ref reader, table));
+            Assert.Equal("Mjolnir",   StringTable.ReadString(ref reader, table));
+            Assert.Equal("Excalibur", StringTable.ReadString(ref reader, table));
+            Assert.Equal(4, reader.Consumed); // 4 indices × 1 byte each (indices 0, 1, 2, 1)
         }
 
         // ── ReadString — bounds checking ──────────────────────────────────────
@@ -230,25 +235,30 @@ namespace Ceras.Test
         public void ReadString_OutOfRange_Throws()
         {
             var table = new string[] { null, "only" }; // index 0=null, 1="only"
-            var buf   = new byte[4];
-            // Write index 99 (out of range)
-            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(buf, 99);
-            int offset = 0;
-            Assert.Throws<InvalidOperationException>(
-                () => StringTable.ReadString(buf, ref offset, table));
+            var writer = new System.Buffers.ArrayBufferWriter<byte>();
+            SerializerBinary.WriteUInt32(writer, 99); // out of range
+            var reader = new System.Buffers.SequenceReader<byte>(new System.Buffers.ReadOnlySequence<byte>(writer.WrittenMemory));
+            
+            try
+            {
+                StringTable.ReadString(ref reader, table);
+                Assert.Fail("Should have thrown");
+            }
+            catch (InvalidOperationException ex)
+            {
+                Assert.Equal("String index out of range", ex.Message);
+            }
         }
 
         // ── Buffer growth ─────────────────────────────────────────────────────
 
         [Fact]
-        public void WriteIndex_WithTinyBuffer_GrowsAndSucceeds()
+        public void WriteIndex_WithTinyBuffer_Succeeds()
         {
             var intern = new StringInternTable();
-            var buf    = new byte[1]; // too small
-            int offset = 0;
-            intern.WriteIndex(ref buf, ref offset, "grow me");
-            Assert.Equal(4, offset);
-            Assert.True(buf.Length >= 4);
+            var writer = new System.Buffers.ArrayBufferWriter<byte>(1); // tiny
+            WriteVarIntIndex(writer, intern, "grow me");
+            Assert.Equal(1, writer.WrittenCount);
         }
 
         [Fact]

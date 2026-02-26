@@ -50,7 +50,9 @@ namespace Ceras.Format
 
             // Extreme fallback for unregistered types (mostly for tests or transition)
             SchemaSection.WriteLeb128(writer, (uint)FullNameMarker);
-            SerializerBinary.WriteString(writer, _typeBinder.GetBaseName(value));
+            var table = RobustContext.InternTable;
+            if (table == null) throw new InvalidOperationException("RobustContext not active");
+            SerializerBinary.WriteUInt32(writer, (uint)table.GetIndex(_typeBinder.GetBaseName(value)));
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref Type value)
@@ -64,7 +66,9 @@ namespace Ceras.Format
 
             if (id == FullNameMarker)
             {
-                string typeName = SerializerBinary.ReadString(ref reader);
+                var table = RobustContext.StringTable;
+                if (table == null) throw new InvalidOperationException("RobustContext not active");
+                string typeName = StringTable.ReadString(ref reader, table);
                 value = _typeBinder.GetTypeFromBase(typeName);
                 return;
             }
