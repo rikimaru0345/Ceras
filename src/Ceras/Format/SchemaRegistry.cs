@@ -139,12 +139,10 @@ namespace Ceras.Format
                 // are only referenced for schema field-type metadata by SchemaSection.ResolveId,
                 // never as actual values in the data stream — so dynamic registration is fine.
                 if (IsSealed && !type.IsGenericTypeDefinition)
-                    throw new Ceras.Exceptions.CerasException(
-                        $"Type '{type.FullName}' was not pre-registered in the Ceras schema registry. " +
-                        $"It was encountered during serialization after the schema section was already written, " +
-                        $"so its ID cannot be stored — the save file would be unreadable. " +
-                        $"Fix: add [CerasSerializable] to '{type.Name}' (or to an interface/abstract base type " +
-                        $"that the source generator can discover it through) so it is registered by UseFormatters() at startup.");
+                {
+                    // If we're already sealed, we can't add new entries to the "declared" schema (the fingerprint part).
+                    // But we can still register them as "runtime discovered" types.
+                }
 
                 Register(type, null);
             }
@@ -171,6 +169,9 @@ namespace Ceras.Format
 
                 var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
                 string stableName = sa?.Name ?? f.Name;
+                if (sa == null && stableName.StartsWith("<") && stableName.EndsWith(">k__BackingField"))
+                    stableName = stableName.Substring(1, stableName.Length - 17);
+
                 string fieldTypeName = f.FieldType.FullName ?? f.FieldType.Name;
 
 				bool isMonomorphic = f.FieldType.IsValueType || f.FieldType.IsSealed;
@@ -199,11 +200,36 @@ namespace Ceras.Format
                 argNames[i] = args[i].FullName ?? args[i].Name;
             }
 
+            var fields = new List<SchemaFieldInfo>();
+            foreach (var f in type.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
+            {
+                if (f.GetCustomAttribute<ExcludeAttribute>() != null) continue;
+                if (f.GetCustomAttribute<NonSerializedAttribute>() != null) continue;
+
+                if (BannedTypes.IsBanned(f.FieldType))
+                {
+                    if (f.GetCustomAttribute<IncludeAttribute>() == null) continue;
+                }
+
+                var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
+                string stableName = sa?.Name ?? f.Name;
+                if (sa == null && stableName.StartsWith("<") && stableName.EndsWith(">k__BackingField"))
+                    stableName = stableName.Substring(1, stableName.Length - 17);
+
+                string fieldTypeName = f.FieldType.FullName ?? f.FieldType.Name;
+
+                bool isMonomorphic = f.FieldType.IsValueType || f.FieldType.IsSealed;
+                if (f.GetCustomAttribute<MonomorphicAttribute>() != null) isMonomorphic = true;
+                if (f.GetCustomAttribute<PolymorphicAttribute>() != null) isMonomorphic = false;
+
+                fields.Add(new SchemaFieldInfo(stableName, new string[0], fieldTypeName, isMonomorphic));
+            }
+
             return new SchemaTypeInfo(
                 stableName: typeFullName,
                 previousTypeNames: Array.Empty<string>(),
                 kind: SchemaTypeKind.GenericInstantiation,
-                fields: Array.Empty<SchemaFieldInfo>(),
+                fields: fields.ToArray(),
                 fixedByteSize: 0,
                 enumValues: null,
                 underlyingTypeName: def.FullName ?? def.Name,

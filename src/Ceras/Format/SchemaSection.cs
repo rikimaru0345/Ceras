@@ -22,42 +22,18 @@ namespace Ceras.Format
         public int[] ArgTypeIds { get; }
 
         internal OldTypeSchema(int typeId, string stableName, string[] previousNames,
-            SchemaTypeKind kind, OldFieldSchema[] fields, int fixedByteSize)
+            SchemaTypeKind kind, OldFieldSchema[] fields, int fixedByteSize,
+            int definitionTypeId = 0, int[] argTypeIds = null, OldEnumValue[] enumValues = null)
         {
             TypeId        = typeId;
             StableName    = stableName ?? "";
             PreviousNames = previousNames ?? Array.Empty<string>();
             Kind          = kind;
             Fields        = fields   ?? Array.Empty<OldFieldSchema>();
-            EnumValues    = Array.Empty<OldEnumValue>();
-            ArgTypeIds    = Array.Empty<int>();
             FixedByteSize = fixedByteSize;
-        }
-
-        internal OldTypeSchema(int typeId, string stableName, string[] previousNames,
-            int underlyingTypeId, OldEnumValue[] enumValues)
-        {
-            TypeId          = typeId;
-            StableName      = stableName ?? "";
-            PreviousNames   = previousNames ?? Array.Empty<string>();
-            Kind            = SchemaTypeKind.Enum;
-            DefinitionTypeId = underlyingTypeId;
-            EnumValues      = enumValues ?? Array.Empty<OldEnumValue>();
-            Fields          = Array.Empty<OldFieldSchema>();
-            ArgTypeIds       = Array.Empty<int>();
-        }
-
-        internal OldTypeSchema(int typeId, string stableName, string[] previousNames,
-            int definitionTypeId, int[] argTypeIds)
-        {
-            TypeId           = typeId;
-            StableName       = stableName ?? "";
-            PreviousNames    = previousNames ?? Array.Empty<string>();
-            Kind             = SchemaTypeKind.GenericInstantiation;
             DefinitionTypeId = definitionTypeId;
-            ArgTypeIds       = argTypeIds ?? Array.Empty<int>();
-            Fields           = Array.Empty<OldFieldSchema>();
-            EnumValues       = Array.Empty<OldEnumValue>();
+            ArgTypeIds    = argTypeIds ?? Array.Empty<int>();
+            EnumValues    = enumValues ?? Array.Empty<OldEnumValue>();
         }
     }
 
@@ -90,17 +66,71 @@ namespace Ceras.Format
         {
             var typeToId = new Dictionary<Type, int>();
             var queue = new Queue<(Type type, int id, SchemaTypeInfo info)>();
-            var alreadyProcessed = new HashSet<int>();
-
+            
             foreach (var entry in registry.All())
             {
                 typeToId[entry.type] = entry.id;
                 queue.Enqueue(entry);
             }
 
+            // Phase 1: Discovery (populate internTable and discover all types)
+            var discoveryQueue = new Queue<(Type type, int id, SchemaTypeInfo info)>(queue);
+            var discoveryProcessed = new HashSet<int>();
+
+            while (discoveryQueue.Count > 0)
+            {
+                var (type, id, info) = discoveryQueue.Dequeue();
+                if (!discoveryProcessed.Add(id)) continue;
+
+                internTable.GetIndex(info.StableName);
+                if (info.PreviousTypeNames != null)
+                    foreach (var prev in info.PreviousTypeNames) internTable.GetIndex(prev);
+
+                if (info.Kind == SchemaTypeKind.Enum)
+                {
+                    ResolveIdForDiscovery(info.UnderlyingTypeName, typeToId, discoveryQueue, registry);
+                    if (info.EnumValues != null)
+                        foreach (var ev in info.EnumValues) internTable.GetIndex(ev.Name);
+                }
+                else if (info.Kind == SchemaTypeKind.GenericInstantiation)
+                {
+                    ResolveIdForDiscovery(info.UnderlyingTypeName, typeToId, discoveryQueue, registry);
+                    if (info.ArgTypeNames != null)
+                        foreach (var argName in info.ArgTypeNames) ResolveIdForDiscovery(argName, typeToId, discoveryQueue, registry);
+                    
+                    if (info.Fields != null)
+                    {
+                        foreach (var field in info.Fields)
+                        {
+                            internTable.GetIndex(field.StableName);
+                            if (field.PreviousNames != null)
+                                foreach (var pn in field.PreviousNames) internTable.GetIndex(pn);
+                            ResolveIdForDiscovery(field.TypeName, typeToId, discoveryQueue, registry);
+                        }
+                    }
+                }
+                else if (info.Fields != null)
+                {
+                    foreach (var field in info.Fields)
+                    {
+                        internTable.GetIndex(field.StableName);
+                        if (field.PreviousNames != null)
+                            foreach (var pn in field.PreviousNames) internTable.GetIndex(pn);
+                        ResolveIdForDiscovery(field.TypeName, typeToId, discoveryQueue, registry);
+                    }
+                }
+            }
+
+            // Phase 2: Actual writing (WITHOUT the string table, CerasRobust handles that)
             var entryWriter = new ArrayBufferWriter<byte>(4096);
             int finalCount = 0;
+            
+            queue.Clear();
+            foreach (var kv in typeToId)
+                if (registry.TryGetInfo(kv.Key, out var info))
+                    queue.Enqueue((kv.Key, kv.Value, info));
 
+            var alreadyProcessed = new HashSet<int>();
             while (queue.Count > 0)
             {
                 var (type, id, info) = queue.Dequeue();
@@ -112,10 +142,8 @@ namespace Ceras.Format
 
                 WriteLeb128(entryWriter, (uint)(info.PreviousTypeNames?.Length ?? 0));
                 if (info.PreviousTypeNames != null)
-                {
                     foreach (var prev in info.PreviousTypeNames)
                         WriteInternedString(entryWriter, prev, internTable);
-                }
 
                 entryWriter.GetSpan(1)[0] = (byte)info.Kind;
                 entryWriter.Advance(1);
@@ -138,6 +166,16 @@ namespace Ceras.Format
                         }
                         break;
 
+                    case SchemaTypeKind.GenericInstantiation:
+                        int defId = ResolveId(info.UnderlyingTypeName, typeToId, queue, registry);
+                        WriteLeb128(entryWriter, (uint)defId);
+                        WriteLeb128(entryWriter, (uint)(info.ArgTypeNames?.Length ?? 0));
+                        if (info.ArgTypeNames != null)
+                            foreach (var argName in info.ArgTypeNames)
+                                WriteLeb128(entryWriter, (uint)ResolveId(argName, typeToId, queue, registry));
+                        
+                        goto case SchemaTypeKind.Class;
+
                     case SchemaTypeKind.Struct:
                     case SchemaTypeKind.Class:
                         WriteLeb128(entryWriter, (uint)(info.Fields?.Length ?? 0));
@@ -159,15 +197,6 @@ namespace Ceras.Format
                         }
                         WriteLeb128(entryWriter, (uint)info.FixedByteSize);
                         break;
-
-                    case SchemaTypeKind.GenericInstantiation:
-                        int defId = ResolveId(info.UnderlyingTypeName, typeToId, queue, registry);
-                        WriteLeb128(entryWriter, (uint)defId);
-                        WriteLeb128(entryWriter, (uint)(info.ArgTypeNames?.Length ?? 0));
-                        if (info.ArgTypeNames != null)
-                            foreach (var argName in info.ArgTypeNames)
-                                WriteLeb128(entryWriter, (uint)ResolveId(argName, typeToId, queue, registry));
-                        break;
                 }
             }
 
@@ -186,11 +215,8 @@ namespace Ceras.Format
         static int ResolveId(string clrName, Dictionary<Type, int> typeToId, Queue<(Type, int, SchemaTypeInfo)> queue, SchemaRegistry registry)
         {
             if (clrName == null) return WellKnownTypes.Null;
-
             int wk = ResolveWellKnownId(clrName);
             if (wk >= 0) return wk;
-
-            // Console.WriteLine($"DEBUG: SchemaSection.ResolveId('{clrName}')");
 
             if (registry.TryResolveType(clrName, out var type))
             {
@@ -205,30 +231,12 @@ namespace Ceras.Format
                     return id;
                 }
             }
-
-            try
-            {
-                var t = Type.GetType(clrName);
-                if (t != null)
-                {
-                    if (registry.TryGetId(t, out int id))
-                    {
-                        if (!typeToId.ContainsKey(t))
-                        {
-                            typeToId[t] = id;
-                            if (registry.TryGetInfo(t, out var info))
-                                queue.Enqueue((t, id, info));
-                        }
-                        return id;
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                throw new Exception($"Error in SchemaSection.ResolveId for '{clrName}': {e.Message}", e);
-            }
-
             return WellKnownTypes.Null;
+        }
+
+        static int ResolveIdForDiscovery(string clrName, Dictionary<Type, int> typeToId, Queue<(Type, int, SchemaTypeInfo)> queue, SchemaRegistry registry)
+        {
+            return ResolveId(clrName, typeToId, queue, registry);
         }
 
         static int ResolveWellKnownId(string typeName)
@@ -317,7 +325,7 @@ namespace Ceras.Format
                             reader.TryReadLittleEndian(out long val);
                             vals[j] = new OldEnumValue(name, val);
                         }
-                        schema = new OldTypeSchema(typeId, stableName, prevNames, underlyingId, vals);
+                        schema = new OldTypeSchema(typeId, stableName, prevNames, kind, null, 0, underlyingId, null, vals);
                         break;
 
                     case SchemaTypeKind.Struct:
@@ -343,7 +351,21 @@ namespace Ceras.Format
                         uint argCount = ReadLeb128(ref reader);
                         var argIds = new int[argCount];
                         for (uint j = 0; j < argCount; j++) argIds[j] = (int)ReadLeb128(ref reader);
-                        schema = new OldTypeSchema(typeId, stableName, prevNames, defId, argIds);
+                        
+                        uint gFieldCount = ReadLeb128(ref reader);
+                        var gFields = new OldFieldSchema[gFieldCount];
+                        for (uint j = 0; j < gFieldCount; j++)
+                        {
+                            string fStable = ReadInternedString(ref reader, stringTable);
+                            uint fpCount = ReadLeb128(ref reader);
+                            var fpNames = new string[fpCount];
+                            for (uint k = 0; k < fpCount; k++) fpNames[k] = ReadInternedString(ref reader, stringTable);
+                            int fTypeId = (int)ReadLeb128(ref reader);
+                            reader.TryRead(out byte flags);
+                            gFields[j] = new OldFieldSchema(fStable, fpNames, fTypeId, (flags & 1) != 0);
+                        }
+                        int gFixedSize = (int)ReadLeb128(ref reader);
+                        schema = new OldTypeSchema(typeId, stableName, prevNames, kind, gFields, gFixedSize, defId, argIds);
                         break;
 
                     default: throw new InvalidOperationException("Unknown kind");

@@ -183,7 +183,7 @@ namespace Ceras.Format
 
             if (typeId == FullNameMarker)
             {
-                string typeName = SerializerBinary.ReadString(ref reader);
+                string typeName = ReadStringFromTable(ref reader);
                 Type type = _typeBinder.GetTypeFromBase(typeName);
                 if (type == null)
                 {
@@ -216,14 +216,10 @@ namespace Ceras.Format
             }
             if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
             {
-                var obj = ReadGenericInstantiation(oldSchema, targetType, ref reader);
-                _objectCache[cacheIndex] = obj;
-                return obj;
+                return ReadGenericInstantiation(oldSchema, targetType, ref reader, cacheIndex);
             }
 
-            var result = ReadUserTypeInstance(oldSchema, targetType, ref reader);
-            _objectCache[cacheIndex] = result;
-            return result;
+            return ReadUserTypeInstance(oldSchema, targetType, ref reader, cacheIndex);
         }
 
         object ReadUserType(int typeId, Type targetType, ref SequenceReader<byte> reader)
@@ -251,7 +247,7 @@ namespace Ceras.Format
             return null;
         }
 
-        object ReadUserTypeInstance(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
+        object ReadUserTypeInstance(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
         {
             _plans.TryGetValue(oldSchema.StableName, out var plan);
             Type currentType = plan?.CurrentType ?? targetType;
@@ -264,10 +260,10 @@ namespace Ceras.Format
             }
 
             object obj = CreateInstance(currentType);
-            int cacheIndex = _objectCache.Count;
-            _objectCache.Add(obj);
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = obj;
+            else _objectCache.Add(obj);
+
             ReadAndApplyFields(oldSchema, plan, obj, ref reader);
-            _objectCache[cacheIndex] = obj;
 
             if (plan != null && plan.HasChanges && plan.OnAfterDeserialize != null && obj != null)
                 FireCallback(obj, plan, plan.AddedFieldNames, CollectSkippedFields(plan));
@@ -294,14 +290,14 @@ namespace Ceras.Format
             return RuntimeHelpers.GetUninitializedObject(type);
         }
 
-        object ReadGenericInstantiation(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
+        object ReadGenericInstantiation(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
         {
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Array) return ReadArray(oldSchema, targetType, ref reader);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.List) return ReadList(oldSchema, targetType, ref reader);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary) return ReadDictionary(oldSchema, targetType, ref reader);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.HashSet) return ReadHashSet(oldSchema, targetType, ref reader);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Queue) return ReadQueue(oldSchema, targetType, ref reader);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Stack) return ReadStack(oldSchema, targetType, ref reader);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Array) return ReadArray(oldSchema, targetType, ref reader, cacheIndex);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.List) return ReadList(oldSchema, targetType, ref reader, cacheIndex);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary) return ReadDictionary(oldSchema, targetType, ref reader, cacheIndex);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.HashSet) return ReadHashSet(oldSchema, targetType, ref reader, cacheIndex);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Queue) return ReadQueue(oldSchema, targetType, ref reader, cacheIndex);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Stack) return ReadStack(oldSchema, targetType, ref reader, cacheIndex);
 
             // Arbitrary generic class or struct
             _plans.TryGetValue(oldSchema.StableName, out var plan);
@@ -315,23 +311,27 @@ namespace Ceras.Format
             }
 
             object obj = CreateInstance(currentType);
-            int cacheIndex = _objectCache.Count;
-            _objectCache.Add(obj);
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = obj;
+            else _objectCache.Add(obj);
+
             ReadAndApplyFields(oldSchema, plan, obj, ref reader);
-            _objectCache[cacheIndex] = obj;
             return obj;
         }
 
-        object ReadArray(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
+        object ReadArray(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
         {
-            uint count = SerializerBinary.ReadUInt32(ref reader);
+            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            if (count == -1) return null;
             if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
 
             Type elementType = targetType?.IsArray == true ? targetType.GetElementType() : null;
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-            if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
+            if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
             var arr = Array.CreateInstance(elementType, (int)count);
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = arr;
+            else _objectCache.Add(arr);
+
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
 
 			for (int i = 0; i < count; i++)
@@ -342,16 +342,20 @@ namespace Ceras.Format
             return arr;
         }
 
-        object ReadList(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
+        object ReadList(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
         {
-            uint count = SerializerBinary.ReadUInt32(ref reader);
+            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            if (count == -1) return null;
             if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
 
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-            if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
+            if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
             var list = (System.Collections.IList)Activator.CreateInstance(targetType);
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = list;
+            else _objectCache.Add(list);
+
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
 
 			for (int i = 0; i < count; i++)
@@ -362,9 +366,10 @@ namespace Ceras.Format
             return list;
         }
 
-        object ReadDictionary(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
+        object ReadDictionary(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
         {
-            uint count = SerializerBinary.ReadUInt32(ref reader);
+            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            if (count == -1) return null;
             if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
 
             Type keyType = targetType?.FindClosedArg(typeof(IDictionary<,>), 0);
@@ -379,6 +384,9 @@ namespace Ceras.Format
             }
 
             var dict = (System.Collections.IDictionary)Activator.CreateInstance(targetType);
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = dict;
+            else _objectCache.Add(dict);
+
             var kCoerce = MigrationPlanBuilder.DetectCoercion(oldKeyTid.Value, keyType);
             var vCoerce = MigrationPlanBuilder.DetectCoercion(oldValTid.Value, valType);
 
@@ -391,16 +399,20 @@ namespace Ceras.Format
             return dict;
         }
 
-        object ReadHashSet(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
+        object ReadHashSet(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
         {
-            uint count = SerializerBinary.ReadUInt32(ref reader);
+            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            if (count == -1) return null;
             if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
 
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-            if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
+            if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
             var set = Activator.CreateInstance(targetType);
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = set;
+            else _objectCache.Add(set);
+
             var addMethod = targetType.GetMethod("Add", new[] { elementType });
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
 
@@ -412,16 +424,20 @@ namespace Ceras.Format
             return set;
         }
 
-        object ReadQueue(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
+        object ReadQueue(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
         {
-            uint count = SerializerBinary.ReadUInt32(ref reader);
+            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            if (count == -1) return null;
             if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
 
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-            if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
+            if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
             var queue = Activator.CreateInstance(targetType);
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = queue;
+            else _objectCache.Add(queue);
+
             var enqueueMethod = targetType.GetMethod("Enqueue", new[] { elementType });
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
 
@@ -433,14 +449,15 @@ namespace Ceras.Format
             return queue;
         }
 
-        object ReadStack(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
+        object ReadStack(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
         {
-            uint count = SerializerBinary.ReadUInt32(ref reader);
+            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            if (count == -1) return null;
             if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
 
             Type elementType = targetType?.FindClosedArg(typeof(IEnumerable<>));
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-            if (elementType == null || oldElemTypeId == null) { SkipElements(count, oldElemTypeId, ref reader); return null; }
+            if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
             var values = new object[count];
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
@@ -452,6 +469,9 @@ namespace Ceras.Format
             }
 
             var stack = Activator.CreateInstance(targetType);
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = stack;
+            else _objectCache.Add(stack);
+
             var pushMethod = targetType.GetMethod("Push", new[] { elementType });
             for (int i = (int)count - 1; i >= 0; i--) pushMethod.Invoke(stack, new[] { values[i] });
             return stack;
@@ -471,7 +491,7 @@ namespace Ceras.Format
 
             switch (typeId)
             {
-                case WellKnownTypes.Bool:
+                case WellKnownTypes.Bool: reader.Advance(1); return;
                 case WellKnownTypes.String: SerializerBinary.ReadUInt32(ref reader); return;
                 case WellKnownTypes.Int32: SerializerBinary.ReadInt32(ref reader); return;
                 case WellKnownTypes.UInt32: SerializerBinary.ReadUInt32(ref reader); return;
@@ -493,17 +513,20 @@ namespace Ceras.Format
                 case SchemaTypeKind.Class: SkipPolymorphicValue(typeId, ref reader); break;
                 case SchemaTypeKind.Enum: SkipEnumValue(oldSchema, ref reader); break;
                 case SchemaTypeKind.GenericInstantiation:
+                    _objectCache.Add(null); // Keep cache in sync
 					if (oldSchema.DefinitionTypeId == WellKnownTypes.Array || oldSchema.DefinitionTypeId == WellKnownTypes.List ||
 						oldSchema.DefinitionTypeId == WellKnownTypes.HashSet || oldSchema.DefinitionTypeId == WellKnownTypes.Queue ||
 						oldSchema.DefinitionTypeId == WellKnownTypes.Stack)
                     {
-                        uint count = SerializerBinary.ReadUInt32(ref reader);
+                        int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+                        if (count == -1) return;
                         int? elemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                        SkipElements(count, elemTypeId, ref reader);
+                        SkipElements((uint)count, elemTypeId, ref reader);
                     }
                     else if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)
                     {
-                        uint count = SerializerBinary.ReadUInt32(ref reader);
+                        int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+                        if (count == -1) return;
                         int? kId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
                         int? vId = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
                         for (int i = 0; i < count; i++) { if (kId.HasValue) SkipValue(kId.Value, ref reader); if (vId.HasValue) SkipValue(vId.Value, ref reader); }
@@ -522,11 +545,12 @@ namespace Ceras.Format
             int typeId = marker == RefNewValue ? (int)SchemaSection.ReadLeb128(ref reader) : expectedTypeId;
             if (_oldById.TryGetValue(typeId, out var oldSchema))
             {
-                _objectCache.Add(null);
+                _objectCache.Add(null); // Keep cache in sync
                 if (oldSchema.Kind == SchemaTypeKind.Enum) SkipEnumValue(oldSchema, ref reader);
                 else if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
                 {
-                    uint count = SerializerBinary.ReadUInt32(ref reader);
+                    int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+                    if (count == -1) return;
                     if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)
                     {
                         int? kId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
@@ -536,7 +560,7 @@ namespace Ceras.Format
                     else
                     {
                         int? elemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                        SkipElements(count, elemTypeId, ref reader);
+                        SkipElements((uint)count, elemTypeId, ref reader);
                     }
                 }
                 else foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, ref reader);
@@ -581,10 +605,12 @@ namespace Ceras.Format
             foreach (var mapping in mappings)
             {
                 if (mapping.NewField == null) {
+                    Console.WriteLine($"DEBUG: Skipping field '{mapping.OldField.StableName}' (Type {mapping.OldField.TypeId})");
                     SkipValue(mapping.OldField.TypeId, ref reader);
                 }
                 else
                 {
+                    Console.WriteLine($"DEBUG: Reading field '{mapping.OldField.StableName}' (Type {mapping.OldField.TypeId}) into '{mapping.NewField.Name}'");
                     object value = ReadValue(mapping.OldField.TypeId, mapping.NewField.FieldType, ref reader);
                     if (target != null) {
                         var coerced = Coerce(value, mapping.Coercion, mapping.NewField.FieldType);

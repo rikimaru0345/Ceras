@@ -10,7 +10,7 @@ namespace Ceras.Format
         {
             if (value == null)
             {
-                SerializerBinary.WriteInt32Fixed(writer, 0);
+                SerializerBinary.WriteUInt32(writer, 0);
                 return;
             }
 
@@ -33,8 +33,8 @@ namespace Ceras.Format
             var table = RobustContext.StringTable;
             if (table == null) throw new InvalidOperationException("RobustContext not active");
 
-            if (index >= (uint)table.Length) throw new InvalidOperationException("Invalid string table index");
-            value = table[(int)index];
+            if (index > (uint)table.Length) throw new InvalidOperationException("Invalid string table index");
+            value = table[(int)index - 1];
         }
     }
 }

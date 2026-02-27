@@ -47,10 +47,6 @@ namespace Ceras.Format
                 if (kv.Key != old.StableName) continue;
                 if (result.ContainsKey(old.StableName)) continue;
                 
-                // Generic instantiations are handled by the traversal engine directly?
-                // Actually they might still need plans if they're user-defined generic classes!
-                if (old.Kind == SchemaTypeKind.GenericInstantiation) continue;
-
                 result[old.StableName] = BuildOne(old, oldById, registry);
             }
 
