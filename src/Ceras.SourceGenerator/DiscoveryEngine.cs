@@ -25,6 +25,7 @@ namespace Ceras.SourceGenerator
             var allTypes = GetAllNamedTypes(compilation.GlobalNamespace).ToList();
 
             // 1. Initial roots from [CerasSerializable]
+            var initialRoots = new HashSet<INamedTypeSymbol>(types, SymbolEqualityComparer.Default);
             foreach (var t in types)
             {
                 if (results.ContainsKey(t)) continue;
@@ -76,7 +77,9 @@ namespace Ceras.SourceGenerator
                             if (candidate.DeclaredAccessibility == Accessibility.Private || candidate.DeclaredAccessibility == Accessibility.Protected) continue;
                             if (results.ContainsKey(candidate)) continue;
                             if (excludeFromDiscoveryAttr != null && HasAttribute(candidate, excludeFromDiscoveryAttr)) continue;
-                            if (MatchesBlacklist(candidate, blacklistPatterns)) continue;
+
+                            // Explicit roots always win over blacklist
+                            if (!initialRoots.Contains(candidate) && MatchesBlacklist(candidate, blacklistPatterns)) continue;
 
                             if (ImplementsOrInherits(candidate, currentType))
                             {
@@ -134,7 +137,8 @@ namespace Ceras.SourceGenerator
                         if (results.ContainsKey(named)) return;
 
                         // Check blacklist
-                        if (MatchesBlacklist(named, blacklistPatterns)) return;
+                        // Explicit roots always win over blacklist
+                        if (!initialRoots.Contains(named) && MatchesBlacklist(named, blacklistPatterns)) return;
 
                         // Add to graph!
                         var newPath = (parentPath == null) ? $"Referenced by {parent.Name}" : $"{parentPath} -> {parent.Name}";

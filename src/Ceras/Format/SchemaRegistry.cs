@@ -278,11 +278,19 @@ namespace Ceras.Format
             lock (_lock)
             {
                 if (_byStableName.TryGetValue(stableName, out var e)) { type = e.Type; return true; }
-                
-                type = Type.GetType(stableName);
-                if (type != null) return true;
 
-                type = null;
+				type = Type.GetType(stableName);
+				if (type != null) return true;
+
+				// Fallback: search all assemblies for a type with this name.
+				// This is slow, but only happens once per unknown type during schema write/read.
+				// TODO: can we find a better way? maybe while iterating save all types? hmm, no that'd take even longer
+				foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies()) {
+					type = assembly.GetType(stableName);
+					if (type != null) return true;
+				}
+
+				type = null;
                 return false;
             }
         }
