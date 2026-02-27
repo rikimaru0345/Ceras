@@ -65,7 +65,21 @@ namespace Ceras.Format
                 return;
             }
 
-            // Fallback to registry
+            // If we're here, the type was not found in the pre-computed schema section.
+            // This happens if a polymorphic field contains a type that wasn't discovered
+            // during the initial schema traversal (Phase 1).
+            // We write a FullName marker and the interned name so we can still resolve it.
+            var internTable = RobustContext.InternTable;
+            if (internTable != null)
+            {
+                SchemaSection.WriteLeb128(writer, (uint)FullNameMarker);
+                string name = _typeBinder.GetBaseName(value);
+                int nameId = internTable.GetIndex(name);
+                SerializerBinary.WriteUInt32(writer, (uint)nameId);
+                return;
+            }
+
+            // Fallback to registry (only if not in a robust context, e.g. normal serialization using this formatter)
             if (_registry != null && _registry.TryGetId(value, out id))
             {
                 SchemaSection.WriteLeb128(writer, (uint)id);
@@ -75,13 +89,6 @@ namespace Ceras.Format
             // A type that is unknown to the schema registry was encountered during serialization.
             // This usually means a concrete subtype of a polymorphic field lacks [CerasSerializable],
             // so no schema entry or formatter was generated for it.
-            // Failing here (at save time) gives a clear, actionable error instead of a cryptic crash
-            // later during loading (especially when the SchemaTraversalEngine is active after a schema change).
-            //
-            // Fix options:
-            //   (1) Add [CerasSerializable] to the interface/abstract base type of the field so that
-            //       all subtypes are auto-discovered and registered by the source generator.
-            //   (2) Manually register the type's formatter in UseFormatters / BuildSerializerConfig.
             throw new Ceras.Exceptions.CerasException(
                 $"Type '{value.FullName}' is used as a polymorphic value but is not registered in the " +
                 $"Ceras schema registry. Add [CerasSerializable] to the interface or abstract base type " +

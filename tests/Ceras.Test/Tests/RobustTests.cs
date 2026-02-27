@@ -248,18 +248,18 @@ namespace Ceras.Test
 
         public override void Serialize(IBufferWriter<byte> writer, Item value)
         {
-            _stringFormatter.Serialize(writer, value.Name);
-            _intFormatter.Serialize(writer, value.Quantity);
             _rarityFormatter.Serialize(writer, value.Rarity);
+            _intFormatter.Serialize(writer, value.Quantity);
             _floatFormatter.Serialize(writer, value.Weight);
+            _stringFormatter.Serialize(writer, value.Name);
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref Item value)
         {
-            _stringFormatter.Deserialize(ref reader, ref value.Name);
-            _intFormatter.Deserialize(ref reader, ref value.Quantity);
             _rarityFormatter.Deserialize(ref reader, ref value.Rarity);
+            _intFormatter.Deserialize(ref reader, ref value.Quantity);
             _floatFormatter.Deserialize(ref reader, ref value.Weight);
+            _stringFormatter.Deserialize(ref reader, ref value.Name);
         }
     }
 }

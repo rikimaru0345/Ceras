@@ -147,6 +147,38 @@ namespace Ceras.Format
             }
         }
 
+        object ReadUserType(int typeId, Type targetType, ref SequenceReader<byte> reader)
+        {
+            if (!_oldById.TryGetValue(typeId, out var oldSchema)) {
+                return null;
+            }
+            
+            if (oldSchema.Kind == SchemaTypeKind.Enum)
+            {
+                _plans.TryGetValue(oldSchema.StableName, out var plan);
+                return ReadEnumValue(oldSchema, targetType, plan, ref reader);
+            }
+
+            // If it's a struct, it has no reference marker.
+            if (oldSchema.Kind == SchemaTypeKind.Struct)
+            {
+                return ReadUserTypeDirect(typeId, targetType, ref reader);
+            }
+
+            // If it's a class or interface, it HAS a reference marker.
+            return ReadPolymorphicValue(typeId, targetType, ref reader);
+        }
+
+        object ReadUserTypeDirect(int typeId, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
+        {
+            if (!_oldById.TryGetValue(typeId, out var oldSchema)) return null;
+
+            if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
+                return ReadGenericInstantiation(oldSchema, targetType, ref reader, cacheIndex);
+
+            return ReadUserTypeInstance(oldSchema, targetType, ref reader, cacheIndex);
+        }
+
         object ReadPolymorphicValue(int expectedTypeId, Type targetType, ref SequenceReader<byte> reader)
         {
             int marker = SerializerBinary.ReadUInt32Bias(ref reader, RefBias);
@@ -174,9 +206,10 @@ namespace Ceras.Format
             int typeId;
             if (marker == RefNewValue)
                 typeId = (int)SchemaSection.ReadLeb128(ref reader);
-            else
+            else if (marker == RefNewValueSameType)
                 typeId = expectedTypeId;
-
+            else
+                throw new Ceras.Exceptions.CerasException($"Invalid reference marker {marker}");
 
             int cacheIndex = _objectCache.Count;
             _objectCache.Add(null);
@@ -195,7 +228,7 @@ namespace Ceras.Format
                 {
                     if (_oldById.TryGetValue(actualId, out var registeredSchema))
                     {
-                        var obj2 = ReadUserTypeInstance(registeredSchema, targetType, ref reader);
+                        var obj2 = ReadUserTypeInstance(registeredSchema, targetType, ref reader, cacheIndex);
                         _objectCache[cacheIndex] = obj2;
                         return obj2;
                     }
@@ -205,40 +238,10 @@ namespace Ceras.Format
                 // but for now let's just create an uninitialized object if it's a class.
                 object obj = CreateInstance(type);
                 _objectCache[cacheIndex] = obj;
-				// We don't have a schema, so we can't read fields unless they are written in a specific way.
                 return obj;
             }
 
-            if (!_oldById.TryGetValue(typeId, out var oldSchema))
-            {
-                SkipUserType(typeId, ref reader);
-                return null;
-            }
-            if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
-            {
-                return ReadGenericInstantiation(oldSchema, targetType, ref reader, cacheIndex);
-            }
-
-            return ReadUserTypeInstance(oldSchema, targetType, ref reader, cacheIndex);
-        }
-
-        object ReadUserType(int typeId, Type targetType, ref SequenceReader<byte> reader)
-        {
-            if (!_oldById.TryGetValue(typeId, out var oldSchema)) {
-                return null;
-            }
-            
-            Console.WriteLine($"DEBUG ReadUserType: typeId={typeId}, Kind={oldSchema.Kind}, targetType={targetType?.Name}");
-
-            if (oldSchema.Kind == SchemaTypeKind.Enum)
-            {
-                _plans.TryGetValue(oldSchema.StableName, out var plan);
-                return ReadEnumValue(oldSchema, targetType, plan, ref reader);
-            }
-            if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
-                return ReadGenericInstantiation(oldSchema, targetType, ref reader);
-
-            return ReadPolymorphicValue(typeId, targetType ?? GetCurrentType(oldSchema.StableName), ref reader);
+            return ReadUserTypeDirect(typeId, targetType, ref reader, cacheIndex);
         }
 
         object ReadUserTypeByStableName(string stableName, Type targetType, ref SequenceReader<byte> reader)
@@ -264,7 +267,6 @@ namespace Ceras.Format
 
             object obj = CreateInstance(currentType);
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = obj;
-            else _objectCache.Add(obj);
 
             ReadAndApplyFields(oldSchema, plan, obj, ref reader);
 
@@ -315,7 +317,6 @@ namespace Ceras.Format
 
             object obj = CreateInstance(currentType);
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = obj;
-            else _objectCache.Add(obj);
 
             ReadAndApplyFields(oldSchema, plan, obj, ref reader);
             return obj;

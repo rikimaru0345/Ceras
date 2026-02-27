@@ -17,7 +17,7 @@ namespace Ceras {
         internal const int OffsetMagic = 0;
         internal const int OffsetFormatVersion = 4 + OffsetMagic;
         internal const int OffsetGameVersion = 1 + OffsetFormatVersion;
-        internal const int OffsetFingerprint = 4 + OffsetGameVersion;
+        internal const int OffsetFingerprint = 8 + OffsetGameVersion;
         internal const int OffsetFlags = 8 + OffsetFingerprint;
         internal const int OffsetDataSection = 1 + OffsetFlags;
         internal const int OffsetStringTable = 8 + OffsetDataSection;
@@ -39,27 +39,42 @@ namespace Ceras {
         }
 
         public static byte[] Save<T>(T rootObject, uint robustVersion, CerasSerializer ceras) {
+            if (ceras == null) throw new ArgumentNullException(nameof(ceras));
+            
             var registry = ceras.Config.Robust.SchemaRegistry;
+            var internTable = new StringInternTable();
+
+			// --- DISCOVERY PASS ---
+			// We need to find all types that will be used during serialization.
+			// The registry might only contain types explicitly registered or discovered via [CerasSerializable].
+			// But the object graph might contain types only reachable via polymorphic fields (object, interfaces).
+			// So we do a quick serialization pass to a null writer to trigger registration.
+			var oldRobustEnabled = ceras.Config.Robust.Enabled;
+			ceras.Config.Robust.Enabled = true; // Enabled so we use the right formatters
+            RobustContext.BeginWrite(internTable, new Dictionary<Type, int>());
+			try {
+				ceras.Serialize(new NullWriter(), rootObject);
+			} finally {
+				RobustContext.End();
+				ceras.Config.Robust.Enabled = oldRobustEnabled;
+			}
+
+			// Ensure the root type is registered so we can resolve its schema
+			registry.TryGetId(typeof(T), out _);
+
+			// Ensure the registry is sealed so that discovered generic instantiations
+			// don't affect the fingerprint.
+			registry.Seal();
+
+			int rootTypeId = GetTypeId(typeof(T), registry);
+
             var buffer = new byte[4096];
             int offset = 0;
 
 			WriteHeaderPlaceholder(ref buffer, ref offset, robustVersion);
 
-			// Ensure the registry is sealed so that discovered generic instantiations
-			// don't affect the fingerprint.
-			// So need to do it BEFORE SchemaSection.Write; bc it calls ResolveId which
-			// Ensure the root type is registered so we can resolve its schema
-			registry.TryGetId(typeof(T), out _);
-
-			// Ensure the registry is sealed before we start registering anything (like discovered generic instantiations)
-			registry.Seal();
-
-			int rootTypeId = GetTypeId(typeof(T), registry);
-
-
 			ulong schemaFingerprint = registry.ComputeFingerprint();
 
-            var internTable = new StringInternTable();
             var typeToId = SchemaSection.Write(ref buffer, ref offset, registry, internTable);
 
             int dataStart = offset;
@@ -83,8 +98,8 @@ namespace Ceras {
             }
             finally
             {
-                ceras.Config.Robust.Enabled = false;
                 RobustContext.End();
+                ceras.Config.Robust.Enabled = oldRobustEnabled;
             }
 
             int stringTableStart = internTable.Flush(ref buffer, ref offset);
@@ -196,6 +211,7 @@ namespace Ceras {
                 Ceras.Helpers.ObjectCache.BeginDeserializeTrace();
 
             RobustContext.BeginRead(table, idToType);
+            var oldRobustEnabled = ceras.Config.Robust.Enabled;
             ceras.Config.Robust.Enabled = true;
             try {
                 var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, (int)stringTableOffset - (int)dataSectionOffset);
@@ -212,7 +228,7 @@ namespace Ceras {
                 return value;
             }
             finally {
-                ceras.Config.Robust.Enabled = false;
+                ceras.Config.Robust.Enabled = oldRobustEnabled;
                 RobustContext.End();
             }
         }
@@ -376,5 +392,12 @@ namespace Ceras {
 
             return sb.ToString();
         }
+
+		class NullWriter : IBufferWriter<byte> {
+			byte[] _buffer = new byte[4096];
+			public void Advance(int count) { }
+			public Memory<byte> GetMemory(int sizeHint = 0) => _buffer;
+			public Span<byte> GetSpan(int sizeHint = 0) => _buffer;
+		}
     }
 }

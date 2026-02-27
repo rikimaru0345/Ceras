@@ -275,6 +275,12 @@ namespace Ceras.Format
         /// </summary>
         public bool TryResolveType(string stableName, out Type type)
         {
+			if (string.IsNullOrEmpty(stableName))
+			{
+				type = null;
+				return false;
+			}
+
             lock (_lock)
             {
                 if (_byStableName.TryGetValue(stableName, out var e)) { type = e.Type; return true; }
@@ -303,6 +309,8 @@ namespace Ceras.Format
                 var copy = new List<(Type type, int id, SchemaTypeInfo info)>(_byType.Count);
                 foreach (var kv in _byType)
                     copy.Add((kv.Key, kv.Value.Id, kv.Value.Info));
+                
+                copy.Sort((a, b) => a.id.CompareTo(b.id));
                 return copy;
             }
         }
