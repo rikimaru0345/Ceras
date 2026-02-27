@@ -33,7 +33,7 @@ namespace Ceras
         {
             if (type.IsAbstract) return true;
 
-			// Check manual registration (The source generator calls AddFormatterConstructedType during UseFormatters)
+			// Check manual registration (The source generator calls AddFormatterConstructedType during UseRobustFormatters)
 			lock (_formatterConstructedTypes)
             {
                 if (_formatterConstructedTypes.Contains(type)) return true;
@@ -90,19 +90,7 @@ namespace Ceras
             if (config != null && !config.Claim(this)) throw new CerasException("SerializerConfig already in use");
             Config = config ?? new SerializerConfig();
 
-            // Try to find and call the source-generated registration helper as early as possible
-            // to ensure constructed types are registered before any formatters are created.
-            var generatedType = Type.GetType("Ceras.Generated.GeneratedFormatters, Ceras.Generated") ??
-                                Type.GetType("Ceras.Generated.GeneratedFormatters");
-
-            if (generatedType != null)
-            {
-                var method = generatedType.GetMethod("UseFormatters", BindingFlags.Static | BindingFlags.Public);
-                if (method != null)
-                    method.Invoke(null, new object[] { Config });
-            }
-
-            if (Config.ExternalObjectResolver == null) Config.ExternalObjectResolver = new ErrorResolver();
+			if (Config.ExternalObjectResolver == null) Config.ExternalObjectResolver = new ErrorResolver();
             TypeBinder = Config.Advanced.TypeBinder;
             DiscardObjectMethod = Config.Advanced.DiscardObjectMethod;
             _userResolvers = Config.OnResolveFormatter.ToArray();
