@@ -288,30 +288,32 @@ namespace Ceras
         public PreviousTypeNameAttribute(string name) { Name = name; }
     }
 
-    /// <summary>
-    /// Sets a stable wire name for this field or property — independent of the C# member name.
-    /// Set this once and the C# member can be freely renamed without needing <see cref="PreviousNameAttribute"/>.
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-    public class CerasStableNameAttribute : Attribute
-    {
-        public string Name { get; }
-        public CerasStableNameAttribute(string name) { Name = name; }
-    }
+	/// <summary>
+	/// Sets a stable wire name for this field or property — independent of the C# member name.
+	/// Set this once and the C# member can be freely renamed without needing <see cref="PreviousNameAttribute"/>.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+	public class CerasStableNameAttribute : Attribute {
+		public string Name { get; }
+		public CerasStableNameAttribute(string name) { Name = name; }
+	}
 
-    /// <summary>
-    /// Forces a collection field to be treated as monomorphic: all elements are guaranteed to be
-    /// exactly the declared element type, so no per-element type ID is written.
-    /// Auto-detected for value types and sealed classes; use this to override for non-sealed types
-    /// you know will never be subclassed in saves.
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-    public class MonomorphicAttribute : Attribute { }
+	// TODO: exposing those is probably not a good idea; too big a footgun...
+	// maybe we can just improve the heuristic or so? Or tell people to seal their types?
 
-    /// <summary>
-    /// Forces a collection field to be treated as polymorphic even when auto-detection would
-    /// mark it as monomorphic (e.g. a sealed class that you plan to extend later).
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-    public class PolymorphicAttribute : Attribute { }
+	/// <summary>
+	/// Forces a collection field to be treated as monomorphic: all elements are guaranteed to be
+	/// exactly the declared element type, so no per-element type ID is written.
+	/// Auto-detected for value types and sealed classes; use this to override for non-sealed types
+	/// you know will never be subclassed in saves.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+	internal class MonomorphicAttribute : Attribute { }
+
+	/// <summary>
+	/// Forces a collection field to be treated as polymorphic even when auto-detection would
+	/// mark it as monomorphic (e.g. a sealed class that you plan to extend later).
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+	internal class PolymorphicAttribute : Attribute { }
 }

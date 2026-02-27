@@ -37,28 +37,28 @@ namespace Ceras.Test
         {
             var config = new SerializerConfig();
             GeneratedFormatters.UseFormatters(config);
-            
-            // Manual registration for local types to ensure they have the stable names the tests expect
-            var potionInfo = new SchemaTypeInfo("Potion", new[] { "Ceras.Test.OldPotion" }, SchemaTypeKind.Class, new[] {
+
+			// Manual registration for local types to ensure they have the stable names the tests expect
+			var potionInfo = new SchemaTypeInfo("Ceras.Test.Potion", new[] { "Ceras.Test.OldPotion" }, SchemaTypeKind.Class, new[] {
                 new SchemaFieldInfo("Heal", Array.Empty<string>(), "System.Int32", true),
                 new SchemaFieldInfo("Label", Array.Empty<string>(), "System.String", true)
             }, 0);
             config.Robust.SchemaRegistry.Register(typeof(Potion), potionInfo);
 
-            var weaponInfo = new SchemaTypeInfo("Weapon", Array.Empty<string>(), SchemaTypeKind.Class, new[] {
+            var weaponInfo = new SchemaTypeInfo("Ceras.Test.Weapon", Array.Empty<string>(), SchemaTypeKind.Class, new[] {
                 new SchemaFieldInfo("Damage", Array.Empty<string>(), "System.Int32", true),
                 new SchemaFieldInfo("Name", new[] { "OldName" }, "System.String", true),
                 new SchemaFieldInfo("Weight", Array.Empty<string>(), "System.Single", true)
             }, 0);
             config.Robust.SchemaRegistry.Register(typeof(Weapon), weaponInfo);
 
-            var point2Info = new SchemaTypeInfo("Point2", Array.Empty<string>(), SchemaTypeKind.Struct, new[] {
+            var point2Info = new SchemaTypeInfo("Ceras.Test.Point2", Array.Empty<string>(), SchemaTypeKind.Struct, new[] {
                 new SchemaFieldInfo("X", Array.Empty<string>(), "System.Single", true),
                 new SchemaFieldInfo("Y", Array.Empty<string>(), "System.Single", true)
             }, 8);
             config.Robust.SchemaRegistry.Register(typeof(Point2), point2Info);
 
-            var vec2Info = new SchemaTypeInfo("Vec2Struct", Array.Empty<string>(), SchemaTypeKind.Struct, new[] {
+            var vec2Info = new SchemaTypeInfo("Ceras.Test.Vec2Struct", Array.Empty<string>(), SchemaTypeKind.Struct, new[] {
                 new SchemaFieldInfo("X", Array.Empty<string>(), "System.Single", true),
                 new SchemaFieldInfo("Y", Array.Empty<string>(), "System.Single", true)
             }, 8);
@@ -105,8 +105,8 @@ namespace Ceras.Test
         {
             var registry = CreateRegistry();
             registry.TryGetId(typeof(Weapon), out int expectedId);
-            var map = RoundTrip(registry);
-            Assert.Equal(expectedId, map["Weapon"].TypeId);
+			var map = RoundTrip(registry);
+			Assert.Equal(expectedId, map["Ceras.Test.Weapon"].TypeId);
         }
 
         // ── StableName / PreviousNames ────────────────────────────────────────
@@ -115,8 +115,8 @@ namespace Ceras.Test
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
-            Assert.True(map.ContainsKey("Potion"));
-            Assert.Equal("Potion", map["Potion"].StableName);
+            Assert.True(map.ContainsKey("Ceras.Test.Potion"));
+            Assert.Equal("Ceras.Test.Potion", map["Ceras.Test.Potion"].StableName);
         }
 
         [Fact] public void PreviousTypeName_RoundTrips()
@@ -126,7 +126,7 @@ namespace Ceras.Test
             // "Ceras.Test.OldPotion" is a previous name for Potion
             Assert.True(map.ContainsKey("Ceras.Test.OldPotion"),
                 "Previous type name should be an alias key in the map.");
-            Assert.Equal("Potion", map["Ceras.Test.OldPotion"].StableName);
+            Assert.Equal("Ceras.Test.Potion", map["Ceras.Test.OldPotion"].StableName);
         }
 
         // ── Kind ──────────────────────────────────────────────────────────────
@@ -135,14 +135,14 @@ namespace Ceras.Test
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
-            Assert.Equal(SchemaTypeKind.Class, map["Weapon"].Kind);
+            Assert.Equal(SchemaTypeKind.Class, map["Ceras.Test.Weapon"].Kind);
         }
 
         [Fact] public void StructKind_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
-            Assert.Equal(SchemaTypeKind.Struct, map["Point2"].Kind);
+            Assert.Equal(SchemaTypeKind.Struct, map["Ceras.Test.Point2"].Kind);
         }
 
         // ── Fields ────────────────────────────────────────────────────────────
@@ -152,21 +152,21 @@ namespace Ceras.Test
             var registry = CreateRegistry();
             registry.TryGetInfo(typeof(Weapon), out var info);
             var map = RoundTrip(registry);
-            Assert.Equal(info.Fields.Length, map["Weapon"].Fields.Length);
+            Assert.Equal(info.Fields.Length, map["Ceras.Test.Weapon"].Fields.Length);
         }
 
         [Fact] public void FieldStableName_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
-            Assert.Contains(map["Weapon"].Fields, f => f.StableName == "Damage");
+            Assert.Contains(map["Ceras.Test.Weapon"].Fields, f => f.StableName == "Damage");
         }
 
         [Fact] public void FieldPreviousName_RoundTrips()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
-            var nameField = map["Weapon"].Fields.FirstOrDefault(f => f.StableName == "Name");
+            var nameField = map["Ceras.Test.Weapon"].Fields.FirstOrDefault(f => f.StableName == "Name");
             Assert.NotNull(nameField);
             Assert.Contains("OldName", nameField.PreviousNames);
         }
@@ -175,7 +175,7 @@ namespace Ceras.Test
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
-            var weight = map["Weapon"].Fields.FirstOrDefault(f => f.StableName == "Weight");
+            var weight = map["Ceras.Test.Weapon"].Fields.FirstOrDefault(f => f.StableName == "Weight");
             Assert.NotNull(weight);
             Assert.True(weight.IsMonomorphic);
         }
@@ -184,7 +184,7 @@ namespace Ceras.Test
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
-            var dmg = map["Weapon"].Fields.First(f => f.StableName == "Damage");
+            var dmg = map["Ceras.Test.Weapon"].Fields.First(f => f.StableName == "Damage");
             Assert.Equal(WellKnownTypes.Int32, dmg.TypeId);
         }
 
@@ -192,7 +192,7 @@ namespace Ceras.Test
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
-            var label = map["Potion"].Fields.First(f => f.StableName == "Label");
+            var label = map["Ceras.Test.Potion"].Fields.First(f => f.StableName == "Label");
             Assert.Equal(WellKnownTypes.String, label.TypeId);
         }
 
@@ -203,14 +203,14 @@ namespace Ceras.Test
             var registry = CreateRegistry();
             registry.TryGetInfo(typeof(Vec2Struct), out var info);
             var map = RoundTrip(registry);
-            Assert.Equal(info.FixedByteSize, map["Vec2Struct"].FixedByteSize);
+            Assert.Equal(info.FixedByteSize, map["Ceras.Test.Vec2Struct"].FixedByteSize);
         }
 
         [Fact] public void FixedByteSize_Class_IsZero()
         {
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
-            Assert.Equal(0, map["Weapon"].FixedByteSize);
+            Assert.Equal(0, map["Ceras.Test.Weapon"].FixedByteSize);
         }
 
         // ── LEB128 encoding ───────────────────────────────────────────────────

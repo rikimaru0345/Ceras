@@ -34,14 +34,9 @@ namespace Ceras.Test
         public float Y;
     }
 
-    // Non-version-tolerant — should NOT appear in registry
-    [CerasSerializable]
-    [MemberConfig(TargetMember.PublicFields)]
+	// ─────────────────────────────────────────────────────────────────────────
 
-    // ─────────────────────────────────────────────────────────────────────────
-
-    public class SchemaRegistryTests : TestBase
-    {
+	public class SchemaRegistryTests : TestBase {
         readonly SchemaRegistry _registry;
 
         public SchemaRegistryTests()
@@ -51,6 +46,7 @@ namespace Ceras.Test
             _registry = config.Robust.SchemaRegistry;
         }
 
+        [Fact]
         public void VersionTolerantType_IsRegistered()
         {
             Assert.True(_registry.TryGetInfo(typeof(Weapon), out var info));
@@ -58,36 +54,42 @@ namespace Ceras.Test
         }
 
 
+        [Fact]
         public void StableName_FromAttribute()
         {
             _registry.TryGetInfo(typeof(Weapon), out var info);
-            Assert.Equal("Weapon", info.StableName);
+            Assert.Equal("Ceras.Test.Weapon", info.StableName);
         }
 
+        [Fact]
         public void StableName_DefaultsToClassName()
         {
             _registry.TryGetInfo(typeof(Vec2Struct), out var info);
-            Assert.Equal("Vec2Struct", info.StableName);
+            Assert.Equal("Ceras.Test.Vec2Struct", info.StableName);
         }
 
+        [Fact]
         public void PreviousTypeName_IsIncluded()
         {
             _registry.TryGetInfo(typeof(Weapon), out var info);
             Assert.Contains("Ceras.Test.OldWeapon", info.PreviousTypeNames);
         }
 
+        [Fact]
         public void PreviousTypeName_ResolvesToCurrentType()
         {
             Assert.True(_registry.TryResolveType("Ceras.Test.OldWeapon", out var type));
             Assert.Equal(typeof(Weapon), type);
         }
 
+        [Fact]
         public void StableName_ResolvesToCurrentType()
         {
-            Assert.True(_registry.TryResolveType("Weapon", out var type));
+            Assert.True(_registry.TryResolveType("Ceras.Test.Weapon", out var type));
             Assert.Equal(typeof(Weapon), type);
         }
 
+        [Fact]
         public void TypeId_IsAtLeast128()
         {
             Assert.True(_registry.TryGetId(typeof(Weapon), out int id));
@@ -95,6 +97,7 @@ namespace Ceras.Test
                 $"Expected id >= {WellKnownTypes.UserTypeBase}, got {id}");
         }
 
+        [Fact]
         public void Fields_AreInSchemaMemberComparerOrder()
         {
             // Weapon fields (sorted by SchemaMemberComparer):
@@ -108,6 +111,7 @@ namespace Ceras.Test
             Assert.Equal(sorted, names);
         }
 
+        [Fact]
         public void Field_StableName_FromCerasStableName()
         {
             _registry.TryGetInfo(typeof(Weapon), out var info);
@@ -116,6 +120,7 @@ namespace Ceras.Test
             Assert.Equal("System.Int32", dmg.TypeName);
         }
 
+        [Fact]
         public void Field_PreviousName_IsIncluded()
         {
             _registry.TryGetInfo(typeof(Weapon), out var info);
@@ -124,6 +129,7 @@ namespace Ceras.Test
             Assert.Contains("OldName", name.PreviousNames);
         }
 
+        [Fact]
         public void Field_Monomorphic_ExplicitAttribute()
         {
             _registry.TryGetInfo(typeof(Weapon), out var info);
@@ -132,12 +138,14 @@ namespace Ceras.Test
             Assert.True(weight.IsMonomorphic);
         }
 
+        [Fact]
         public void ExcludedField_NotInSchema()
         {
             _registry.TryGetInfo(typeof(Weapon), out var info);
             Assert.DoesNotContain(info.Fields, f => f.StableName == "CachedStat");
         }
 
+        [Fact]
         public void Struct_HasCorrectFixedByteSize()
         {
             // Vec2Struct: float X (4) + float Y (4) = 8
@@ -145,6 +153,7 @@ namespace Ceras.Test
             Assert.Equal(8, info.FixedByteSize);
         }
 
+        [Fact]
         public void Class_HasZeroFixedByteSize()
         {
             // Classes are always variable (reference marker + fields)
@@ -152,6 +161,7 @@ namespace Ceras.Test
             Assert.Equal(0, info.FixedByteSize);
         }
 
+        [Fact]
         public void Fingerprint_IsStable()
         {
             ulong fp1 = _registry.ComputeFingerprint();
@@ -159,6 +169,7 @@ namespace Ceras.Test
             Assert.Equal(fp1, fp2);
         }
 
+        [Fact]
         public void Formatter_StillWorks_WithVersionTolerant()
         {
             // The formatter itself must still produce correct output after the schema changes

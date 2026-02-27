@@ -33,8 +33,8 @@ namespace Ceras.Format
             var table = RobustContext.StringTable;
             if (table == null) throw new InvalidOperationException("RobustContext not active");
 
-            if (index > (uint)table.Length) throw new InvalidOperationException("Invalid string table index");
-            value = table[(int)index - 1];
+            if (index >= (uint)table.Length) throw new InvalidOperationException("Invalid string table index");
+            value = table[(int)index];
         }
     }
 }
