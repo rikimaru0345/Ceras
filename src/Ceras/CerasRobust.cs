@@ -29,6 +29,7 @@ namespace Ceras {
             if (config == null) throw new ArgumentNullException(nameof(config));
 
             config.Advanced.EmbedChecksum = false;
+            config.Advanced.UseReinterpretFormatter = false;
 
             // Core robust formatters
             config.ConfigType<string>().CustomFormatter = new RobustStringFormatter();
@@ -56,35 +57,6 @@ namespace Ceras {
             
             var registry = ceras.Config.Robust.SchemaRegistry;
             var internTable = new StringInternTable();
-
-			// --- DISCOVERY PASS ---
-			// We need to find all types that will be used during serialization.
-			// The registry might only contain types explicitly registered or discovered via [CerasSerializable].
-			// But the object graph might contain types only reachable via polymorphic fields (object, interfaces).
-			// So we do a quick serialization pass to a null writer to trigger registration.
-			var oldRobustEnabled = ceras.Config.Robust.Enabled;
-			if (!oldRobustEnabled)
-				ceras.Config.Robust.Enabled = true; // Enabled so we use the right formatters
-            RobustContext.BeginWrite(internTable, new Dictionary<Type, int>());
-			try {
-				ceras.Serialize(new NullWriter(), rootObject);
-			} finally {
-				RobustContext.End();
-				if (!oldRobustEnabled && !ceras.Config.Robust.Enabled) {
-					// We only need to try to set it to false if it's currently false,
-					// but wait, if it was false and we set it to true, we want to set it back to false.
-					// But if it's locked, we can't.
-				}
-				
-				// Correct logic: Only try to restore 'false' if it was false AND it's not locked.
-				if (!oldRobustEnabled) {
-					try {
-						ceras.Config.Robust.Enabled = false;
-					} catch (InvalidOperationException) {
-						// Already locked, can't restore to false. That's fine.
-					}
-				}
-			}
 
 			// Ensure the root type is registered so we can resolve its schema
 			registry.TryGetId(typeof(T), out _);
@@ -431,12 +403,5 @@ namespace Ceras {
 
             return sb.ToString();
         }
-
-		class NullWriter : IBufferWriter<byte> {
-			byte[] _buffer = new byte[4096];
-			public void Advance(int count) { }
-			public Memory<byte> GetMemory(int sizeHint = 0) => _buffer;
-			public Span<byte> GetSpan(int sizeHint = 0) => _buffer;
-		}
     }
 }

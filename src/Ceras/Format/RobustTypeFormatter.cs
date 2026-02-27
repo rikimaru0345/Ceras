@@ -68,15 +68,13 @@ namespace Ceras.Format
             // If we're here, the type was not found in the pre-computed schema section.
             // This happens if a polymorphic field contains a type that wasn't discovered
             // during the initial schema traversal (Phase 1).
-            // We write a FullName marker and the interned name so we can still resolve it.
-            var internTable = RobustContext.InternTable;
-            if (internTable != null)
+            if (RobustContext.InternTable != null)
             {
-                SchemaSection.WriteLeb128(writer, (uint)FullNameMarker);
-                string name = _typeBinder.GetBaseName(value);
-                int nameId = internTable.GetIndex(name);
-                SerializerBinary.WriteUInt32(writer, (uint)nameId);
-                return;
+                // We are inside a Robust write context but the type is not registered.
+                throw new Ceras.Exceptions.CerasException(
+                    $"Type '{value.FullName}' appears as a polymorphic value during serialization but " +
+                    $"is not registered in the schema registry. Add [CerasSerializable] to it and call " +
+                    $"UseFormatters(config) before creating the serializer.");
             }
 
             // Fallback to registry (only if not in a robust context, e.g. normal serialization using this formatter)

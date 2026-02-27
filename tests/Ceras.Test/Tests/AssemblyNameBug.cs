@@ -23,56 +23,13 @@ namespace Ceras.Test
             public int X;
         }
 
-        [Fact]
-        public void PolymorphicUnregisteredType_TriggersFullNameFallback()
-        {
-            var config = new SerializerConfig();
-            CerasRobust.Configure(config);
-            config.Advanced.AllowReflectionFallback = true;
-            
-            var ceras = new CerasSerializer(config);
-
-            var original = new Container
-            {
-                Any = new UnregisteredType { X = 42 }
-            };
-
-            // This should trigger RobustTypeFormatter fallback to writing FullName
-            var data = CerasRobust.Save(original, 1, ceras);
-            
-            // This should trigger RobustTypeFormatter fallback to reading FullName 
-            // and calling SimpleTypeBinder.GetTypeFromBase
-            var clone = CerasRobust.Load<Container>(data, 1, ceras);
-
-            Assert.IsType<UnregisteredType>(clone.Any);
-            Assert.Equal(42, ((UnregisteredType)clone.Any).X);
-        }
-
         CerasSerializer CreateSerializer()
         {
             var config = new SerializerConfig();
             CerasRobust.Configure(config);
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
             config.Advanced.AllowReflectionFallback = true;
             return new CerasSerializer(config);
-        }
-
-        [Fact]
-        public void GenericUnregisteredType_TriggersError()
-        {
-            var cerasSave = CreateSerializer();
-
-            var original = new Container
-            {
-                Any = new List<UnregisteredType> { new UnregisteredType { X = 100 } }
-            };
-
-            var data = CerasRobust.Save(original, 1, cerasSave);
-            
-            var cerasLoad = CreateSerializer();
-            var cloneRobust = CerasRobust.Load<Container>(data, 1, cerasLoad);
-
-            Assert.NotNull(cloneRobust.Any);
-            Assert.IsType<List<UnregisteredType>>(cloneRobust.Any);
         }
 
         [Fact]

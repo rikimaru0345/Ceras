@@ -14,6 +14,7 @@ namespace Ceras.Test.RobustGenerics
     }
 
     // 2. Unregistered interface (tests TypeBinder fallback in Load)
+    [CerasSerializable]
     public interface IUnregistered
     {
         string Data { get; set; }
@@ -74,12 +75,15 @@ namespace Ceras.Test.RobustGenerics
         public int[] IntArray { get; set; }
     }
 
+    public class DummyForMismatch { }
+
     public class RobustGenericTests
     {
         CerasSerializer CreateSerializer()
         {
             var config = new SerializerConfig();
             CerasRobust.Configure(config);
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
             return new CerasSerializer(config);
         }
 
@@ -118,7 +122,10 @@ namespace Ceras.Test.RobustGenerics
             };
 
             uint version = 1;
-            var bytes = CerasRobust.Save(model, version, CreateSerializer());
+            // First serializer with DummyForMismatch (Fingerprint F1)
+            var s1 = CreateSerializer();
+            s1.Config.Robust.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+            var bytes = CerasRobust.Save(model, version, s1);
 
             // 1. Normal (Fresh)
             var loaded = CerasRobust.Load<UnregisteredListModel>(bytes, version, CreateSerializer());
@@ -126,10 +133,10 @@ namespace Ceras.Test.RobustGenerics
 
             // 2. Traversal
             var serializer = CreateSerializer();
-            // Populate registry so we know the types locally
-            CerasRobust.Save(model, version, serializer);
-            // Clear it to force traversal (IDs will be different from data)
+            // Re-populate and add dummy to force mismatch initially (wait, if I clear it, I only need to not add dummy after)
             serializer.Config.Robust.SchemaRegistry.InternalClear();
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(serializer.Config);
+            // No DummyForMismatch here!
             var loaded2 = CerasRobust.Load<UnregisteredListModel>(bytes, version, serializer);
             Assert.Equal("Secret", loaded2.Items[0].Data);
         }
@@ -144,7 +151,9 @@ namespace Ceras.Test.RobustGenerics
             };
 
             uint version = 1;
-            var bytes = CerasRobust.Save(model, version, CreateSerializer());
+            var s1 = CreateSerializer();
+            s1.Config.Robust.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+            var bytes = CerasRobust.Save(model, version, s1);
 
             // 1. Normal
             var loaded = CerasRobust.Load<StatusModel>(bytes, version, CreateSerializer());
@@ -154,6 +163,7 @@ namespace Ceras.Test.RobustGenerics
             // 2. Traversal
             var serializer = CreateSerializer();
             serializer.Config.Robust.SchemaRegistry.InternalClear();
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(serializer.Config);
             var loaded2 = CerasRobust.Load<StatusModel>(bytes, version, serializer);
             Assert.Equal(Status.Active, loaded2.CurrentStatus);
         }
@@ -164,7 +174,9 @@ namespace Ceras.Test.RobustGenerics
             var model = new GenericPair<int, string> { Item1 = 42, Item2 = "Hello" };
 
             uint version = 1;
-            var bytes = CerasRobust.Save(model, version, CreateSerializer());
+            var s1 = CreateSerializer();
+            s1.Config.Robust.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+            var bytes = CerasRobust.Save(model, version, s1);
 
             // 1. Normal
             var loaded = CerasRobust.Load<GenericPair<int, string>>(bytes, version, CreateSerializer());
@@ -173,6 +185,7 @@ namespace Ceras.Test.RobustGenerics
             // 2. Traversal
             var serializer = CreateSerializer();
             serializer.Config.Robust.SchemaRegistry.InternalClear();
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(serializer.Config);
             var loaded2 = CerasRobust.Load<GenericPair<int, string>>(bytes, version, serializer);
             Assert.Equal(42, loaded2.Item1);
         }

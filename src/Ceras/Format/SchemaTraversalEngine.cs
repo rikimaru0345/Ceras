@@ -578,30 +578,21 @@ namespace Ceras.Format
             int underlyingId = oldSchema.DefinitionTypeId == 0 ? WellKnownTypes.Int32 : oldSchema.DefinitionTypeId;
             object rawValue = ReadValue(underlyingId, null, ref reader);
             
-            Console.WriteLine($"DEBUG ReadEnumValue: rawValue={rawValue} ({rawValue?.GetType().Name}), targetType={targetType?.Name}, planType={plan?.CurrentType?.Name}, hasMap={plan?.EnumValueMap != null}");
-
             if (plan?.EnumValueMap != null && plan.CurrentType != null)
             {
                 long val = Convert.ToInt64(rawValue);
                 if (plan.EnumValueMap.TryGetValue(val, out long mapped))
                 {
-                    Console.WriteLine($"DEBUG ReadEnumValue: Mapped {val} to {mapped}");
                     return Enum.ToObject(plan.CurrentType, mapped);
-                }
-                else
-                {
-                    Console.WriteLine($"DEBUG ReadEnumValue: No mapping for {val}");
                 }
             }
 
             if (targetType != null && targetType.IsEnum)
             {
                 var result = Enum.ToObject(targetType, rawValue);
-                Console.WriteLine($"DEBUG ReadEnumValue: Returning converted rawValue: {result}");
                 return result;
             }
 
-            Console.WriteLine($"DEBUG ReadEnumValue: Returning rawValue as-is: {rawValue}");
             return rawValue;
         }
 
@@ -617,12 +608,10 @@ namespace Ceras.Format
             foreach (var mapping in mappings)
             {
                 if (mapping.NewField == null) {
-                    Console.WriteLine($"DEBUG: Skipping field '{mapping.OldField.StableName}' (Type {mapping.OldField.TypeId})");
                     SkipValue(mapping.OldField.TypeId, ref reader);
                 }
                 else
                 {
-                    Console.WriteLine($"DEBUG: Reading field '{mapping.OldField.StableName}' (Type {mapping.OldField.TypeId}) into '{mapping.NewField.Name}'");
                     object value = ReadValue(mapping.OldField.TypeId, mapping.NewField.FieldType, ref reader);
                     if (target != null) {
                         var coerced = Coerce(value, mapping.Coercion, mapping.NewField.FieldType);

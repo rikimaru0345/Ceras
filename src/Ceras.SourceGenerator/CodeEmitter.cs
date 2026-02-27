@@ -390,7 +390,7 @@ namespace Ceras.SourceGenerator
                         prevTypeNames.Add(ptn);
             }
             string kind = type.TypeKind == TypeKind.Enum ? "global::Ceras.Format.SchemaTypeKind.Enum" : (type.IsValueType ? "global::Ceras.Format.SchemaTypeKind.Struct" : "global::Ceras.Format.SchemaTypeKind.Class");
-            string? underlyingType = type.TypeKind == TypeKind.Enum ? type.EnumUnderlyingType?.ToDisplayString(SortKeyFormat) : null;
+            string? underlyingTypeFqn = type.TypeKind == TypeKind.Enum ? type.EnumUnderlyingType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) : null;
             int fixedSize = ComputeFixedByteSize(type);
 
             sb.AppendLine($"        internal static readonly global::Ceras.Format.SchemaTypeInfo Schema =");
@@ -404,11 +404,11 @@ namespace Ceras.SourceGenerator
             sb.AppendLine($"                {{");
             foreach (var m in members)
             {
-                string typeName = GetRobustName(m.Type);
+                string typeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 sb.Append($"                    new global::Ceras.Format.SchemaFieldInfo(");
                 sb.Append($"{QuoteString(m.StableName)}, ");
                 WriteStringArrayInline(sb, m.PreviousNames);
-                sb.Append($", {QuoteString(typeName)}, {(m.IsMonomorphic ? "true" : "false")}");
+                sb.Append($", typeof({typeFqn}).FullName, {(m.IsMonomorphic ? "true" : "false")}");
                 sb.AppendLine($"),");
             }
             sb.AppendLine($"                }},");
@@ -421,7 +421,7 @@ namespace Ceras.SourceGenerator
                     if (member is IFieldSymbol field && field.HasConstantValue)
                         sb.AppendLine($"                    new global::Ceras.Format.SchemaEnumValueInfo({QuoteString(field.Name)}, {field.ConstantValue}),");
                 sb.AppendLine($"                }},");
-                sb.AppendLine($"                underlyingTypeName: {QuoteString(underlyingType ?? "System.Int32")}");
+                sb.AppendLine($"                underlyingTypeName: typeof({underlyingTypeFqn ?? "int"}).FullName");
             }
             else
             {

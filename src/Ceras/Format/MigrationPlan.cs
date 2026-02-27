@@ -197,7 +197,18 @@ namespace Ceras.Format
         static bool TypeIdsCompatible(int oldTypeId, Type newFieldType, Dictionary<int, OldTypeSchema> oldById, SchemaRegistry registry)
         {
             // 1. Well-known ID match
-            if (WellKnownTypes.TryGetId(newFieldType, out int newId))
+            int newId;
+            bool isWellKnown = WellKnownTypes.TryGetId(newFieldType, out newId);
+            
+            // If the new type is a generic instantiation, it might not be "well-known" itself,
+            // but its definition might be.
+            if (!isWellKnown && newFieldType.IsGenericType && !newFieldType.IsGenericTypeDefinition)
+            {
+                if (WellKnownTypes.TryGetId(newFieldType.GetGenericTypeDefinition(), out newId))
+                    isWellKnown = true;
+            }
+
+            if (isWellKnown)
             {
                 if (oldTypeId == newId) return true;
 
@@ -225,7 +236,6 @@ namespace Ceras.Format
                 if (newFieldType.FullName == oldSchema.StableName) return true;
             }
 
-            Console.WriteLine("DEBUG:   Types are INCOMPATIBLE");
             return false;
         }
 

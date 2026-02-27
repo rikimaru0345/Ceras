@@ -128,7 +128,7 @@ namespace Ceras.Format
             int finalCount = 0;
             
             queue.Clear();
-            foreach (var kv in typeToId)
+            foreach (var kv in typeToId.OrderBy(x => x.Value))
                 if (registry.TryGetInfo(kv.Key, out var info))
                     queue.Enqueue((kv.Key, kv.Value, info));
 

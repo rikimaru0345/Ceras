@@ -268,6 +268,11 @@ namespace Ceras.Test
         [Fact] public void Write_WriteReadWrite_ProducesIdenticalBytes()
         {
             var registry = CreateRegistry();
+            
+            // Prime the registry by doing one round-trip.
+            // This ensures all types reachable via fields are already registered.
+            RoundTrip(registry);
+
             var buf1 = new byte[1024];
             int off1 = 0;
             var intern1 = new StringInternTable();
