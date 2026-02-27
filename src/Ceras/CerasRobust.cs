@@ -226,10 +226,12 @@ namespace Ceras {
                 uint rootTypeId = SchemaSection.ReadLeb128(ref reader);
 
                 if (schemaFingerprint != currentFingerprint) {
+                    if (Ceras.Helpers.ObjectCache.DebugTraceEnabled) Console.WriteLine($"[CerasRobust] Fingerprint mismatch! File: {schemaFingerprint:X16}, Current: {currentFingerprint:X16}. Using SchemaTraversalEngine (slow path).");
                     var engine = new SchemaTraversalEngine(fileSchemas, table, robustVersion, ceras);
                     return engine.ReadRoot<T>(ref reader);
                 }
 
+                if (Ceras.Helpers.ObjectCache.DebugTraceEnabled) Console.WriteLine($"[CerasRobust] Fingerprints match ({currentFingerprint:X16}). Using CerasSerializer (fast path).");
                 T value = default;
                 ceras.Deserialize(ref reader, ref value);
                 return value;

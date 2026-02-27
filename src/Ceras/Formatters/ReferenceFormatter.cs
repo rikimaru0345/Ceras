@@ -110,7 +110,7 @@ namespace Ceras.Formatters
                 }
             }
             
-            var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>();
+            var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>(specificType);
             objectProxy.Value = value;
             try { entry.DeserializeDispatcher(ref reader, ref objectProxy.Value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while deserializing object of type '{specificType?.FullName ?? typeof(T).FullName}'", e); }
             value = objectProxy.Value;
@@ -300,7 +300,7 @@ namespace Ceras.Formatters
             if (objId == Null) { if (value != null) _ceras.DiscardObjectMethod?.Invoke(value); value = default; return; } 
             if (objId >= 0) { value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId); return; } 
             if (value == null) value = (T)_constructor.Value(); 
-            var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>(); 
+            var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>(typeof(T)); 
             objectProxy.Value = value; 
             _formatter.Deserialize(ref reader, ref objectProxy.Value); 
             value = objectProxy.Value; 

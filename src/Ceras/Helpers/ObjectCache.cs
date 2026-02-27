@@ -86,13 +86,13 @@
 
         // Deserialization:
         // When encountering a new object
-        internal RefProxy<T> CreateDeserializationProxy<T>() where T : class
+        internal RefProxy<T> CreateDeserializationProxy<T>(Type overrideType = null) where T : class
         {
             var p = RefProxyPool<T>.Rent();
             _deserializationCache.Add(p);
 
             if (DebugTraceEnabled)
-                _deserializeTrace.Add(typeof(T).FullName);
+                _deserializeTrace.Add(overrideType?.FullName ?? typeof(T).FullName);
 
             return p;
         }
