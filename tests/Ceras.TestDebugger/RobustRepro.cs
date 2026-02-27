@@ -44,7 +44,7 @@ namespace Ceras.TestDebugger
         static SerializerConfig GeneratedConfig()
         {
             var c = new SerializerConfig();
-            GeneratedFormatters.UseFormatters(c);
+            RobustFormatters.UseRobustFormatters(c);
             return c;
         }
     }

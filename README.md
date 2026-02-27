@@ -72,7 +72,7 @@ public class Player
 
 ```csharp
 var config = new SerializerConfig();
-GeneratedFormatters.UseFormatters(config);
+RobustFormatters.UseRobustFormatters(config);
 CerasRobust.ConfigureRobust format(config);
 
 var ceras = new CerasSerializer(config);
@@ -203,7 +203,7 @@ public class Player
 [assembly: CerasSerializable<ExternalLibrary.UserType>]
 ```
 
-> **Automatic Registration**: Ceras will automatically look for and register your generated formatters in its constructor. You no longer need to manually call `GeneratedFormatters.UseFormatters(config)` (though you still can if you want to apply them to a specific config object manually).
+> **Automatic Registration**: Ceras will automatically look for and register your generated formatters in its constructor. You no longer need to manually call `RobustFormatters.UseRobustFormatters(config)` (though you still can if you want to apply them to a specific config object manually).
 
 The generated formatters produce **byte-identical output** to the runtime `ReflectionFallbackFormatter`, so serialized data is fully interchangeable.
 
@@ -212,7 +212,7 @@ The generated formatters produce **byte-identical output** to the runtime `Refle
 Source generators run during compilation, and their output isn't always visible in your file explorer. Here is how to see what Ceras is writing:
 
 **1. Using your IDE**:
-- **Visual Studio**: Expand your project -> Dependencies -> Analyzers -> Ceras.SourceGenerator -> CerasGeneratedFormatters.g.cs.
+- **Visual Studio**: Expand your project -> Dependencies -> Analyzers -> Ceras.SourceGenerator -> RobustFormatters.g.cs.
 - **Rider**: Expand your project -> Scratches and Consoles -> Extension Generated Files -> Ceras.SourceGenerator.
 
 **2. Persisting files to disk**:

@@ -30,6 +30,7 @@
         internal void Seal()
         {
             _isSealed = true;
+            _robustConfig.Locked = true;
             _robustConfig.SchemaRegistry.Seal();
         }
 
@@ -52,8 +53,18 @@
         public IRobustConfig Robust => this;
 
         RobustConfig _robustConfig = new RobustConfig();
-        bool IRobustConfig.Enabled { get => _robustConfig.Enabled; set => _robustConfig.Enabled = value; }
+        bool IRobustConfig.Enabled
+        {
+            get => _robustConfig.Enabled;
+            set
+            {
+                if (_robustConfig.Locked && !value)
+                    throw new InvalidOperationException("Robust mode cannot be disabled once locked.");
+                _robustConfig.Enabled = value;
+            }
+        }
         SchemaRegistry IRobustConfig.SchemaRegistry => _robustConfig.SchemaRegistry;
+        void IRobustConfig.Lock() => _robustConfig.Locked = true;
 
 		/// <summary>
 		/// If you want to, you can add all the types you want to serialize to this collection.
@@ -472,11 +483,18 @@
         /// The registry containing all version-tolerant type schemas.
         /// </summary>
         SchemaRegistry SchemaRegistry { get; }
+
+        /// <summary>
+        /// Prevents <see cref="Enabled"/> from being set to <c>false</c>.
+        /// Used by the source-generator to ensure robust mode is active when using generated robust formatters.
+        /// </summary>
+        void Lock();
     }
 
     internal class RobustConfig
     {
         public bool Enabled;
+        public bool Locked;
         public readonly SchemaRegistry SchemaRegistry = new SchemaRegistry();
     }
 }

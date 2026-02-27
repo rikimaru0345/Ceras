@@ -19,7 +19,7 @@ namespace Ceras.Test
             // Before the fix, SG used CollectionFormatter directly, which bypasses reference tracking.
 
             var config = new SerializerConfig();
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
             var list = new List<int> { 1, 2, 3 };
@@ -44,7 +44,7 @@ namespace Ceras.Test
 
             var config = new SerializerConfig();
             CerasRobust.Configure(config);
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
             
             // Manual registration for types used in Robust mode
             var registry = config.Robust.SchemaRegistry;
@@ -76,7 +76,7 @@ namespace Ceras.Test
 
             var config = new SerializerConfig();
             CerasRobust.Configure(config);
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
 
             var registry = config.Robust.SchemaRegistry;
             registry.Register(typeof(DesyncModel), null);

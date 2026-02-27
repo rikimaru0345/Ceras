@@ -105,7 +105,7 @@ namespace Ceras.Test
         public void NoPartialNeeded_WhenMembersHandledByCtorOrPop()
         {
             var config = new SerializerConfig();
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
             // 1. Verify discovery worked
@@ -128,7 +128,7 @@ namespace Ceras.Test
         {
             var config = new SerializerConfig();
             config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
             // 1. Verify that ChildField, ChildProp, and ChildCtor were all discovered
@@ -175,7 +175,7 @@ namespace Ceras.Test
         {
             var config = new SerializerConfig();
             // This registers all formatters that the source generator produced
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
 
             var ceras = new CerasSerializer(config);
 
@@ -223,7 +223,7 @@ namespace Ceras.Test
         public void BannedTypeWorks()
         {
             var config = new SerializerConfig();
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
 
             var rootType = typeof(DiscoveryRoot);
             var tc = config.ConfigType(rootType);

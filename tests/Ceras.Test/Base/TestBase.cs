@@ -100,12 +100,12 @@ namespace Ceras.Test
             if (config != null)
             {
                 // Try to find and call the source-generated registration helper
-                var generatedType = Type.GetType("Ceras.Generated.GeneratedFormatters, Ceras.Generated") ??
-                                    Type.GetType("Ceras.Generated.GeneratedFormatters");
+                var generatedType = Type.GetType("Ceras.Generated.RobustFormatters, Ceras.Generated") ??
+                                    Type.GetType("Ceras.Generated.RobustFormatters");
 
                 if (generatedType != null)
                 {
-                    var method = generatedType.GetMethod("UseFormatters", BindingFlags.Static | BindingFlags.Public);
+                    var method = generatedType.GetMethod("UseRobustFormatters", BindingFlags.Static | BindingFlags.Public);
                     if (method != null)
                         method.Invoke(null, new object[] { config });
                 }

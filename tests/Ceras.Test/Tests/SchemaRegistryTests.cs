@@ -42,7 +42,7 @@ namespace Ceras.Test
         public SchemaRegistryTests()
         {
             var config = new SerializerConfig();
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
             _registry = config.Robust.SchemaRegistry;
         }
 
@@ -174,7 +174,7 @@ namespace Ceras.Test
         {
             // The formatter itself must still produce correct output after the schema changes
             var config = new SerializerConfig();
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
             var original = new Weapon { AttackPower = 50, Name = "Excalibur", Weight = 3.2f };

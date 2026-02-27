@@ -49,7 +49,7 @@ namespace Ceras.Test
         CerasSerializer CreateSerializer()
         {
             var config = new SerializerConfig();
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
             CerasRobust.Configure(config);
             return new CerasSerializer(config);
         }
@@ -177,7 +177,7 @@ namespace Ceras.Test
         public void DuplicateStrings_WriteOnlyOnce_InStringTable()
         {
             var config = new SerializerConfig();
-            Ceras.Generated.GeneratedFormatters.UseFormatters(config);
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
             CerasRobust.Configure(config);
             var ceras = new CerasSerializer(config);
 

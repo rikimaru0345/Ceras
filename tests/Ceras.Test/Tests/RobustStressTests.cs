@@ -26,7 +26,7 @@ namespace Ceras.Test
         public void Robust_SizeLimits_PreventsOOM()
         {
             var config = new SerializerConfig();
-            Ceras.Generated.GeneratedFormatters.UseFormatters(config);
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
             CerasRobust.Configure(config);
             config.Advanced.SizeLimits.MaxCollectionSize = 100; // Small limit
             var ceras = new CerasSerializer(config);
@@ -58,13 +58,13 @@ namespace Ceras.Test
         {
             // 1. RAW Path (standard config)
             var configRaw = new SerializerConfig();
-            Ceras.Generated.GeneratedFormatters.UseFormatters(configRaw);
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(configRaw);
             var cerasRaw = new CerasSerializer(configRaw);
 
             // 2. ROBUST Path (configured for robust format)
             var configRobust = new SerializerConfig();
             CerasRobust.Configure(configRobust);
-            Ceras.Generated.GeneratedFormatters.UseFormatters(configRobust);
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(configRobust);
             var cerasRobust = new CerasSerializer(configRobust);
 
             // Create two distinct string instances with the same content
@@ -100,7 +100,7 @@ namespace Ceras.Test
         {
             var config = new SerializerConfig();
             CerasRobust.Configure(config);
-            Ceras.Generated.GeneratedFormatters.UseFormatters(config);
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
             var content = "InternMe";

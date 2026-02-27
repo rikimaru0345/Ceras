@@ -190,7 +190,7 @@ Activated when the schema fingerprint in the header matches the fingerprint comp
 4. Read data section using generated formatters directly
 
 Generated formatters:
-- Are registered via `[CerasSerializable]` and `GeneratedFormatters.UseFormatters(config)`
+- Are registered via `[CerasSerializable]` and `RobustFormatters.UseRobustFormatters(config)`
 - Write/read fields in `SchemaMemberComparer` order (matches `DynamicFormatter` for compatibility)
 - Have no schema overhead — direct field access, injected sub-formatters, no boxing
 

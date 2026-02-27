@@ -26,7 +26,7 @@ namespace Ceras.Test
         CerasSerializer CreateSerializer()
         {
             var config = new SerializerConfig();
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
             CerasRobust.Configure(config);
             return new CerasSerializer(config);
         }

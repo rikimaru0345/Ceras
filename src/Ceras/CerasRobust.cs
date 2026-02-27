@@ -50,13 +50,27 @@ namespace Ceras {
 			// But the object graph might contain types only reachable via polymorphic fields (object, interfaces).
 			// So we do a quick serialization pass to a null writer to trigger registration.
 			var oldRobustEnabled = ceras.Config.Robust.Enabled;
-			ceras.Config.Robust.Enabled = true; // Enabled so we use the right formatters
+			if (!oldRobustEnabled)
+				ceras.Config.Robust.Enabled = true; // Enabled so we use the right formatters
             RobustContext.BeginWrite(internTable, new Dictionary<Type, int>());
 			try {
 				ceras.Serialize(new NullWriter(), rootObject);
 			} finally {
 				RobustContext.End();
-				ceras.Config.Robust.Enabled = oldRobustEnabled;
+				if (!oldRobustEnabled && !ceras.Config.Robust.Enabled) {
+					// We only need to try to set it to false if it's currently false,
+					// but wait, if it was false and we set it to true, we want to set it back to false.
+					// But if it's locked, we can't.
+				}
+				
+				// Correct logic: Only try to restore 'false' if it was false AND it's not locked.
+				if (!oldRobustEnabled) {
+					try {
+						ceras.Config.Robust.Enabled = false;
+					} catch (InvalidOperationException) {
+						// Already locked, can't restore to false. That's fine.
+					}
+				}
 			}
 
 			// Ensure the root type is registered so we can resolve its schema
@@ -80,7 +94,9 @@ namespace Ceras {
             int dataStart = offset;
 
             RobustContext.BeginWrite(internTable, typeToId);
-            ceras.Config.Robust.Enabled = true;
+            var oldRobustEnabled2 = ceras.Config.Robust.Enabled;
+            if (!oldRobustEnabled2)
+                ceras.Config.Robust.Enabled = true;
 
             if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
                 Ceras.Helpers.ObjectCache.BeginSerializeTrace();
@@ -99,7 +115,11 @@ namespace Ceras {
             finally
             {
                 RobustContext.End();
-                ceras.Config.Robust.Enabled = oldRobustEnabled;
+                if (!oldRobustEnabled2)
+                {
+                    try { ceras.Config.Robust.Enabled = false; }
+                    catch (InvalidOperationException) { /* locked */ }
+                }
             }
 
             int stringTableStart = internTable.Flush(ref buffer, ref offset);
@@ -212,7 +232,8 @@ namespace Ceras {
 
             RobustContext.BeginRead(table, idToType);
             var oldRobustEnabled = ceras.Config.Robust.Enabled;
-            ceras.Config.Robust.Enabled = true;
+            if (!oldRobustEnabled)
+                ceras.Config.Robust.Enabled = true;
             try {
                 var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, (int)stringTableOffset - (int)dataSectionOffset);
                 var reader = new SequenceReader<byte>(dataSeq);
@@ -228,7 +249,11 @@ namespace Ceras {
                 return value;
             }
             finally {
-                ceras.Config.Robust.Enabled = oldRobustEnabled;
+                if (!oldRobustEnabled)
+                {
+                    try { ceras.Config.Robust.Enabled = false; }
+                    catch (InvalidOperationException) { /* locked */ }
+                }
                 RobustContext.End();
             }
         }

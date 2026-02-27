@@ -36,7 +36,7 @@ namespace Ceras.Test
         SchemaRegistry CreateRegistry()
         {
             var config = new SerializerConfig();
-            GeneratedFormatters.UseFormatters(config);
+            RobustFormatters.UseRobustFormatters(config);
 
 			// Manual registration for local types to ensure they have the stable names the tests expect
 			var potionInfo = new SchemaTypeInfo("Ceras.Test.Potion", new[] { "Ceras.Test.OldPotion" }, SchemaTypeKind.Class, new[] {
@@ -92,7 +92,7 @@ namespace Ceras.Test
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
 
-            // Every VT type registered via GeneratedFormatters should appear
+            // Every VT type registered via RobustFormatters should appear
             foreach (var (_, _, info) in registry.All())
                 Assert.True(map.ContainsKey(info.StableName),
                     $"Missing stable name '{info.StableName}' after round-trip.");

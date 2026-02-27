@@ -8,7 +8,7 @@ namespace Ceras.Format
 {
     /// <summary>
     /// Runtime registry of all types registered via <c>[CerasSerializable(VersionTolerant = true)]</c>.
-    /// Populated during startup by <c>GeneratedFormatters.UseFormatters(config)</c>.
+    /// Populated during startup by <c>RobustFormatters.UseRobustFormatters(config)</c>.
     /// </summary>
     public sealed class SchemaRegistry
     {
@@ -60,7 +60,7 @@ namespace Ceras.Format
 		// ── Registration ─────────────────────────────────────────────────────
 
 		/// <summary>
-		/// Called by the generated <c>GeneratedFormatters.UseFormatters</c> for every
+		/// Called by the generated <c>RobustFormatters.UseRobustFormatters</c> for every
 		/// <c>[CerasSerializable(VersionTolerant = true)]</c> type.
 		/// Safe to call multiple times with the same type (idempotent).
 		/// </summary>
@@ -129,7 +129,7 @@ namespace Ceras.Format
             }
             else
             {
-                // Non-generic types must be pre-registered by the source-generated UseFormatters()
+                // Non-generic types must be pre-registered by the source-generated UseRobustFormatters()
                 // before SchemaSection.Write runs. If we reach here after Seal(), the type was
                 // never registered at startup — its ID won't be in the schema section, so the
                 // stream would be unreadable. Throw now (at save time) with a clear message

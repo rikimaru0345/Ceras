@@ -14,7 +14,7 @@ namespace Ceras.Test.Tests
         SerializerConfig CreateSgConfig()
         {
             var config = new SerializerConfig();
-            Ceras.Generated.GeneratedFormatters.UseFormatters(config);
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
             return config;
         }
 

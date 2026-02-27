@@ -106,7 +106,7 @@ namespace Ceras.Test
         SerializerConfig GeneratedConfig()
         {
             var c = new SerializerConfig();
-            GeneratedFormatters.UseFormatters(c);
+            RobustFormatters.UseRobustFormatters(c);
             return c;
         }
 

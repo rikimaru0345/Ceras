@@ -29,7 +29,7 @@ public class ObjectIssueTest : TestBase {
 		var config = new SerializerConfig();
 		config.Robust.Enabled = true;
 		CerasRobust.Configure(config);
-		Ceras.Generated.GeneratedFormatters.UseFormatters(config);
+		Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
 		var ceras = new CerasSerializer(config);
 		var data = CerasRobust.Save(g, 1, ceras);
 		var clone = CerasRobust.Load<ReproTest.Game>(data, 1, ceras);

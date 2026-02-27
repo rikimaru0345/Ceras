@@ -226,7 +226,7 @@ namespace Ceras
     /// <summary>
     /// Put this attribute on every class/struct you want Ceras to generate a formatter for at compile time.
     /// The source generator will emit an <c>IFormatter&lt;T&gt;</c> implementation and include it in
-    /// <c>Ceras.Generated.GeneratedFormatters.UseFormatters(config)</c>.
+    /// <c>Ceras.Generated.RobustFormatters.UseRobustFormatters(config)</c>.
     /// This replaces the old AotGenerator tool and is required for IL2CPP / AOT platforms.
     ///
     /// When placed on an interface or abstract class with <see cref="DiscoverSubtypes"/> = true,
