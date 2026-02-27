@@ -17,6 +17,7 @@ namespace Ceras.Format
             public int            Id;
             public SchemaTypeInfo Info;
             public Type           Type;
+            public bool           IsDiscovered;
         }
 
         readonly Dictionary<Type,   Entry>  _byType       = new();
@@ -98,14 +99,12 @@ namespace Ceras.Format
         {
             lock (_lock)
             {
-                if (_byType.TryGetValue(type, out var e)) { id = e.Id; return true; }
-
-				// Automatic registration for types encountered at runtime (e.g. generic instantiations)
-				if (type != null && !WellKnownTypes.IsWellKnown(type))
+                if (type != null && !WellKnownTypes.IsWellKnown(type))
                 {
                     EnsureRegisteredRecursive(type);
-                    if (_byType.TryGetValue(type, out e)) { id = e.Id; return true; }
                 }
+
+                if (_byType.TryGetValue(type, out var e)) { id = e.Id; return true; }
 
                 id = -1;
                 return false;
@@ -114,43 +113,93 @@ namespace Ceras.Format
 
         void EnsureRegisteredRecursive(Type type)
         {
-            if (type == null || WellKnownTypes.IsWellKnown(type) || _byType.ContainsKey(type))
+            if (type == null || WellKnownTypes.IsWellKnown(type))
                 return;
 
-            if (type.IsGenericType && !type.IsGenericTypeDefinition)
+            if (_byType.TryGetValue(type, out var entry))
             {
-                // Register arguments first
-                foreach (var arg in type.GetGenericArguments())
-                    EnsureRegisteredRecursive(arg);
-
-                // Create and register schema for this instantiation
-                var info = CreateSchemaForGeneric(type);
-                Register(type, info);
+                if (entry.IsDiscovered)
+                    return;
             }
             else
             {
-                // Non-generic types must be pre-registered by the source-generated UseFormatters()
-                // before SchemaSection.Write runs. If we reach here after Seal(), the type was
-                // never registered at startup — its ID won't be in the schema section, so the
-                // stream would be unreadable. Throw now (at save time) with a clear message
-                // rather than silently writing corrupt data that fails to load.
-                //
-                // Exception: open generic type definitions (e.g. IEnumerable<>, IDictionary<,>)
-                // are only referenced for schema field-type metadata by SchemaSection.ResolveId,
-                // never as actual values in the data stream — so dynamic registration is fine.
-                if (IsSealed && !type.IsGenericTypeDefinition)
+                if (type.IsGenericType && !type.IsGenericTypeDefinition)
                 {
-                    // If we're already sealed, we can't add new entries to the "declared" schema (the fingerprint part).
-                    // But we can still register them as "runtime discovered" types.
+                    // Register arguments first
+                    foreach (var arg in type.GetGenericArguments())
+                        EnsureRegisteredRecursive(arg);
+
+                    // Create and register schema for this instantiation
+                    var info = CreateSchemaForGeneric(type);
+                    Register(type, info);
+                }
+                else
+                {
+                    // Non-generic types must be pre-registered by the source-generated UseFormatters()
+                    // before SchemaSection.Write runs. If we reach here after Seal(), the type was
+                    // never registered at startup — its ID won't be in the schema section, so the
+                    // stream would be unreadable. Throw now (at save time) with a clear message
+                    // rather than silently writing corrupt data that fails to load.
+                    //
+                    // Exception: open generic type definitions (e.g. IEnumerable<>, IDictionary<,>)
+                    // are only referenced for schema field-type metadata by SchemaSection.ResolveId,
+                    // never as actual values in the data stream — so dynamic registration is fine.
+                    if (IsSealed && !type.IsGenericTypeDefinition)
+                    {
+                        // If we're already sealed, we can't add new entries to the "declared" schema (the fingerprint part).
+                        // But we can still register them as "runtime discovered" types.
+                    }
+
+                    Register(type, null);
                 }
 
-                Register(type, null);
+                _byType.TryGetValue(type, out entry);
+            }
+
+            if (entry == null)
+                return;
+
+            entry.IsDiscovered = true;
+
+            // If it's a class or struct, we must ensure its fields are also registered
+            // so we have their schema entries.
+            if (!type.IsPrimitive && !type.IsEnum && type != typeof(string))
+            {
+                foreach (var f in type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+                {
+                    if (f.GetCustomAttribute<ExcludeAttribute>() != null) continue;
+                    if (f.GetCustomAttribute<NonSerializedAttribute>() != null) continue;
+                    EnsureRegisteredRecursive(f.FieldType);
+                }
             }
         }
 
         static SchemaTypeInfo CreateSchemaForUserType(Type type)
         {
             string typeFullName = type.FullName ?? type.Name;
+
+            if (type.IsEnum)
+            {
+                var names = Enum.GetNames(type);
+                var values = Enum.GetValues(type);
+                var enumValues = new SchemaEnumValueInfo[names.Length];
+                for (int i = 0; i < names.Length; i++)
+                {
+                    var val = values.GetValue(i);
+                    long longVal = Convert.ToInt64(val);
+                    enumValues[i] = new SchemaEnumValueInfo(names[i], longVal);
+                }
+
+                return new SchemaTypeInfo(
+                    stableName: typeFullName,
+                    previousTypeNames: Array.Empty<string>(),
+                    kind: SchemaTypeKind.Enum,
+                    fields: null,
+                    fixedByteSize: 0,
+                    enumValues: enumValues,
+                    underlyingTypeName: Enum.GetUnderlyingType(type).FullName);
+            }
+
             // Simple description for types that weren't source-generated but need to be robustly handled.
             // We use the full name as the stable name to avoid collisions.
             var fields = new List<SchemaFieldInfo>();
@@ -174,7 +223,7 @@ namespace Ceras.Format
 
                 string fieldTypeName = f.FieldType.FullName ?? f.FieldType.Name;
 
-				bool isMonomorphic = f.FieldType.IsValueType || f.FieldType.IsSealed;
+                bool isMonomorphic = f.FieldType.IsValueType || f.FieldType.IsSealed;
                 if (f.GetCustomAttribute<MonomorphicAttribute>() != null) isMonomorphic = true;
                 if (f.GetCustomAttribute<PolymorphicAttribute>() != null) isMonomorphic = false;
 

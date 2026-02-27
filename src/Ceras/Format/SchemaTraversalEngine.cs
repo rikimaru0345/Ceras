@@ -567,19 +567,7 @@ namespace Ceras.Format
             }
         }
 
-        int GetOldTypeId(Type type)
-        {
-            if (type == null) return WellKnownTypes.Null;
-            if (WellKnownTypes.TryGetId(type, out int id)) return id;
-            if (_registry.TryGetInfo(type, out var info))
-            {
-                if (_oldByName.TryGetValue(info.StableName, out var s)) return s.TypeId;
-                foreach (var prev in info.PreviousTypeNames) if (_oldByName.TryGetValue(prev, out s)) return s.TypeId;
-            }
-            return WellKnownTypes.Null;
-        }
-
-        Type GetCurrentType(string stableName) { _registry.TryResolveType(stableName, out var t); return t; }
+		Type GetCurrentType(string stableName) { _registry.TryResolveType(stableName, out var t); return t; }
 
         object ReadEnumValue(OldTypeSchema oldSchema, TypeMigrationPlan plan, ref SequenceReader<byte> reader)
         {

@@ -115,7 +115,7 @@ namespace Ceras.SourceGenerator
                         // Usually no, we only care about closed types.
                     }
 
-                    if (named.TypeKind == TypeKind.Class || named.TypeKind == TypeKind.Struct || named.TypeKind == TypeKind.Interface)
+                    if (named.TypeKind == TypeKind.Class || named.TypeKind == TypeKind.Struct || named.TypeKind == TypeKind.Interface || named.TypeKind == TypeKind.Enum)
                     {
                         // Stop at object
                         if (named.SpecialType == SpecialType.System_Object) return;
