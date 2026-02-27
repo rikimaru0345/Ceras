@@ -165,6 +165,15 @@ namespace Ceras.Format
                 return ReadUserTypeDirect(typeId, targetType, ref reader);
             }
 
+            if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
+            {
+                _plans.TryGetValue(oldSchema.StableName, out var plan);
+                Type currentType = plan?.CurrentType ?? targetType;
+
+                if (currentType != null && currentType.IsValueType && currentType != typeof(object))
+                    return ReadUserTypeDirect(typeId, targetType, ref reader);
+            }
+
             // If it's a class or interface, it HAS a reference marker.
             return ReadPolymorphicValue(typeId, targetType, ref reader);
         }
@@ -214,6 +223,13 @@ namespace Ceras.Format
             int cacheIndex = _objectCache.Count;
             _objectCache.Add(null);
 
+            if (typeId < WellKnownTypes.UserTypeBase && typeId != FullNameMarker)
+            {
+                var value = ReadValue(typeId, targetType, ref reader);
+                _objectCache[cacheIndex] = value;
+                return value;
+            }
+
             if (typeId == FullNameMarker)
             {
                 string typeName = ReadStringFromTable(ref reader);
@@ -258,9 +274,10 @@ namespace Ceras.Format
             _plans.TryGetValue(oldSchema.StableName, out var plan);
             Type currentType = plan?.CurrentType ?? targetType;
 
-            if (oldSchema.Kind == SchemaTypeKind.Struct)
+            if (oldSchema.Kind == SchemaTypeKind.Struct || (currentType != null && currentType.IsValueType))
             {
                 object structObj = CreateInstance(currentType);
+                if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = structObj;
                 ReadAndApplyFields(oldSchema, plan, structObj, ref reader);
                 return structObj;
             }
@@ -279,6 +296,8 @@ namespace Ceras.Format
         object CreateInstance(Type type)
         {
             if (type == null) return null;
+            if (type.IsValueType) return Activator.CreateInstance(type);
+
             var typeConfig = _serializer.Config.GetTypeConfig(type, false);
             var tc = typeConfig.TypeConstruction;
             if (tc != null && !tc.HasDataArguments && tc is not ConstructNull)
@@ -311,6 +330,7 @@ namespace Ceras.Format
             if (currentType != null && currentType.IsValueType)
             {
                 object structObj = CreateInstance(currentType);
+                if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = structObj;
                 ReadAndApplyFields(oldSchema, plan, structObj, ref reader);
                 return structObj;
             }
@@ -517,23 +537,32 @@ namespace Ceras.Format
                 case SchemaTypeKind.Class: SkipPolymorphicValue(typeId, ref reader); break;
                 case SchemaTypeKind.Enum: SkipEnumValue(oldSchema, ref reader); break;
                 case SchemaTypeKind.GenericInstantiation:
-                    _objectCache.Add(null); // Keep cache in sync
-					if (oldSchema.DefinitionTypeId == WellKnownTypes.Array || oldSchema.DefinitionTypeId == WellKnownTypes.List ||
-						oldSchema.DefinitionTypeId == WellKnownTypes.HashSet || oldSchema.DefinitionTypeId == WellKnownTypes.Queue ||
-						oldSchema.DefinitionTypeId == WellKnownTypes.Stack)
+                    _plans.TryGetValue(oldSchema.StableName, out var plan);
+                    if (plan?.CurrentType != null && plan.CurrentType.IsValueType)
                     {
-                        int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
-                        if (count == -1) return;
-                        int? elemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                        SkipElements((uint)count, elemTypeId, ref reader);
+                        if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)
+                        {
+                            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+                            if (count == -1) return;
+                            int? kId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+                            int? vId = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
+                            for (int i = 0; i < count; i++) { if (kId.HasValue) SkipValue(kId.Value, ref reader); if (vId.HasValue) SkipValue(vId.Value, ref reader); }
+                        }
+                        else if (oldSchema.DefinitionTypeId != 0)
+                        {
+                            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+                            if (count == -1) return;
+                            int? elemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+                            SkipElements((uint)count, elemTypeId, ref reader);
+                        }
+                        else
+                        {
+                            foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, ref reader);
+                        }
                     }
-                    else if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)
+                    else
                     {
-                        int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
-                        if (count == -1) return;
-                        int? kId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                        int? vId = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
-                        for (int i = 0; i < count; i++) { if (kId.HasValue) SkipValue(kId.Value, ref reader); if (vId.HasValue) SkipValue(vId.Value, ref reader); }
+                        SkipPolymorphicValue(typeId, ref reader);
                     }
                     break;
             }
@@ -547,9 +576,25 @@ namespace Ceras.Format
             if (marker == RefInlineType) { SkipValue(WellKnownTypes.Type, ref reader); return; }
 
             int typeId = marker == RefNewValue ? (int)SchemaSection.ReadLeb128(ref reader) : expectedTypeId;
+            _objectCache.Add(null); // Keep cache in sync for new value
+
+            if (typeId < WellKnownTypes.UserTypeBase && typeId != FullNameMarker)
+            {
+                SkipValue(typeId, ref reader);
+                return;
+            }
+
+            if (typeId == FullNameMarker)
+            {
+                ReadStringFromTable(ref reader); // skip name
+                // What follows? If it's a polymorphic object, we don't know how to skip it without a schema!
+                // But FullNameMarker is only used for non-robust types.
+                // For now we just hope it has no fields or we'll get out of sync.
+                return;
+            }
+
             if (_oldById.TryGetValue(typeId, out var oldSchema))
             {
-                _objectCache.Add(null); // Keep cache in sync
                 if (oldSchema.Kind == SchemaTypeKind.Enum) SkipEnumValue(oldSchema, ref reader);
                 else if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
                 {

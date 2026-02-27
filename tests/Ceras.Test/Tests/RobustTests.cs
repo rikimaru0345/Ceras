@@ -217,7 +217,84 @@ namespace Ceras.Test
                 Assert.Equal(rarity, clone.Rarity);
             }
 		}
+
+        // -------------------------------------------------------------------
+        // 4. Regression: Circular references in polymorphic slots
+        // -------------------------------------------------------------------
+
+        [Fact]
+        public void Robust_CircularReference_Polymorphic()
+        {
+            var config = GeneratedConfig();
+            CerasRobust.Configure(config);
+            var ceras = new CerasSerializer(config);
+
+            var container = new RobustContainer();
+            var node = new RobustNode { Name = "Recursive" };
+            node.Reference = node; // Circular
+
+            container.Dict[node] = "some value";
+            container.List.Add(node);
+
+            // 1. Save
+            var data = CerasRobust.Save(container, 1, ceras);
+
+            // 2. Load with schema change to force SchemaTraversalEngine
+            data[CerasRobust.OffsetFingerprint] ^= 0xFF;
+            var clone = CerasRobust.Load<RobustContainer>(data, 1, ceras);
+
+            Assert.NotNull(clone);
+            Assert.Single(clone.List);
+            var clonedNode = (RobustNode)clone.List[0];
+            Assert.NotNull(clonedNode);
+            Assert.Same(clonedNode, clonedNode.Reference);
+            Assert.True(clone.Dict.ContainsKey(clonedNode));
+        }
+
+        // -------------------------------------------------------------------
+        // 5. Regression: Generic structs in monomorphic slots
+        // -------------------------------------------------------------------
+
+        [Fact]
+        public void Robust_GenericStruct_Monomorphic()
+        {
+            var config = GeneratedConfig();
+            CerasRobust.Configure(config);
+            var ceras = new CerasSerializer(config);
+
+            var container = new GenericStructContainer { Pair = new KeyValuePair<int, int>(1, 2) };
+
+            // 1. Save
+            var data = CerasRobust.Save(container, 1, ceras);
+
+            // 2. Load with schema change to force SchemaTraversalEngine
+            data[CerasRobust.OffsetFingerprint] ^= 0xFF;
+            var clone = CerasRobust.Load<GenericStructContainer>(data, 1, ceras);
+
+            Assert.Equal(1, clone.Pair.Key);
+            Assert.Equal(2, clone.Pair.Value);
+        }
 	}
+
+    [CerasSerializable]
+    public class RobustNode
+    {
+        public string Name;
+        public object Reference;
+    }
+
+    [CerasSerializable]
+    public class RobustContainer
+    {
+        public Dictionary<object, object> Dict = new();
+        public List<object> List = new();
+    }
+
+    [CerasSerializable]
+    public class GenericStructContainer
+    {
+        public KeyValuePair<int, int> Pair;
+    }
 
 	/// <summary>
 	/// Hand-written IFormatter for Item — used in the mixed-approach test to
