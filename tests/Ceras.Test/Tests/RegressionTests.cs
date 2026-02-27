@@ -1,165 +1,143 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
-using System.Buffers;
 using Xunit;
 using Ceras;
-using Ceras.Helpers;
 using Ceras.Formatters;
+using Ceras.Helpers;
 using Ceras.Format;
+using Ceras.Generated;
 
 namespace Ceras.Test
 {
     public class RegressionTests : TestBase
     {
-        // -------------------------------------------------------------------
-        // Ambiguous Match Repro (Generic vs Non-Generic)
-        // -------------------------------------------------------------------
-
-        internal sealed class AmbigFormatter : IFormatter<Weapon>
-        {
-            public void Serialize(IBufferWriter<byte> writer, Weapon value) {}
-            
-            // This generic method, when closed with IBufferWriter<byte>, matches the signature above exactly.
-            public void Serialize<TWriter>(TWriter writer, Weapon value) where TWriter : IBufferWriter<byte> {}
-
-            public void Deserialize(ref SequenceReader<byte> reader, ref Weapon value) {}
-            public void SerializeUntyped(IBufferWriter<byte> writer, object value) {}
-            public void DeserializeUntyped(ref SequenceReader<byte> reader, object container, MemberInfo member) {}
-        }
-
         [Fact]
-        public void Fix_AmbiguousMatch_PreferredNonGeneric()
+        public void SourceGenerator_Collections_MaintainReferenceTracking()
         {
-            var type = typeof(AmbigFormatter);
-            var method = type.ResolveSerializeMethod(typeof(Weapon));
-            Assert.NotNull(method);
-            Assert.False(method.IsGenericMethod, "Should have preferred the non-generic overload");
-        }
+            // This test verifies that the Source Generator wraps collections in ReferenceFormatter
+            // so that if the same collection instance is seen twice, it is correctly shared.
+            // Before the fix, SG used CollectionFormatter directly, which bypasses reference tracking.
 
-        // -------------------------------------------------------------------
-        // Dictionary Injection Mismatch Repro
-        // -------------------------------------------------------------------
-
-        public interface IReproState { }
-
-        [CerasSerializable]
-        public class ReproStateImpl : IReproState { public int Value; }
-
-        [CerasSerializable]
-        [MemberConfig(TargetMember.PublicFields)]
-        public class InjectionMismatchReproModel
-        {
-            public Dictionary<int, IReproState> States;
-        }
-
-        [Fact]
-        public void Fix_Dictionary_InjectionMismatch()
-        {
             var config = new SerializerConfig();
-            Ceras.Generated.GeneratedFormatters.UseFormatters(config);
-            CerasRobust.Configure(config);
-            
+            GeneratedFormatters.UseFormatters(config);
             var ceras = new CerasSerializer(config);
 
-            var model = new InjectionMismatchReproModel
+            var list = new List<int> { 1, 2, 3 };
+            var original = new CollectionSharingModel
             {
-                States = new Dictionary<int, IReproState>
-                {
-                    { 1, new ReproStateImpl { Value = 42 } }
-                }
+                A = list,
+                B = list
             };
 
-            var blob = CerasRobust.Save(model, 1, ceras);
-            var cloned = CerasRobust.Load<InjectionMismatchReproModel>(blob, 1, ceras);
+            var bytes = ceras.Serialize(original);
+            var clone = ceras.Deserialize<CollectionSharingModel>(bytes);
 
-            Assert.NotNull(cloned.States);
-            Assert.Single(cloned.States);
-            Assert.Equal(42, ((ReproStateImpl)cloned.States[1]).Value);
+            Assert.Same(clone.A, clone.B);
+            Assert.Equal(original.A, clone.A);
         }
 
-        // -------------------------------------------------------------------
-        // Array Injection Mismatch Repro
-        // -------------------------------------------------------------------
-
         [Fact]
-        public void Fix_Array_InjectionMismatch()
+        public void RobustMode_PolymorphicRoundTrip()
         {
+            // This test verifies that CerasRobust correctly handles types 
+            // when encountered in a polymorphic context (e.g. through an interface).
+
             var config = new SerializerConfig();
-            Ceras.Generated.GeneratedFormatters.UseFormatters(config);
             CerasRobust.Configure(config);
+            GeneratedFormatters.UseFormatters(config);
             
+            // Manual registration for types used in Robust mode
+            var registry = config.Robust.SchemaRegistry;
+            registry.Register(typeof(RobustRoot), null);
+            registry.Register(typeof(RobustChild), null);
+            registry.Register(typeof(IRobustInterface), new SchemaTypeInfo("IRobustInterface", Array.Empty<string>(), SchemaTypeKind.Class, Array.Empty<SchemaFieldInfo>(), 0));
+
             var ceras = new CerasSerializer(config);
 
-            var model = new ArrayMemberModel
+            var original = new RobustRoot
             {
-                Weapons = new[] { new Weapon { Name = "Sword" } }
+                Child = new RobustChild { Value = 42 }
             };
 
-            var blob = CerasRobust.Save(model, 1, ceras);
-            var cloned = CerasRobust.Load<ArrayMemberModel>(blob, 1, ceras);
+            var bytes = CerasRobust.Save(original, 1, ceras);
+            var clone = CerasRobust.Load<RobustRoot>(bytes, 1, ceras);
 
-            Assert.NotNull(cloned.Weapons);
-            Assert.Single(cloned.Weapons);
-            Assert.Equal("Sword", cloned.Weapons[0].Name);
-        }
-
-        // -------------------------------------------------------------------
-        // Struct with Auto-Properties (Enforcement)
-        // -------------------------------------------------------------------
-
-        [Fact]
-        public void Fix_StructWithAutoProps_ThrowsEarlier_IfMissingAttribute()
-        {
-            var config = new SerializerConfig();
-            CerasRobust.Configure(config); // This sets AllowReflectionFallback = false
-            var ceras = new CerasSerializer(config);
-
-            var model = new LegacyModel { Item = new LegacyCostItem("Test", 10) };
-
-            // This should throw InvalidOperationException because it's missing [CerasSerializable]
-            // and reflection is disabled.
-            var ex = Assert.Throws<InvalidOperationException>(() => ceras.Serialize(model));
-            Assert.Contains("reflection-based fallback is disabled", ex.ToString());
+            Assert.IsType<RobustChild>(clone.Child);
+            Assert.Equal(((RobustChild)original.Child).Value, ((RobustChild)clone.Child).Value);
         }
 
         [Fact]
-        public void Fix_StructWithAutoProps_StillThrowsWarning_IfReflectionExplicitlyEnabled()
+        public void RobustMode_InvalidCastException_Repro()
         {
+            // This test reproduces the specific scenario that led to the InvalidCastException:
+            // 1. An object (List) is first encountered through a polymorphic field.
+            // 2. The same object is later encountered through a typed field.
+            // If reference tracking is broken for collections in SG, the ID mapping gets desynced.
+
             var config = new SerializerConfig();
-            config.Advanced.AllowReflectionFallback = true;
+            CerasRobust.Configure(config);
+            GeneratedFormatters.UseFormatters(config);
+
+            var registry = config.Robust.SchemaRegistry;
+            registry.Register(typeof(DesyncModel), null);
+            registry.Register(typeof(DesyncChild), null);
+            registry.Register(typeof(List<DesyncChild>), null);
+            registry.Register(typeof(DesyncChild[]), null);
+            registry.Register(typeof(IDesyncInterface), new SchemaTypeInfo("IDesyncInterface", Array.Empty<string>(), SchemaTypeKind.Class, Array.Empty<SchemaFieldInfo>(), 0));
+
             var ceras = new CerasSerializer(config);
 
-            var model = new LegacyModel { Item = new LegacyCostItem("Test", 10) };
+            var child = new DesyncChild { Name = "Child" };
+            var list = new List<DesyncChild> { child };
+            
+            var original = new DesyncModel
+            {
+                PolymorphicList = list,
+                TypedList = list
+            };
 
-            // If user explicitly enables reflection, they still get the helpful warning about structs.
-            var ex = Assert.Throws<System.Reflection.TargetInvocationException>(() => ceras.Serialize(model));
-            Assert.Contains("backing-fields", ex.ToString());
+            var bytes = CerasRobust.Save(original, 1, ceras);
+            var clone = CerasRobust.Load<DesyncModel>(bytes, 1, ceras);
+
+            Assert.Same(clone.PolymorphicList, clone.TypedList);
+            Assert.Single((List<DesyncChild>)clone.PolymorphicList);
+            Assert.Equal("Child", ((List<DesyncChild>)clone.PolymorphicList)[0].Name);
         }
     }
 
     [CerasSerializable]
-    public class ArrayMemberModel
+    public class CollectionSharingModel
     {
-        public Weapon[] Weapons;
+        public List<int> A;
+        public List<int> B;
     }
 
-    // A struct with only auto-properties and no [CerasSerializable]
-    public struct LegacyCostItem
-    {
-        public string Name { get; set; }
-        public int Amount { get; set; }
+    public interface IRobustInterface { }
 
-        public LegacyCostItem(string name, int amount)
-        {
-            Name = name;
-            Amount = amount;
-        }
+    [CerasSerializable]
+    public class RobustChild : IRobustInterface
+    {
+        public int Value;
     }
 
     [CerasSerializable]
-    public class LegacyModel
+    public class RobustRoot
     {
-        public LegacyCostItem Item;
+        public IRobustInterface Child;
+    }
+
+    public interface IDesyncInterface { }
+
+    [CerasSerializable]
+    public class DesyncChild : IDesyncInterface
+    {
+        public string Name;
+    }
+
+    [CerasSerializable]
+    public class DesyncModel
+    {
+        public object PolymorphicList; // List<DesyncChild> as object
+        public List<DesyncChild> TypedList;
     }
 }

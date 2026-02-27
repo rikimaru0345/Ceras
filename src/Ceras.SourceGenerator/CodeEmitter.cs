@@ -326,15 +326,22 @@ namespace Ceras.SourceGenerator
                             }
                         }
                     }
+                    string concrete;
                     if (isDict && keyType != null && valType != null)
                     {
                         string k = keyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                         string v = valType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                         string kvp = $"global::System.Collections.Generic.KeyValuePair<{k}, {v}>";
-                        return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {kvp}>";
+                        concrete = $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {kvp}>";
                     }
-                    string elemFqn = namedColl.TypeArguments[namedColl.TypeArguments.Length - 1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {elemFqn}>";
+                    else
+                    {
+                        string elemFqn = namedColl.TypeArguments[namedColl.TypeArguments.Length - 1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                        concrete = $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {elemFqn}>";
+                    }
+
+                    if (type.IsValueType) return concrete;
+                    return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
                 }
             }
 

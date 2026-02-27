@@ -48,10 +48,10 @@ namespace Ceras {
 			// Ensure the registry is sealed so that discovered generic instantiations
 			// don't affect the fingerprint.
 			// So need to do it BEFORE SchemaSection.Write; bc it calls ResolveId which
-			// may call TryGetId for field-referenced types, triggering EnsureRegisteredRecursive
-			// and registering new generic instantiations into the registry.  The load path also
-			// computes the fingerprint before any such resolution, so both sides must use the
-			// same pre-Write baseline (the state after UseFormatters).
+			// Ensure the root type is registered so we can resolve its schema
+			registry.TryGetId(typeof(T), out _);
+
+			// Ensure the registry is sealed before we start registering anything (like discovered generic instantiations)
 			registry.Seal();
 
 			int rootTypeId = GetTypeId(typeof(T), registry);
@@ -90,11 +90,11 @@ namespace Ceras {
 
             var registry = ceras.Config.Robust.SchemaRegistry;
 
-			// Ensure the registry is sealed before we start registering anything (like root type)
-			registry.Seal();
-
 			// Ensure the root type is registered so we can resolve its schema
 			registry.TryGetId(typeof(T), out _);
+
+			// Ensure the registry is sealed before we start registering anything (like discovered generic instantiations)
+			registry.Seal();
 
 			// Check magic "CERA"
 			if (data[0] != (byte)'C' || data[1] != (byte)'E' || data[2] != (byte)'R' || data[3] != (byte)'A')

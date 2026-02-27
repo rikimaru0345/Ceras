@@ -178,13 +178,15 @@ namespace Ceras.Format
                 typeId = expectedTypeId;
 
 
+            int cacheIndex = _objectCache.Count;
+            _objectCache.Add(null);
+
             if (typeId == FullNameMarker)
             {
                 string typeName = SerializerBinary.ReadString(ref reader);
                 Type type = _typeBinder.GetTypeFromBase(typeName);
                 if (type == null)
                 {
-                    _objectCache.Add(null);
                     return null;
                 }
 
@@ -192,24 +194,36 @@ namespace Ceras.Format
                 if (_registry.TryGetId(type, out int actualId))
                 {
                     if (_oldById.TryGetValue(actualId, out var registeredSchema))
-                        return ReadUserTypeInstance(registeredSchema, targetType, ref reader);
+                    {
+                        var obj2 = ReadUserTypeInstance(registeredSchema, targetType, ref reader);
+                        _objectCache[cacheIndex] = obj2;
+                        return obj2;
+                    }
                 }
 
                 // If not registered, we can still try to deserialize it if it's a simple type,
                 // but for now let's just create an uninitialized object if it's a class.
                 object obj = CreateInstance(type);
-                _objectCache.Add(obj);
+                _objectCache[cacheIndex] = obj;
 				// We don't have a schema, so we can't read fields unless they are written in a specific way.
                 return obj;
             }
 
             if (!_oldById.TryGetValue(typeId, out var oldSchema))
             {
-                _objectCache.Add(null);
                 SkipUserType(typeId, ref reader);
                 return null;
             }
-            return ReadUserTypeInstance(oldSchema, targetType, ref reader);
+            if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
+            {
+                var obj = ReadGenericInstantiation(oldSchema, targetType, ref reader);
+                _objectCache[cacheIndex] = obj;
+                return obj;
+            }
+
+            var result = ReadUserTypeInstance(oldSchema, targetType, ref reader);
+            _objectCache[cacheIndex] = result;
+            return result;
         }
 
         object ReadUserType(int typeId, Type targetType, ref SequenceReader<byte> reader)
