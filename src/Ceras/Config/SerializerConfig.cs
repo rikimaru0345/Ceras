@@ -52,6 +52,7 @@
         public IRobustConfig Robust => this;
 
         RobustConfig _robustConfig = new RobustConfig();
+        bool IRobustConfig.Enabled { get => _robustConfig.Enabled; set => _robustConfig.Enabled = value; }
         SchemaRegistry IRobustConfig.SchemaRegistry => _robustConfig.SchemaRegistry;
 
 		/// <summary>
@@ -462,6 +463,12 @@
     public interface IRobustConfig
     {
         /// <summary>
+        /// Gets or sets whether robust (version-tolerant) formatting is enabled.
+        /// When enabled, certain optimizations (like ReinterpretFormatter) are disabled to ensure compatibility with versioning and migration.
+        /// </summary>
+        bool Enabled { get; set; }
+
+        /// <summary>
         /// The registry containing all version-tolerant type schemas.
         /// </summary>
         SchemaRegistry SchemaRegistry { get; }
@@ -469,6 +476,7 @@
 
     internal class RobustConfig
     {
+        public bool Enabled;
         public readonly SchemaRegistry SchemaRegistry = new SchemaRegistry();
     }
 }

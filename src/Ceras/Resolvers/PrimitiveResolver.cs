@@ -49,9 +49,43 @@
                 return f;
 
             if (type.IsEnum)
+            {
+                if (_ceras.Config.Robust.Enabled)
+                    return (IFormatter)Activator.CreateInstance(typeof(EnumFormatter<>).MakeGenericType(type));
+
                 return (IFormatter)Activator.CreateInstance(typeof(ReinterpretFormatter<>).MakeGenericType(type));
+            }
 
             return null;
+        }
+
+        class EnumFormatter<T> : FormatterBase<T> where T : struct
+        {
+            public override void Serialize(global::System.Buffers.IBufferWriter<byte> writer, T value)
+            {
+                var underlying = Enum.GetUnderlyingType(typeof(T));
+                if (underlying == typeof(int)) SerializerBinary.WriteInt32(writer, (int)(object)value);
+                else if (underlying == typeof(uint)) SerializerBinary.WriteUInt32(writer, (uint)(object)value);
+                else if (underlying == typeof(long)) SerializerBinary.WriteInt64Fixed(writer, (long)(object)value);
+                else if (underlying == typeof(ulong)) SerializerBinary.WriteInt64Fixed(writer, (long)(ulong)(object)value);
+                else if (underlying == typeof(short)) SerializerBinary.WriteInt16Fixed(writer, (short)(object)value);
+                else if (underlying == typeof(ushort)) SerializerBinary.WriteInt16Fixed(writer, (short)(ushort)(object)value);
+                else if (underlying == typeof(byte)) SerializerBinary.WriteByte(writer, (byte)(object)value);
+                else if (underlying == typeof(sbyte)) SerializerBinary.WriteByte(writer, (byte)(sbyte)(object)value);
+            }
+
+            public override void Deserialize(ref global::System.Buffers.SequenceReader<byte> reader, ref T value)
+            {
+                var underlying = Enum.GetUnderlyingType(typeof(T));
+                if (underlying == typeof(int)) value = (T)(object)SerializerBinary.ReadInt32(ref reader);
+                else if (underlying == typeof(uint)) value = (T)(object)SerializerBinary.ReadUInt32(ref reader);
+                else if (underlying == typeof(long)) value = (T)(object)SerializerBinary.ReadInt64Fixed(ref reader);
+                else if (underlying == typeof(ulong)) value = (T)(object)(ulong)SerializerBinary.ReadInt64Fixed(ref reader);
+                else if (underlying == typeof(short)) value = (T)(object)SerializerBinary.ReadInt16Fixed(ref reader);
+                else if (underlying == typeof(ushort)) value = (T)(object)(ushort)SerializerBinary.ReadInt16Fixed(ref reader);
+                else if (underlying == typeof(byte)) value = (T)(object)SerializerBinary.ReadByte(ref reader);
+                else if (underlying == typeof(sbyte)) value = (T)(object)(sbyte)SerializerBinary.ReadByte(ref reader);
+            }
         }
 
     }

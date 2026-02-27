@@ -55,24 +55,39 @@ namespace Ceras.SourceGenerator
             sb.AppendLine($"        public override void Serialize(global::System.Buffers.IBufferWriter<byte> writer, {typeFqn} value)");
             sb.AppendLine("        {");
 
-            // For ctor types: non-getter-only first, getter-only last (matches Deserialize order below).
-            var serializeMembers = hasCtorParams ? nonGetterOnlyMembers.Concat(getterOnlyMembers) : members;
-            foreach (var m in serializeMembers)
+            if (type.TypeKind == TypeKind.Enum)
             {
-                string fieldName = MakeFormatterFieldName(m.Type);
-                string getAccess = GetGetAccess(m, typeFqn);
+                var underlying = type.EnumUnderlyingType!;
+                string underlyingFqn = underlying.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                
+                string writeMethod;
+                if (underlying.SpecialType == SpecialType.System_Int32) writeMethod = "WriteInt32";
+                else if (underlying.SpecialType == SpecialType.System_UInt32) writeMethod = "WriteUInt32";
+                else writeMethod = GetPrimitiveWriteMethod(underlying);
 
-                if (IsFastPrimitive(m.Type))
+                sb.AppendLine($"            global::Ceras.SerializerBinary.{writeMethod}(writer, ({underlyingFqn})value);");
+            }
+            else
+            {
+                // For ctor types: non-getter-only first, getter-only last (matches Deserialize order below).
+                var serializeMembers = hasCtorParams ? nonGetterOnlyMembers.Concat(getterOnlyMembers) : members;
+                foreach (var m in serializeMembers)
                 {
-                    string writeMethod = GetPrimitiveWriteMethod(m.Type);
-                    string valueExp = getAccess;
-                    if (m.Type.SpecialType == SpecialType.System_Boolean)
-                        valueExp = $"(byte)({valueExp} ? 1 : 0)";
-                    sb.AppendLine($"            global::Ceras.SerializerBinary.{writeMethod}(writer, {valueExp});");
-                }
-                else
-                {
-                    sb.AppendLine($"            {fieldName}.Serialize(writer, {getAccess});");
+                    string fieldName = MakeFormatterFieldName(m.Type);
+                    string getAccess = GetGetAccess(m, typeFqn);
+
+                    if (IsFastPrimitive(m.Type))
+                    {
+                        string writeMethod = GetPrimitiveWriteMethod(m.Type);
+                        string valueExp = getAccess;
+                        if (m.Type.SpecialType == SpecialType.System_Boolean)
+                            valueExp = $"(byte)({valueExp} ? 1 : 0)";
+                        sb.AppendLine($"            global::Ceras.SerializerBinary.{writeMethod}(writer, {valueExp});");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"            {fieldName}.Serialize(writer, {getAccess});");
+                    }
                 }
             }
             sb.AppendLine("        }");
@@ -82,7 +97,17 @@ namespace Ceras.SourceGenerator
             sb.AppendLine($"        public override void Deserialize(ref global::System.Buffers.SequenceReader<byte> reader, ref {typeFqn} value)");
             sb.AppendLine("        {");
 
-            if (hasCtorParams)
+            if (type.TypeKind == TypeKind.Enum)
+            {
+                var underlying = type.EnumUnderlyingType!;
+                string readExpr;
+                if (underlying.SpecialType == SpecialType.System_Int32) readExpr = "global::Ceras.SerializerBinary.ReadInt32(ref reader)";
+                else if (underlying.SpecialType == SpecialType.System_UInt32) readExpr = "global::Ceras.SerializerBinary.ReadUInt32(ref reader)";
+                else readExpr = GetPrimitiveReadExpression(underlying, "reader");
+
+                sb.AppendLine($"            value = ({typeFqn}){readExpr};");
+            }
+            else if (hasCtorParams)
             {
                 // [CerasConstructor] path.
                 // Phase 1: read non-getter-only members into temps (these may include ctor args).

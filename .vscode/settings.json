@@ -20,5 +20,5 @@
         "editor.tabSize": 2
     },
     "dotnet.defaultSolution": "../Ceras.sln",
-    "dotnet.preferCSharpExtension": true
+    "dotnet.preferCSharpExtension": false
 }

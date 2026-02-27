@@ -216,12 +216,9 @@ namespace Ceras.Format
             // 2. User type case: Match by stable name
             if (oldById.TryGetValue(oldTypeId, out var oldSchema))
             {
-                Console.WriteLine($"DEBUG:   oldTypeId is user type '{oldSchema.StableName}'");
-                if (registry.TryGetInfo(newFieldType, out var currentInfo))
+                if (registry.TryResolveType(oldSchema.StableName, out var resolvedType))
                 {
-                    if (currentInfo.StableName == oldSchema.StableName) return true;
-                    foreach (var prev in currentInfo.PreviousTypeNames)
-                        if (prev == oldSchema.StableName) return true;
+                    if (resolvedType == newFieldType) return true;
                 }
                 
                 // Unregistered type fallback
@@ -248,18 +245,29 @@ namespace Ceras.Format
         static Dictionary<long, long> BuildEnumMap(OldTypeSchema old, Type currentType)
         {
             var map = new Dictionary<long, long>();
-            var currentNames = Enum.GetNames(currentType);
-            var currentValues = Enum.GetValues(currentType);
-
             var nameToCurrentValue = new Dictionary<string, long>(StringComparer.Ordinal);
-            for (int i = 0; i < currentNames.Length; i++)
-                nameToCurrentValue[currentNames[i]] = Convert.ToInt64(currentValues.GetValue(i));
+            
+            foreach (var f in currentType.GetFields(BindingFlags.Public | BindingFlags.Static))
+            {
+                if (!f.IsLiteral) continue;
+                
+                long currentVal = Convert.ToInt64(f.GetValue(null));
+                
+                var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
+                nameToCurrentValue[sa?.Name ?? f.Name] = currentVal;
+                
+                foreach (var pn in f.GetCustomAttributes<PreviousNameAttribute>())
+                {
+                    if (pn.Name != null) nameToCurrentValue[pn.Name] = currentVal;
+                    foreach (var alt in pn.AlternativeNames)
+                        if (alt != null) nameToCurrentValue[alt] = currentVal;
+                }
+            }
 
             foreach (var oldEv in old.EnumValues)
             {
                 if (nameToCurrentValue.TryGetValue(oldEv.Name, out long currentVal))
                     map[oldEv.Value] = currentVal;
-                // If not found, it's missing from the map, which ReadEnumValue will handle
             }
             return map;
         }

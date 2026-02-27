@@ -227,10 +227,13 @@ namespace Ceras.Format
             if (!_oldById.TryGetValue(typeId, out var oldSchema)) {
                 return null;
             }
+            
+            Console.WriteLine($"DEBUG ReadUserType: typeId={typeId}, Kind={oldSchema.Kind}, targetType={targetType?.Name}");
+
             if (oldSchema.Kind == SchemaTypeKind.Enum)
             {
                 _plans.TryGetValue(oldSchema.StableName, out var plan);
-                return ReadEnumValue(oldSchema, plan, ref reader);
+                return ReadEnumValue(oldSchema, targetType, plan, ref reader);
             }
             if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
                 return ReadGenericInstantiation(oldSchema, targetType, ref reader);
@@ -569,15 +572,35 @@ namespace Ceras.Format
 
 		Type GetCurrentType(string stableName) { _registry.TryResolveType(stableName, out var t); return t; }
 
-        object ReadEnumValue(OldTypeSchema oldSchema, TypeMigrationPlan plan, ref SequenceReader<byte> reader)
+        object ReadEnumValue(OldTypeSchema oldSchema, Type targetType, TypeMigrationPlan plan, ref SequenceReader<byte> reader)
         {
             int underlyingId = oldSchema.DefinitionTypeId == 0 ? WellKnownTypes.Int32 : oldSchema.DefinitionTypeId;
             object rawValue = ReadValue(underlyingId, null, ref reader);
+            
+            Console.WriteLine($"DEBUG ReadEnumValue: rawValue={rawValue} ({rawValue?.GetType().Name}), targetType={targetType?.Name}, planType={plan?.CurrentType?.Name}, hasMap={plan?.EnumValueMap != null}");
+
             if (plan?.EnumValueMap != null && plan.CurrentType != null)
             {
                 long val = Convert.ToInt64(rawValue);
-                return plan.EnumValueMap.TryGetValue(val, out long mapped) ? Enum.ToObject(plan.CurrentType, mapped) : Enum.ToObject(plan.CurrentType, 0L);
+                if (plan.EnumValueMap.TryGetValue(val, out long mapped))
+                {
+                    Console.WriteLine($"DEBUG ReadEnumValue: Mapped {val} to {mapped}");
+                    return Enum.ToObject(plan.CurrentType, mapped);
+                }
+                else
+                {
+                    Console.WriteLine($"DEBUG ReadEnumValue: No mapping for {val}");
+                }
             }
+
+            if (targetType != null && targetType.IsEnum)
+            {
+                var result = Enum.ToObject(targetType, rawValue);
+                Console.WriteLine($"DEBUG ReadEnumValue: Returning converted rawValue: {result}");
+                return result;
+            }
+
+            Console.WriteLine($"DEBUG ReadEnumValue: Returning rawValue as-is: {rawValue}");
             return rawValue;
         }
 

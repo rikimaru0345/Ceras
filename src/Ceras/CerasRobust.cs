@@ -65,19 +65,27 @@ namespace Ceras {
             int dataStart = offset;
 
             RobustContext.BeginWrite(internTable, typeToId);
+            ceras.Config.Robust.Enabled = true;
 
             if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
                 Ceras.Helpers.ObjectCache.BeginSerializeTrace();
 
-            var writer = new ArrayBufferWriter<byte>();
-            SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
-            try { ceras.Serialize(writer, rootObject); }
-            finally { RobustContext.End(); }
+            try
+            {
+                var writer = new ArrayBufferWriter<byte>();
+                SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
+                ceras.Serialize(writer, rootObject);
 
-            var data = writer.WrittenSpan;
-            SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
-            data.CopyTo(buffer.AsSpan(offset));
-            offset += data.Length;
+                var data = writer.WrittenSpan;
+                SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
+                data.CopyTo(buffer.AsSpan(offset));
+                offset += data.Length;
+            }
+            finally
+            {
+                ceras.Config.Robust.Enabled = false;
+                RobustContext.End();
+            }
 
             int stringTableStart = internTable.Flush(ref buffer, ref offset);
             PatchHeader(buffer, offset, robustVersion, dataStart, stringTableStart, schemaFingerprint);
@@ -188,6 +196,7 @@ namespace Ceras {
                 Ceras.Helpers.ObjectCache.BeginDeserializeTrace();
 
             RobustContext.BeginRead(table, idToType);
+            ceras.Config.Robust.Enabled = true;
             try {
                 var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, (int)stringTableOffset - (int)dataSectionOffset);
                 var reader = new SequenceReader<byte>(dataSeq);
@@ -202,7 +211,10 @@ namespace Ceras {
                 ceras.Deserialize(ref reader, ref value);
                 return value;
             }
-            finally { RobustContext.End(); }
+            finally {
+                ceras.Config.Robust.Enabled = false;
+                RobustContext.End();
+            }
         }
 
         static void WriteHeaderPlaceholder(ref byte[] buffer, ref int offset, uint robustVersion) {
