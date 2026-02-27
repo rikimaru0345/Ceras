@@ -41,11 +41,10 @@ public class ObjectIssueTest : TestBase {
 		Assert.True(DeepComparer.Instance.CheckEquality(g, clone), "objects are different");
 	}
 }
-
 namespace ReproTest {
 	[CerasSerializable]
 	[MemberConfig(TargetMembers = TargetMember.AllFields)]
-	class Game {
+	partial class Game {
 		private object _obj;
 
 		private string _str;
@@ -59,6 +58,17 @@ namespace ReproTest {
 		public LogisticsManager LogisticsManager { get; } = new();
 
 		public readonly Dictionary<object, List<Connection>> someDict = new();
+
+		public override bool Equals(object obj) {
+			if (obj is Game other) {
+				return Equals(_obj, other._obj) &&
+					   Equals(_str, other._str) &&
+					   someDict.Count == other.someDict.Count &&
+					   LogisticsManager.Equals(other.LogisticsManager);
+			}
+			return false;
+		}
+		public override int GetHashCode() => 0;
 	}
 
 	[CerasSerializable]
@@ -85,6 +95,22 @@ namespace ReproTest {
 		public int GetNumberOfEntries() {
 			return _entityConnections.Count;
 		}
+
+		public override bool Equals(object obj) {
+			if (obj is LogisticsManager other) {
+				if (_entityConnections.Count != other._entityConnections.Count) return false;
+				foreach (var kvp in _entityConnections) {
+					if (!other._entityConnections.TryGetValue(kvp.Key, out var otherList)) return false;
+					if (kvp.Value.Count != otherList.Count) return false;
+					for (int i = 0; i < kvp.Value.Count; i++) {
+						if (!Equals(kvp.Value[i].Source, otherList[i].Source)) return false;
+					}
+				}
+				return true;
+			}
+			return false;
+		}
+		public override int GetHashCode() => 0;
 	}
 
 	class Entity : IEntity {
@@ -97,5 +123,8 @@ namespace ReproTest {
 		public Entity() {
 			id = nextId++;
 		}
+
+		public override bool Equals(object obj) => obj is Entity other && id == other.id;
+		public override int GetHashCode() => id;
 	}
 }

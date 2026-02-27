@@ -382,8 +382,10 @@ namespace Ceras.SourceGenerator
                 {
                     if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, memberConfigAttr))
                     {
-                        if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is int val)
+                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMembers", out var val))
                             return (TargetMemberKind)val;
+                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMember", out var val2))
+                            return (TargetMemberKind)val2;
                     }
                 }
                 cur = cur.BaseType;
@@ -404,8 +406,10 @@ namespace Ceras.SourceGenerator
                 {
                     if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, memberConfigAttr))
                     {
-                        if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is int val)
+                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMembers", out var val))
                             return (TargetMemberKind)val;
+                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMember", out var val2))
+                            return (TargetMemberKind)val2;
                     }
                 }
             }
@@ -417,8 +421,10 @@ namespace Ceras.SourceGenerator
                 {
                     if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, memberConfigAttr))
                     {
-                        if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is int val)
+                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMembers", out var val))
                             return (TargetMemberKind)val;
+                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMember", out var val2))
+                            return (TargetMemberKind)val2;
                     }
                 }
             }

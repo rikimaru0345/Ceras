@@ -432,25 +432,24 @@ namespace Ceras.SourceGenerator
             sb.AppendLine();
         }
 
-        static string GetStableTypeName(INamedTypeSymbol type, INamedTypeSymbol? cerasSerializableAttr)
-        {
-            if (cerasSerializableAttr != null)
-            {
-                foreach (var attr in type.GetAttributes())
+                static string GetStableTypeName(INamedTypeSymbol type, INamedTypeSymbol? cerasSerializableAttr)
                 {
-                    if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr)) continue;
-                    if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is string sn && !string.IsNullOrEmpty(sn))
-                        return sn;
-
-                    foreach (var na in attr.NamedArguments)
-                        if (na.Key == "StableName" && na.Value.Value is string sn2 && !string.IsNullOrEmpty(sn2))
-                            return sn2;
-
+                    if (cerasSerializableAttr != null)
+                    {
+                        foreach (var attr in type.GetAttributes())
+                        {
+                            if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr)) continue;
+                            
+                            if (TypeHelpers.TryGetAttributeArgument<string>(attr, "StableName", out var sn) && !string.IsNullOrEmpty(sn))
+                                return sn;
+        
+                            return GetRobustName(type);
+                        }
+                    }
+        
                     return GetRobustName(type);
                 }
-            }
-            return GetRobustName(type);
-        }
+        
 
         static void WriteStringArray(StringBuilder sb, List<string> strings)
         {

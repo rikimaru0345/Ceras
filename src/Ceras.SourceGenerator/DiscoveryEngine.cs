@@ -177,9 +177,9 @@ static bool IsFastPrimitive(ITypeSymbol type)
             foreach (var attr in type.GetAttributes())
             {
                 if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr)) continue;
-                foreach (var na in attr.NamedArguments)
-                    if (na.Key == "DiscoverSubtypes" && na.Value.Value is bool b)
-                        return b;
+                
+                if (TypeHelpers.TryGetAttributeArgument<bool>(attr, "DiscoverSubtypes", out var b))
+                    return b;
                 
                 // Attribute found but no property set, default is true
                 return true;
