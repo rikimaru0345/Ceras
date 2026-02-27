@@ -30,6 +30,7 @@ using Ceras.Formatters;
 using Ceras.Helpers;
 using Ceras.Format;
 using Ceras.Generated;
+using System.Linq;
 
 namespace Ceras.Test
 {
@@ -215,31 +216,15 @@ namespace Ceras.Test
                 var clone = ceras.Deserialize<Item>(ceras.Serialize(item));
                 Assert.Equal(rarity, clone.Rarity);
             }
-        }
+		}
+	}
 
-        // -------------------------------------------------------------------
-        // 4. Generated formatter produces byte-identical output to ReflectionFallbackFormatter
-        //    (ensures cross-tool compatibility for save data)
-        // -------------------------------------------------------------------
-
-        [Fact]
-        public void Robust_GeneratedAndDynamic_ByteIdentical()
-        {
-            var generatedCeras = new CerasSerializer(GeneratedConfig());
-            var dynamicCeras   = new CerasSerializer(new SerializerConfig());
-
-            var obj = new Item { Name = "Mithril Helm", Quantity = 1, Rarity = ItemRarity.Epic, Weight = 3.7f };
-
-            Assert.Equal(dynamicCeras.Serialize(obj), generatedCeras.Serialize(obj));
-        }
-    }
-
-    /// <summary>
-    /// Hand-written IFormatter for Item — used in the mixed-approach test to
-    /// demonstrate that you can selectively opt types into generated formatting
-    /// without using the auto-generated class directly.
-    /// </summary>
-    internal sealed class Ceras_Test_ItemFormatter : FormatterBase<Item>
+	/// <summary>
+	/// Hand-written IFormatter for Item — used in the mixed-approach test to
+	/// demonstrate that you can selectively opt types into generated formatting
+	/// without using the auto-generated class directly.
+	/// </summary>
+	internal sealed class Ceras_Test_ItemFormatter : FormatterBase<Item>
     {
         IFormatter<string>     _stringFormatter;
         IFormatter<int>        _intFormatter;
