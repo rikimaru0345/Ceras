@@ -79,6 +79,7 @@ namespace Ceras.Test.RobustGenerics
         CerasSerializer CreateSerializer()
         {
             var config = new SerializerConfig();
+            CerasRobust.Configure(config);
             return new CerasSerializer(config);
         }
 
@@ -125,6 +126,9 @@ namespace Ceras.Test.RobustGenerics
 
             // 2. Traversal
             var serializer = CreateSerializer();
+            // Populate registry so we know the types locally
+            CerasRobust.Save(model, version, serializer);
+            // Clear it to force traversal (IDs will be different from data)
             serializer.Config.Robust.SchemaRegistry.InternalClear();
             var loaded2 = CerasRobust.Load<UnregisteredListModel>(bytes, version, serializer);
             Assert.Equal("Secret", loaded2.Items[0].Data);

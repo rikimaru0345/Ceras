@@ -29,6 +29,7 @@ namespace Ceras.Test
         public void DumpSchema_ShowsID0_ForUnresolvedFieldTypes()
         {
             var config = new SerializerConfig();
+            CerasRobust.Configure(config);
             config.Robust.Enabled = true;
             
             var registry = config.Robust.SchemaRegistry;
@@ -64,6 +65,7 @@ namespace Ceras.Test
         public void DumpSchema_ShowsID0_ForUnresolvedGenericArguments()
         {
             var config = new SerializerConfig();
+            CerasRobust.Configure(config);
             config.Robust.Enabled = true;
             
             var registry = config.Robust.SchemaRegistry;

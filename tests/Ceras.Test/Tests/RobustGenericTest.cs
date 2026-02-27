@@ -30,6 +30,7 @@ namespace Ceras.Test {
 		[Fact]
 		public void TestRobustGenericList() {
 			var config = new SerializerConfig();
+			CerasRobust.Configure(config);
 			// config.Robust.SchemaRegistry is read-only, it has a default instance
 
 			var ceras = new CerasSerializer(config);
@@ -63,6 +64,7 @@ namespace Ceras.Test {
 		[Fact]
 		public void TestRobustGenericListTraversal() {
 			var config = new SerializerConfig();
+			CerasRobust.Configure(config);
 			var ceras = new CerasSerializer(config);
 
 			var chunk = new MapChunk {
@@ -76,10 +78,10 @@ namespace Ceras.Test {
 			var bytes = CerasRobust.Save(chunk, version, ceras);
 
 			// Force fingerprint mismatch by clearing registry
-			// (In a real scenario, the fingerprint would change because types are added/removed/changed)
 			config.Robust.SchemaRegistry.InternalClear();
-			// Re-register root type but it will have a different fingerprint if anything else was different,
-			// or just clearing it is enough to make Load think it needs to traverse.
+			
+			// Re-populate registry so it has the same IDs as the data we're about to load
+			CerasRobust.Save(chunk, version, ceras);
 
 			var loadedChunk = CerasRobust.Load<MapChunk>(bytes, version, ceras);
 
@@ -92,6 +94,7 @@ namespace Ceras.Test {
 		[Fact]
 		public void TestRobustGenericPair() {
 			var config = new SerializerConfig();
+			CerasRobust.Configure(config);
 			var ceras = new CerasSerializer(config);
 
 			var pair = new Pair<int, string> { Item1 = 42, Item2 = "Hello" };

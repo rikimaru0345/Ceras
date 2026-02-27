@@ -29,7 +29,6 @@ namespace Ceras {
             if (config == null) throw new ArgumentNullException(nameof(config));
 
             config.Advanced.EmbedChecksum = false;
-            config.Advanced.AllowReflectionFallback = false;
 
             // Core robust formatters
             config.ConfigType<string>().CustomFormatter = new RobustStringFormatter();
@@ -38,8 +37,22 @@ namespace Ceras {
             // todo: maybe put a RobustPrimitiveResolver here?
         }
 
+        static void VerifyConfig(CerasSerializer ceras)
+        {
+            var config = ceras.Config;
+            
+            var stringFormatter = config.GetExistingTypeConfig(typeof(string), false)?.CustomFormatter;
+            if (!(stringFormatter is RobustStringFormatter))
+                throw new InvalidOperationException("The provided CerasSerializer is not configured for Robust mode. Please call CerasRobust.Configure(config) BEFORE creating the CerasSerializer instance.");
+
+            var typeFormatter = config.GetExistingTypeConfig(typeof(Type), false)?.CustomFormatter;
+            if (!(typeFormatter is RobustTypeFormatter))
+                throw new InvalidOperationException("The provided CerasSerializer is not configured for Robust mode. Please call CerasRobust.Configure(config) BEFORE creating the CerasSerializer instance.");
+        }
+
         public static byte[] Save<T>(T rootObject, uint robustVersion, CerasSerializer ceras) {
             if (ceras == null) throw new ArgumentNullException(nameof(ceras));
+            VerifyConfig(ceras);
             
             var registry = ceras.Config.Robust.SchemaRegistry;
             var internTable = new StringInternTable();
@@ -129,6 +142,7 @@ namespace Ceras {
 
         public static T Load<T>(byte[] data, uint currentRobustVersion, CerasSerializer ceras) {
             if (data == null) throw new ArgumentNullException(nameof(data));
+            VerifyConfig(ceras);
             if (data.Length < HeaderSize) throw new InvalidOperationException("Header too short");
 
             var registry = ceras.Config.Robust.SchemaRegistry;
