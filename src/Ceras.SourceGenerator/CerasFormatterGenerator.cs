@@ -56,11 +56,33 @@ namespace Ceras.SourceGenerator
             Compilation compilation,
             ImmutableArray<INamedTypeSymbol> types)
         {
-            types = types.Distinct(SymbolEqualityComparer.Default).Cast<INamedTypeSymbol>().ToImmutableArray();
+            var initialRoots = new HashSet<INamedTypeSymbol>(types, SymbolEqualityComparer.Default);
 
             var cerasSerializableAttr = compilation.GetTypeByMetadataName(CerasSerializableFqn);
+            var cerasSerializableGenericAttr = compilation.GetTypeByMetadataName(CerasSerializableFqn + "`1");
             var excludeFromDiscoveryAttr = compilation.GetTypeByMetadataName(ExcludeFromDiscoveryFqn);
             var blacklistAttr = compilation.GetTypeByMetadataName(BlacklistFqn);
+
+            // Also include assembly-level [CerasSerializable] targets as roots
+            foreach (var attr in compilation.Assembly.GetAttributes())
+            {
+                if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr) ||
+                    SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableGenericAttr))
+                {
+                    if (attr.AttributeClass!.IsGenericType)
+                    {
+                        var target = attr.AttributeClass.TypeArguments[0] as INamedTypeSymbol;
+                        if (target != null) initialRoots.Add(target);
+                    }
+                    else if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is INamedTypeSymbol target)
+                    {
+                        initialRoots.Add(target);
+                    }
+                }
+            }
+
+            var finalRoots = initialRoots.ToImmutableArray();
+
             var includeAttr = compilation.GetTypeByMetadataName(IncludeFqn);
             var excludeAttr = compilation.GetTypeByMetadataName(ExcludeFqn);
             var memberConfigAttr = compilation.GetTypeByMetadataName(MemberConfigFqn);
@@ -87,7 +109,7 @@ namespace Ceras.SourceGenerator
             }
 
             var results = DiscoveryEngine.DiscoverAllTypes(
-                context, compilation, types, attrBag, excludeFromDiscoveryAttr, blacklistPatterns);
+                context, compilation, finalRoots, attrBag, excludeFromDiscoveryAttr, blacklistPatterns);
 
             var finalTypes = results.Keys.ToImmutableArray();
 

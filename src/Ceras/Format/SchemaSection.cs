@@ -116,7 +116,9 @@ namespace Ceras.Format
                         internTable.GetIndex(field.StableName);
                         if (field.PreviousNames != null)
                             foreach (var pn in field.PreviousNames) internTable.GetIndex(pn);
-                        ResolveIdForDiscovery(field.TypeName, typeToId, discoveryQueue, registry);
+                        
+                        // Discover the field type!
+                        var fieldId = ResolveIdForDiscovery(field.TypeName, typeToId, discoveryQueue, registry);
                     }
                 }
             }
@@ -218,7 +220,13 @@ namespace Ceras.Format
             int wk = ResolveWellKnownId(clrName);
             if (wk >= 0) return wk;
 
-            if (registry.TryResolveType(clrName, out var type))
+            if (!registry.TryResolveType(clrName, out var type))
+            {
+                // Fallback: try to resolve the type manually
+                type = Type.GetType(clrName);
+            }
+
+            if (type != null)
             {
                 if (registry.TryGetId(type, out int id))
                 {
@@ -229,6 +237,19 @@ namespace Ceras.Format
                             queue.Enqueue((type, id, info));
                     }
                     return id;
+                }
+                else
+                {
+                    // Type found but not registered yet (e.g. discovered via field)
+                    // Trigger registration now.
+                    registry.Register(type, null);
+                    if (registry.TryGetId(type, out id))
+                    {
+                        typeToId[type] = id;
+                        if (registry.TryGetInfo(type, out var info))
+                            queue.Enqueue((type, id, info));
+                        return id;
+                    }
                 }
             }
             return WellKnownTypes.Null;

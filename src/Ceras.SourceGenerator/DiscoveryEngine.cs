@@ -29,6 +29,10 @@ namespace Ceras.SourceGenerator
             {
                 if (results.ContainsKey(t)) continue;
 
+                // For initial roots, we ignore the blacklist! 
+                // If the user explicitly asks for Vector3, they should get it,
+                // even if "Godot.*" is blacklisted.
+
                 var result = new TypeDiscoveryResult(t, isVersionTolerant: true, discoveryPath: null);
                 results[t] = result;
                 queue.Enqueue(t);

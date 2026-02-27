@@ -4,6 +4,7 @@ using System.Linq;
 using System.Buffers;
 using System.Reflection;
 using Ceras.Formatters;
+using Ceras;
 using Xunit;
 
 namespace Ceras.Test.Tests
