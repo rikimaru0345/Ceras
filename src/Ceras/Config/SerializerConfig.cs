@@ -115,18 +115,18 @@
         /// </summary>
         public List<FormatterResolverCallback> OnResolveFormatter { get; } = new List<FormatterResolverCallback>();
 
-        /// <summary>
-        /// If all the other things (ShouldSerializeMember / Attributes) don't produce a decision, then this setting is used to determine if a member should be included.
-        /// By default only public fields are serialized. ReadonlyHandling is a separate option found inside <see cref="Advanced"/>
-        /// <para>Default: AllPublic</para>
-        /// </summary>
-        public TargetMember DefaultTargets { get; set; } = TargetMember.AllPublic;
+		/// <summary>
+		/// If all the other things (ShouldSerializeMember / Attributes) don't produce a decision, then this setting is used to determine if a member should be included.
+		/// By default only public fields are serialized. ReadonlyHandling is a separate option found inside <see cref="Advanced"/>
+		/// <para>Default: AllFields</para>
+		/// </summary>
+		public TargetMember DefaultTargets { get; set; } = TargetMember.AllFields;
 
-        #endregion
+		#endregion
 
-        #region Type Configuration
+		#region Type Configuration
 
-        Dictionary<Type, TypeConfig> _configEntries = new Dictionary<Type, TypeConfig>();
+		Dictionary<Type, TypeConfig> _configEntries = new Dictionary<Type, TypeConfig>();
         Dictionary<Type, TypeConfig> _staticConfigEntries = new Dictionary<Type, TypeConfig>();
 
         // Get a TypeConfig without calling 'OnConfigNewType'
