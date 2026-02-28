@@ -29,6 +29,17 @@ namespace Ceras
             lock (_formatterConstructedTypes) _formatterConstructedTypes.Add(type);
         }
 
+        public static void ClearFormatterConstructedTypes()
+        {
+            lock (_formatterConstructedTypes)
+            {
+                _formatterConstructedTypes.Clear();
+                _formatterConstructedTypes.Add(typeof(Type));
+                _formatterConstructedTypes.Add(_rtTypeType);
+                _formatterConstructedTypes.Add(typeof(string));
+            }
+        }
+
         internal static bool IsFormatterConstructed(Type type)
         {
             if (type.IsAbstract) return true;
@@ -469,7 +480,19 @@ namespace Ceras
         void PrepareFormatter(IFormatter formatter);
     }
 
-    struct InstanceData { public TypeCache TypeCache; public ObjectCache ObjectCache; public IExternalRootObject CurrentRoot; public object UserContext; public HashSet<Type> EncounteredSchemaTypes; }
+    struct InstanceData
+    {
+        public TypeCache TypeCache;
+        public ObjectCache ObjectCache;
+        public IExternalRootObject CurrentRoot;
+        public object UserContext;
+        public HashSet<Type> EncounteredSchemaTypes;
+
+        // Fixup context for circular references in [CerasConstructor]
+        public object CurrentFixupTarget;
+        public MemberInfo CurrentFixupMember;
+        public int CurrentFixupIndex;
+    }
     enum RecursionMode { Idle, Serialization, Deserialization, }
 
     public class ProtocolChecksum

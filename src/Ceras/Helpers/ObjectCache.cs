@@ -5,6 +5,7 @@
     using System.IO;
     using System.Runtime.CompilerServices;
     using System.Text;
+    using System.Reflection;
 
     // Specially made exclusively for the ReferenceFormatter (previously known as CacheFormatter), maybe it should be a nested class instead since there's no way this will be re-used anywhere else?
     class ObjectCache
@@ -119,6 +120,15 @@
         }
 
 
+        internal RefProxy GetProxy(int id)
+        {
+#if DEBUG
+            if (id < 0 || id >= _deserializationCache.Count)
+                throw new InvalidOperationException("Object cache does not contain an object with the ID: " + id);
+#endif
+            return _deserializationCache[id];
+        }
+
         internal void ClearSerializationCache()
         {
             _serializationCache.Clear();
@@ -143,27 +153,95 @@
         {
             public abstract object ObjectValue { get; }
             public abstract void ResetAndReturn();
+            public abstract void RegisterFixup(object target, MemberInfo member, int index);
         }
 
         internal sealed class RefProxy<T> : RefProxy where T : class
         {
-            public T Value;
-            
-            public override object ObjectValue => Value;
-                        
+            T _value;
+            public T Value
+            {
+                get => _value;
+                set
+                {
+                    _value = value;
+                    if (value != null)
+                        ApplyFixups();
+                }
+            }
+
+            List<Fixup> _fixups;
+
+            public override object ObjectValue => _value;
+
+            public override void RegisterFixup(object target, MemberInfo member, int index)
+            {
+                if (_fixups == null)
+                    _fixups = new List<Fixup>();
+
+                _fixups.Add(new Fixup
+                {
+                    Target = target,
+                    Member = member,
+                    Index = index
+                });
+            }
+
+            void ApplyFixups()
+            {
+                if (_fixups == null || _fixups.Count == 0)
+                    return;
+
+                foreach (var fixup in _fixups)
+                {
+                    if (fixup.Index >= 0)
+                    {
+                        if (fixup.Target is System.Collections.IList list)
+                        {
+                            list[fixup.Index] = _value;
+                            continue;
+                        }
+                        else if (fixup.Target is object[] array)
+                        {
+                            array[fixup.Index] = _value;
+                            continue;
+                        }
+                    }
+
+                    if (fixup.Member is FieldInfo f)
+                    {
+                        f.SetValue(fixup.Target, _value);
+                    }
+                    else if (fixup.Member is PropertyInfo p)
+                    {
+                        p.SetValue(fixup.Target, _value);
+                    }
+                }
+
+                _fixups.Clear();
+            }
+
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public override void ResetAndReturn()
             {
                 // Make sure we don't hold any references!
-                Value = default;
+                _value = default;
+                _fixups?.Clear();
                 // Go back to the pool
                 RefProxyPool<T>.Return(this);
             }
 
             public override string ToString()
             {
-                return $"RefProxy({typeof(T).FriendlyName()}): {Value}";
+                return $"RefProxy({typeof(T).FriendlyName()}): {_value}";
             }
+        }
+
+        internal struct Fixup
+        {
+            public object Target;
+            public MemberInfo Member;
+            public int Index;
         }
 
         internal static class RefProxyPool<T> where T : class

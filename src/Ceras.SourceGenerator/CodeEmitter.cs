@@ -22,6 +22,9 @@ namespace Ceras.SourceGenerator
 
             sb.AppendLine($"    internal sealed class {formatterName} : global::Ceras.Formatters.FormatterBase<{typeFqn}>");
             sb.AppendLine("    {");
+            sb.AppendLine("        [global::System.Diagnostics.CodeAnalysis.SuppressMessage(\"Style\", \"IDE0044:Add readonly modifier\")]");
+            sb.AppendLine("        global::Ceras.CerasSerializer _ceras;");
+            sb.AppendLine();
 
             // --- Formatter fields (one per distinct member type) -------------------
             var seenFieldNames = new HashSet<string>();
@@ -35,6 +38,26 @@ namespace Ceras.SourceGenerator
                 string concreteFormatterType = GetConcreteFormatterType(m.Type, m.IsMonomorphic, attrs);
                 sb.AppendLine($"        {concreteFormatterType} {fieldName};");
             }
+            sb.AppendLine();
+
+            // --- MemberInfo fields for fixups ---
+            foreach (var m in members)
+            {
+                sb.AppendLine($"        [global::System.Diagnostics.CodeAnalysis.SuppressMessage(\"Style\", \"IDE0044:Add readonly modifier\")]");
+                sb.AppendLine($"        global::System.Reflection.MemberInfo _memberInfo_{m.Name};");
+            }
+            sb.AppendLine();
+
+            // --- Initialize --------------------------------------------------------
+            sb.AppendLine("        internal override void Initialize()");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var type = typeof({typeFqn});");
+            foreach (var m in members)
+            {
+                string memberType = m.IsField ? "Field" : "Property";
+                sb.AppendLine($"            _memberInfo_{m.Name} = type.Get{memberType}(\"{m.Name}\", global::System.Reflection.BindingFlags.Public | global::System.Reflection.BindingFlags.NonPublic | global::System.Reflection.BindingFlags.Instance | global::System.Reflection.BindingFlags.Static);");
+            }
+            sb.AppendLine("        }");
             sb.AppendLine();
 
             // --- Schema descriptor (VersionTolerant only) --------------------------
@@ -111,39 +134,53 @@ namespace Ceras.SourceGenerator
             {
                 // [CerasConstructor] path.
                 // Phase 1: read non-getter-only members into temps (these may include ctor args).
-                foreach (var m in nonGetterOnlyMembers)
-                {
-                    string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    sb.AppendLine($"            {memberTypeFqn} _ctor_{m.Name} = default;");
-                }
-
+                // We use a memberValues array to allow fixups to work for ctor args too.
+                sb.AppendLine($"            object[] memberValues = new object[{nonGetterOnlyMembers.Count}];");
+                
+                int memberIdx = 0;
                 foreach (var m in nonGetterOnlyMembers)
                 {
                     string fieldName = MakeFormatterFieldName(m.Type);
+                    string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
+                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = memberValues;");
+                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupIndex = {memberIdx};");
+                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = _memberInfo_{m.Name};");
+                    
                     if (IsFastPrimitive(m.Type))
                     {
                         string readExpr = GetPrimitiveReadExpression(m.Type, "reader");
-                        sb.AppendLine($"            _ctor_{m.Name} = {readExpr};");
+                        sb.AppendLine($"            memberValues[{memberIdx}] = {readExpr};");
                     }
                     else
                     {
+                        sb.AppendLine($"            {memberTypeFqn} _ctor_{m.Name} = default;");
                         sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref _ctor_{m.Name});");
+                        sb.AppendLine($"            memberValues[{memberIdx}] = _ctor_{m.Name};");
                     }
+                    memberIdx++;
                 }
+                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = null;");
+                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = null;");
 
                 // Phase 2: construct the object.
-                var ctorArgParts = members.Where(m => m.IsCtorParam).Select(m => $"{m.CtorParamName}: _ctor_{m.Name}");
+                var ctorArgParts = members.Where(m => m.IsCtorParam).Select(m => {
+                    var m2 = nonGetterOnlyMembers.First(x => x.Name == m.Name);
+                    int idx = nonGetterOnlyMembers.IndexOf(m2);
+                    string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    return $"{m.CtorParamName}: ({memberTypeFqn})memberValues[{idx}]";
+                });
                 string ctorArgs = string.Join(", ", ctorArgParts);
                 sb.AppendLine($"            value = new {typeFqn}({ctorArgs});");
+                
+                // CRITICAL: assigning to 'value' already updated the proxy because it was passed by 'ref'.
 
                 // Phase 3: assign non-ctor-param writable members.
                 foreach (var m in nonGetterOnlyMembers.Where(m => !m.IsCtorParam))
                 {
-                    if (IsFastPrimitive(m.Type))
-                        WriteSetStatement(sb, m, typeFqn, $"_ctor_{m.Name}", 12);
-                    else
-                        WriteSetStatement(sb, m, typeFqn, $"_ctor_{m.Name}", 12);
+                    int idx = nonGetterOnlyMembers.IndexOf(m);
+                    string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    WriteSetStatement(sb, m, typeFqn, $"({memberTypeFqn})memberValues[{idx}]", 12);
                 }
 
                 // Phase 4: read getter-only members directly into the new object's instances (in-place).
@@ -154,10 +191,16 @@ namespace Ceras.SourceGenerator
                     string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     string getAccess = GetGetAccess(m, typeFqn);
                     string tmp = "_m_" + m.Name;
+                    
+                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = value;");
+                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = _memberInfo_{m.Name};");
+                    
                     sb.AppendLine($"            {memberTypeFqn} {tmp} = {getAccess};");
                     sb.AppendLine($"            if ({tmp} == null) global::Ceras.Helpers.CerasThrowHelper.ThrowGetterOnlyNull(\"{m.Name}\", typeof({typeFqn}).FullName);");
                     sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
                 }
+                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = null;");
+                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = null;");
             }
             else
             {
@@ -173,6 +216,9 @@ namespace Ceras.SourceGenerator
                     string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     string? refAccess = GetRefAccess(m, typeFqn);
 
+                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = value;");
+                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = _memberInfo_{m.Name};");
+                    
                     if (IsFastPrimitive(m.Type))
                     {
                         string readExpr = GetPrimitiveReadExpression(m.Type, "reader");
@@ -205,6 +251,8 @@ namespace Ceras.SourceGenerator
                         }
                     }
                 }
+                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = null;");
+                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = null;");
             }
             sb.AppendLine("        }");
             sb.AppendLine("    }");

@@ -8,11 +8,13 @@ namespace Ceras.Formatters
 
     public sealed class ArrayFormatter<TItem> : FormatterBase<TItem[]>
     {
+        readonly CerasSerializer _ceras;
         readonly IFormatter<TItem> _itemFormatter;
         readonly uint _maxCount;
 
         public ArrayFormatter(CerasSerializer serializer, uint maxCount)
         {
+            _ceras = serializer;
             _maxCount = maxCount;
             _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(typeof(TItem));
         }
@@ -44,8 +46,14 @@ namespace Ceras.Formatters
             if (ar == null || ar.Length != length) ar = new TItem[length];
 
             var f = _itemFormatter;
+            var serializer = _ceras;
+            serializer.InstanceData.CurrentFixupTarget = ar;
             for (int i = 0; i < length; i++)
+            {
+                serializer.InstanceData.CurrentFixupIndex = i;
                 f.Deserialize(ref reader, ref ar[i]);
+            }
+            serializer.InstanceData.CurrentFixupTarget = null;
         }
     }
 
@@ -127,6 +135,7 @@ namespace Ceras.Formatters
 
     public class CollectionFormatter<TCollection, TItem> : FormatterBase<TCollection>
     {
+        readonly CerasSerializer _ceras;
         readonly IFormatter<TItem> _itemFormatter;
         readonly uint _maxSize;
         readonly Func<int, TCollection> _capacityConstructor;
@@ -137,6 +146,7 @@ namespace Ceras.Formatters
 
         public CollectionFormatter(CerasSerializer serializer)
         {
+            _ceras = serializer;
             _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(typeof(TItem));
             _maxSize = serializer.Config.Advanced.SizeLimits.MaxCollectionSize;
             var collectionType = typeof(TCollection);
@@ -211,13 +221,24 @@ namespace Ceras.Formatters
             if (value == null) value = _capacityConstructor(itemCount);
             else _clearMethod?.Invoke(value);
 
+            var serializer = _ceras;
+            var isList = value is System.Collections.IList;
+            if (isList)
+                serializer.InstanceData.CurrentFixupTarget = value;
+
             var f = _itemFormatter;
             for (int i = 0; i < itemCount; i++)
             {
+                if (isList)
+                    serializer.InstanceData.CurrentFixupIndex = i;
+
                 TItem item = default;
                 f.Deserialize(ref reader, ref item);
                 _addMethod(value, item);
             }
+
+            if (isList)
+                serializer.InstanceData.CurrentFixupTarget = null;
         }
     }
 }

@@ -206,9 +206,14 @@ namespace Ceras.Formatters
                         bool isGetterOnly = _members[i].member is PropertyInfo gop && gop.GetSetMethod(true) == null;
                         if (isGetterOnly) continue;
 
+                        _ceras.InstanceData.CurrentFixupTarget = memberValues;
+                        _ceras.InstanceData.CurrentFixupIndex = i;
+                        _ceras.InstanceData.CurrentFixupMember = _members[i].member;
                         _members[i].formatter.DeserializeUntyped(ref reader, fake, FakeContainer.ValueField);
                         memberValues[i] = fake.Value;
                         fake.Value = null;
+                        _ceras.InstanceData.CurrentFixupTarget = null;
+                        _ceras.InstanceData.CurrentFixupMember = null;
                     }
 
                     // Phase 2: construct.
@@ -247,15 +252,32 @@ namespace Ceras.Formatters
                         if (existing == null)
                             throw new InvalidOperationException($"Getter-only property '{gop.Name}' on '{typeof(T).FullName}' returned null after construction. It must be initialized by the constructor.");
 
+                        _ceras.InstanceData.CurrentFixupTarget = value;
+                        _ceras.InstanceData.CurrentFixupMember = gop;
                         _members[i].formatter.DeserializeUntyped(ref reader, value, gop);
+                        _ceras.InstanceData.CurrentFixupTarget = null;
+                        _ceras.InstanceData.CurrentFixupMember = null;
                     }
 
                     InvokeCallback(_onAfterDeserialize, value);
                     return;
                 }
-                else
+                else if (_factory != null)
                 {
-                    throw new InvalidOperationException($"The instance of type '{typeof(T).FullName}' was null, and no constructor or factory was able to create it. This should have been handled by ReferenceFormatter.");
+                    value = _factory();
+                }
+
+                if (value == null)
+                {
+                    var tc = _ceras.Config.GetTypeConfig(typeof(T), _isStatic).TypeConstruction;
+                    if (!(tc is ConstructNull))
+                    {
+                        string reason = "";
+                        if (CerasSerializer.IsFormatterConstructed(typeof(T)))
+                            reason = " (The type is marked as 'Formatter Constructed' globally, likely by a Source Generator test run, which disabled Reflection construction defaults)";
+
+                        throw new InvalidOperationException($"The instance of type '{typeof(T).FullName}' was null, and no constructor or factory was able to create it. This should have been handled by ReferenceFormatter.{reason}");
+                    }
                 }
             }
 
@@ -264,10 +286,18 @@ namespace Ceras.Formatters
             for (int i = 0; i < _members.Length; i++)
             {
                 var m = _members[i];
+                _ceras.InstanceData.CurrentFixupTarget = value;
+                _ceras.InstanceData.CurrentFixupMember = m.member;
                 m.formatter.DeserializeUntyped(ref reader, value, m.member);
+                _ceras.InstanceData.CurrentFixupTarget = null;
             }
 
             InvokeCallback(_onAfterDeserialize, value);
+        }
+
+        void Initialize()
+        {
+            // This method is called by CerasSerializer via reflection after all dependencies are injected.
         }
 
         internal override void DeserializeToMember(ref SequenceReader<byte> reader, object container, MemberInfo member)

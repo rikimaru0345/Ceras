@@ -5,6 +5,7 @@ using Ceras;
 using Ceras.Format;
 using Ceras.Helpers;
 using Ceras.Formatters;
+using Ceras.Generated;
 
 namespace Ceras.Test
 {
@@ -32,6 +33,8 @@ namespace Ceras.Test
         [Fact]
         public void Repro_CircularReference_With_CerasConstructor_Becomes_Null_In_List()
         {
+            CerasSerializer.ClearFormatterConstructedTypes();
+
             var config = new SerializerConfig();
             config.DefaultTargets = TargetMember.AllFields;
             CerasRobust.Configure(config);
@@ -77,6 +80,54 @@ namespace Ceras.Test
             var loadedChildFromParent = (ChildEntity)loadedParent.Children[0];
 
             // In the user's case, these were null!
+            Assert.NotNull(loadedChildFromList);
+            Assert.NotNull(loadedChildFromParent);
+            
+            Assert.Same(loadedChildFromList, loadedChildFromParent);
+            Assert.Same(loadedParent, loadedChildFromParent.Parent);
+        }
+
+        [Fact]
+        public void Repro_CircularReference_With_CerasConstructor_SourceGenerator()
+        {
+            var config = new SerializerConfig();
+            config.DefaultTargets = TargetMember.AllFields;
+            config.Advanced.AllowReflectionFallback = false;
+            RobustFormatters.UseRobustFormatters(config);
+            CerasRobust.Configure(config);
+            
+            // Manual registration for robust mode in tests
+            config.Robust.SchemaRegistry.Register(typeof(GameRoot), CreateSchema(typeof(GameRoot)));
+            config.Robust.SchemaRegistry.Register(typeof(ParentEntity), CreateSchema(typeof(ParentEntity)));
+            config.Robust.SchemaRegistry.Register(typeof(ChildEntity), CreateSchema(typeof(ChildEntity)));
+            
+            var ceras = new CerasSerializer(config);
+
+            var game = new GameRoot();
+            var parent = new ParentEntity();
+            var child = new ChildEntity(parent);
+            
+            parent.Children.Add(child);
+            
+            game.AllEntities.Add(child);
+            game.Parents.Add(parent);
+
+            // 1. Save
+            var data = CerasRobust.Save(game, 1, ceras);
+
+            // 2. Load
+            var loadedGame = CerasRobust.Load<GameRoot>(data, 1, ceras);
+
+            // 3. Verify
+            Assert.NotNull(loadedGame);
+            var loadedParent = (ParentEntity)loadedGame.Parents[0];
+            var loadedChildFromList = (ChildEntity)loadedGame.AllEntities[0];
+            
+            Assert.NotNull(loadedParent);
+            Assert.Single(loadedParent.Children);
+            
+            var loadedChildFromParent = (ChildEntity)loadedParent.Children[0];
+
             Assert.NotNull(loadedChildFromList);
             Assert.NotNull(loadedChildFromParent);
             
