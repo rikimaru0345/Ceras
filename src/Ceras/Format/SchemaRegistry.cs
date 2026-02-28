@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using Ceras.Formatters;
@@ -176,7 +177,7 @@ namespace Ceras.Format
 
             // Simple description for types that weren't source-generated but need to be robustly handled.
             // We use the full name as the stable name to avoid collisions.
-            var fields = new List<SchemaFieldInfo>();
+            var fields = new List<(FieldInfo field, SchemaFieldInfo info)>();
             foreach (var f in type.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
             {
                 if (f.GetCustomAttribute<ExcludeAttribute>() != null) continue;
@@ -201,14 +202,23 @@ namespace Ceras.Format
                 if (f.GetCustomAttribute<MonomorphicAttribute>() != null) isMonomorphic = true;
                 if (f.GetCustomAttribute<PolymorphicAttribute>() != null) isMonomorphic = false;
 
-                fields.Add(new SchemaFieldInfo(stableName, new string[0], fieldTypeName, isMonomorphic));
+                fields.Add((f, new SchemaFieldInfo(stableName, new string[0], fieldTypeName, isMonomorphic)));
             }
+
+            // Sort fields to match CerasSerializer's order
+            fields.Sort((a, b) => {
+                var x = a.field;
+                var y = b.field;
+                var xKey = (x.FieldType.FullName ?? x.FieldType.Name) + x.Name + (x.DeclaringType.FullName ?? x.DeclaringType.Name) + "f";
+                var yKey = (y.FieldType.FullName ?? y.FieldType.Name) + y.Name + (y.DeclaringType.FullName ?? y.DeclaringType.Name) + "f";
+                return string.Compare(xKey, yKey, StringComparison.Ordinal);
+            });
 
             return new SchemaTypeInfo(
                 stableName: typeFullName,
                 previousTypeNames: Array.Empty<string>(),
                 kind: type.IsValueType ? SchemaTypeKind.Struct : SchemaTypeKind.Class,
-                fields: fields.ToArray(),
+                fields: fields.Select(f => f.info).ToArray(),
                 fixedByteSize: 0);
         }
 
@@ -223,7 +233,7 @@ namespace Ceras.Format
                 argNames[i] = args[i].FullName ?? args[i].Name;
             }
 
-            var fields = new List<SchemaFieldInfo>();
+            var fields = new List<(FieldInfo field, SchemaFieldInfo info)>();
             foreach (var f in type.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
             {
                 if (f.GetCustomAttribute<ExcludeAttribute>() != null) continue;
@@ -245,14 +255,23 @@ namespace Ceras.Format
                 if (f.GetCustomAttribute<MonomorphicAttribute>() != null) isMonomorphic = true;
                 if (f.GetCustomAttribute<PolymorphicAttribute>() != null) isMonomorphic = false;
 
-                fields.Add(new SchemaFieldInfo(stableName, new string[0], fieldTypeName, isMonomorphic));
+                fields.Add((f, new SchemaFieldInfo(stableName, new string[0], fieldTypeName, isMonomorphic)));
             }
+
+            // Sort fields to match CerasSerializer's order
+            fields.Sort((a, b) => {
+                var x = a.field;
+                var y = b.field;
+                var xKey = (x.FieldType.FullName ?? x.FieldType.Name) + x.Name + (x.DeclaringType.FullName ?? x.DeclaringType.Name) + "f";
+                var yKey = (y.FieldType.FullName ?? y.FieldType.Name) + y.Name + (y.DeclaringType.FullName ?? y.DeclaringType.Name) + "f";
+                return string.Compare(xKey, yKey, StringComparison.Ordinal);
+            });
 
             return new SchemaTypeInfo(
                 stableName: typeFullName,
                 previousTypeNames: Array.Empty<string>(),
                 kind: SchemaTypeKind.GenericInstantiation,
-                fields: fields.ToArray(),
+                fields: fields.Select(f => f.info).ToArray(),
                 fixedByteSize: 0,
                 enumValues: null,
                 underlyingTypeName: def.FullName ?? def.Name,

@@ -113,7 +113,14 @@ namespace Ceras {
             return buffer[..offset];
         }
 
-        public static T Load<T>(byte[] data, uint currentRobustVersion, CerasSerializer ceras) {
+        public static T Load<T>(byte[] data, uint currentRobustVersion, CerasSerializer ceras)
+        {
+            T value = default;
+            Load(ref value, data, currentRobustVersion, ceras);
+            return value;
+        }
+
+        public static void Load<T>(ref T value, byte[] data, uint currentRobustVersion, CerasSerializer ceras) {
             if (data == null) throw new ArgumentNullException(nameof(data));
             VerifyConfig(ceras);
             if (data.Length < HeaderSize) throw new InvalidOperationException("Header too short");
@@ -233,13 +240,12 @@ namespace Ceras {
                 if (schemaFingerprint != currentFingerprint) {
                     if (Ceras.Helpers.ObjectCache.DebugTraceEnabled) Console.WriteLine($"[CerasRobust] Fingerprint mismatch! File: {schemaFingerprint:X16}, Current: {currentFingerprint:X16}. Using SchemaTraversalEngine (slow path).");
                     var engine = new SchemaTraversalEngine(fileSchemas, table, robustVersion, ceras);
-                    return engine.ReadRoot<T>(ref reader);
+                    value = engine.ReadRoot<T>(ref reader, value);
+                    return;
                 }
 
                 if (Ceras.Helpers.ObjectCache.DebugTraceEnabled) Console.WriteLine($"[CerasRobust] Fingerprints match ({currentFingerprint:X16}). Using CerasSerializer (fast path).");
-                T value = default;
                 ceras.Deserialize(ref reader, ref value);
-                return value;
             }
 			finally
 			{

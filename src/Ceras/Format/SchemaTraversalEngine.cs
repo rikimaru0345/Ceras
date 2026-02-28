@@ -64,10 +64,10 @@ namespace Ceras.Format
             return result;
         }
 
-        public T ReadRoot<T>(ref SequenceReader<byte> reader)
+        public T ReadRoot<T>(ref SequenceReader<byte> reader, T rootObject = default)
         {
             string stableName = ResolveOldStableName(typeof(T));
-            object obj = ReadUserTypeByStableName(stableName, typeof(T), ref reader);
+            object obj = ReadUserTypeByStableName(stableName, typeof(T), ref reader, rootObject);
             if (obj == null) return default;
             return (T)obj;
         }
@@ -87,7 +87,7 @@ namespace Ceras.Format
 
         // ── Core dispatch ─────────────────────────────────────────────────────
 
-        object ReadValue(int typeId, Type targetType, ref SequenceReader<byte> reader)
+        object ReadValue(int typeId, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
         {
             switch (typeId)
             {
@@ -136,18 +136,18 @@ namespace Ceras.Format
                     return null;
                 }
                 case WellKnownTypes.Object:
-                    return ReadPolymorphicValue(WellKnownTypes.Object, targetType, ref reader);
+                    return ReadPolymorphicValue(WellKnownTypes.Object, targetType, ref reader, existingObject);
                 default:
                 {
                     if (typeId >= WellKnownTypes.UserTypeBase)
-                        return ReadUserType(typeId, targetType, ref reader);
+                        return ReadUserType(typeId, targetType, ref reader, existingObject);
                     SkipValue(typeId, ref reader);
                     return null;
                 }
             }
         }
 
-        object ReadUserType(int typeId, Type targetType, ref SequenceReader<byte> reader)
+        object ReadUserType(int typeId, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
         {
             if (!_oldById.TryGetValue(typeId, out var oldSchema)) {
                 return null;
@@ -162,7 +162,7 @@ namespace Ceras.Format
             // If it's a struct, it has no reference marker.
             if (oldSchema.Kind == SchemaTypeKind.Struct)
             {
-                return ReadUserTypeDirect(typeId, targetType, ref reader);
+                return ReadUserTypeDirect(typeId, targetType, ref reader, null, existingObject);
             }
 
             if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
@@ -171,24 +171,24 @@ namespace Ceras.Format
                 Type currentType = plan?.CurrentType ?? targetType;
 
                 if (currentType != null && currentType.IsValueType && currentType != typeof(object))
-                    return ReadUserTypeDirect(typeId, targetType, ref reader);
+                    return ReadUserTypeDirect(typeId, targetType, ref reader, null, existingObject);
             }
 
             // If it's a class or interface, it HAS a reference marker.
-            return ReadPolymorphicValue(typeId, targetType, ref reader);
+            return ReadPolymorphicValue(typeId, targetType, ref reader, existingObject);
         }
 
-        object ReadUserTypeDirect(int typeId, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
+        object ReadUserTypeDirect(int typeId, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
             if (!_oldById.TryGetValue(typeId, out var oldSchema)) return null;
 
             if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
-                return ReadGenericInstantiation(oldSchema, targetType, ref reader, cacheIndex);
+                return ReadGenericInstantiation(oldSchema, targetType, ref reader, cacheIndex, existingObject);
 
-            return ReadUserTypeInstance(oldSchema, targetType, ref reader, cacheIndex);
+            return ReadUserTypeInstance(oldSchema, targetType, ref reader, cacheIndex, existingObject);
         }
 
-        object ReadPolymorphicValue(int expectedTypeId, Type targetType, ref SequenceReader<byte> reader)
+        object ReadPolymorphicValue(int expectedTypeId, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
         {
             int marker = SerializerBinary.ReadUInt32Bias(ref reader, RefBias);
             if (marker == RefNull) return null;
@@ -221,11 +221,11 @@ namespace Ceras.Format
                 throw new Ceras.Exceptions.CerasException($"Invalid reference marker {marker}");
 
             int cacheIndex = _objectCache.Count;
-            _objectCache.Add(null);
+            _objectCache.Add(existingObject);
 
             if (typeId < WellKnownTypes.UserTypeBase && typeId != FullNameMarker)
             {
-                var value = ReadValue(typeId, targetType, ref reader);
+                var value = ReadValue(typeId, targetType, ref reader, existingObject);
                 _objectCache[cacheIndex] = value;
                 return value;
             }
@@ -244,7 +244,7 @@ namespace Ceras.Format
                 {
                     if (_oldById.TryGetValue(actualId, out var registeredSchema))
                     {
-                        var obj2 = ReadUserTypeInstance(registeredSchema, targetType, ref reader, cacheIndex);
+                        var obj2 = ReadUserTypeInstance(registeredSchema, targetType, ref reader, cacheIndex, existingObject);
                         _objectCache[cacheIndex] = obj2;
                         return obj2;
                     }
@@ -252,36 +252,38 @@ namespace Ceras.Format
 
                 // If not registered, we can still try to deserialize it if it's a simple type,
                 // but for now let's just create an uninitialized object if it's a class.
-                object obj = RuntimeHelpers.GetUninitializedObject(type);
+                object obj = existingObject ?? RuntimeHelpers.GetUninitializedObject(type);
                 _objectCache[cacheIndex] = obj;
 
-                var ctor = type.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
-                if (ctor != null)
-                    ctor.Invoke(obj, null);
+                if (existingObject == null) {
+                    var ctor = type.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+                    if (ctor != null)
+                        ctor.Invoke(obj, null);
+                }
 
                 return obj;
             }
 
-            return ReadUserTypeDirect(typeId, targetType, ref reader, cacheIndex);
+            return ReadUserTypeDirect(typeId, targetType, ref reader, cacheIndex, existingObject);
         }
 
-        object ReadUserTypeByStableName(string stableName, Type targetType, ref SequenceReader<byte> reader)
+        object ReadUserTypeByStableName(string stableName, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
         {
             if (stableName != null && _oldByName.TryGetValue(stableName, out var oldSchema))
             {
-                return ReadUserType(oldSchema.TypeId, targetType, ref reader);
+                return ReadUserType(oldSchema.TypeId, targetType, ref reader, existingObject);
             }
             return null;
         }
 
-        object ReadUserTypeInstance(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
+        object ReadUserTypeInstance(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
             _plans.TryGetValue(oldSchema.StableName, out var plan);
             Type currentType = plan?.CurrentType ?? targetType;
 
             if (oldSchema.Kind == SchemaTypeKind.Struct || (currentType != null && currentType.IsValueType))
             {
-                object structObj = CreateInstance(currentType);
+                object structObj = existingObject ?? CreateInstance(currentType);
                 if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = structObj;
 
                 if (TryReadCustomFormatter(currentType, ref structObj, ref reader))
@@ -292,12 +294,14 @@ namespace Ceras.Format
             }
 
             // Reference type: allocate uninitialized, then register in cache, then run constructor
-            object obj = RuntimeHelpers.GetUninitializedObject(currentType);
+            object obj = existingObject ?? RuntimeHelpers.GetUninitializedObject(currentType);
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = obj;
 
-            var ctor = currentType.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
-            if (ctor != null)
-                ctor.Invoke(obj, null);
+            if (existingObject == null) {
+                var ctor = currentType.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+                if (ctor != null)
+                    ctor.Invoke(obj, null);
+            }
 
             if (TryReadCustomFormatter(currentType, ref obj, ref reader))
             {
@@ -313,6 +317,7 @@ namespace Ceras.Format
 
             return obj;
         }
+
 
         object CreateInstance(Type type)
         {
@@ -335,14 +340,14 @@ namespace Ceras.Format
             return RuntimeHelpers.GetUninitializedObject(type);
         }
 
-        object ReadGenericInstantiation(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
+        object ReadGenericInstantiation(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Array) return ReadArray(oldSchema, targetType, ref reader, cacheIndex);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.List) return ReadList(oldSchema, targetType, ref reader, cacheIndex);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary) return ReadDictionary(oldSchema, targetType, ref reader, cacheIndex);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.HashSet) return ReadHashSet(oldSchema, targetType, ref reader, cacheIndex);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Queue) return ReadQueue(oldSchema, targetType, ref reader, cacheIndex);
-            if (oldSchema.DefinitionTypeId == WellKnownTypes.Stack) return ReadStack(oldSchema, targetType, ref reader, cacheIndex);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Array) return ReadArray(oldSchema, targetType, ref reader, cacheIndex, existingObject);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.List) return ReadList(oldSchema, targetType, ref reader, cacheIndex, existingObject);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary) return ReadDictionary(oldSchema, targetType, ref reader, cacheIndex, existingObject);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.HashSet) return ReadHashSet(oldSchema, targetType, ref reader, cacheIndex, existingObject);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Queue) return ReadQueue(oldSchema, targetType, ref reader, cacheIndex, existingObject);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Stack) return ReadStack(oldSchema, targetType, ref reader, cacheIndex, existingObject);
 
             // Arbitrary generic class or struct
             _plans.TryGetValue(oldSchema.StableName, out var plan);
@@ -350,7 +355,7 @@ namespace Ceras.Format
 
             if (currentType != null && currentType.IsValueType)
             {
-                object structObj = CreateInstance(currentType);
+                object structObj = existingObject ?? CreateInstance(currentType);
                 if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = structObj;
 
                 if (TryReadCustomFormatter(currentType, ref structObj, ref reader))
@@ -361,12 +366,14 @@ namespace Ceras.Format
             }
 
             // Reference type: allocate uninitialized, then register in cache, then run constructor
-            object obj = RuntimeHelpers.GetUninitializedObject(currentType);
+            object obj = existingObject ?? RuntimeHelpers.GetUninitializedObject(currentType);
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = obj;
 
-            var ctor = currentType.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
-            if (ctor != null)
-                ctor.Invoke(obj, null);
+            if (existingObject == null) {
+                var ctor = currentType.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+                if (ctor != null)
+                    ctor.Invoke(obj, null);
+            }
 
             if (TryReadCustomFormatter(currentType, ref obj, ref reader))
                 return obj;
@@ -375,7 +382,7 @@ namespace Ceras.Format
             return obj;
         }
 
-        object ReadArray(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
+        object ReadArray(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
             int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (count == -1) return null;
@@ -385,7 +392,10 @@ namespace Ceras.Format
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
-            var arr = Array.CreateInstance(elementType, (int)count);
+            var arr = (Array)existingObject;
+            if (arr == null || arr.Length != count)
+                arr = Array.CreateInstance(elementType, (int)count);
+
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = arr;
             else _objectCache.Add(arr);
 
@@ -399,7 +409,7 @@ namespace Ceras.Format
             return arr;
         }
 
-        object ReadList(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
+        object ReadList(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
             int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (count == -1) return null;
@@ -409,7 +419,12 @@ namespace Ceras.Format
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
-            var list = (System.Collections.IList)Activator.CreateInstance(targetType);
+            var list = (System.Collections.IList)existingObject;
+            if (list == null)
+                list = (System.Collections.IList)Activator.CreateInstance(targetType);
+            else
+                list.Clear();
+
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = list;
             else _objectCache.Add(list);
 
@@ -423,7 +438,7 @@ namespace Ceras.Format
             return list;
         }
 
-        object ReadDictionary(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
+        object ReadDictionary(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
             int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (count == -1) return null;
@@ -440,7 +455,12 @@ namespace Ceras.Format
                 return null;
             }
 
-            var dict = (System.Collections.IDictionary)Activator.CreateInstance(targetType);
+            var dict = (System.Collections.IDictionary)existingObject;
+            if (dict == null)
+                dict = (System.Collections.IDictionary)Activator.CreateInstance(targetType);
+            else
+                dict.Clear();
+
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = dict;
             else _objectCache.Add(dict);
 
@@ -456,7 +476,7 @@ namespace Ceras.Format
             return dict;
         }
 
-        object ReadHashSet(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
+        object ReadHashSet(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
             int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (count == -1) return null;
@@ -466,7 +486,12 @@ namespace Ceras.Format
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
-            var set = Activator.CreateInstance(targetType);
+            var set = existingObject;
+            if (set == null)
+                set = Activator.CreateInstance(targetType);
+            else
+                targetType.GetMethod("Clear").Invoke(set, null);
+
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = set;
             else _objectCache.Add(set);
 
@@ -481,7 +506,7 @@ namespace Ceras.Format
             return set;
         }
 
-        object ReadQueue(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
+        object ReadQueue(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
             int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (count == -1) return null;
@@ -491,7 +516,12 @@ namespace Ceras.Format
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
-            var queue = Activator.CreateInstance(targetType);
+            var queue = existingObject;
+            if (queue == null)
+                queue = Activator.CreateInstance(targetType);
+            else
+                targetType.GetMethod("Clear").Invoke(queue, null);
+
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = queue;
             else _objectCache.Add(queue);
 
@@ -506,7 +536,7 @@ namespace Ceras.Format
             return queue;
         }
 
-        object ReadStack(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null)
+        object ReadStack(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
             int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (count == -1) return null;
@@ -525,7 +555,12 @@ namespace Ceras.Format
                 values[i] = Coerce(val, coerce, elementType);
             }
 
-            var stack = Activator.CreateInstance(targetType);
+            var stack = existingObject;
+            if (stack == null)
+                stack = Activator.CreateInstance(targetType);
+            else
+                targetType.GetMethod("Clear").Invoke(stack, null);
+
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = stack;
             else _objectCache.Add(stack);
 

@@ -83,14 +83,17 @@ namespace Ceras.Test {
 			// Saving should not create anything
 			Assert.Equal(listCountA, MyList<int>.created);
 
-			var clone = new MyList<int>();
+			var clone = new ReuseTestClass();
 			var listCountB = MyList<int>.created;
 
-			CerasRobust.Load<ReuseTestClass>(data, 1, ceras);
+			CerasRobust.Load(ref clone, data, 1, ceras);
+
+			var listCountC = MyList<int>.created;
 
 			// everything should be the same, ceras should have no problem with any of this, and should not have created more lists
 			// it should reuse the lists that are already there
-			Assert.NotEqual(listCountB, MyList<int>.created);
+			Assert.Equal(listCountB, listCountC);
+			Assert.Equal(listCountC, MyList<int>.created);
 		}
 	}
 
