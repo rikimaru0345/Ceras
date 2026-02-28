@@ -58,8 +58,37 @@ namespace Ceras.Test.Tests
         }
     }
 
+    [CerasSerializable]
+    public class PrivateCtorModel
+    {
+        public int Value { get; set; }
+
+        private PrivateCtorModel()
+        {
+            Value = 123;
+        }
+
+        public static PrivateCtorModel Create() => new PrivateCtorModel();
+    }
+
     public class InheritedCtorTests : TestBase
     {
+        [Fact]
+        public void TestPrivateConstructorSupport()
+        {
+            var config = new SerializerConfig();
+            config.Advanced.AllowReflectionFallback = false;
+            RobustFormatters.UseRobustFormatters(config);
+            var ceras = new CerasSerializer(config);
+
+            var original = PrivateCtorModel.Create();
+            original.Value = 456;
+            var bytes = ceras.Serialize(original);
+            var cloned = ceras.Deserialize<PrivateCtorModel>(bytes);
+
+            Assert.Equal(original.Value, cloned.Value);
+        }
+
         [Fact]
         public void TestInheritedPropertyMapping()
         {

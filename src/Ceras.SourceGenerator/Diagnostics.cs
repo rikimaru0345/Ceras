@@ -23,7 +23,7 @@ namespace Ceras.SourceGenerator
         public static readonly DiagnosticDescriptor NotConstructable = new(
             id: "CERAS003",
             title: "Type not constructable by Ceras",
-            messageFormat: "Type '{0}' is included in serialization but Ceras cannot construct it: there is no accessible (public or internal) parameterless constructor, no constructor with parameters that can be fully mapped to serializable members, and no constructor marked [CerasConstructor]. Add a parameterless constructor, a constructor with mappable parameters, or mark one constructor with [CerasConstructor].",
+            messageFormat: "Type '{0}' is included in serialization but Ceras cannot construct it: there is no parameterless constructor, no constructor with parameters that can be fully mapped to serializable members, and no constructor marked [CerasConstructor]. Add a parameterless constructor, a constructor with mappable parameters, or mark one constructor with [CerasConstructor].",
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
@@ -39,7 +39,7 @@ namespace Ceras.SourceGenerator
         public static readonly DiagnosticDescriptor CerasConstructorNotAccessible = new(
             id: "CERAS005",
             title: "[CerasConstructor] not accessible",
-            messageFormat: "The constructor marked with [CerasConstructor] on type '{0}' must be public or internal.",
+            messageFormat: "The constructor marked with [CerasConstructor] on type '{0}' is not accessible. (Internal Error: this diagnostic should no longer be emitted as UnsafeAccessor is used)",
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);

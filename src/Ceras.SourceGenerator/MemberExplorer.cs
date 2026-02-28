@@ -393,10 +393,6 @@ namespace Ceras.SourceGenerator
             if (cerasCtors.Count == 1)
             {
                 var ctor = cerasCtors[0];
-                if (ctor.DeclaredAccessibility != Accessibility.Public && ctor.DeclaredAccessibility != Accessibility.Internal)
-                {
-                    context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorNotAccessible, ctor.Locations.FirstOrDefault(), type.Name));
-                }
 
                 foreach (var p in ctor.Parameters)
                 {
@@ -496,7 +492,7 @@ namespace Ceras.SourceGenerator
 
         /// <summary>
         /// Finds the best constructor to use for serialization.
-        /// Priority: Explicit [CerasConstructor] > Public/Internal parameterless > Constructor with most matching parameters.
+        /// Priority: Explicit [CerasConstructor] > Parameterless > Constructor with most matching parameters.
         /// </summary>
         public static IMethodSymbol? GetBestConstructor(INamedTypeSymbol type, INamedTypeSymbol? cerasConstructorAttr, List<SerializedMember> members)
         {
@@ -509,14 +505,13 @@ namespace Ceras.SourceGenerator
                 if (explicitCtor != null) return explicitCtor;
             }
 
-            // 2. Public/Internal parameterless
-            var parameterless = ctors.FirstOrDefault(c => c.Parameters.Length == 0 && (c.DeclaredAccessibility == Accessibility.Public || c.DeclaredAccessibility == Accessibility.Internal));
+            // 2. Parameterless (any accessibility)
+            var parameterless = ctors.FirstOrDefault(c => c.Parameters.Length == 0);
             if (parameterless != null) return parameterless;
 
             // 3. Heuristic: Find the ctor with most parameters that can be fully satisfied by serializable members
             // This covers records and classes with primary constructors or multiple constructor options.
-            var sortedCtors = ctors.Where(c => c.DeclaredAccessibility == Accessibility.Public || c.DeclaredAccessibility == Accessibility.Internal)
-                                   .OrderByDescending(c => c.Parameters.Length).ToList();
+            var sortedCtors = ctors.OrderByDescending(c => c.Parameters.Length).ToList();
 
             foreach (var c in sortedCtors)
             {
@@ -557,7 +552,9 @@ namespace Ceras.SourceGenerator
                         allMatch = false;
                         break;
                     }
-                }                if (allMatch) return c;
+                }
+
+                if (allMatch) return c;
             }
 
             return null;
