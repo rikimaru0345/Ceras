@@ -43,8 +43,9 @@ namespace Ceras.SourceGenerator
             // --- MemberInfo fields for fixups ---
             foreach (var m in members)
             {
+                string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
                 sb.AppendLine($"        [global::System.Diagnostics.CodeAnalysis.SuppressMessage(\"Style\", \"IDE0044:Add readonly modifier\")]");
-                sb.AppendLine($"        global::System.Reflection.MemberInfo _memberInfo_{m.Name};");
+                sb.AppendLine($"        global::System.Reflection.MemberInfo _memberInfo_{safeName};");
             }
             sb.AppendLine();
 
@@ -54,8 +55,9 @@ namespace Ceras.SourceGenerator
             sb.AppendLine($"            var type = typeof({typeFqn});");
             foreach (var m in members)
             {
+                string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
                 string memberType = m.IsField ? "Field" : "Property";
-                sb.AppendLine($"            _memberInfo_{m.Name} = type.Get{memberType}(\"{m.Name}\", global::System.Reflection.BindingFlags.Public | global::System.Reflection.BindingFlags.NonPublic | global::System.Reflection.BindingFlags.Instance | global::System.Reflection.BindingFlags.Static);");
+                sb.AppendLine($"            _memberInfo_{safeName} = type.Get{memberType}(\"{m.Name}\", global::System.Reflection.BindingFlags.Public | global::System.Reflection.BindingFlags.NonPublic | global::System.Reflection.BindingFlags.Instance | global::System.Reflection.BindingFlags.Static);");
             }
             sb.AppendLine("        }");
             sb.AppendLine();
@@ -163,9 +165,10 @@ namespace Ceras.SourceGenerator
                         }
                         else
                         {
-                            sb.AppendLine($"                {memberTypeFqn} _ctor_{m.Name} = default;");
-                            sb.AppendLine($"                {fieldName}.Deserialize(ref reader, ref _ctor_{m.Name});");
-                            sb.AppendLine($"                memberValues[{memberIdx}] = _ctor_{m.Name};");
+                            string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
+                            sb.AppendLine($"                {memberTypeFqn} _ctor_{safeName} = default;");
+                            sb.AppendLine($"                {fieldName}.Deserialize(ref reader, ref _ctor_{safeName});");
+                            sb.AppendLine($"                memberValues[{memberIdx}] = _ctor_{safeName};");
                         }
                         memberIdx++;
                     }
@@ -197,10 +200,11 @@ namespace Ceras.SourceGenerator
                         string fieldName = MakeFormatterFieldName(m.Type);
                         string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                         string getAccess = GetGetAccess(m, typeFqn);
-                        string tmp = "_m_" + m.Name;
+                        string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
+                        string tmp = "_m_" + safeName;
 
                         sb.AppendLine($"                _ceras.CurrentFixupTarget = value;");
-                        sb.AppendLine($"                _ceras.CurrentFixupMember = _memberInfo_{m.Name};");
+                        sb.AppendLine($"                _ceras.CurrentFixupMember = _memberInfo_{safeName};");
 
                         sb.AppendLine($"                {memberTypeFqn} {tmp} = {getAccess};");
                         sb.AppendLine($"                if ({tmp} == null) global::Ceras.Helpers.CerasThrowHelper.ThrowGetterOnlyNull(\"{m.Name}\", typeof({typeFqn}).FullName);");
@@ -220,9 +224,10 @@ namespace Ceras.SourceGenerator
                         string fieldName = MakeFormatterFieldName(m.Type);
                         string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                         string? refAccess = GetRefAccess(m, typeFqn);
+                        string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
 
                         sb.AppendLine($"                _ceras.CurrentFixupTarget = value;");
-                        sb.AppendLine($"                _ceras.CurrentFixupMember = _memberInfo_{m.Name};");
+                        sb.AppendLine($"                _ceras.CurrentFixupMember = _memberInfo_{safeName};");
 
                         if (IsFastPrimitive(m.Type))
                         {
@@ -234,7 +239,7 @@ namespace Ceras.SourceGenerator
                             if (m.IsGetterOnly)
                             {
                                 string getAccess = GetGetAccess(m, typeFqn);
-                                string tmp = "_m_" + m.Name;
+                                string tmp = "_m_" + safeName;
                                 sb.AppendLine($"                {memberTypeFqn} {tmp} = {getAccess};");
                                 sb.AppendLine($"                if ({tmp} == null) global::Ceras.Helpers.CerasThrowHelper.ThrowGetterOnlyNull(\"{m.Name}\", typeof({typeFqn}).FullName);");
                                 sb.AppendLine($"                {fieldName}.Deserialize(ref reader, ref {tmp});");
@@ -248,7 +253,7 @@ namespace Ceras.SourceGenerator
                                 else
                                 {
                                     string getAccess = GetGetAccess(m, typeFqn);
-                                    string tmp = "_m_" + m.Name;
+                                    string tmp = "_m_" + safeName;
                                     sb.AppendLine($"                {memberTypeFqn} {tmp} = {getAccess};");
                                     sb.AppendLine($"                {fieldName}.Deserialize(ref reader, ref {tmp});");
                                     WriteSetStatement(sb, m, typeFqn, tmp, 16);
@@ -535,33 +540,36 @@ namespace Ceras.SourceGenerator
             sb.Append(" }");
         }
 
-        static string GetGetAccess(SerializedMember m, string typeFqn)
-        {
-            if (m.IsReadAccessible) return $"value.{m.Name}";
-            string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            if (m.IsField) return $"{declaringTypeFqn}.__ceras_ref_{m.Name}(value)";
-            return $"{declaringTypeFqn}.__ceras_get_{m.Name}(value)";
-        }
-
-        static string? GetRefAccess(SerializedMember m, string typeFqn)
-        {
-            if (m.IsField && m.IsAccessible && !m.IsReadOnly) return $"value.{m.Name}";
-            return null;
-        }
-
-        static void WriteSetStatement(StringBuilder sb, SerializedMember m, string typeFqn, string valueExpr, int indent)
-        {
-            string prefix = new string(' ', indent);
-            if (m.IsWriteAccessible) { sb.AppendLine($"{prefix}value.{m.Name} = {valueExpr};"); return; }
-            
-            // If it's handled by ctor, we don't need to set it (and we might not have a setter helper!)
-            if (m.IsCtorParam) return;
-
-            string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            if (m.IsField) sb.AppendLine($"{prefix}{declaringTypeFqn}.__ceras_ref_{m.Name}(value) = {valueExpr};");
-            else sb.AppendLine($"{prefix}{declaringTypeFqn}.__ceras_set_{m.Name}(value, {valueExpr});");
-        }
-
+                static string GetGetAccess(SerializedMember m, string typeFqn)
+                {
+                    if (m.IsReadAccessible) return $"value.{m.Name}";
+                    string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
+                    string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    string arg = m.DeclaringType.IsValueType ? "ref value" : "value";
+                    if (m.IsField) return $"{declaringTypeFqn}.__ceras_ref_{safeName}({arg})";
+                    return $"{declaringTypeFqn}.__ceras_get_{safeName}({arg})";
+                }
+        
+                static string? GetRefAccess(SerializedMember m, string typeFqn)
+                {
+                    if (m.IsField && m.IsAccessible && !m.IsReadOnly) return $"value.{m.Name}";
+                    return null;
+                }
+        
+                static void WriteSetStatement(StringBuilder sb, SerializedMember m, string typeFqn, string valueExpr, int indent)
+                {
+                    string prefix = new string(' ', indent);
+                    if (m.IsWriteAccessible) { sb.AppendLine($"{prefix}value.{m.Name} = {valueExpr};"); return; }
+        
+                    // If it's handled by ctor, we don't need to set it (and we might not have a setter helper!)
+                    if (m.IsCtorParam) return;
+        
+                    string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
+                    string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    string arg = m.DeclaringType.IsValueType ? "ref value" : "value";
+                    if (m.IsField) sb.AppendLine($"{prefix}{declaringTypeFqn}.__ceras_ref_{safeName}({arg}) = {valueExpr};");
+                    else sb.AppendLine($"{prefix}{declaringTypeFqn}.__ceras_set_{safeName}({arg}, {valueExpr});");
+                }
         static int ComputeFixedByteSize(ITypeSymbol type)
         {
             switch (type.SpecialType)

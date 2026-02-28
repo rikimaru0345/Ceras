@@ -6,7 +6,7 @@ using Ceras.Formatters;
 using Xunit;
 
 namespace Ceras.Test.Tests {
-	public class RobustCustomFormatterTests {
+	public partial class RobustCustomFormatterTests {
 		[Fact]
 		public void Robust_Respects_CustomFormatter() {
 			var config = new SerializerConfig();
@@ -43,7 +43,7 @@ namespace Ceras.Test.Tests {
 			public MyCustomStruct MyStruct { get; set; }
 		}
 
-		public struct MyCustomStruct {
+		public partial struct MyCustomStruct {
 			public string MagicValue { get; set; }
 		}
 

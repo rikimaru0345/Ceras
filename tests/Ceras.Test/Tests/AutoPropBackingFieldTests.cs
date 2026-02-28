@@ -39,7 +39,7 @@ namespace Ceras.Test {
 	}
 
 	[CerasSerializable, MemberConfig(TargetMembers = TargetMember.AllFields)]
-	class ThingWithBackingFields {
+	partial class ThingWithBackingFields {
 		public bool SomeBool { get; set; }
 		public int SomeInteger { get; set; }
 		public SomeStruct SomeXY { get; set; }

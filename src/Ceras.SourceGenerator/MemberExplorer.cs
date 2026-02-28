@@ -29,8 +29,14 @@ namespace Ceras.SourceGenerator
             {
                 foreach (var member in t.GetMembers())
                 {
-                    if (member.IsStatic || member.IsImplicitlyDeclared)
+                    if (member.IsStatic)
                         continue;
+
+                    if (member.IsImplicitlyDeclared)
+                    {
+                        if (!(member is IFieldSymbol f && f.Name.EndsWith("k__BackingField")))
+                            continue;
+                    }
 
                     if (!seenNames.Add(member.Name))
                         continue;

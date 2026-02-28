@@ -46,18 +46,28 @@ namespace Ceras.SourceGenerator
                 if (req == AccessHelperRequirement.None) continue;
 
                 string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                string instanceModifier = type.IsValueType ? "ref " : "";
+                string instanceParam = $"{instanceModifier}{type.Name} instance";
+                string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
+
                 if (m.IsField)
                 {
                     // Fields use 'ref' which covers both read and write
-                    sb.AppendLine($"{new string(' ', indent)}internal static ref {memberTypeFqn} __ceras_ref_{m.Name}({type.Name} instance) => ref Unsafe.AsRef(in instance.{m.Name});");
+                    sb.AppendLine($"{new string(' ', indent)}[global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = \"{m.Name}\")]");
+                    sb.AppendLine($"{new string(' ', indent)}internal static extern ref {memberTypeFqn} __ceras_ref_{safeName}({instanceParam});");
                 }
                 else
                 {
                     if ((req & AccessHelperRequirement.Read) != 0)
-                        sb.AppendLine($"{new string(' ', indent)}internal static {memberTypeFqn} __ceras_get_{m.Name}({type.Name} instance) => instance.{m.Name};");
-                    
+                    {
+                        sb.AppendLine($"{new string(' ', indent)}[global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = \"get_{m.Name}\")]");
+                        sb.AppendLine($"{new string(' ', indent)}internal static extern {memberTypeFqn} __ceras_get_{safeName}({instanceParam});");
+                    }
                     if ((req & AccessHelperRequirement.Write) != 0)
-                        sb.AppendLine($"{new string(' ', indent)}internal static void __ceras_set_{m.Name}({type.Name} instance, {memberTypeFqn} value) => instance.{m.Name} = value;");
+                    {
+                        sb.AppendLine($"{new string(' ', indent)}[global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = \"set_{m.Name}\")]");
+                        sb.AppendLine($"{new string(' ', indent)}internal static extern void __ceras_set_{safeName}({instanceParam}, {memberTypeFqn} value);");
+                    }
                 }
             }
 
