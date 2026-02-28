@@ -41,6 +41,7 @@ namespace Ceras.Test {
 		[Fact]
 		public void RuntimeDiscoveredType_InRobustMode_IsSerializedAsNull() {
 			var config1 = new SerializerConfig();
+			Ceras.Generated.RobustFormatters.UseRobustFormatters(config1);
 			CerasRobust.Configure(config1);
 			var ceras1 = new CerasSerializer(config1);
 
@@ -53,6 +54,7 @@ namespace Ceras.Test {
 			// 2. Load
 			var config2 = new SerializerConfig();
 			CerasRobust.Configure(config2);
+			Ceras.Generated.RobustFormatters.UseRobustFormatters(config2);
 			var ceras2 = new CerasSerializer(config2);
 			var loaded = CerasRobust.Load<ContainerRepro>(data, 1, ceras2);
 
@@ -64,9 +66,8 @@ namespace Ceras.Test {
 	}
 
 	[CerasSerializable]
-	[MemberConfig(TargetMember.All)]
 	public class ContainerRepro {
-		public List<IEntityRepro> Entities;
+		public List<IEntityRepro> Entities = new List<IEntityRepro>();
 	}
 
 	[CerasSerializable]

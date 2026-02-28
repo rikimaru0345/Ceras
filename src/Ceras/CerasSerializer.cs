@@ -215,6 +215,11 @@ namespace Ceras
             finally { LeaveRecursive(RecursionMode.Deserialization); }
         }
 
+        public void SetCurrentObject(object value)
+        {
+            InstanceData.CurrentProxy?.SetObjectValue(value);
+        }
+
         public class FixedArrayBufferWriter : IBufferWriter<byte>
         {
             public byte[] Buffer; public int Offset;

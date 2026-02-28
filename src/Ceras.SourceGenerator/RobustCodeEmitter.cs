@@ -22,6 +22,8 @@ namespace Ceras.SourceGenerator
 
             sb.AppendLine($"    internal sealed class {formatterName} : global::Ceras.Formatters.FormatterBase<{typeFqn}>");
             sb.AppendLine("    {");
+            sb.AppendLine("        global::Ceras.CerasSerializer _ceras;");
+            sb.AppendLine();
 
             // --- Formatter fields (one per distinct member type) -------------------
             var seenFieldNames = new HashSet<string>();
@@ -112,9 +114,16 @@ namespace Ceras.SourceGenerator
                 
                     if (type.IsReferenceType)
                     {
+                        var ctor = type.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 0);
+
                         sb.AppendLine("                if (value == null)");
                         sb.AppendLine("                {");
                         sb.AppendLine($"                    value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
+                        sb.AppendLine("                    _ceras.SetCurrentObject(value);");
+                        if (ctor != null)
+                        {
+                            sb.AppendLine("                    __ceras_ctor(value);");
+                        }
                         sb.AppendLine("                }");
                     }
 
@@ -161,6 +170,14 @@ namespace Ceras.SourceGenerator
             }
             
             // --- Access Helpers ---
+            var pCtor = type.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 0);
+            if (pCtor != null && type.IsReferenceType)
+            {
+                sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = \".ctor\")]");
+                sb.AppendLine($"        internal static extern void __ceras_ctor({typeFqn} instance);");
+                sb.AppendLine();
+            }
+
             foreach (var m in members)
             {
                 var req = MemberExplorer.GetAccessHelperRequirement(m);
@@ -476,7 +493,17 @@ namespace Ceras.SourceGenerator
         
                 static string? GetRefAccess(SerializedMember m, string typeFqn)
                 {
-                    if (m.IsField && m.IsAccessible && !m.IsReadOnly) return $"value.{m.Name}";
+                    if (m.IsField)
+                    {
+                        if (m.IsAccessible && !m.IsReadOnly) return $"value.{m.Name}";
+
+                        string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
+                        string safeDeclaringName = TypeHelpers.SanitizeIdentifier(m.DeclaringType.ToDisplayString(TypeHelpers.FullyQualifiedNoGlobal));
+                        string helperPrefix = $"__ceras_{safeDeclaringName}_{safeName}";
+                        string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                        string arg = m.DeclaringType.IsValueType ? "ref value" : $"({declaringTypeFqn})value";
+                        return $"{helperPrefix}_ref({arg})";
+                    }
                     return null;
                 }
         

@@ -252,8 +252,13 @@ namespace Ceras.Format
 
                 // If not registered, we can still try to deserialize it if it's a simple type,
                 // but for now let's just create an uninitialized object if it's a class.
-                object obj = CreateInstance(type);
+                object obj = RuntimeHelpers.GetUninitializedObject(type);
                 _objectCache[cacheIndex] = obj;
+
+                var ctor = type.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+                if (ctor != null)
+                    ctor.Invoke(obj, null);
+
                 return obj;
             }
 
@@ -286,8 +291,13 @@ namespace Ceras.Format
                 return structObj;
             }
 
-            object obj = CreateInstance(currentType);
+            // Reference type: allocate uninitialized, then register in cache, then run constructor
+            object obj = RuntimeHelpers.GetUninitializedObject(currentType);
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = obj;
+
+            var ctor = currentType.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+            if (ctor != null)
+                ctor.Invoke(obj, null);
 
             if (TryReadCustomFormatter(currentType, ref obj, ref reader))
             {
@@ -350,8 +360,13 @@ namespace Ceras.Format
                 return structObj;
             }
 
-            object obj = CreateInstance(currentType);
+            // Reference type: allocate uninitialized, then register in cache, then run constructor
+            object obj = RuntimeHelpers.GetUninitializedObject(currentType);
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = obj;
+
+            var ctor = currentType.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+            if (ctor != null)
+                ctor.Invoke(obj, null);
 
             if (TryReadCustomFormatter(currentType, ref obj, ref reader))
                 return obj;
