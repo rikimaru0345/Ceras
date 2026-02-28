@@ -312,6 +312,7 @@ namespace Ceras.SourceGenerator
                     {
                         if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMembers", out var val))
                             return (TargetMemberKind)val;
+                        // Some users might accidentally use singular
                         if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMember", out var val2))
                             return (TargetMemberKind)val2;
                     }
@@ -403,8 +404,15 @@ namespace Ceras.SourceGenerator
                     var match = members.FirstOrDefault(m => {
                         if (NormalizeName(m.Name) == normParam) return true;
                         
-                        // If the member is a backing field, check the associated property name
-                        var symbol = type.GetMembers(m.Name).FirstOrDefault();
+                        // Look up the member in the type or its base types
+                        ISymbol? symbol = null;
+                        var curType = type;
+                        while(curType != null) {
+                            symbol = curType.GetMembers(m.Name).FirstOrDefault();
+                            if (symbol != null) break;
+                            curType = curType.BaseType;
+                        }
+
                         if (symbol is IFieldSymbol field && field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField"))
                         {
                             var matchRegex = System.Text.RegularExpressions.Regex.Match(field.Name, @"^<(.*)>k__BackingField$");
@@ -521,8 +529,15 @@ namespace Ceras.SourceGenerator
                     bool hasMatch = members.Any(m => {
                         if (NormalizeName(m.Name) == normParam) return true;
 
-                        // If the member is a backing field, check the associated property name
-                        var symbol = type.GetMembers(m.Name).FirstOrDefault();
+                        // Look up the member in the type or its base types
+                        ISymbol? symbol = null;
+                        var curType = type;
+                        while(curType != null) {
+                            symbol = curType.GetMembers(m.Name).FirstOrDefault();
+                            if (symbol != null) break;
+                            curType = curType.BaseType;
+                        }
+
                         if (symbol is IFieldSymbol field && field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField"))
                         {
                             var matchRegex = System.Text.RegularExpressions.Regex.Match(field.Name, @"^<(.*)>k__BackingField$");
@@ -542,8 +557,7 @@ namespace Ceras.SourceGenerator
                         allMatch = false;
                         break;
                     }
-                }
-                if (allMatch) return c;
+                }                if (allMatch) return c;
             }
 
             return null;

@@ -180,7 +180,15 @@ namespace Ceras.SourceGenerator
                             string normParam = NormalizeName(p.Name);
                             var match = members.FirstOrDefault(m => {
                                 if (NormalizeName(m.Name) == normParam) return true;
-                                var symbol = type.GetMembers(m.Name).FirstOrDefault();
+
+                                ISymbol? symbol = null;
+                                var curType = type;
+                                while(curType != null) {
+                                    symbol = curType.GetMembers(m.Name).FirstOrDefault();
+                                    if (symbol != null) break;
+                                    curType = curType.BaseType;
+                                }
+
                                 if (symbol is IFieldSymbol field && field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField"))
                                 {
                                     var mRegex = System.Text.RegularExpressions.Regex.Match(field.Name, @"^<(.*)>k__BackingField$");
