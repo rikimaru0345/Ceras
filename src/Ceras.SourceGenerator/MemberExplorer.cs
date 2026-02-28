@@ -58,10 +58,25 @@ namespace Ceras.SourceGenerator
 
                         if (hasExclude) continue;
 
-                        // Banned types (e.g. Godot.GodotObject subclasses) are silently skipped
-                        // UNLESS the field/property is explicitly opted in with [Include].
-                        // This mirrors what the runtime does in BannedTypes / SchemaRegistry.
-                        if (!hasInclude && IsBanned(field.Type)) continue;
+                        // Hard-banned types (delegates, enumerators, reflection) can never round-trip.
+                        // Skip unconditionally — even [Include] cannot override this.
+                        if (IsBanned(field.Type)) continue;
+
+                        // Engine-object types (e.g. Godot.GodotObject subclasses) CAN be serialized
+                        // when the user provides a custom formatter.  Include the field but emit a
+                        // warning so the user knows a formatter is required.  Silently dropping the
+                        // field would produce null on load — principle of least surprise says include.
+                        if (NeedsCustomFormatter(field.Type))
+                        {
+                            string memberName = associatedProp?.Name ?? field.Name;
+                            string typeName = field.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            string containingTypeName = type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            var location = (associatedProp?.Locations.FirstOrDefault() ?? field.Locations.FirstOrDefault());
+                            context.ReportDiagnostic(Diagnostic.Create(
+                                Diag.EngineObjectNeedsCustomFormatter,
+                                location,
+                                memberName, containingTypeName, typeName));
+                        }
 
                         bool isFieldPublic = field.DeclaredAccessibility == Accessibility.Public;
                         bool isPropPublic = associatedProp != null && associatedProp.DeclaredAccessibility == Accessibility.Public;
@@ -153,19 +168,24 @@ namespace Ceras.SourceGenerator
             return false;
         }
 
+        /// <summary>
+        /// Hard ban: types that can NEVER round-trip regardless of formatters.
+        /// Delegates carry method references; enumerators are ephemeral; reflection
+        /// metadata is not restorable.  These are skipped unconditionally.
+        /// </summary>
         public static bool IsBanned(ITypeSymbol type)
         {
             if (type is INamedTypeSymbol named)
             {
                 var fqn = named.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                
+
                 // Delegates, Actions, Funcs
                 if (fqn == "global::System.Delegate" || fqn == "global::System.MulticastDelegate") return true;
                 var cur = named.BaseType;
                 while (cur != null)
                 {
                     var baseFqn = cur.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    if (baseFqn == "global::System.Delegate" || baseFqn == "global::System.MulticastDelegate" || baseFqn == "global::Godot.GodotObject") return true;
+                    if (baseFqn == "global::System.Delegate" || baseFqn == "global::System.MulticastDelegate") return true;
                     cur = cur.BaseType;
                 }
 
@@ -188,6 +208,28 @@ namespace Ceras.SourceGenerator
                     var ifaceFqn = iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     if (ifaceFqn == "global::System.Collections.IEnumerator") return true;
                     if (ifaceFqn.StartsWith("global::System.Collections.Generic.IEnumerator<")) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Soft warning: types that CAN be serialized only with a user-provided custom formatter.
+        /// The field is still included so the schema is complete — the user just needs to register
+        /// a formatter at runtime.  Emitting a warning is better than silently dropping the field
+        /// (which would produce null on load and a mysterious NullReferenceException at runtime).
+        /// </summary>
+        public static bool NeedsCustomFormatter(ITypeSymbol type)
+        {
+            if (type is INamedTypeSymbol named)
+            {
+                var cur = named.BaseType;
+                while (cur != null)
+                {
+                    var baseFqn = cur.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    // Godot engine objects — cannot serialize with default field-based formatters
+                    if (baseFqn == "global::Godot.GodotObject") return true;
+                    cur = cur.BaseType;
                 }
             }
             return false;

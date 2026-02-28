@@ -49,10 +49,10 @@ namespace ReproGame
     [CerasSerializable]
     public class RailSegment : Building
     {
-        // [Include] is REQUIRED: Curve3D inherits from Godot.GodotObject and is therefore
-        // treated as a banned type by the source generator.  Without [Include] the backing
-        // field is silently skipped → Curve is null after deserialization → NullRef in visual code.
-        [Include]
+        // Curve3D inherits from Godot.GodotObject.  The source generator emits CERAS017 to
+        // remind us that a custom IFormatter<Curve3D> must be registered at runtime — but it
+        // still includes the field so that a user who says "serialize all fields" doesn't get
+        // silent null on load (principle of least surprise).
         public Curve3D Curve { get; set; }
 
         public Vector3 Dummy;
@@ -148,10 +148,12 @@ namespace ReproGame
         }
 
         /// <summary>
-        /// The original bug: Curve3D inherits from Godot.GodotObject so the source generator
-        /// would skip the backing field of Curve without [Include].  After deserialization
-        /// Curve was null, causing a NullReferenceException in the visual/rendering code
-        /// (VisualUtils.PopulateSplineMultiMesh → VisualRailSegment._Ready).
+        /// Regression for the original bug: Curve3D inherits from Godot.GodotObject so the
+        /// source generator used to hard-ban the backing field and silently skip it.
+        /// After deserialization Curve was null → NullReferenceException in
+        /// VisualUtils.PopulateSplineMultiMesh → VisualRailSegment._Ready.
+        /// Fix: engine-object fields are included (CERAS017 warning emitted) rather than
+        /// dropped — no [Include] needed.
         /// </summary>
         [Fact]
         public void CurveIsNotNullAfterLoad()

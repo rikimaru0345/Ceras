@@ -131,5 +131,13 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Warning,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor EngineObjectNeedsCustomFormatter = new(
+            id: "CERAS017",
+            title: "Engine object type requires a custom formatter",
+            messageFormat: "Member '{0}' in '{1}' has type '{2}' which inherits from a native engine object base (e.g. Godot.GodotObject). Ceras cannot serialize it with its default formatters. Register a custom IFormatter<{2}> before creating the CerasSerializer, or add [Exclude] to skip this member.",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Warning,
+            isEnabledByDefault: true);
     }
 }
