@@ -96,6 +96,12 @@ namespace Ceras
         public object UserContext { get => InstanceData.UserContext; set => InstanceData.UserContext = value; }
         public ProtocolChecksum ProtocolChecksum { get; } = new ProtocolChecksum();
 
+        // Fixup context for circular references in [CerasConstructor]
+        // These are public so generated formatters in other assemblies can access them.
+        public object CurrentFixupTarget { get => InstanceData.CurrentFixupTarget; set => InstanceData.CurrentFixupTarget = value; }
+        public MemberInfo CurrentFixupMember { get => InstanceData.CurrentFixupMember; set => InstanceData.CurrentFixupMember = value; }
+        public int CurrentFixupIndex { get => InstanceData.CurrentFixupIndex; set => InstanceData.CurrentFixupIndex = value; }
+
         public CerasSerializer(SerializerConfig config = null)
         {
             if (config != null && !config.Claim(this)) throw new CerasException("SerializerConfig already in use");

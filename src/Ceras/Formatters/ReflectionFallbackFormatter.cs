@@ -206,14 +206,14 @@ namespace Ceras.Formatters
                         bool isGetterOnly = _members[i].member is PropertyInfo gop && gop.GetSetMethod(true) == null;
                         if (isGetterOnly) continue;
 
-                        _ceras.InstanceData.CurrentFixupTarget = memberValues;
-                        _ceras.InstanceData.CurrentFixupIndex = i;
-                        _ceras.InstanceData.CurrentFixupMember = _members[i].member;
+                        _ceras.CurrentFixupTarget = memberValues;
+                        _ceras.CurrentFixupIndex = i;
+                        _ceras.CurrentFixupMember = _members[i].member;
                         _members[i].formatter.DeserializeUntyped(ref reader, fake, FakeContainer.ValueField);
                         memberValues[i] = fake.Value;
                         fake.Value = null;
-                        _ceras.InstanceData.CurrentFixupTarget = null;
-                        _ceras.InstanceData.CurrentFixupMember = null;
+                        _ceras.CurrentFixupTarget = null;
+                        _ceras.CurrentFixupMember = null;
                     }
 
                     // Phase 2: construct.
@@ -252,11 +252,11 @@ namespace Ceras.Formatters
                         if (existing == null)
                             throw new InvalidOperationException($"Getter-only property '{gop.Name}' on '{typeof(T).FullName}' returned null after construction. It must be initialized by the constructor.");
 
-                        _ceras.InstanceData.CurrentFixupTarget = value;
-                        _ceras.InstanceData.CurrentFixupMember = gop;
+                        _ceras.CurrentFixupTarget = value;
+                        _ceras.CurrentFixupMember = gop;
                         _members[i].formatter.DeserializeUntyped(ref reader, value, gop);
-                        _ceras.InstanceData.CurrentFixupTarget = null;
-                        _ceras.InstanceData.CurrentFixupMember = null;
+                        _ceras.CurrentFixupTarget = null;
+                        _ceras.CurrentFixupMember = null;
                     }
 
                     InvokeCallback(_onAfterDeserialize, value);
@@ -286,16 +286,16 @@ namespace Ceras.Formatters
             for (int i = 0; i < _members.Length; i++)
             {
                 var m = _members[i];
-                _ceras.InstanceData.CurrentFixupTarget = value;
-                _ceras.InstanceData.CurrentFixupMember = m.member;
+                _ceras.CurrentFixupTarget = value;
+                _ceras.CurrentFixupMember = m.member;
                 m.formatter.DeserializeUntyped(ref reader, value, m.member);
-                _ceras.InstanceData.CurrentFixupTarget = null;
+                _ceras.CurrentFixupTarget = null;
             }
 
             InvokeCallback(_onAfterDeserialize, value);
         }
 
-        void Initialize()
+        protected override void Initialize()
         {
             // This method is called by CerasSerializer via reflection after all dependencies are injected.
         }

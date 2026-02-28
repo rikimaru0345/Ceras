@@ -8,7 +8,7 @@ namespace Ceras.Formatters
         public abstract void Serialize(IBufferWriter<byte> writer, T value);
         public abstract void Deserialize(ref SequenceReader<byte> reader, ref T value);
 
-        internal virtual void Initialize() { }
+        protected virtual void Initialize() { }
         internal virtual void DeserializeToMember(ref SequenceReader<byte> reader, object container, MemberInfo member)
         {
             DeserializeUntyped(ref reader, container, member);

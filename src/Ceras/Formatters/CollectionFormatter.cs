@@ -47,13 +47,13 @@ namespace Ceras.Formatters
 
             var f = _itemFormatter;
             var serializer = _ceras;
-            serializer.InstanceData.CurrentFixupTarget = ar;
+            serializer.CurrentFixupTarget = ar;
             for (int i = 0; i < length; i++)
             {
-                serializer.InstanceData.CurrentFixupIndex = i;
+                serializer.CurrentFixupIndex = i;
                 f.Deserialize(ref reader, ref ar[i]);
             }
-            serializer.InstanceData.CurrentFixupTarget = null;
+            serializer.CurrentFixupTarget = null;
         }
     }
 
@@ -224,13 +224,13 @@ namespace Ceras.Formatters
             var serializer = _ceras;
             var isList = value is System.Collections.IList;
             if (isList)
-                serializer.InstanceData.CurrentFixupTarget = value;
+                serializer.CurrentFixupTarget = value;
 
             var f = _itemFormatter;
             for (int i = 0; i < itemCount; i++)
             {
                 if (isList)
-                    serializer.InstanceData.CurrentFixupIndex = i;
+                    serializer.CurrentFixupIndex = i;
 
                 TItem item = default;
                 f.Deserialize(ref reader, ref item);
@@ -238,7 +238,7 @@ namespace Ceras.Formatters
             }
 
             if (isList)
-                serializer.InstanceData.CurrentFixupTarget = null;
+                serializer.CurrentFixupTarget = null;
         }
     }
 }

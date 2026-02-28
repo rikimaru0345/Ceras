@@ -79,10 +79,10 @@ namespace Ceras.Formatters {
 			if (objId >= 0) {
 				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId);
 				if (value == null) {
-					var target = _ceras.InstanceData.CurrentFixupTarget;
+					var target = _ceras.CurrentFixupTarget;
 					if (target != null) {
 						var proxy = _ceras.InstanceData.ObjectCache.GetProxy(objId);
-						proxy.RegisterFixup(target, _ceras.InstanceData.CurrentFixupMember, _ceras.InstanceData.CurrentFixupIndex);
+						proxy.RegisterFixup(target, _ceras.CurrentFixupMember, _ceras.CurrentFixupIndex);
 					}
 				}
 				return;
@@ -279,10 +279,10 @@ namespace Ceras.Formatters {
 			if (objId >= 0) {
 				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId);
 				if (value == null) {
-					var target = _ceras.InstanceData.CurrentFixupTarget;
+					var target = _ceras.CurrentFixupTarget;
 					if (target != null) {
 						var proxy = _ceras.InstanceData.ObjectCache.GetProxy(objId);
-						proxy.RegisterFixup(target, _ceras.InstanceData.CurrentFixupMember, _ceras.InstanceData.CurrentFixupIndex);
+						proxy.RegisterFixup(target, _ceras.CurrentFixupMember, _ceras.CurrentFixupIndex);
 					}
 				}
 				return;

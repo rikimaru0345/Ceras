@@ -49,7 +49,7 @@ namespace Ceras.SourceGenerator
             sb.AppendLine();
 
             // --- Initialize --------------------------------------------------------
-            sb.AppendLine("        internal override void Initialize()");
+            sb.AppendLine("        protected override void Initialize()");
             sb.AppendLine("        {");
             sb.AppendLine($"            var type = typeof({typeFqn});");
             foreach (var m in members)
@@ -143,9 +143,9 @@ namespace Ceras.SourceGenerator
                     string fieldName = MakeFormatterFieldName(m.Type);
                     string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = memberValues;");
-                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupIndex = {memberIdx};");
-                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = _memberInfo_{m.Name};");
+                    sb.AppendLine($"            _ceras.CurrentFixupTarget = memberValues;");
+                    sb.AppendLine($"            _ceras.CurrentFixupIndex = {memberIdx};");
+                    sb.AppendLine($"            _ceras.CurrentFixupMember = _memberInfo_{m.Name};");
                     
                     if (IsFastPrimitive(m.Type))
                     {
@@ -160,8 +160,8 @@ namespace Ceras.SourceGenerator
                     }
                     memberIdx++;
                 }
-                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = null;");
-                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = null;");
+                sb.AppendLine($"            _ceras.CurrentFixupTarget = null;");
+                sb.AppendLine($"            _ceras.CurrentFixupMember = null;");
 
                 // Phase 2: construct the object.
                 var ctorArgParts = members.Where(m => m.IsCtorParam).Select(m => {
@@ -192,15 +192,15 @@ namespace Ceras.SourceGenerator
                     string getAccess = GetGetAccess(m, typeFqn);
                     string tmp = "_m_" + m.Name;
                     
-                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = value;");
-                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = _memberInfo_{m.Name};");
+                    sb.AppendLine($"            _ceras.CurrentFixupTarget = value;");
+                    sb.AppendLine($"            _ceras.CurrentFixupMember = _memberInfo_{m.Name};");
                     
                     sb.AppendLine($"            {memberTypeFqn} {tmp} = {getAccess};");
                     sb.AppendLine($"            if ({tmp} == null) global::Ceras.Helpers.CerasThrowHelper.ThrowGetterOnlyNull(\"{m.Name}\", typeof({typeFqn}).FullName);");
                     sb.AppendLine($"            {fieldName}.Deserialize(ref reader, ref {tmp});");
                 }
-                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = null;");
-                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = null;");
+                sb.AppendLine($"            _ceras.CurrentFixupTarget = null;");
+                sb.AppendLine($"            _ceras.CurrentFixupMember = null;");
             }
             else
             {
@@ -216,8 +216,8 @@ namespace Ceras.SourceGenerator
                     string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     string? refAccess = GetRefAccess(m, typeFqn);
 
-                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = value;");
-                    sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = _memberInfo_{m.Name};");
+                    sb.AppendLine($"            _ceras.CurrentFixupTarget = value;");
+                    sb.AppendLine($"            _ceras.CurrentFixupMember = _memberInfo_{m.Name};");
                     
                     if (IsFastPrimitive(m.Type))
                     {
@@ -251,8 +251,8 @@ namespace Ceras.SourceGenerator
                         }
                     }
                 }
-                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupTarget = null;");
-                sb.AppendLine($"            _ceras.InstanceData.CurrentFixupMember = null;");
+                sb.AppendLine($"            _ceras.CurrentFixupTarget = null;");
+                sb.AppendLine($"            _ceras.CurrentFixupMember = null;");
             }
             sb.AppendLine("        }");
             sb.AppendLine("    }");
