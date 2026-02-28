@@ -35,6 +35,10 @@ namespace Ceras.SourceGenerator
             {
                 var t = typeStack.Pop();
                 string kind = t.TypeKind == TypeKind.Struct ? "struct" : "class";
+                if (t.IsRecord)
+                {
+                    kind = t.TypeKind == TypeKind.Struct ? "record struct" : "record";
+                }
                 sb.AppendLine($"{new string(' ', indent)}partial {kind} {t.Name}");
                 sb.AppendLine($"{new string(' ', indent)}{{");
                 indent += 4;

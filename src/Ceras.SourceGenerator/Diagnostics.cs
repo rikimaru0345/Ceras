@@ -78,8 +78,8 @@ namespace Ceras.SourceGenerator
 
         public static readonly DiagnosticDescriptor PartialRequired = new(
             id: "CERAS010",
-            title: "Partial class required for private members",
-            messageFormat: "Type '{0}' contains private or protected members ({1}) that are included in serialization. The class must be declared as 'partial' to allow the Ceras source generator to inject access helpers.",
+            title: "Partial type required for private members",
+            messageFormat: "Type '{0}' contains private or protected members ({1}) that are included in serialization. The type must be declared as 'partial' to allow the Ceras source generator to inject access helpers.",
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
