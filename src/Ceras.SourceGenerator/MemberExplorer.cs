@@ -38,7 +38,7 @@ namespace Ceras.SourceGenerator
                     {
                         if (field.IsConst) continue;
 
-                        if (IsBanned(field.Type)) continue;
+                        // Type-level [Exclude] is always a hard ban, checked before anything else.
                         if (HasAttribute(field.Type, attrs.Exclude)) continue;
 
                         bool isBackingField = field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField");
@@ -57,6 +57,11 @@ namespace Ceras.SourceGenerator
                         bool hasExclude = (attrs.Exclude != null && HasAttribute(field, attrs.Exclude)) || (associatedProp != null && attrs.Exclude != null && HasAttribute(associatedProp, attrs.Exclude));
 
                         if (hasExclude) continue;
+
+                        // Banned types (e.g. Godot.GodotObject subclasses) are silently skipped
+                        // UNLESS the field/property is explicitly opted in with [Include].
+                        // This mirrors what the runtime does in BannedTypes / SchemaRegistry.
+                        if (!hasInclude && IsBanned(field.Type)) continue;
 
                         bool isFieldPublic = field.DeclaredAccessibility == Accessibility.Public;
                         bool isPropPublic = associatedProp != null && associatedProp.DeclaredAccessibility == Accessibility.Public;
@@ -95,11 +100,14 @@ namespace Ceras.SourceGenerator
                 }
             }
 
-            string declaringFqn = type.ToDisplayString(SortKeyFormat);
+            // Sort key must match SchemaMemberComparer used at runtime by DynamicFormatter:
+            //   MemberType.FullName + Member.Name + Member.DeclaringType.FullName + "f"/"p"
+            // Use each member's own DeclaringType (not the formatted type) so inherited members
+            // sort identically between source-generator and runtime.
             members.Sort((a, b) =>
             {
-                string ka = a.Type.ToDisplayString(SortKeyFormat) + a.Name + declaringFqn + (a.IsField ? "f" : "p");
-                string kb = b.Type.ToDisplayString(SortKeyFormat) + b.Name + declaringFqn + (b.IsField ? "f" : "p");
+                string ka = a.Type.ToDisplayString(SortKeyFormat) + a.Name + a.DeclaringType.ToDisplayString(SortKeyFormat) + (a.IsField ? "f" : "p");
+                string kb = b.Type.ToDisplayString(SortKeyFormat) + b.Name + b.DeclaringType.ToDisplayString(SortKeyFormat) + (b.IsField ? "f" : "p");
                 return string.Compare(ka, kb, StringComparison.Ordinal);
             });
 

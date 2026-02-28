@@ -1,0 +1,179 @@
+using Ceras;
+using Ceras.Formatters;
+using System;
+using System.Buffers;
+using Xunit;
+
+// Simulate the game's assembly-level configuration
+[assembly: CerasGeneratorBlacklist("ReproGodot.*")]
+[assembly: MemberConfig(TargetMember.AllFields)]
+
+// Minimal stub so the source generator sees global::Godot.GodotObject in this compilation
+// and applies the GodotObject ban — exactly as it would in the real Godot game project.
+namespace Godot
+{
+    public class GodotObject { }
+    public class RefCounted : GodotObject { }
+}
+
+namespace ReproGodot
+{
+    // Simulate a Godot class (must be in the blacklisted namespace).
+    // Inherits from Godot.GodotObject so the source-generator marks it as a banned type.
+    // A custom formatter (Curve3DFormatter) is the only way to serialize it — [Include] is
+    // required on any field/property that holds it to opt out of the ban.
+    public class Curve3D : global::Godot.RefCounted
+    {
+        public float[] Points = Array.Empty<float>();
+    }
+
+    // A plain struct we DO want a generated formatter for
+    public struct Vector3
+    {
+        public float X, Y, Z;
+    }
+}
+
+namespace ReproGame
+{
+    using ReproGodot;
+
+    [CerasSerializable]
+    public abstract class Building
+    {
+        public float Health = 100;
+
+        public Building() { }
+    }
+
+    [CerasSerializable]
+    public class RailSegment : Building
+    {
+        // [Include] is REQUIRED: Curve3D inherits from Godot.GodotObject and is therefore
+        // treated as a banned type by the source generator.  Without [Include] the backing
+        // field is silently skipped → Curve is null after deserialization → NullRef in visual code.
+        [Include]
+        public Curve3D Curve { get; set; }
+
+        public Vector3 Dummy;
+    }
+
+    public class Curve3DFormatter : IFormatter<Curve3D>
+    {
+        public void Serialize(IBufferWriter<byte> writer, Curve3D value)
+        {
+            if (value == null)
+            {
+                SerializerBinary.WriteInt32(writer, -1);
+                return;
+            }
+            SerializerBinary.WriteInt32(writer, value.Points.Length);
+            for (int i = 0; i < value.Points.Length; i++)
+                SerializerBinary.WriteFloat32Fixed(writer, value.Points[i]);
+        }
+
+        public void Deserialize(ref SequenceReader<byte> reader, ref Curve3D value)
+        {
+            int count = SerializerBinary.ReadInt32(ref reader);
+            if (count == -1)
+            {
+                value = null;
+                return;
+            }
+            if (value == null) value = new Curve3D();
+            value.Points = new float[count];
+            for (int i = 0; i < count; i++)
+                value.Points[i] = SerializerBinary.ReadFloat32Fixed(ref reader);
+        }
+
+        public void SerializeUntyped(IBufferWriter<byte> writer, object value) => Serialize(writer, (Curve3D)value);
+        public void DeserializeUntyped(ref SequenceReader<byte> reader, object container, System.Reflection.MemberInfo member)
+        {
+            var f = (System.Reflection.FieldInfo)member;
+            var val = (Curve3D)f.GetValue(container);
+            Deserialize(ref reader, ref val);
+            f.SetValue(container, val);
+        }
+    }
+
+    public class GodotStyleRepro
+    {
+        static SerializerConfig MakeConfig()
+        {
+            var config = new SerializerConfig();
+            config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
+            Ceras.CerasRobust.Configure(config);
+            config.Robust.Enabled = true;
+            return config;
+        }
+
+        [Fact]
+        public void TestGodotSerialization()
+        {
+            var config = MakeConfig();
+            var ceras = new CerasSerializer(config);
+
+            var rail = new RailSegment { Curve = new Curve3D { Points = new[] { 1f, 2f, 3f } } };
+
+            // Standard Serialize/Deserialize
+            var data = ceras.Serialize(rail);
+            var clone = ceras.Deserialize<RailSegment>(data);
+
+            Assert.NotNull(clone.Curve);
+            Assert.Equal(3, clone.Curve.Points.Length);
+
+            // Robust Save/Load (fast path — same fingerprint)
+            var robustData = Ceras.CerasRobust.Save(rail, 1, ceras);
+            var robustClone = Ceras.CerasRobust.Load<RailSegment>(robustData, 1, ceras);
+
+            Assert.NotNull(robustClone.Curve);
+            Assert.Equal(3, robustClone.Curve.Points.Length);
+
+            // Robust Load with a fresh serializer (same schema → fast path again).
+            // This is the most realistic scenario: save in one session, load in the next.
+            var config3 = MakeConfig();
+            var ceras3 = new CerasSerializer(config3);
+            var robustCloneFresh = Ceras.CerasRobust.Load<RailSegment>(robustData, 1, ceras3);
+            Assert.NotNull(robustCloneFresh.Curve);
+            Assert.Equal(3, robustCloneFresh.Curve.Points.Length);
+
+            // Robust Slow Path (force fingerprint mismatch by adding a dummy type)
+            var config2 = MakeConfig();
+            config2.ConfigType<DummyType>();
+            var ceras2 = new CerasSerializer(config2);
+
+            var robustCloneSlow = Ceras.CerasRobust.Load<RailSegment>(robustData, 1, ceras2);
+            Assert.NotNull(robustCloneSlow.Curve);
+            Assert.Equal(3, robustCloneSlow.Curve.Points.Length);
+        }
+
+        /// <summary>
+        /// The original bug: Curve3D inherits from Godot.GodotObject so the source generator
+        /// would skip the backing field of Curve without [Include].  After deserialization
+        /// Curve was null, causing a NullReferenceException in the visual/rendering code
+        /// (VisualUtils.PopulateSplineMultiMesh → VisualRailSegment._Ready).
+        /// </summary>
+        [Fact]
+        public void CurveIsNotNullAfterLoad()
+        {
+            var config = MakeConfig();
+            var ceras = new CerasSerializer(config);
+
+            var rail = new RailSegment { Curve = new Curve3D { Points = new[] { 10f, 20f } } };
+            var data = Ceras.CerasRobust.Save(rail, 1, ceras);
+
+            // Fresh serializer — simulates game restart / new session load
+            var ceras2 = new CerasSerializer(MakeConfig());
+            var loaded = Ceras.CerasRobust.Load<RailSegment>(data, 1, ceras2);
+
+            // Without the [Include] fix this would be null → NullReferenceException in VisualRailSegment._Ready
+            Assert.NotNull(loaded.Curve);
+            Assert.Equal(2, loaded.Curve.Points.Length);
+            Assert.Equal(10f, loaded.Curve.Points[0]);
+            Assert.Equal(20f, loaded.Curve.Points[1]);
+        }
+    }
+
+    [CerasSerializable]
+    public class DummyType { public int X; }
+}

@@ -187,7 +187,7 @@ namespace Ceras.Formatters
     /// <summary>
     /// Add this attribute to your <see cref="IFormatter{T}"/> class to configure Ceras' dependency injection system. (Only needed to turn it off, it's enabled, even for private fields, by default)
     /// </summary>
-    [AttributeUsage(AttributeTargets.Class)]
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Field)]
     public class CerasInjectAttribute : Attribute
     {
         internal static readonly CerasInjectAttribute Default = new CerasInjectAttribute();

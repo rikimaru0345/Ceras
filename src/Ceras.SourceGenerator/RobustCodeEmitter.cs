@@ -35,6 +35,7 @@ namespace Ceras.SourceGenerator
                 if (!seenFieldNames.Add(fieldName)) continue;
 
                 string concreteFormatterType = GetConcreteFormatterType(m.Type, m.IsMonomorphic, attrs);
+                sb.AppendLine("        [global::Ceras.Formatters.CerasInject]");
                 sb.AppendLine($"        {concreteFormatterType} {fieldName};");
             }
             sb.AppendLine();
@@ -42,10 +43,6 @@ namespace Ceras.SourceGenerator
             // --- Initialize --------------------------------------------------------
             sb.AppendLine("        protected override void Initialize()");
             sb.AppendLine("        {");
-            sb.AppendLine($"            var type = typeof({typeFqn});");
-            foreach (var m in members)
-            {
-}
             sb.AppendLine("        }");
             sb.AppendLine();
 
