@@ -110,71 +110,115 @@ namespace Ceras.SourceGenerator
             }
             else
             {
+                if (type.IsReferenceType)
+                {
+                    var bestCtor = GetBestConstructor(type, attrs.CerasConstructor, members);
 
-                
-                    if (type.IsReferenceType)
+                    sb.AppendLine("                if (value == null)");
+                    sb.AppendLine("                {");
+                    sb.AppendLine($"                    value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
+                    sb.AppendLine("                    _ceras.SetCurrentObject(value);");
+
+                    if (bestCtor != null && !type.IsGenericType)
                     {
-                        var ctor = type.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 0);
-
-                        sb.AppendLine("                if (value == null)");
-                        sb.AppendLine("                {");
-                        sb.AppendLine($"                    value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
-                        sb.AppendLine("                    _ceras.SetCurrentObject(value);");
-                        if (ctor != null)
+                        if (bestCtor.Parameters.Length == 0)
                         {
                             sb.AppendLine("                    __ceras_ctor(value);");
                         }
-                        sb.AppendLine("                }");
-                    }
-
-                    foreach (var m in members)
-                    {
-                        string fieldName = MakeFormatterFieldName(m.Type);
-                        string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                        string? refAccess = GetRefAccess(m, typeFqn);
-                        string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
-
-                        if (IsFastPrimitive(m.Type))
-                        {
-                            string readExpr = GetPrimitiveReadExpression(m.Type, "reader");
-                            WriteSetStatement(sb, m, typeFqn, readExpr, 16);
-                        }
                         else
                         {
-                            if (m.IsGetterOnly)
-                            {
-                                string getAccess = GetGetAccess(m, typeFqn);
-                                string tmp = "_m_" + safeName;
-                                sb.AppendLine($"                {memberTypeFqn} {tmp} = {getAccess};");
-                                sb.AppendLine($"                if ({tmp} == null) global::Ceras.Helpers.CerasThrowHelper.ThrowGetterOnlyNull(\"{m.Name}\", typeof({typeFqn}).FullName);");
-                                sb.AppendLine($"                {fieldName}.Deserialize(ref reader, ref {tmp});");
-                            }
-                            else
-                            {
-                                if (refAccess != null)
-                                {
-                                    sb.AppendLine($"                {fieldName}.Deserialize(ref reader, ref {refAccess});");
-                                }
-                                else
-                                {
-                                    string getAccess = GetGetAccess(m, typeFqn);
-                                    string tmp = "_m_" + safeName;
-                                    sb.AppendLine($"                {memberTypeFqn} {tmp} = {getAccess};");
-                                    sb.AppendLine($"                {fieldName}.Deserialize(ref reader, ref {tmp});");
-                                    WriteSetStatement(sb, m, typeFqn, tmp, 16);
-                                }
-                            }
+                            // 1. Read all needed parameters from the current 'reader' state into locals.
+                            // We MUST do this because we want to call the constructor as soon as possible,
+                            // but we also want to stay compatible with the normal field-by-field deserialization order.
+                            // The most robust way is to read everything into locals, then ctor, then assign everything.
                         }
                     }
+                    sb.AppendLine("                }");
+                }
+
+                // Map constructor parameters to members
+                var bestCtorForMapping = type.IsReferenceType ? GetBestConstructor(type, attrs.CerasConstructor, members) : null;
+                var ctorParams = new Dictionary<string, (IParameterSymbol Param, SerializedMember Member)>(StringComparer.Ordinal);
+                if (bestCtorForMapping != null)
+                {
+                    foreach (var p in bestCtorForMapping.Parameters)
+                    {
+                        string normParam = NormalizeName(p.Name);
+                        var match = members.FirstOrDefault(m => NormalizeName(m.Name) == normParam);
+                        if (match != null)
+                            ctorParams[match.Name] = (p, match);
+                    }
+                }
+
+                // Read all members into locals first (to support constructors with parameters and arbitrary field order)
+                foreach (var m in members)
+                {
+                    string fieldName = MakeFormatterFieldName(m.Type);
+                    string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
+                    string localName = "l_" + safeName;
+
+                    sb.AppendLine($"                {memberTypeFqn} {localName} = default;");
+                    if (IsFastPrimitive(m.Type))
+                    {
+                        string readExpr = GetPrimitiveReadExpression(m.Type, "reader");
+                        sb.AppendLine($"                {localName} = {readExpr};");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"                {fieldName}.Deserialize(ref reader, ref {localName});");
+                    }
+                }
+
+                // Call constructor if it has parameters
+                if (bestCtorForMapping != null && bestCtorForMapping.Parameters.Length > 0)
+                {
+                    // If the type is generic, we can't easily use UnsafeAccessor for the constructor due to runtime limitations/bugs (InvalidProgramException: Generic type constraints do not match)
+                    if (!type.IsGenericType)
+                    {
+                        var args = string.Join(", ", bestCtorForMapping.Parameters.Select(p => {
+                            string normParam = NormalizeName(p.Name);
+                            var match = members.FirstOrDefault(m => {
+                                if (NormalizeName(m.Name) == normParam) return true;
+                                var symbol = type.GetMembers(m.Name).FirstOrDefault();
+                                if (symbol is IFieldSymbol field && field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField"))
+                                {
+                                    var mRegex = System.Text.RegularExpressions.Regex.Match(field.Name, @"^<(.*)>k__BackingField$");
+                                    if (mRegex.Success && NormalizeName(mRegex.Groups[1].Value) == normParam)
+                                        return true;
+                                }
+                                if (symbol is IPropertySymbol prop && NormalizeName(prop.Name) == normParam)
+                                    return true;
+                                return false;
+                            });
+                            return match != null ? "l_" + TypeHelpers.SanitizeIdentifier(match.Name) : "default";
+                        }));
+                        sb.AppendLine($"                __ceras_ctor(value, {args});");
+                    }
+                }
+
+                // Assign locals to members
+                foreach (var m in members)
+                {
+                    string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
+                    string localName = "l_" + safeName;
+                    
+                    // If it was a constructor parameter, it's already set (for classes).
+                    // But for consistency and to handle readonly fields (via UnsafeAccessor), we write it anyway.
+                    WriteSetStatement(sb, m, typeFqn, localName, 16);
+                }
                 sb.AppendLine("        }");
             }
-            
+
             // --- Access Helpers ---
-            var pCtor = type.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 0);
-            if (pCtor != null && type.IsReferenceType)
+            var finalBestCtor = type.IsReferenceType ? GetBestConstructor(type, attrs.CerasConstructor, members) : null;
+            if (finalBestCtor != null && type.IsReferenceType && !type.IsGenericType)
             {
+                string paramList = string.Join(", ", finalBestCtor.Parameters.Select(p => $"{p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)} {p.Name}"));
+                string argList = finalBestCtor.Parameters.Length > 0 ? ", " + paramList : "";
+                
                 sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = \".ctor\")]");
-                sb.AppendLine($"        internal static extern void __ceras_ctor({typeFqn} instance);");
+                sb.AppendLine($"        internal static extern void __ceras_ctor({typeFqn} instance{argList});");
                 sb.AppendLine();
             }
 

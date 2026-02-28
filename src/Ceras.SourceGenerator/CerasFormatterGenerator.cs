@@ -153,22 +153,24 @@ namespace Ceras.SourceGenerator
             foreach (var type in finalTypes)
             {
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
-                
+
+                // Discover members once per type to check constructability and generate the formatter
+                var members = MemberExplorer.DiscoverMembers(context, type, attrBag);
+
                 // Only register if we can actually construct it (to avoid broken formatters being used)
-                if (!type.IsValueType && !MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr))
+                if (!type.IsValueType && !MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr, members))
                     continue;
 
                 string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 string formatterName = MakeFormatterClassName(type);
                 bool vt = results[type].IsVersionTolerant;
-                
+
                 string varName = "tc_" + SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal));
                 sbUse.AppendLine($"            var {varName} = config.ConfigType<{typeFqn}>();");
                 sbUse.AppendLine($"            if ({varName}.CustomFormatter == null) {varName}.CustomFormatter = new {formatterName}();");
-                
+
                 if (vt) sbUse.AppendLine($"            config.Robust.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
             }
-
             // Register discovered interface and abstract types with minimal schemas.
             // These types have no formatters but may appear as generic type arguments in
             // serialized collections (e.g. List<ILogicalEntity>). Without pre-registration
@@ -208,20 +210,24 @@ namespace Ceras.SourceGenerator
             {
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
 
-                bool canConstruct = type.IsValueType || MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr);
-                if (!canConstruct)
-                {
-                    context.ReportDiagnostic(Diagnostic.Create(Diag.NotConstructable, type.Locations.FirstOrDefault(), type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
-                    continue;
-                }
-
                 MemberExplorer.ValidateIncludeExcludeConflicts(context, type, attrBag);
                 var members = MemberExplorer.DiscoverMembers(context, type, attrBag);
+
+                bool canConstruct = type.IsValueType || MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr, members);
+                if (!canConstruct)
+                {
+                    // Validation will emit specific errors if not constructable
+                    MemberExplorer.ValidateCerasConstructor(context, compilation, type, members, attrBag);
+                    continue;
+                }
 
                 if (members.Count == 0 && TypeHelpers.HasAttribute(type, cerasSerializableAttr))
                 {
                     context.ReportDiagnostic(Diagnostic.Create(Diag.NoSerializableMembers, type.Locations.FirstOrDefault(), type.Name));
                 }
+
+                // Run further constructor validation even if canConstruct is true to catch attribute conflicts/mismatches
+                MemberExplorer.ValidateCerasConstructor(context, compilation, type, members, attrBag);
 
                 // CERAS015 / CERAS016: Check that every polymorphic field/property type is properly
                 // registered for serialization.  Polymorphic fields (interface or abstract class) need
@@ -280,7 +286,6 @@ namespace Ceras.SourceGenerator
                     }
                 }
 
-                MemberExplorer.ValidateCerasConstructor(context, compilation, type, members, attrBag);
                 MemberExplorer.ValidateDuplicateWireNames(context, type, members);
                 MemberExplorer.ValidatePartialRequirement(context, compilation, type, members);
                 MemberExplorer.ValidateReadonlyMembers(context, type, members);

@@ -87,7 +87,7 @@ namespace Ceras.Test
             Assert.Same(loadedParent, loadedChildFromParent.Parent);
         }
 
-        [Fact(Skip = "CerasConstructor is no longer supported")]
+        [Fact]
         public void Repro_CircularReference_With_CerasConstructor_SourceGenerator()
         {
             var config = new SerializerConfig();

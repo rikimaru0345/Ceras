@@ -23,7 +23,7 @@ namespace Ceras.SourceGenerator
         public static readonly DiagnosticDescriptor NotConstructable = new(
             id: "CERAS003",
             title: "Type not constructable by Ceras",
-            messageFormat: "Type '{0}' is included in serialization but Ceras cannot construct it: there is no accessible (public or internal) parameterless constructor and no constructor marked [CerasConstructor]. Add a parameterless constructor or mark one constructor with [CerasConstructor].",
+            messageFormat: "Type '{0}' is included in serialization but Ceras cannot construct it: there is no accessible (public or internal) parameterless constructor, no constructor with parameters that can be fully mapped to serializable members, and no constructor marked [CerasConstructor]. Add a parameterless constructor, a constructor with mappable parameters, or mark one constructor with [CerasConstructor].",
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
@@ -103,9 +103,7 @@ namespace Ceras.SourceGenerator
         public static readonly DiagnosticDescriptor PrivateMemberFromAnotherAssembly = new(
             id: "CERAS013",
             title: "Cannot serialize private member from another assembly",
-            messageFormat: "Member '{0}' on type '{1}' is private or protected and is defined in another assembly. " +
-                           "The Ceras source generator cannot inject access helpers into another assembly. " +
-                           "Make the member internal (and use [InternalsVisibleTo(\"ProjectB\")]) or public.",
+            messageFormat: "Member '{0}' on type '{1}' is private or protected and is defined in another assembly. The Ceras source generator cannot inject access helpers into another assembly. Make the member internal (and use [InternalsVisibleTo(\"ProjectB\")]) or public.",
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);

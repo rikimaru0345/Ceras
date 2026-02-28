@@ -378,7 +378,61 @@ namespace Ceras.SourceGenerator
 
         public static void ValidateCerasConstructor(SourceProductionContext context, Compilation compilation, INamedTypeSymbol type, List<SerializedMember> members, AttributeBag attrs)
         {
-            // No longer needed: Ceras robust mode no longer runs user constructors.
+            if (type.IsValueType || type.IsAbstract) return;
+
+            var ctors = type.InstanceConstructors;
+            var cerasCtors = ctors.Where(c => HasAttribute(c, attrs.CerasConstructor)).ToList();
+
+            if (cerasCtors.Count > 1)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorMultiple, type.Locations.FirstOrDefault(), type.Name));
+                return;
+            }
+
+            if (cerasCtors.Count == 1)
+            {
+                var ctor = cerasCtors[0];
+                if (ctor.DeclaredAccessibility != Accessibility.Public && ctor.DeclaredAccessibility != Accessibility.Internal)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorNotAccessible, ctor.Locations.FirstOrDefault(), type.Name));
+                }
+
+                foreach (var p in ctor.Parameters)
+                {
+                    string normParam = NormalizeName(p.Name);
+                    var match = members.FirstOrDefault(m => {
+                        if (NormalizeName(m.Name) == normParam) return true;
+                        
+                        // If the member is a backing field, check the associated property name
+                        var symbol = type.GetMembers(m.Name).FirstOrDefault();
+                        if (symbol is IFieldSymbol field && field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField"))
+                        {
+                            var matchRegex = System.Text.RegularExpressions.Regex.Match(field.Name, @"^<(.*)>k__BackingField$");
+                            if (matchRegex.Success && NormalizeName(matchRegex.Groups[1].Value) == normParam)
+                                return true;
+                        }
+
+                        // If the member is a property (not a backing field), check its name
+                        if (symbol is IPropertySymbol prop && NormalizeName(prop.Name) == normParam)
+                            return true;
+
+                        return false;
+                    });
+                    if (match == null)
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorParamMismatch, p.Locations.FirstOrDefault(), p.Name, type.Name));
+                    }
+                }
+            }
+            else
+            {
+                // No [CerasConstructor], check if we can find any suitable constructor
+                var best = GetBestConstructor(type, attrs.CerasConstructor, members);
+                if (best == null)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(Diag.NotConstructable, type.Locations.FirstOrDefault(), type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
+                }
+            }
         }
 
         public static void ValidateDuplicateWireNames(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
@@ -403,7 +457,7 @@ namespace Ceras.SourceGenerator
 
         public static void ValidatePartialRequirement(SourceProductionContext context, Compilation compilation, INamedTypeSymbol type, List<SerializedMember> members)
         {
-            // No longer needed because we generate UnsafeAccessors directly in the formatter class, 
+            // No longer needed because we generate UnsafeAccessors directly in the formatter class,
             // so the target type does not need to be partial.
         }
 
@@ -428,7 +482,7 @@ namespace Ceras.SourceGenerator
 
         public static void ValidateReadonlyMembers(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
         {
-            // No longer needed: we populate in-place and use UnsafeAccessors to write directly 
+            // No longer needed: we populate in-place and use UnsafeAccessors to write directly
             // to readonly fields and init-only properties.
         }
 
@@ -436,7 +490,7 @@ namespace Ceras.SourceGenerator
         /// Finds the best constructor to use for serialization.
         /// Priority: Explicit [CerasConstructor] > Public/Internal parameterless > Constructor with most matching parameters.
         /// </summary>
-        public static IMethodSymbol? GetBestConstructor(INamedTypeSymbol type, INamedTypeSymbol? cerasConstructorAttr)
+        public static IMethodSymbol? GetBestConstructor(INamedTypeSymbol type, INamedTypeSymbol? cerasConstructorAttr, List<SerializedMember> members)
         {
             var ctors = type.InstanceConstructors;
 
@@ -456,10 +510,6 @@ namespace Ceras.SourceGenerator
             var sortedCtors = ctors.Where(c => c.DeclaredAccessibility == Accessibility.Public || c.DeclaredAccessibility == Accessibility.Internal)
                                    .OrderByDescending(c => c.Parameters.Length).ToList();
 
-            // We need a context-free way to check members here, or we pass them in.
-            // For now, let's use a simplified member check based on what Ceras generally serializes.
-            var members = type.GetMembers().Where(m => !m.IsStatic && (m is IFieldSymbol || m is IPropertySymbol)).ToList();
-
             foreach (var c in sortedCtors)
             {
                 if (c.Parameters.Length == 0) continue;
@@ -468,29 +518,44 @@ namespace Ceras.SourceGenerator
                 foreach (var p in c.Parameters)
                 {
                     string normParam = NormalizeName(p.Name);
-                    bool hasMatch = members.Any(m => NormalizeName(m.Name) == normParam);
-                    
+                    bool hasMatch = members.Any(m => {
+                        if (NormalizeName(m.Name) == normParam) return true;
+
+                        // If the member is a backing field, check the associated property name
+                        var symbol = type.GetMembers(m.Name).FirstOrDefault();
+                        if (symbol is IFieldSymbol field && field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField"))
+                        {
+                            var matchRegex = System.Text.RegularExpressions.Regex.Match(field.Name, @"^<(.*)>k__BackingField$");
+                            if (matchRegex.Success && NormalizeName(matchRegex.Groups[1].Value) == normParam)
+                                return true;
+                        }
+
+                        // If the member is a property (not a backing field), check its name
+                        if (symbol is IPropertySymbol prop && NormalizeName(prop.Name) == normParam)
+                            return true;
+
+                        return false;
+                    });
+
                     if (!hasMatch)
                     {
                         allMatch = false;
                         break;
                     }
                 }
-
                 if (allMatch) return c;
             }
 
             return null;
         }
-
-        public static bool CanCerasConstruct(INamedTypeSymbol type, INamedTypeSymbol? cerasConstructorAttr)
+        public static bool CanCerasConstruct(INamedTypeSymbol type, INamedTypeSymbol? cerasConstructorAttr, List<SerializedMember> members)
         {
             if (type.IsValueType) return true;
             if (type.IsAbstract) return false;
-            // Robust mode uses GetUninitializedObject for all reference types.
-            return true;
-        }
 
+            // Robust mode needs to be able to find a suitable constructor
+            return GetBestConstructor(type, cerasConstructorAttr, members) != null;
+        }
         [Flags]
         public enum TargetMemberKind
         {
