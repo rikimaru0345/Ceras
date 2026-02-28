@@ -42,9 +42,9 @@ namespace Ceras {
         static void VerifyConfig(CerasSerializer ceras)
         {
             var config = ceras.Config;
-            
-            var stringFormatter = config.GetExistingTypeConfig(typeof(string), false)?.CustomFormatter;
-            if (!(stringFormatter is RobustStringFormatter))
+
+			var stringFormatter = config.GetExistingTypeConfig(typeof(string), false)?.CustomFormatter;
+			if (!(stringFormatter is RobustStringFormatter))
                 throw new InvalidOperationException("The provided CerasSerializer is not configured for Robust mode. Please call CerasRobust.Configure(config) BEFORE creating the CerasSerializer instance.");
 
             var typeFormatter = config.GetExistingTypeConfig(typeof(Type), false)?.CustomFormatter;
@@ -55,9 +55,9 @@ namespace Ceras {
         public static byte[] Save<T>(T rootObject, uint robustVersion, CerasSerializer ceras) {
             if (ceras == null) throw new ArgumentNullException(nameof(ceras));
             VerifyConfig(ceras);
-            
-            var registry = ceras.Config.Robust.SchemaRegistry;
-            var internTable = new StringInternTable();
+
+			var registry = ceras.Config.Robust.SchemaRegistry;
+			var internTable = new StringInternTable();
 
 			// Ensure the root type is registered so we can resolve its schema
 			registry.TryGetId(typeof(T), out _);
@@ -219,12 +219,14 @@ namespace Ceras {
             if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
                 Ceras.Helpers.ObjectCache.BeginDeserializeTrace();
 
-            RobustContext.BeginRead(table, idToType);
-            var oldRobustEnabled = ceras.Config.Robust.Enabled;
-            if (!oldRobustEnabled)
-                ceras.Config.Robust.Enabled = true;
-            try {
-                var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, (int)stringTableOffset - (int)dataSectionOffset);
+			RobustContext.BeginRead(table, idToType);
+
+			// todo: remove this dumb prop, lets create a new kinf of confic that inherits from a shared one or so
+			ceras.Config.Robust.Enabled = true;
+
+			try
+			{
+				var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, (int)stringTableOffset - (int)dataSectionOffset);
                 var reader = new SequenceReader<byte>(dataSeq);
                 uint rootTypeId = SchemaSection.ReadLeb128(ref reader);
 
@@ -239,14 +241,10 @@ namespace Ceras {
                 ceras.Deserialize(ref reader, ref value);
                 return value;
             }
-            finally {
-                if (!oldRobustEnabled)
-                {
-                    try { ceras.Config.Robust.Enabled = false; }
-                    catch (InvalidOperationException) { /* locked */ }
-                }
-                RobustContext.End();
-            }
+			finally
+			{
+				RobustContext.End();
+			}
         }
 
         static void WriteHeaderPlaceholder(ref byte[] buffer, ref int offset, uint robustVersion) {

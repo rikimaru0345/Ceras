@@ -63,6 +63,35 @@ namespace Ceras.Test {
 			Assert.IsType<RealEntityRepro>(loaded.Entities[0]);
 			Assert.Equal(123, ((RealEntityRepro)loaded.Entities[0]).Value);
 		}
+
+		[Fact]
+		public void WillReuseExistingObject() {
+			var config = new SerializerConfig();
+			Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
+			CerasRobust.Configure(config);
+			var ceras = new CerasSerializer(config);
+
+			var original = new ReuseTestClass();
+			original.list1.Add(1000);
+			original.List2.Add(2000);
+			original.InitOnlyAutoProp.Add(3000);
+
+			var listCountA = MyList<int>.created;
+
+			var data = CerasRobust.Save(original, 1, ceras);
+
+			// Saving should not create anything
+			Assert.Equal(listCountA, MyList<int>.created);
+
+			var clone = new MyList<int>();
+			var listCountB = MyList<int>.created;
+
+			CerasRobust.Load<ReuseTestClass>(data, 1, ceras);
+
+			// everything should be the same, ceras should have no problem with any of this, and should not have created more lists
+			// it should reuse the lists that are already there
+			Assert.NotEqual(listCountB, MyList<int>.created);
+		}
 	}
 
 	[CerasSerializable]
@@ -76,4 +105,23 @@ namespace Ceras.Test {
 	public class RealEntityRepro : IEntityRepro {
 		public int Value;
 	}
+
+	[CerasSerializable]
+	public class ReuseTestClass {
+		// field
+		public MyList<int> list1 = [1, 2, 3];
+		// readonly backing field
+		private readonly MyList<int> list2 = [7, 5, 1];
+		public MyList<int> List2 => list2;
+		// autoprop
+		public MyList<int> InitOnlyAutoProp { get; } = [4, 5, 6];
+	}
+
+	public class MyList<T> : List<T> {
+		public static int created = 0;
+		public MyList() {
+			created++;
+		}
+	}
+
 }
