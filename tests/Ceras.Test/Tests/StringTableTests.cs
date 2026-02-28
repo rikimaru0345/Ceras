@@ -105,12 +105,12 @@ namespace Ceras.Test
 
         // ── Flush / Load round-trip ───────────────────────────────────────────
 
-        static (string[] loaded, int tableStart) FlushAndLoad(StringInternTable intern)
+        static (string[] loaded, int tableStart) FlushAndLoad(StringInternTable intern, StringTableCompression compression = StringTableCompression.Disabled)
         {
-            var buf    = new byte[256];
+            var buf    = new byte[1024];
             int offset = 0;
-            int start  = intern.Flush(ref buf, ref offset);
-            var loaded = StringTable.Load(buf, start);
+            int start  = intern.Flush(ref buf, ref offset, compression);
+            var loaded = StringTable.Load(buf, start, offset - start, compression);
             return (loaded, start);
         }
 
@@ -122,6 +122,21 @@ namespace Ceras.Test
             // Only element is table[0] = null
             Assert.Single(loaded);
             Assert.Null(loaded[0]);
+        }
+
+        [Fact]
+        public void FlushLoad_Deflate_RoundTrip()
+        {
+            var intern = new StringInternTable();
+            intern.Intern("deflate_me");
+            intern.Intern("and_this_too");
+
+            var (loaded, _) = FlushAndLoad(intern, StringTableCompression.Deflate);
+
+            Assert.Equal(3, loaded.Length);
+            Assert.Null(loaded[0]);
+            Assert.Equal("deflate_me", loaded[1]);
+            Assert.Equal("and_this_too", loaded[2]);
         }
 
         [Fact]
@@ -196,7 +211,7 @@ namespace Ceras.Test
 
             Assert.Equal(42, start);
 
-            var table = StringTable.Load(buf, start);
+            var table = StringTable.Load(buf, start, offset - start);
             Assert.Equal("positioned", table[1]);
         }
 
@@ -218,7 +233,7 @@ namespace Ceras.Test
             var tableBuf    = new byte[256];
             int tableOffset = 0;
             int tableStart  = intern.Flush(ref tableBuf, ref tableOffset);
-            var table       = StringTable.Load(tableBuf, tableStart);
+            var table       = StringTable.Load(tableBuf, tableStart, tableOffset - tableStart);
 
             // Now read back all the inline indices
             var reader = new System.Buffers.SequenceReader<byte>(new System.Buffers.ReadOnlySequence<byte>(writer.WrittenMemory));

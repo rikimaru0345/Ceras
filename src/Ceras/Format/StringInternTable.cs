@@ -1,6 +1,8 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
 using System.Text;
 
 namespace Ceras.Format
@@ -24,37 +26,42 @@ namespace Ceras.Format
             return index;
         }
 
-        public int Flush(ref byte[] buffer, ref int offset)
+        public int Flush(ref byte[] buffer, ref int offset, StringTableCompression compression = StringTableCompression.Disabled)
         {
             var writer = new ArrayBufferWriter<byte>();
             int count = _indexToString.Count - 1;
             SchemaSection.WriteLeb128(writer, (uint)count);
 
-            string last = "";
             for (int i = 1; i <= count; i++)
             {
                 string current = _indexToString[i] ?? "";
-                
-                // 1. Find common prefix length
-                int commonLength = 0;
-                int minLen = Math.Min(last.Length, current.Length);
-                while (commonLength < minLen && last[commonLength] == current[commonLength])
-                    commonLength++;
-
-                // 2. Write (PrefixLength, Suffix)
-                SchemaSection.WriteLeb128(writer, (uint)commonLength);
-                string suffix = current.Substring(commonLength);
-                SchemaSection.WriteInlineString(writer, suffix);
-
-                last = current;
+                SchemaSection.WriteInlineString(writer, current);
             }
 
             var data = writer.WrittenSpan;
-            SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
-            data.CopyTo(buffer.AsSpan(offset));
-            int start = offset;
-            offset += data.Length;
-            return start;
+
+            if (compression == StringTableCompression.Deflate)
+            {
+                using var ms = new MemoryStream();
+                using (var deflate = new DeflateStream(ms, CompressionLevel.Optimal, true))
+                {
+                    deflate.Write(data);
+                }
+                var compressed = ms.ToArray();
+                SerializerBinary.EnsureCapacity(ref buffer, offset, compressed.Length);
+                compressed.CopyTo(buffer.AsSpan(offset));
+                int start = offset;
+                offset += compressed.Length;
+                return start;
+            }
+            else
+            {
+                SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
+                data.CopyTo(buffer.AsSpan(offset));
+                int start = offset;
+                offset += data.Length;
+                return start;
+            }
         }
     }
 
@@ -67,27 +74,34 @@ namespace Ceras.Format
             return table[index];
         }
 
-        public static string[] Load(byte[] data, int offset)
+        public static string[] Load(byte[] data, int offset, int length, StringTableCompression compression = StringTableCompression.Disabled)
         {
-            var sequence = new ReadOnlySequence<byte>(data, offset, data.Length - offset);
+            ReadOnlySequence<byte> sequence;
+
+            if (compression == StringTableCompression.Deflate)
+            {
+                using var ms = new MemoryStream(data, offset, length);
+                using var deflate = new DeflateStream(ms, CompressionMode.Decompress);
+                using var decompressedMs = new MemoryStream();
+                deflate.CopyTo(decompressedMs);
+                var decompressed = decompressedMs.ToArray();
+                sequence = new ReadOnlySequence<byte>(decompressed);
+            }
+            else
+            {
+                sequence = new ReadOnlySequence<byte>(data, offset, length);
+            }
+
             var reader = new SequenceReader<byte>(sequence);
             uint count = SchemaSection.ReadLeb128(ref reader);
             
             var table = new string[count + 1];
             table[0] = null;
             
-            string last = "";
             for (uint i = 1; i <= count; i++)
             {
-                uint commonLength = SchemaSection.ReadLeb128(ref reader);
-                string suffix = SchemaSection.ReadInlineString(ref reader);
-                
-                if (commonLength > last.Length)
-                    throw new InvalidOperationException("Invalid Front Compression data: commonLength > last.Length");
-                
-                string current = last.Substring(0, (int)commonLength) + suffix;
+                string current = SchemaSection.ReadInlineString(ref reader);
                 table[i] = current;
-                last = current;
             }
             
             return table;

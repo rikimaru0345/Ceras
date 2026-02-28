@@ -107,8 +107,8 @@ namespace Ceras {
                 }
             }
 
-            int stringTableStart = internTable.Flush(ref buffer, ref offset);
-            PatchHeader(buffer, offset, robustVersion, dataStart, stringTableStart, schemaFingerprint);
+            int stringTableStart = internTable.Flush(ref buffer, ref offset, ceras.Config.Robust.StringTableCompression);
+            PatchHeader(buffer, offset, robustVersion, dataStart, stringTableStart, schemaFingerprint, (byte)ceras.Config.Robust.StringTableCompression);
             return buffer[..offset];
         }
 
@@ -136,10 +136,12 @@ namespace Ceras {
             if (robustVersion > currentRobustVersion) throw new InvalidOperationException("Save from newer version");
 
             ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(OffsetFingerprint));
+            byte compressionByte = data[OffsetFlags];
             long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetDataSection));
             long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetStringTable));
 
-            var table = StringTable.Load(data, (int)stringTableOffset);
+            var compression = (StringTableCompression)compressionByte;
+            var table = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset, compression);
             ulong currentFingerprint = registry.ComputeFingerprint();
 
             int schemaOffset = HeaderSize;
@@ -248,6 +250,9 @@ namespace Ceras {
 
         static void WriteHeaderPlaceholder(ref byte[] buffer, ref int offset, uint robustVersion) {
             SerializerBinary.EnsureCapacity(ref buffer, offset, HeaderSize);
+            // Clear header space
+            buffer.AsSpan(offset, HeaderSize).Clear();
+
             buffer[offset + 0] = (byte)'C';
             buffer[offset + 1] = (byte)'E';
             buffer[offset + 2] = (byte)'R';
@@ -257,8 +262,9 @@ namespace Ceras {
             offset += HeaderSize;
         }
 
-        static void PatchHeader(byte[] buffer, int totalLength, uint robustVersion, long dataSectionOffset, long stringTableOffset, ulong schemaFingerprint) {
+        static void PatchHeader(byte[] buffer, int totalLength, uint robustVersion, long dataSectionOffset, long stringTableOffset, ulong schemaFingerprint, byte flags) {
             BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(OffsetFingerprint), schemaFingerprint);
+            buffer[OffsetFlags] = flags;
             BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(OffsetDataSection), dataSectionOffset);
             BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(OffsetStringTable), stringTableOffset);
             BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(OffsetChecksum), 0);
@@ -363,10 +369,11 @@ namespace Ceras {
 				return $"// Format version mismatch. File: {version}, Library: {FormatVersion}";
 
 			ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(OffsetFingerprint));
+            byte flags = data[OffsetFlags];
 			long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetDataSection));
 			long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(OffsetStringTable));
 
-			var table = StringTable.Load(data, (int)stringTableOffset);
+			var table = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset, (StringTableCompression)flags);
 
 			int schemaOffset = HeaderSize;
 			var sequence = new System.Buffers.ReadOnlySequence<byte>(data, schemaOffset, (int)dataSectionOffset - schemaOffset);

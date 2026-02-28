@@ -64,7 +64,11 @@
             }
         }
         SchemaRegistry IRobustConfig.SchemaRegistry => _robustConfig.SchemaRegistry;
-        void IRobustConfig.Lock() => _robustConfig.Locked = true;
+		StringTableCompression IRobustConfig.StringTableCompression {
+			get => _robustConfig.StringTableCompression;
+			set => _robustConfig.StringTableCompression = value;
+		}
+		void IRobustConfig.Lock() => _robustConfig.Locked = true;
 
 		/// <summary>
 		/// If you want to, you can add all the types you want to serialize to this collection.
@@ -471,7 +475,12 @@
         SaveAsJpg = 3,
     }
 
-    public interface IRobustConfig
+	public enum StringTableCompression {
+		Disabled = 0,
+		Deflate = 1,
+	}
+
+	public interface IRobustConfig
     {
         /// <summary>
         /// Gets or sets whether robust (version-tolerant) formatting is enabled.
@@ -484,17 +493,24 @@
         /// </summary>
         SchemaRegistry SchemaRegistry { get; }
 
-        /// <summary>
-        /// Prevents <see cref="Enabled"/> from being set to <c>false</c>.
-        /// Used by the source-generator to ensure robust mode is active when using generated robust formatters.
-        /// </summary>
-        void Lock();
+		/// <summary>
+		/// Gets or sets the compression method to use for the string table.
+		/// <para>Default: Disabled</para>
+		/// </summary>
+		StringTableCompression StringTableCompression { get; set; }
+
+		/// <summary>
+		/// Prevents <see cref="Enabled"/> from being set to <c>false</c>.
+		/// Used by the source-generator to ensure robust mode is active when using generated robust formatters.
+		/// </summary>
+		void Lock();
     }
 
     internal class RobustConfig
     {
         public bool Enabled;
         public bool Locked;
-        public readonly SchemaRegistry SchemaRegistry = new SchemaRegistry();
+		public StringTableCompression StringTableCompression = StringTableCompression.Deflate;
+		public readonly SchemaRegistry SchemaRegistry = new SchemaRegistry();
     }
 }

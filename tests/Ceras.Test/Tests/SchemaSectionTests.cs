@@ -78,8 +78,9 @@ namespace Ceras.Test
 
             // Flush intern table so we can load it
             int tableOffset = offset;
+            int start = tableOffset;
             intern.Flush(ref buffer, ref tableOffset);
-            var stringTable = StringTable.Load(buffer, offset);
+            var stringTable = StringTable.Load(buffer, start, tableOffset - start);
 
             int readOffset = 0;
             return SchemaSection.Read(buffer, ref readOffset, stringTable);
@@ -281,8 +282,9 @@ namespace Ceras.Test
             // Read back, then write again
             int rOff = 0;
             int tOff = off1;
+            int start1 = tOff;
             intern1.Flush(ref buf1, ref tOff);
-            var table1 = StringTable.Load(buf1, off1);
+            var table1 = StringTable.Load(buf1, start1, tOff - start1);
             SchemaSection.Read(buf1, ref rOff, table1); // consume exactly off1 bytes
 
             var buf2 = new byte[1024];

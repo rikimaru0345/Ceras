@@ -185,9 +185,10 @@ namespace Ceras.Test
             var inv = new RobustInventory { Gold = 0, Tag = "duplicate", Note = "duplicate" };
             byte[] data = CerasRobust.Save(inv, robustVersion: 1, ceras);
             long tableOff = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(CerasRobust.OffsetStringTable));
+            byte compression = data[CerasRobust.OffsetFlags];
 
             // Read string table
-            var table = StringTable.Load(data, (int)tableOff);
+            var table = StringTable.Load(data, (int)tableOff, data.Length - (int)tableOff, (StringTableCompression)compression);
             
             // "duplicate" interned once; null is index 0 (not stored).
             // Check if any entry in the table matches "duplicate"
