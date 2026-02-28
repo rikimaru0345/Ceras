@@ -158,15 +158,15 @@ namespace Ceras.Test
             var tc = config.ConfigType<GetterOnlyRoot>();
             
             // Reference types should be INCLUDED (because we enabled ReadonlyFieldHandling.Members)
-            Assert.Contains(tc.Members, m => m.Member.Name == "ChildField" && m.ComputeFinalInclusionFast());
-            Assert.Contains(tc.Members, m => m.Member.Name == "ChildProp" && m.ComputeFinalInclusionFast());
-            Assert.Contains(tc.Members, m => m.Member.Name == "ChildCtor" && m.ComputeFinalInclusionFast());
+            Assert.Contains(tc.Members, m => m.PersistentName == "ChildField" && m.ComputeFinalInclusionFast());
+            Assert.Contains(tc.Members, m => m.PersistentName == "ChildProp" && m.ComputeFinalInclusionFast());
+            Assert.Contains(tc.Members, m => m.PersistentName == "ChildCtor" && m.ComputeFinalInclusionFast());
 
             // Value types should be EXCLUDED (because they are computed/readonly value types)
-            var ignoredIntMember = tc.Members.FirstOrDefault(m => m.Member.Name == "IgnoredInt");
+            var ignoredIntMember = tc.Members.FirstOrDefault(m => m.PersistentName == "IgnoredInt");
             Assert.True(ignoredIntMember == null || !ignoredIntMember.ComputeFinalInclusionFast());
 
-            var ignoredFloatMember = tc.Members.FirstOrDefault(m => m.Member.Name == "IgnoredFloat");
+            var ignoredFloatMember = tc.Members.FirstOrDefault(m => m.PersistentName == "IgnoredFloat");
             Assert.True(ignoredFloatMember == null || !ignoredFloatMember.ComputeFinalInclusionFast());
         }
 

@@ -109,7 +109,7 @@
         }
 
 
-        public static IEnumerable<MemberInfo> GetAllDataMembers(this Type type, bool fields = true, bool properties = true)
+        public static IEnumerable<MemberInfo> GetAllDataMembers(this Type type, bool fields = true, bool properties = false)
         {
             if (type.IsPrimitive)
                 yield break;
@@ -123,7 +123,7 @@
             }
         }
 
-        public static IEnumerable<MemberInfo> GetAllStaticDataMembers(this Type type, bool fields = true, bool properties = true)
+        public static IEnumerable<MemberInfo> GetAllStaticDataMembers(this Type type, bool fields = true, bool properties = false)
         {
             if (type.IsPrimitive)
                 yield break;

@@ -157,7 +157,10 @@ namespace Ceras
         internal override Func<object> GetRefFormatterConstructor()
         {
             var ctor = Constructor;
-            return () => ctor.Invoke(null);
+            if (ctor.GetParameters().Length == 0)
+                return () => ctor.Invoke(null);
+
+            throw new NotSupportedException($"Parameterized constructors (Type: {ctor.DeclaringType.FullName}) are no longer supported because the fixup system was removed. Use a parameterless constructor or 'ConstructByUninitialized()'.");
         }
 
         internal override void VerifyReturnType() => VerifyMethodReturn(Constructor);
@@ -192,6 +195,9 @@ namespace Ceras
         internal override bool HasDataArguments => Method.GetParameters().Length > 0;
         internal override Func<object> GetRefFormatterConstructor()
         {
+            if (Method.GetParameters().Length > 0)
+                throw new NotSupportedException($"Factory methods with parameters (Method: {Method.DeclaringType.FullName}.{Method.Name}) are no longer supported because the fixup system was removed. Use a parameterless method or 'ConstructByUninitialized()'.");
+
             if (Method.IsStatic)
                 return () => Method.Invoke(null, null);
             else

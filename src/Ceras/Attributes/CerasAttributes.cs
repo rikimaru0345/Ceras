@@ -62,7 +62,7 @@ namespace Ceras
 
         internal bool? InternalAllowUninitializedObjectFallback => _allowUninitializedObjectFallback;
 
-		public MemberConfigAttribute(TargetMember targetMembers = TargetMember.AllFields, ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.ExcludeFromSerialization) {
+		public MemberConfigAttribute(TargetMember targetMembers = TargetMember.AllFields, ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Inherit) {
             TargetMembers = targetMembers;
             ReadonlyFieldHandling = readonlyFieldHandling;
         }
@@ -76,7 +76,7 @@ namespace Ceras
     {
         public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
 
-        public ReadonlyConfigAttribute(ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.ExcludeFromSerialization)
+        public ReadonlyConfigAttribute(ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Inherit)
         {
             ReadonlyFieldHandling = readonlyFieldHandling;
         }

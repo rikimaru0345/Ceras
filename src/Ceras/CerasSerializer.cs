@@ -40,19 +40,25 @@ namespace Ceras
             }
         }
 
-        internal static bool IsFormatterConstructed(Type type)
-        {
-            if (type.IsAbstract) return true;
-
-			// Check manual registration (The source generator calls AddFormatterConstructedType during UseRobustFormatters)
-			lock (_formatterConstructedTypes)
-            {
-                if (_formatterConstructedTypes.Contains(type)) return true;
-            }
-
-            return false;
-        }
-
+                internal static bool IsFormatterConstructed(Type type)
+                {
+                    if (type.IsAbstract) return true;
+        
+                    // Check manual registration
+                    lock (_formatterConstructedTypes)
+                    {
+                        if (_formatterConstructedTypes.Contains(type)) return true;
+                    }
+        
+                    return false;
+                }
+        
+                internal bool IsFormatterConstructedInstance(Type type)
+                {
+                    if (IsFormatterConstructed(type)) return true;
+                    var meta = GetTypeMetaData(type);
+                    return meta.TypeConfig?.CustomFormatter != null;
+                }
         internal static bool IsPrimitiveType(Type type)
         {
             if (type.IsPrimitive) return true;
@@ -98,9 +104,9 @@ namespace Ceras
 
         // Fixup context for circular references in [CerasConstructor]
         // These are public so generated formatters in other assemblies can access them.
-        public object CurrentFixupTarget { get => InstanceData.CurrentFixupTarget; set => InstanceData.CurrentFixupTarget = value; }
-        public MemberInfo CurrentFixupMember { get => InstanceData.CurrentFixupMember; set => InstanceData.CurrentFixupMember = value; }
-        public int CurrentFixupIndex { get => InstanceData.CurrentFixupIndex; set => InstanceData.CurrentFixupIndex = value; }
+
+
+
 
         public CerasSerializer(SerializerConfig config = null)
         {
@@ -335,7 +341,12 @@ namespace Ceras
 			// BannedTypes.ThrowIfBanned(type);
 
 			bool isPrim = IsPrimitiveType(type), isFrame = _frameworkAssemblies.Contains(type.Assembly);
-            meta = new TypeMetaData(type, isPrim ? null : Config.GetTypeConfig(type, isStatic), isFrame, isPrim);
+            var typeConfig = isPrim ? null : Config.GetTypeConfig(type, isStatic);
+            
+            if (typeConfig != null && typeConfig.CustomFormatter != null)
+                AddFormatterConstructedType(type);
+
+            meta = new TypeMetaData(type, typeConfig, isFrame, isPrim);
             if (!isPrim)
                 meta.PrimarySchema = CreatePrimarySchema(type, isStatic);
             return meta;
@@ -490,14 +501,15 @@ namespace Ceras
     {
         public TypeCache TypeCache;
         public ObjectCache ObjectCache;
+        public ObjectCache.RefProxy CurrentProxy;
         public IExternalRootObject CurrentRoot;
         public object UserContext;
         public HashSet<Type> EncounteredSchemaTypes;
 
         // Fixup context for circular references in [CerasConstructor]
-        public object CurrentFixupTarget;
-        public MemberInfo CurrentFixupMember;
-        public int CurrentFixupIndex;
+
+
+
     }
     enum RecursionMode { Idle, Serialization, Deserialization, }
 

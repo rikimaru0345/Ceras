@@ -448,7 +448,12 @@
         string _persistentNameOverride;
         public string PersistentName
         {
-            get => _persistentNameOverride ?? Member.Name;
+            get
+            {
+                if (_persistentNameOverride != null) return _persistentNameOverride;
+                if (AssociatedProperty != null) return AssociatedProperty.Name;
+                return Member.Name;
+            }
             set
             {
                 TypeConfig.ThrowIfSealed();
@@ -474,6 +479,7 @@
         public bool IsGetterOnly { get; }
 
         internal bool HasNonSerializedAttribute;
+        internal readonly PropertyInfo AssociatedProperty;
 
         protected ReadonlyFieldHandling? _readonlyOverride;
         public ReadonlyFieldHandling? ReadonlyFieldHandling
@@ -531,7 +537,20 @@
             TypeConfig = typeConfig;
             Member = member;
 
+            if (member is FieldInfo fi && fi.Name.EndsWith("k__BackingField"))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(fi.Name, @"^<(.*)>k__BackingField$");
+                if (match.Success)
+                {
+                    string propName = match.Groups[1].Value;
+                    AssociatedProperty = fi.DeclaringType.GetProperty(propName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+                }
+            }
+
             IsCompilerGenerated = member.GetCustomAttribute<CompilerGeneratedAttribute>() != null;
+            if (AssociatedProperty != null)
+                IsCompilerGenerated = false;
+
             IsReadonlyField = member is FieldInfo f && f.IsInitOnly;
             IsGetterOnly = member is PropertyInfo p && p.GetSetMethod(true) == null;
         }
@@ -633,10 +652,26 @@
         {
             if (member is FieldInfo f)
             {
-                if (f.IsPublic)
-                    return TargetMember.PublicFields;
-                else
-                    return TargetMember.PrivateFields;
+                var mask = f.IsPublic ? TargetMember.PublicFields : TargetMember.PrivateFields;
+
+                if (f.Name.EndsWith("k__BackingField"))
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(f.Name, @"^<(.*)>k__BackingField$");
+                    if (match.Success)
+                    {
+                        string propName = match.Groups[1].Value;
+                        var prop = f.DeclaringType.GetProperty(propName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+                        if (prop != null)
+                        {
+                            if (prop.GetGetMethod(true).IsPublic)
+                                mask |= TargetMember.PublicProperties;
+                            else
+                                mask |= TargetMember.PrivateProperties;
+                        }
+                    }
+                }
+
+                return mask;
             }
             else if (member is PropertyInfo p)
             {
@@ -652,11 +687,11 @@
         internal ReadonlyFieldHandling ComputeReadonlyHandling()
         {
             // Local?
-            if (_readonlyOverride.HasValue)
+            if (_readonlyOverride.HasValue && _readonlyOverride.Value != Ceras.ReadonlyFieldHandling.Inherit)
                 return _readonlyOverride.Value;
 
             // Type?
-            if (TypeConfig.ReadonlyFieldOverride.HasValue)
+            if (TypeConfig.ReadonlyFieldOverride.HasValue && TypeConfig.ReadonlyFieldOverride.Value != Ceras.ReadonlyFieldHandling.Inherit)
                 return TypeConfig.ReadonlyFieldOverride.Value;
 
             // Global

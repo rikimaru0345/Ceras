@@ -146,6 +146,9 @@ namespace Ceras.SourceGenerator
             sbUse.AppendLine("            config.Robust.Enabled = true;");
             sbUse.AppendLine("            config.Robust.Lock();");
             sbUse.AppendLine();
+            sbUse.AppendLine("            // In robust mode we populate in-place and overwrite everything.");
+            sbUse.AppendLine("            config.Advanced.ReadonlyFieldHandling = global::Ceras.ReadonlyFieldHandling.ForcedOverwrite;");
+            sbUse.AppendLine("            config.Advanced.AllowUninitializedObjectFallback = true;");
 
             foreach (var type in finalTypes)
             {
@@ -163,12 +166,6 @@ namespace Ceras.SourceGenerator
                 sbUse.AppendLine($"            var {varName} = config.ConfigType<{typeFqn}>();");
                 sbUse.AppendLine($"            if ({varName}.CustomFormatter == null) {varName}.CustomFormatter = new {formatterName}();");
                 
-                var bestCtor = MemberExplorer.GetBestConstructor(type, cerasConstructorAttr);
-                if (bestCtor != null && bestCtor.Parameters.Length > 0)
-                {
-                    sbUse.AppendLine($"            global::Ceras.CerasSerializer.AddFormatterConstructedType(typeof({typeFqn}));");
-                }
-
                 if (vt) sbUse.AppendLine($"            config.Robust.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
             }
 

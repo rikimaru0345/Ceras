@@ -30,6 +30,7 @@ namespace Ceras {
 
             config.Advanced.EmbedChecksum = false;
             config.Advanced.UseReinterpretFormatter = false;
+            config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
 
             // Core robust formatters
             config.ConfigType<string>().CustomFormatter = new RobustStringFormatter();

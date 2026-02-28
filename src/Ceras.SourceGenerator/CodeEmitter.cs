@@ -40,43 +40,20 @@ namespace Ceras.SourceGenerator
             }
             sb.AppendLine();
 
-            // --- MemberInfo fields for fixups ---
-            foreach (var m in members)
-            {
-                string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
-                sb.AppendLine($"        [global::System.Diagnostics.CodeAnalysis.SuppressMessage(\"Style\", \"IDE0044:Add readonly modifier\")]");
-                sb.AppendLine($"        global::System.Reflection.MemberInfo _memberInfo_{safeName};");
-            }
-            sb.AppendLine();
-
             // --- Initialize --------------------------------------------------------
             sb.AppendLine("        protected override void Initialize()");
             sb.AppendLine("        {");
             sb.AppendLine($"            var type = typeof({typeFqn});");
             foreach (var m in members)
             {
-                string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
-                string memberType = m.IsField ? "Field" : "Property";
-                sb.AppendLine($"            _memberInfo_{safeName} = type.Get{memberType}(\"{m.Name}\", global::System.Reflection.BindingFlags.Public | global::System.Reflection.BindingFlags.NonPublic | global::System.Reflection.BindingFlags.Instance | global::System.Reflection.BindingFlags.Static);");
-            }
+}
             sb.AppendLine("        }");
             sb.AppendLine();
 
             // --- Schema descriptor (VersionTolerant only) --------------------------
             if (vt)
                 WriteSchemaDescriptor(sb, type, members, attrs);
-
-            bool hasCtorParams = members.Any(m => m.IsCtorParam);
-
-            // When a [CerasConstructor] is used, getter-only members cannot be read into
-            // a temp and then assigned post-ctor (the property has no setter). Instead we
-            // emit them LAST — after the ctor call — so the new object's already-initialized
-            // instances can be populated in-place, exactly like the normal (no-ctor) path.
-            // Serialize must use the same order so the binary layout stays consistent.
-            var nonGetterOnlyMembers = hasCtorParams ? members.Where(m => !m.IsGetterOnly).ToList() : null;
-            var getterOnlyMembers    = hasCtorParams ? members.Where(m =>  m.IsGetterOnly).ToList() : null;
-
-            // --- Serialize ---------------------------------------------------------
+// --- Serialize ---------------------------------------------------------
             sb.AppendLine($"        public override void Serialize(global::System.Buffers.IBufferWriter<byte> writer, {typeFqn} value)");
             sb.AppendLine("        {");
 
@@ -94,8 +71,7 @@ namespace Ceras.SourceGenerator
             }
             else
             {
-                // For ctor types: non-getter-only first, getter-only last (matches Deserialize order below).
-                var serializeMembers = hasCtorParams ? nonGetterOnlyMembers.Concat(getterOnlyMembers) : members;
+                var serializeMembers = members;
                 foreach (var m in serializeMembers)
                 {
                     string fieldName = MakeFormatterFieldName(m.Type);
@@ -135,88 +111,27 @@ namespace Ceras.SourceGenerator
             }
             else
             {
-                sb.AppendLine("            var oldTarget = _ceras.CurrentFixupTarget;");
-                sb.AppendLine("            var oldMember = _ceras.CurrentFixupMember;");
-                sb.AppendLine("            var oldIndex = _ceras.CurrentFixupIndex;");
-                sb.AppendLine("            try");
-                sb.AppendLine("            {");
 
-                if (hasCtorParams)
-                {
-                    // [CerasConstructor] path.
-                    // Phase 1: read non-getter-only members into temps (these may include ctor args).
-                    // We use a memberValues array to allow fixups to work for ctor args too.
-                    sb.AppendLine($"                object[] memberValues = new object[{nonGetterOnlyMembers.Count}];");
-
-                    int memberIdx = 0;
-                    foreach (var m in nonGetterOnlyMembers)
+                
+                    if (type.IsReferenceType)
                     {
-                        string fieldName = MakeFormatterFieldName(m.Type);
-                        string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-
-                        sb.AppendLine($"                _ceras.CurrentFixupTarget = memberValues;");
-                        sb.AppendLine($"                _ceras.CurrentFixupIndex = {memberIdx};");
-                        sb.AppendLine($"                _ceras.CurrentFixupMember = null;");
-
-                        if (IsFastPrimitive(m.Type))
+                        sb.AppendLine("                if (value == null)");
+                        sb.AppendLine("                {");
+                        sb.AppendLine("                    if (_ceras.Config.Robust.Enabled)");
+                        sb.AppendLine($"                        value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
+                        
+                        var ctor = type.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 0 && (c.DeclaredAccessibility == Accessibility.Public || c.DeclaredAccessibility == Accessibility.Internal));
+                        if (ctor != null)
                         {
-                            string readExpr = GetPrimitiveReadExpression(m.Type, "reader");
-                            sb.AppendLine($"                memberValues[{memberIdx}] = {readExpr};");
+                            sb.AppendLine("                    else");
+                            sb.AppendLine($"                        value = new {typeFqn}();");
                         }
                         else
                         {
-                            string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
-                            sb.AppendLine($"                {memberTypeFqn} _ctor_{safeName} = default;");
-                            sb.AppendLine($"                {fieldName}.Deserialize(ref reader, ref _ctor_{safeName});");
-                            sb.AppendLine($"                memberValues[{memberIdx}] = _ctor_{safeName};");
+                            sb.AppendLine("                    else");
+                            sb.AppendLine($"                        value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
                         }
-                        memberIdx++;
-                    }
-
-                    // Phase 2: construct the object.
-                    var ctorArgParts = members.Where(m => m.IsCtorParam).Select(m => {
-                        var m2 = nonGetterOnlyMembers.First(x => x.Name == m.Name);
-                        int idx = nonGetterOnlyMembers.IndexOf(m2);
-                        string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                        return $"{m.CtorParamName}: ({memberTypeFqn})memberValues[{idx}]";
-                    });
-                    string ctorArgs = string.Join(", ", ctorArgParts);
-                    sb.AppendLine($"                value = new {typeFqn}({ctorArgs});");
-
-                    // CRITICAL: assigning to 'value' already updated the proxy because it was passed by 'ref'.
-
-                    // Phase 3: assign non-ctor-param writable members.
-                    foreach (var m in nonGetterOnlyMembers.Where(m => !m.IsCtorParam))
-                    {
-                        int idx = nonGetterOnlyMembers.IndexOf(m);
-                        string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                        WriteSetStatement(sb, m, typeFqn, $"({memberTypeFqn})memberValues[{idx}]", 16);
-                    }
-
-                    // Phase 4: read getter-only members directly into the new object's instances (in-place).
-                    // The ctor guarantees these are non-null, so we can deserialize straight into them.
-                    foreach (var m in getterOnlyMembers)
-                    {
-                        string fieldName = MakeFormatterFieldName(m.Type);
-                        string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                        string getAccess = GetGetAccess(m, typeFqn);
-                        string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
-                        string tmp = "_m_" + safeName;
-
-                        sb.AppendLine($"                _ceras.CurrentFixupTarget = value;");
-                        sb.AppendLine($"                _ceras.CurrentFixupMember = _memberInfo_{safeName};");
-
-                        sb.AppendLine($"                {memberTypeFqn} {tmp} = {getAccess};");
-                        sb.AppendLine($"                if ({tmp} == null) global::Ceras.Helpers.CerasThrowHelper.ThrowGetterOnlyNull(\"{m.Name}\", typeof({typeFqn}).FullName);");
-                        sb.AppendLine($"                {fieldName}.Deserialize(ref reader, ref {tmp});");
-                    }
-                }
-                else
-                {
-                    // Normal path
-                    if (type.IsReferenceType)
-                    {
-                        sb.AppendLine($"                if (value == null) throw new global::System.InvalidOperationException($\"The instance of type '{{typeof({typeFqn}).FullName}}' was null. For types with a parameterless constructor, the instance must be provided by ReferenceFormatter.\");");
+                        sb.AppendLine("                }");
                     }
 
                     foreach (var m in members)
@@ -225,9 +140,6 @@ namespace Ceras.SourceGenerator
                         string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                         string? refAccess = GetRefAccess(m, typeFqn);
                         string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
-
-                        sb.AppendLine($"                _ceras.CurrentFixupTarget = value;");
-                        sb.AppendLine($"                _ceras.CurrentFixupMember = _memberInfo_{safeName};");
 
                         if (IsFastPrimitive(m.Type))
                         {
@@ -261,17 +173,43 @@ namespace Ceras.SourceGenerator
                             }
                         }
                     }
-                }
-
-                sb.AppendLine("            }");
-                sb.AppendLine("            finally");
-                sb.AppendLine("            {");
-                sb.AppendLine("                _ceras.CurrentFixupTarget = oldTarget;");
-                sb.AppendLine("                _ceras.CurrentFixupMember = oldMember;");
-                sb.AppendLine("                _ceras.CurrentFixupIndex = oldIndex;");
-                sb.AppendLine("            }");
                 sb.AppendLine("        }");
             }
+            
+            // --- Access Helpers ---
+            foreach (var m in members)
+            {
+                var req = MemberExplorer.GetAccessHelperRequirement(m);
+                if (req == AccessHelperRequirement.None) continue;
+
+                string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                string instanceModifier = m.DeclaringType.IsValueType ? "ref " : "";
+                string instanceParam = $"{instanceModifier}{declaringTypeFqn} instance";
+                string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
+                string safeDeclaringName = TypeHelpers.SanitizeIdentifier(m.DeclaringType.ToDisplayString(TypeHelpers.FullyQualifiedNoGlobal));
+                string helperPrefix = $"__ceras_{safeDeclaringName}_{safeName}";
+
+                if (m.IsField)
+                {
+                    sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = \"{m.Name}\")]");
+                    sb.AppendLine($"        internal static extern ref {memberTypeFqn} {helperPrefix}_ref({instanceParam});");
+                }
+                else
+                {
+                    if ((req & AccessHelperRequirement.Read) != 0)
+                    {
+                        sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = \"get_{m.Name}\")]");
+                        sb.AppendLine($"        internal static extern {memberTypeFqn} {helperPrefix}_get({instanceParam});");
+                    }
+                    if ((req & AccessHelperRequirement.Write) != 0)
+                    {
+                        sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = \"set_{m.Name}\")]");
+                        sb.AppendLine($"        internal static extern void {helperPrefix}_set({instanceParam}, {memberTypeFqn} value);");
+                    }
+                }
+            }
+
             sb.AppendLine("    }");
             sb.AppendLine();
         }
@@ -544,10 +482,12 @@ namespace Ceras.SourceGenerator
                 {
                     if (m.IsReadAccessible) return $"value.{m.Name}";
                     string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
+                    string safeDeclaringName = TypeHelpers.SanitizeIdentifier(m.DeclaringType.ToDisplayString(TypeHelpers.FullyQualifiedNoGlobal));
+                    string helperPrefix = $"__ceras_{safeDeclaringName}_{safeName}";
                     string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    string arg = m.DeclaringType.IsValueType ? "ref value" : "value";
-                    if (m.IsField) return $"{declaringTypeFqn}.__ceras_ref_{safeName}({arg})";
-                    return $"{declaringTypeFqn}.__ceras_get_{safeName}({arg})";
+                    string arg = m.DeclaringType.IsValueType ? "ref value" : $"({declaringTypeFqn})value";
+                    if (m.IsField) return $"{helperPrefix}_ref({arg})";
+                    return $"{helperPrefix}_get({arg})";
                 }
         
                 static string? GetRefAccess(SerializedMember m, string typeFqn)
@@ -565,10 +505,12 @@ namespace Ceras.SourceGenerator
                     if (m.IsCtorParam) return;
         
                     string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
+                    string safeDeclaringName = TypeHelpers.SanitizeIdentifier(m.DeclaringType.ToDisplayString(TypeHelpers.FullyQualifiedNoGlobal));
+                    string helperPrefix = $"__ceras_{safeDeclaringName}_{safeName}";
                     string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    string arg = m.DeclaringType.IsValueType ? "ref value" : "value";
-                    if (m.IsField) sb.AppendLine($"{prefix}{declaringTypeFqn}.__ceras_ref_{safeName}({arg}) = {valueExpr};");
-                    else sb.AppendLine($"{prefix}{declaringTypeFqn}.__ceras_set_{safeName}({arg}, {valueExpr});");
+                    string arg = m.DeclaringType.IsValueType ? "ref value" : $"({declaringTypeFqn})value";
+                    if (m.IsField) sb.AppendLine($"{prefix}{helperPrefix}_ref({arg}) = {valueExpr};");
+                    else sb.AppendLine($"{prefix}{helperPrefix}_set({arg}, {valueExpr});");
                 }
         static int ComputeFixedByteSize(ITypeSymbol type)
         {

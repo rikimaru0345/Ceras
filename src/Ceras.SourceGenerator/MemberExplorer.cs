@@ -32,146 +32,57 @@ namespace Ceras.SourceGenerator
                     if (member.IsStatic)
                         continue;
 
-                    if (member.IsImplicitlyDeclared)
-                    {
-                        if (!(member is IFieldSymbol f && f.Name.EndsWith("k__BackingField")))
-                            continue;
-                    }
-
-                    if (!seenNames.Add(member.Name))
-                        continue;
-
-                    ITypeSymbol? memberType = (member as IFieldSymbol)?.Type ?? (member as IPropertySymbol)?.Type;
-                    if (memberType == null) continue;
-
-                    if (IsBanned(memberType))
-                        continue;
-
-                    if (HasAttribute(memberType, attrs.Exclude))
-                        continue;
-
-                    bool hasInclude = attrs.Include != null && HasAttribute(member, attrs.Include);
-                    bool hasExclude = attrs.Exclude != null && HasAttribute(member, attrs.Exclude);
-
-                    if (hasExclude) continue;
-
-                    bool isAccessible = member.DeclaredAccessibility == Accessibility.Public ||
-                                        member.DeclaredAccessibility == Accessibility.Internal;
-
                     if (member is IFieldSymbol field)
                     {
                         if (field.IsConst) continue;
 
-                        bool isFieldGetterOnly = field.IsReadOnly;
-                        bool isFieldPublic = field.DeclaredAccessibility == Accessibility.Public;
+                        if (IsBanned(field.Type)) continue;
+                        if (HasAttribute(field.Type, attrs.Exclude)) continue;
 
-                        if (!hasInclude && !IsFieldIncluded(field, currentTargetKind))
+                        bool isBackingField = field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField");
+                        IPropertySymbol? associatedProp = null;
+                        if (isBackingField)
                         {
-                            if (field.Type.IsValueType) continue; // Cannot populate value types in-place
-                            if (!isFieldPublic && !hasInclude) continue;
-                        }
-                        else if (field.IsReadOnly && !hasInclude)
-                        {
-                            if (field.Type.IsValueType) continue; // Cannot populate value types in-place
-                        }
-
-                        members.Add(MakeMember(field.Name, field.Type, isField: true, member, attrs, isGetterOnly: isFieldGetterOnly));
-                    }
-                    else if (member is IPropertySymbol prop)
-                    {
-                        if (prop.IsWriteOnly || prop.IsIndexer) continue;
-                        if (prop.GetMethod == null) continue;
-
-                        bool isGetterOnly = prop.IsReadOnly || prop.SetMethod == null;
-                        bool isPropPublic = prop.DeclaredAccessibility == Accessibility.Public;
-
-                        if (isGetterOnly)
-                        {
-                            if (prop.Type.IsValueType) continue; // Cannot populate value types in-place
-                            
-                            // If it's NOT public, we ONLY include it if it has [Include]
-                            if (!isPropPublic && !hasInclude) continue;
-                        }
-                        else
-                        {
-                            if (!isAccessible && !hasInclude && !IsPropertyIncluded(prop, currentTargetKind))
-                                continue;
-
-                            if (!hasInclude && !IsPropertyIncluded(prop, currentTargetKind)) continue;
-                        }
-
-                        members.Add(MakeMember(prop.Name, prop.Type, isField: false, member, attrs, isGetterOnly: isGetterOnly));
-                    }
-                }
-            }
-
-            // [CerasConstructor] parameter injection
-            var cerasCtor = GetBestConstructor(type, attrs.CerasConstructor);
-            if (cerasCtor != null && cerasCtor.Parameters.Length > 0)
-            {
-                var memberByNorm = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                for (int i = 0; i < members.Count; i++)
-                {
-                    string norm = NormalizeName(members[i].Name);
-                    memberByNorm[norm] = i;
-                }
-
-                foreach (var param in cerasCtor.Parameters)
-                {
-                    string normParam = NormalizeName(param.Name);
-
-                    if (memberByNorm.TryGetValue(normParam, out int idx))
-                    {
-                        var existing = members[idx];
-                        members[idx] = new SerializedMember(
-                            existing.Name, existing.StableName, existing.Type, existing.DeclaringType,
-                            existing.IsField, existing.PreviousNames, existing.IsMonomorphic,
-                            existing.IsAccessible, existing.IsReadOnly, isGetterOnly: false, isCtorParam: true, 
-                            ctorParamName: param.Name,
-                            isReadAccessible: existing.IsReadAccessible, isWriteAccessible: existing.IsWriteAccessible);
-                    }
-                    else
-                    {
-                        ISymbol? found = null;
-                        ITypeSymbol? foundType = null;
-                        bool foundIsField = false;
-
-                        foreach (var t2 in typeChain)
-                        {
-                            foreach (var sym in t2.GetMembers())
+                            var match = System.Text.RegularExpressions.Regex.Match(field.Name, @"^<(.*)>k__BackingField$");
+                            if (match.Success)
                             {
-                                if (sym.IsStatic || sym.IsImplicitlyDeclared) continue;
-                                string normMember = NormalizeName(sym.Name);
-                                if (normMember != normParam) continue;
-
-                                if (sym is IFieldSymbol f2 && !f2.IsConst)
-                                {
-                                    found = sym; foundType = f2.Type; foundIsField = true; break;
-                                }
-                                else if (sym is IPropertySymbol p2 && !p2.IsIndexer && p2.GetMethod != null)
-                                {
-                                    found = sym; foundType = p2.Type; foundIsField = false; break;
-                                }
+                                string propName = match.Groups[1].Value;
+                                associatedProp = t.GetMembers(propName).OfType<IPropertySymbol>().FirstOrDefault();
                             }
-                            if (found != null) break;
                         }
 
-                        if (found != null && foundType != null)
+                        bool hasInclude = (attrs.Include != null && HasAttribute(field, attrs.Include)) || (associatedProp != null && attrs.Include != null && HasAttribute(associatedProp, attrs.Include));
+                        bool hasExclude = (attrs.Exclude != null && HasAttribute(field, attrs.Exclude)) || (associatedProp != null && attrs.Exclude != null && HasAttribute(associatedProp, attrs.Exclude));
+
+                        if (hasExclude) continue;
+
+                        bool isFieldPublic = field.DeclaredAccessibility == Accessibility.Public;
+                        bool isPropPublic = associatedProp != null && associatedProp.DeclaredAccessibility == Accessibility.Public;
+
+                        bool isIncludedByConfig = IsFieldIncluded(field, currentTargetKind);
+                        if (!isIncludedByConfig && associatedProp != null)
                         {
-                            bool mono = IsMonomorphicByDefault(foundType);
-                            bool isAcc = found.DeclaredAccessibility == Accessibility.Public ||
-                                         found.DeclaredAccessibility == Accessibility.Internal;
-
-                            bool isRO = foundIsField ? ((IFieldSymbol)found).IsReadOnly : ((IPropertySymbol)found).SetMethod == null;
-
-                            members.Add(new SerializedMember(
-                                found.Name, param.Name, foundType, found.ContainingType, foundIsField,
-                                Array.Empty<string>(), mono, isAcc, isRO,
-                                isGetterOnly: false, isCtorParam: true, ctorParamName: param.Name,
-                                isReadAccessible: isAcc, isWriteAccessible: isAcc));
-                            memberByNorm[normParam] = members.Count - 1;
+                            // If the field is a backing field, check if the property is included by config
+                            if ((currentTargetKind & TargetMemberKind.PublicProperties) != 0 && isPropPublic)
+                                isIncludedByConfig = true;
+                            else if ((currentTargetKind & TargetMemberKind.PrivateProperties) != 0 && !isPropPublic)
+                                isIncludedByConfig = true;
                         }
+
+                        if (!hasInclude && !isFieldPublic && !isBackingField && !isIncludedByConfig)
+                            continue;
+
+                        // Sanitize backing field name for the stream
+                        string stableName = field.Name;
+                        if (associatedProp != null)
+                        {
+                            stableName = associatedProp.Name;
+                        }
+
+                        members.Add(MakeMember(field.Name, field.Type, isField: true, field, attrs, isGetterOnly: false, stableNameOverride: stableName));
                     }
+                    // Properties are no longer serialized directly. 
+                    // Auto-properties are handled via their backing fields.
                 }
             }
 
@@ -267,9 +178,9 @@ namespace Ceras.SourceGenerator
 
         static SerializedMember MakeMember(
             string name, ITypeSymbol type, bool isField,
-            ISymbol symbol, AttributeBag attrs, bool isGetterOnly = false)
+            ISymbol symbol, AttributeBag attrs, bool isGetterOnly = false, string stableNameOverride = null)
         {
-            string stableName = name;
+            string stableName = stableNameOverride ?? name;
             if (attrs.SerializedAs != null)
             {
                 foreach (var attr in symbol.GetAttributes())
@@ -319,6 +230,8 @@ namespace Ceras.SourceGenerator
             bool isWriteAccessible = isAccessible;
 
             bool isReadOnly = isField ? ((IFieldSymbol)symbol).IsReadOnly : (((IPropertySymbol)symbol).SetMethod == null || ((IPropertySymbol)symbol).SetMethod.IsInitOnly);
+            
+            if (isReadOnly) isWriteAccessible = false;
 
             if (symbol is IPropertySymbol prop)
             {
@@ -456,41 +369,7 @@ namespace Ceras.SourceGenerator
 
         public static void ValidateCerasConstructor(SourceProductionContext context, Compilation compilation, INamedTypeSymbol type, List<SerializedMember> members, AttributeBag attrs)
         {
-            var explicitCtors = type.InstanceConstructors.Where(c => HasAttribute(c, attrs.CerasConstructor)).ToList();
-            if (explicitCtors.Count > 1)
-            {
-                context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorMultiple, type.Locations.FirstOrDefault(), type.Name));
-                return;
-            }
-
-            var ctor = GetBestConstructor(type, attrs.CerasConstructor);
-            if (ctor != null)
-            {
-                if (ctor.DeclaredAccessibility != Accessibility.Public && ctor.DeclaredAccessibility != Accessibility.Internal)
-                {
-                    // Only report error if it was explicitly marked or if it's the only choice and it's private
-                    if (explicitCtors.Count > 0)
-                        context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorNotAccessible, ctor.Locations.FirstOrDefault(), type.Name));
-                }
-
-                foreach (var param in ctor.Parameters)
-                {
-                    var matchingMember = members.FirstOrDefault(m => string.Equals(NormalizeName(m.Name), NormalizeName(param.Name), StringComparison.OrdinalIgnoreCase));
-                    
-                    if (matchingMember == null)
-                    {
-                        context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorParamMismatch, param.Locations.FirstOrDefault(), param.Name, type.Name));
-                    }
-                    else
-                    {
-                        var matchingSymbol = type.GetMembers(matchingMember.Name).FirstOrDefault();
-                        if (matchingSymbol != null && HasAttribute(matchingSymbol, attrs.Exclude))
-                        {
-                            context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorParamNotProvided, param.Locations.FirstOrDefault(), param.Name, type.Name));
-                        }
-                    }
-                }
-            }
+            // No longer needed: Ceras robust mode no longer runs user constructors.
         }
 
         public static void ValidateDuplicateWireNames(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
@@ -507,24 +386,8 @@ namespace Ceras.SourceGenerator
 
         public static void ValidatePartialRequirement(SourceProductionContext context, Compilation compilation, INamedTypeSymbol type, List<SerializedMember> members)
         {
-            var triggered = members
-                .Select(m => (Member: m, Req: GetAccessHelperRequirement(m)))
-                .Where(x => x.Req != AccessHelperRequirement.None && SymbolEqualityComparer.Default.Equals(x.Member.DeclaringType, type))
-                .ToList();
-
-            if (triggered.Count > 0)
-            {
-                if (!IsPartial(type))
-                {
-                    var details = triggered.Select(x =>
-                    {
-                        var reason = x.Req == AccessHelperRequirement.Both ? "read/write" : x.Req.ToString().ToLowerInvariant();
-                        return $"{x.Member.Name} ({reason})";
-                    });
-                    var names = string.Join(", ", details);
-                    context.ReportDiagnostic(Diagnostic.Create(Diag.PartialRequired, type.Locations.FirstOrDefault(), type.Name, names));
-                }
-            }
+            // No longer needed because we generate UnsafeAccessors directly in the formatter class, 
+            // so the target type does not need to be partial.
         }
 
         public static AccessHelperRequirement GetAccessHelperRequirement(SerializedMember m)
@@ -548,13 +411,8 @@ namespace Ceras.SourceGenerator
 
         public static void ValidateReadonlyMembers(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
         {
-            foreach (var m in members)
-            {
-                if (m.IsReadOnly && !m.IsCtorParam && !m.IsGetterOnly)
-                {
-                    context.ReportDiagnostic(Diagnostic.Create(Diag.ReadonlyMemberMustBeInCtor, type.Locations.FirstOrDefault(), m.Name, type.Name));
-                }
-            }
+            // No longer needed: we populate in-place and use UnsafeAccessors to write directly 
+            // to readonly fields and init-only properties.
         }
 
         /// <summary>
@@ -610,7 +468,10 @@ namespace Ceras.SourceGenerator
 
         public static bool CanCerasConstruct(INamedTypeSymbol type, INamedTypeSymbol? cerasConstructorAttr)
         {
-            return GetBestConstructor(type, cerasConstructorAttr) != null;
+            if (type.IsValueType) return true;
+            if (type.IsAbstract) return false;
+            // Robust mode uses GetUninitializedObject for all reference types.
+            return true;
         }
 
         [Flags]

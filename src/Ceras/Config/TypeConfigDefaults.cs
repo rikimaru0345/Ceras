@@ -44,81 +44,43 @@ namespace Ceras
             if (typeConfig.TypeConstruction != null)
                 return;
 
-            if (CerasSerializer.IsFormatterConstructed(typeConfig.Type) || (typeConfig.Type.IsStatic()) || typeConfig.Type.IsArray)
+            var type = typeConfig.Type;
+
+            // 1. Arrays, statics, and manually handled types
+            if (CerasSerializer.IsFormatterConstructed(type) || type.IsStatic() || type.IsArray || (typeof(System.Collections.IEnumerable).IsAssignableFrom(type) && type != typeof(string)))
             {
                 typeConfig.TypeConstruction = TypeConstruction.Null();
                 return;
             }
 
-            var type = typeConfig.Type;
-            MethodBase selectedCtor = null;
-
-            // 1. Try hint by attribute
-            IEnumerable<MethodBase> methods = type.GetMethods(BindingFlagsStatic).Cast<MethodBase>().Concat(type.GetConstructors(BindingFlagsCtor));
-            var cerasCtors = methods.Where(m => m.GetCustomAttribute<CerasConstructorAttribute>() != null).ToArray();
-
-            if (cerasCtors.Length > 1)
+            // 2. Robust mode: always use uninitialized objects
+            if (typeConfig.Config.Robust.Enabled)
             {
-                throw new InvalidConfigException($"There are multiple constructors on your type '{typeConfig.Type.FriendlyName()}' that have the '[CerasConstructor]' attribute, so its unclear which one to use. Only one constructor in this type can have the attribute.");
-            }
-            else if (cerasCtors.Length == 1)
-            {
-                selectedCtor = cerasCtors[0];
-            }
-            else
-            {
-                // 2. Try default (parameterless) ctor
-                selectedCtor = type.GetConstructors(BindingFlagsCtor).FirstOrDefault(c => c.GetParameters().Length == 0);
-
-                if (selectedCtor == null)
-                {
-                    // 3. Heuristic: Find the ctor with most parameters that can be fully satisfied by serializable members
-                    // We must use all members here because some might be excluded by default but COULD be included if they match a ctor param
-                    var allCtors = type.GetConstructors(BindingFlagsCtor).OrderByDescending(c => c.GetParameters().Length).ToList();
-                    var members = typeConfig._allMembers;
-
-                    foreach (var c in allCtors)
-                    {
-                        var parameters = c.GetParameters();
-                        if (parameters.Length == 0) continue; // already handled
-
-                        bool allMatch = true;
-                        foreach (var p in parameters)
-                        {
-                            bool hasMatch = members.Any(m => string.Equals(MiscHelpers.CleanMemberName(m.Member.Name), p.Name, StringComparison.OrdinalIgnoreCase) ||
-                                                            string.Equals(m.Member.Name, p.Name, StringComparison.OrdinalIgnoreCase));
-                            if (!hasMatch)
-                            {
-                                allMatch = false;
-                                break;
-                            }
-                        }
-
-                        if (allMatch)
-                        {
-                            selectedCtor = c;
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            // Apply this ctor or factory
-            if (selectedCtor != null)
-            {
-                if (selectedCtor is ConstructorInfo constructorInfo)
-                    typeConfig.TypeConstruction = TypeConstruction.ByConstructor(constructorInfo);
-                else if (selectedCtor is MethodInfo methodInfo)
-                    typeConfig.TypeConstruction = TypeConstruction.ByStaticMethod(methodInfo);
-            }
-
-            if (type.IsValueType && typeConfig.TypeConstruction == null)
-                typeConfig.TypeConstruction = ConstructNull.Instance;
-
-            // 4. Last resort: GetUninitializedObject (if allowed in config)
-            bool allowFallback = typeConfig.AllowUninitializedObjectFallback ?? typeConfig.Config.Advanced.AllowUninitializedObjectFallback;
-            if (typeConfig.TypeConstruction == null && allowFallback)
                 typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
+                return;
+            }
+
+            // 3. Try parameterless constructor
+            var ctor = type.GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
+            if (ctor != null)
+            {
+                typeConfig.TypeConstruction = TypeConstruction.ByConstructor(ctor);
+                return;
+            }
+
+            // 4. Value types
+            if (type.IsValueType)
+            {
+                typeConfig.TypeConstruction = TypeConstruction.Null();
+                return;
+            }
+
+            // 5. Fallback: uninitialized object (if allowed)
+            bool allowFallback = typeConfig.AllowUninitializedObjectFallback ?? typeConfig.Config.Advanced.AllowUninitializedObjectFallback;
+            if (allowFallback)
+            {
+                typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
+            }
         }
 
         internal static void CheckStructWithAutoProps(TypeConfig typeConfig)
@@ -208,9 +170,9 @@ namespace Ceras
 
 
             // [Include] / [Exclude] / [NonSerialized]
-            var hasExclude = memberInfo.GetCustomAttribute<ExcludeAttribute>(true) != null;
-            var hasInclude = memberInfo.GetCustomAttribute<IncludeAttribute>(true) != null;
-            var hasNonSerialized = memberInfo.GetCustomAttribute<NonSerializedAttribute>(true) != null;
+            var hasExclude = memberInfo.GetCustomAttribute<ExcludeAttribute>(true) != null || (memberConfig.AssociatedProperty != null && memberConfig.AssociatedProperty.GetCustomAttribute<ExcludeAttribute>(true) != null);
+            var hasInclude = memberInfo.GetCustomAttribute<IncludeAttribute>(true) != null || (memberConfig.AssociatedProperty != null && memberConfig.AssociatedProperty.GetCustomAttribute<IncludeAttribute>(true) != null);
+            var hasNonSerialized = memberInfo.GetCustomAttribute<NonSerializedAttribute>(true) != null || (memberConfig.AssociatedProperty != null && memberConfig.AssociatedProperty.GetCustomAttribute<NonSerializedAttribute>(true) != null);
             
             if (hasInclude && (hasExclude || hasNonSerialized))
                 throw new Exception($"Member '{memberInfo.Name}' on type '{type.FriendlyName()}' has both [Include] and [Exclude] (or [NonSerialized]) !");
@@ -225,7 +187,7 @@ namespace Ceras
                 memberConfig.SetIncludeWithReason(SerializationOverride.ForceInclude, "[Include] attribute on member");
 
             // Success: persistent name (from attribute or normal member name)
-            var serializedAs = memberInfo.GetCustomAttribute<CerasStableNameAttribute>();
+            var serializedAs = memberInfo.GetCustomAttribute<CerasStableNameAttribute>() ?? memberConfig.AssociatedProperty?.GetCustomAttribute<CerasStableNameAttribute>();
             if (serializedAs != null)
             {
                 memberConfig.PersistentName = serializedAs.Name;

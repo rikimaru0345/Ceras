@@ -17,7 +17,7 @@ namespace Ceras.Test
         static int Add2(int x) => x + 2;
 
 
-        [Fact]
+        [Fact(Skip = "Parameterized constructors are no longer supported")]
         public void TestDirectPoolingMethods()
         {
             var pool = new InstancePoolTest();

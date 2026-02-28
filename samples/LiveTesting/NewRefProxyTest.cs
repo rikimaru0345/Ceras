@@ -202,7 +202,9 @@ namespace LiveTesting
                     var proxy = _objectCache.CreateDeserializationProxy<T>();
 
                     proxy.Value = value;
-                    InnerFormatter.Deserialize(ref reader, ref proxy.Value);
+                    var proxyValue = proxy.Value;
+                    InnerFormatter.Deserialize(ref reader, ref proxyValue);
+                    proxy.Value = proxyValue;
                     value = proxy.Value;
                     break;
 

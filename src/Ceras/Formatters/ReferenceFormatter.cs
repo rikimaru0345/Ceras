@@ -78,14 +78,6 @@ namespace Ceras.Formatters {
 			if (objId == InlineType) { Type type = null; _typeFormatter.Deserialize(ref reader, ref type); value = (T)(object)type; return; }
 			if (objId >= 0) {
 				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId);
-				if (value == null) {
-					var target = _ceras.CurrentFixupTarget;
-					if (target != null) {
-						var proxy = _ceras.InstanceData.ObjectCache.GetProxy(objId);
-						proxy.RegisterFixup(target, _ceras.CurrentFixupMember, _ceras.CurrentFixupIndex);
-					}
-					return;
-				}
 				return;
 			}
 			if (objId == ExternalObject) { int externalId = SerializerBinary.ReadInt32Fixed(ref reader); _ceras.Config.ExternalObjectResolver.Resolve(externalId, out value); return; }
@@ -97,22 +89,31 @@ namespace Ceras.Formatters {
 				if (value != null) {
 					if (value.GetType() != specificType) {
 						_ceras.DiscardObjectMethod?.Invoke(value);
-						value = (T)entry.Constructor.Value();
+						value = (T)entry.Constructor();
 					}
 				}
 				else {
-					value = (T)entry.Constructor.Value();
+					value = (T)entry.Constructor();
 				}
 			}
 
 			var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>(specificType);
 			objectProxy.Value = value;
+			
+			var oldProxy = _ceras.InstanceData.CurrentProxy;
+			_ceras.InstanceData.CurrentProxy = objectProxy;
+			
 			var proxyValue = objectProxy.Value;
 			try {
 				entry.DeserializeDispatcher(ref reader, ref proxyValue);
 			}
 			catch (Exception e) {
 				throw new Exceptions.CerasException($"Error while deserializing object of type '{specificType?.FullName ?? typeof(T).FullName}'", e);
+			}
+			finally {
+				_ceras.InstanceData.CurrentProxy = oldProxy;
+				if (proxyValue == null && objectProxy.Value != null)
+					proxyValue = (T)objectProxy.Value;
 			}
 			objectProxy.Value = proxyValue;
 			value = objectProxy.Value;
@@ -131,29 +132,16 @@ namespace Ceras.Formatters {
 
 			entry.SerializeDispatcher = CreateSpecificSerializerDispatcher(type, formatter);
 			entry.DeserializeDispatcher = CreateSpecificDeserializerDispatcher(type, formatter);
-			entry.Constructor = new Lazy<Func<object>>(() => CreateObjectConstructor(type, formatter));
+			
+			if (_ceras.IsFormatterConstructedInstance(type))
+				entry.Constructor = () => null;
+			else
+				entry.Constructor = _ceras.Config.GetTypeConfig(type, false).TypeConstruction.GetRefFormatterConstructor();
+			
 			return entry;
 		}
 
-		Func<object> CreateObjectConstructor(Type type, IFormatter specificFormatter) {
-			if (type.IsArray || type.IsValueType) return () => null;
-
-			// The definitive check: did the source generator or user register this type as handling its own construction?
-			if (CerasSerializer.IsFormatterConstructed(type)) return () => null;
-
-			var formatterType = specificFormatter.GetType();
-			bool isReflectionFallback = formatterType.IsGenericType && formatterType.GetGenericTypeDefinition() == typeof(ReflectionFallbackFormatter<>);
-
-			// If it's NOT reflection fallback, AND not registered as formatter-constructed,
-			// then it MUST be a generated formatter for a type with a parameterless constructor.
-			// ReferenceFormatter MUST provide the instance.
-
-			var tc = _ceras.Config.GetTypeConfig(type, false).TypeConstruction;
-			if (tc == null) throw new InvalidOperationException($"No ctor for '{type.FullName}'");
-			if (tc.HasDataArguments || tc is ConstructNull) return () => null;
-			return tc.GetRefFormatterConstructor();
-		}
-
+		
 		static SerializeDelegate<T> CreateSpecificSerializerDispatcher(Type type, IFormatter specificFormatter) {
 			var method = specificFormatter.GetType().ResolveSerializeMethod(type);
 			if (type == typeof(T))
@@ -177,10 +165,10 @@ namespace Ceras.Formatters {
 
 		class DispatcherEntry {
 			public readonly Type Type;
-			public Lazy<Func<object>> Constructor;
 			public readonly bool IsType, IsExternalRootObject, IsValueType;
 			public SerializeDelegate<T> SerializeDispatcher;
 			public DeserializeDelegate<T> DeserializeDispatcher;
+			public Func<object> Constructor;
 			public DispatcherEntry(Type type) {
 				Type = type;
 				IsType = typeof(Type).IsAssignableFrom(type);
@@ -226,28 +214,18 @@ namespace Ceras.Formatters {
 
 	public sealed class ReferenceFormatter_KnownSealedType<T> : IFormatter<T> where T : class {
 		const int Null = -1, NewValueSameType = -3, Bias = 5;
-		readonly CerasSerializer _ceras; readonly IFormatter<T> _formatter; readonly Lazy<Func<object>> _constructor;
+		readonly CerasSerializer _ceras; readonly IFormatter<T> _formatter; 
+		readonly Func<object> _constructor;
 		public ReferenceFormatter_KnownSealedType(CerasSerializer ceras) {
 			_ceras = ceras;
 			var type = typeof(T);
 			if (type.IsStatic()) throw new InvalidOperationException("static");
 			if (!type.IsSealed) throw new InvalidOperationException("Not sealed");
 			_formatter = (IFormatter<T>)ceras.GetSpecificFormatter(type);
+			_constructor = _ceras.Config.GetTypeConfig(type, false).TypeConstruction.GetRefFormatterConstructor();
+			}
 
-			_constructor = new Lazy<Func<object>>(() => CreateObjectConstructor(type, _formatter));
-		}
-
-		Func<object> CreateObjectConstructor(Type type, IFormatter specificFormatter) {
-			if (type.IsArray || type.IsValueType) return () => null;
-
-			if (CerasSerializer.IsFormatterConstructed(type)) return () => null;
-
-			var tc = _ceras.Config.GetTypeConfig(type, false).TypeConstruction;
-			if (tc == null) throw new InvalidOperationException($"No ctor for '{type.FullName}'");
-			if (tc.HasDataArguments || tc is ConstructNull) return () => null;
-			return tc.GetRefFormatterConstructor();
-		}
-
+		
 		public void SerializeUntyped(IBufferWriter<byte> writer, object value) {
 			Serialize(writer, (T)value);
 		}
@@ -279,21 +257,26 @@ namespace Ceras.Formatters {
 			if (objId == Null) { if (value != null) _ceras.DiscardObjectMethod?.Invoke(value); value = default; return; }
 			if (objId >= 0) {
 				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId);
-				if (value == null) {
-					var target = _ceras.CurrentFixupTarget;
-					if (target != null) {
-						var proxy = _ceras.InstanceData.ObjectCache.GetProxy(objId);
-						proxy.RegisterFixup(target, _ceras.CurrentFixupMember, _ceras.CurrentFixupIndex);
-					}
-					return;
-				}
 				return;
 			}
-			if (value == null) value = (T)_constructor.Value();
+			if (value == null) {
+				value = (T)_constructor();
+			}
 			var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>(typeof(T));
 			objectProxy.Value = value;
+			
+			var oldProxy = _ceras.InstanceData.CurrentProxy;
+			_ceras.InstanceData.CurrentProxy = objectProxy;
+			
 			var proxyValue = objectProxy.Value;
-			_formatter.Deserialize(ref reader, ref proxyValue);
+			try {
+				_formatter.Deserialize(ref reader, ref proxyValue);
+			}
+			finally {
+				_ceras.InstanceData.CurrentProxy = oldProxy;
+				if (proxyValue == null && objectProxy.Value != null)
+					proxyValue = (T)objectProxy.Value;
+			}
 			objectProxy.Value = proxyValue;
 			value = objectProxy.Value;
 		}

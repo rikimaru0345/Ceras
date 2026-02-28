@@ -239,8 +239,7 @@
         uint ISizeLimitsConfig.MaxCollectionSize { get; set; } = uint.MaxValue;
 
         Action<object> IAdvancedConfig.DiscardObjectMethod { get; set; } = null;
-		ReadonlyFieldHandling IAdvancedConfig.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.Members;
-		bool IAdvancedConfig.EmbedChecksum { get; set; } = false;
+		            ReadonlyFieldHandling IAdvancedConfig.ReadonlyFieldHandling { get; set; } = ReadonlyFieldHandling.ForcedOverwrite;		bool IAdvancedConfig.EmbedChecksum { get; set; } = false;
         bool IAdvancedConfig.PersistTypeCache { get; set; } = false;
         bool IAdvancedConfig.SealTypesWhenUsingKnownTypes { get; set; } = true;
         bool IAdvancedConfig.SkipCompilerGeneratedFields { get; set; } = true;
@@ -250,7 +249,7 @@
         BitmapMode IAdvancedConfig.BitmapMode { get; set; } = BitmapMode.DontSerializeBitmaps;
         IEqualityComparer<object> IAdvancedConfig.ObjectCacheComparer { get; set; }
         bool IAdvancedConfig.AllowReflectionFallback { get; set; } = true;
-        bool IAdvancedConfig.AllowUninitializedObjectFallback { get; set; } = false;
+        bool IAdvancedConfig.AllowUninitializedObjectFallback { get; set; } = true;
 
 		#endregion
 
@@ -443,6 +442,7 @@
     /// </summary>
     public enum ReadonlyFieldHandling
     {
+        Inherit = -1,
         /// <summary>
         /// This is the default, Ceras will not serialize/deserialize readonly fields.
         /// </summary>

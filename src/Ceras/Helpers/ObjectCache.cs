@@ -152,8 +152,9 @@
         internal abstract class RefProxy
         {
             public abstract object ObjectValue { get; }
+            public abstract Type ProxyType { get; }
+            public abstract void SetObjectValue(object value);
             public abstract void ResetAndReturn();
-            public abstract void RegisterFixup(object target, MemberInfo member, int index);
         }
 
         internal sealed class RefProxy<T> : RefProxy where T : class
@@ -165,60 +166,15 @@
                 set
                 {
                     _value = value;
-                    if (value != null)
-                        ApplyFixups();
                 }
             }
-
-            List<Fixup> _fixups;
 
             public override object ObjectValue => _value;
+            public override Type ProxyType => typeof(T);
 
-            public override void RegisterFixup(object target, MemberInfo member, int index)
+            public override void SetObjectValue(object value)
             {
-                if (_fixups == null)
-                    _fixups = new List<Fixup>();
-
-                _fixups.Add(new Fixup
-                {
-                    Target = target,
-                    Member = member,
-                    Index = index
-                });
-            }
-
-            void ApplyFixups()
-            {
-                if (_fixups == null || _fixups.Count == 0)
-                    return;
-
-                foreach (var fixup in _fixups)
-                {
-                    if (fixup.Index >= 0)
-                    {
-                        if (fixup.Target is System.Collections.IList list)
-                        {
-                            list[fixup.Index] = _value;
-                            continue;
-                        }
-                        else if (fixup.Target is Array arr)
-                        {
-                            arr.SetValue(_value, fixup.Index);
-                            continue;
-                        }
-                    }
-
-                    if (fixup.Member is FieldInfo f)
-                    {
-                        f.SetValue(fixup.Target, _value);
-                    }
-                    else if (fixup.Member is PropertyInfo p)
-                    {
-                        p.SetValue(fixup.Target, _value);
-                    }
-                }
-
-                _fixups.Clear();
+                _value = (T)value;
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -226,7 +182,6 @@
             {
                 // Make sure we don't hold any references!
                 _value = default;
-                _fixups?.Clear();
                 // Go back to the pool
                 RefProxyPool<T>.Return(this);
             }
@@ -235,13 +190,6 @@
             {
                 return $"RefProxy({typeof(T).FriendlyName()}): {_value}";
             }
-        }
-
-        internal struct Fixup
-        {
-            public object Target;
-            public MemberInfo Member;
-            public int Index;
         }
 
         internal static class RefProxyPool<T> where T : class

@@ -43,29 +43,18 @@ namespace Ceras.Formatters
             }
 
             if (length > _maxCount) throw new InvalidOperationException("Max count exceeded");
-            if (ar == null || ar.Length != length) ar = new TItem[length];
+            if (ar == null || ar.Length != length)
+            {
+                ar = new TItem[length];
+                var proxy = _ceras.InstanceData.CurrentProxy;
+                if (proxy != null && proxy.ProxyType.IsAssignableFrom(typeof(TItem[])))
+                    proxy.SetObjectValue(ar);
+            }
 
             var f = _itemFormatter;
-            var serializer = _ceras;
-
-            var oldTarget = serializer.CurrentFixupTarget;
-            var oldMember = serializer.CurrentFixupMember;
-            var oldIndex = serializer.CurrentFixupIndex;
-
-            serializer.CurrentFixupTarget = ar;
-            try
+            for (int i = 0; i < length; i++)
             {
-                for (int i = 0; i < length; i++)
-                {
-                    serializer.CurrentFixupIndex = i;
-                    f.Deserialize(ref reader, ref ar[i]);
-                }
-            }
-            finally
-            {
-                serializer.CurrentFixupTarget = oldTarget;
-                serializer.CurrentFixupMember = oldMember;
-                serializer.CurrentFixupIndex = oldIndex;
+                f.Deserialize(ref reader, ref ar[i]);
             }
         }
     }
@@ -164,6 +153,8 @@ namespace Ceras.Formatters
             _maxSize = serializer.Config.Advanced.SizeLimits.MaxCollectionSize;
             var collectionType = typeof(TCollection);
             
+            CerasSerializer.AddFormatterConstructedType(collectionType);
+            
             // Resolve capacity constructor
             if (collectionType.IsGenericType)
             {
@@ -181,7 +172,10 @@ namespace Ceras.Formatters
             if (typeof(ICollection<TItem>).IsAssignableFrom(collectionType))
             {
                 _clearMethod = c => ((ICollection<TItem>)c).Clear();
-                _addMethod = (c, i) => ((ICollection<TItem>)c).Add(i);
+                _addMethod = (c, i) => {
+                    if (c == null) throw new Ceras.Exceptions.CerasException("_addMethod called with null collection!");
+                    ((ICollection<TItem>)c).Add(i);
+                };
                 _getCountMethod = c => ((ICollection<TItem>)c).Count;
             }
             else
@@ -231,40 +225,25 @@ namespace Ceras.Formatters
 
             if (itemCount > _maxSize) throw new InvalidOperationException("Max size exceeded");
             
-            if (value == null) value = _capacityConstructor(itemCount);
+            if (value == null)
+            {
+                value = _capacityConstructor(itemCount);
+                if (value == null) throw new Ceras.Exceptions.CerasException($"Failed to create an instance of collection type '{typeof(TCollection).FriendlyName()}' because the capacity constructor returned null.");
+
+                var proxy = _ceras.InstanceData.CurrentProxy;
+                if (proxy != null && proxy.ProxyType.IsAssignableFrom(typeof(TCollection)))
+                    proxy.SetObjectValue(value);
+            }
             else _clearMethod?.Invoke(value);
 
-            var serializer = _ceras;
-            var isList = value is System.Collections.IList;
+            var f = _itemFormatter;
+            if (_addMethod == null) throw new Ceras.Exceptions.CerasException($"The collection type '{typeof(TCollection).FriendlyName()}' is not supported because no suitable 'Add' method was found.");
 
-            var oldTarget = serializer.CurrentFixupTarget;
-            var oldMember = serializer.CurrentFixupMember;
-            var oldIndex = serializer.CurrentFixupIndex;
-
-            if (isList)
-                serializer.CurrentFixupTarget = value;
-
-            try
+            for (int i = 0; i < itemCount; i++)
             {
-                var f = _itemFormatter;
-                for (int i = 0; i < itemCount; i++)
-                {
-                    if (isList)
-                        serializer.CurrentFixupIndex = i;
-
-                    TItem item = default;
-                    f.Deserialize(ref reader, ref item);
-                    _addMethod(value, item);
-                }
-            }
-            finally
-            {
-                if (isList)
-                {
-                    serializer.CurrentFixupTarget = oldTarget;
-                    serializer.CurrentFixupMember = oldMember;
-                    serializer.CurrentFixupIndex = oldIndex;
-                }
+                TItem item = default;
+                f.Deserialize(ref reader, ref item);
+                _addMethod(value, item);
             }
         }
     }
