@@ -8,7 +8,7 @@ using static Ceras.SourceGenerator.MemberExplorer;
 
 namespace Ceras.SourceGenerator
 {
-    internal static class CodeEmitter
+    internal static class RobustCodeEmitter
     {
         public static void WriteFormatterClass(
             StringBuilder sb,
@@ -22,9 +22,6 @@ namespace Ceras.SourceGenerator
 
             sb.AppendLine($"    internal sealed class {formatterName} : global::Ceras.Formatters.FormatterBase<{typeFqn}>");
             sb.AppendLine("    {");
-            sb.AppendLine("        [global::System.Diagnostics.CodeAnalysis.SuppressMessage(\"Style\", \"IDE0044:Add readonly modifier\")]");
-            sb.AppendLine("        global::Ceras.CerasSerializer _ceras;");
-            sb.AppendLine();
 
             // --- Formatter fields (one per distinct member type) -------------------
             var seenFieldNames = new HashSet<string>();
@@ -117,20 +114,7 @@ namespace Ceras.SourceGenerator
                     {
                         sb.AppendLine("                if (value == null)");
                         sb.AppendLine("                {");
-                        sb.AppendLine("                    if (_ceras.Config.Robust.Enabled)");
-                        sb.AppendLine($"                        value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
-                        
-                        var ctor = type.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 0 && (c.DeclaredAccessibility == Accessibility.Public || c.DeclaredAccessibility == Accessibility.Internal));
-                        if (ctor != null)
-                        {
-                            sb.AppendLine("                    else");
-                            sb.AppendLine($"                        value = new {typeFqn}();");
-                        }
-                        else
-                        {
-                            sb.AppendLine("                    else");
-                            sb.AppendLine($"                        value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
-                        }
+                        sb.AppendLine($"                    value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
                         sb.AppendLine("                }");
                     }
 

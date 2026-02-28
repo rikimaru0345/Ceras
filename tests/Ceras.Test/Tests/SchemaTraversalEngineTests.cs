@@ -57,7 +57,7 @@ namespace Ceras.Test
 			// Ensure we use the generated formatters if they exist, 
 			// but here we want to test the one we just modified.
 			// Since we're in a test project that references Ceras, 
-			// and we just modified CodeEmitter, we'd need to REGENERATE the formatters to test the SG change.
+			// and we just modified RobustCodeEmitter, we'd need to REGENERATE the formatters to test the SG change.
 			
 			// However, we can at least verify the helper itself works and has the right message.
 			var ex = Assert.Throws<InvalidOperationException>(() => CerasThrowHelper.ThrowGetterOnlyNull("MyMember", "MyType"));

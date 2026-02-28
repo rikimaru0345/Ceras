@@ -303,7 +303,7 @@ namespace Ceras.SourceGenerator
                 sbFmt.AppendLine("namespace Ceras.Generated");
                 sbFmt.AppendLine("{");
 
-                CodeEmitter.WriteFormatterClass(sbFmt, type, members, attrBag, typeVt);
+                RobustCodeEmitter.WriteFormatterClass(sbFmt, type, members, attrBag, typeVt);
 
                 sbFmt.AppendLine("}");
                 sbFmt.AppendLine("#nullable restore");
