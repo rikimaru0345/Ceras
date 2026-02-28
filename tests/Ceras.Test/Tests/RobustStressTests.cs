@@ -10,13 +10,13 @@ namespace Ceras.Test
 {
     public class RobustStressTests : TestBase
     {
-        // -------------------------------------------------------------------
-        // Scenario #5: Size Limit Stress (Security)
-        // Confirm that the Robust path respects SizeLimits to prevent 
-        // OOM attacks from corrupted/malicious saves.
-        // -------------------------------------------------------------------
+		// -------------------------------------------------------------------
+		// Scenario #5: Size Limit Stress (Security)
+		// Confirm that the Robust path respects SizeLimits to prevent
+		// OOM attacks from corrupted/malicious saves.
+		// -------------------------------------------------------------------
 
-        [CerasSerializable]
+		[CerasSerializable]
         public class LargeCollectionModel
         {
             public List<int> Items;
@@ -35,11 +35,11 @@ namespace Ceras.Test
             var oversized = new LargeCollectionModel { Items = Enumerable.Range(0, 200).ToList() };
             var oversizedBlob = CerasRobust.Save(oversized, 1, ceras);
 
-            // CerasRobust wraps InvalidOperationException in a CerasException
-            var ex = Assert.Throws<Ceras.Exceptions.CerasException>(() => 
-                CerasRobust.Load<LargeCollectionModel>(oversizedBlob, 1, ceras));
-            
-            Assert.Contains("Max size exceeded", ex.ToString());
+			// CerasRobust wraps InvalidOperationException in a CerasException
+			var ex = Assert.Throws<Ceras.Exceptions.CerasException>(() =>
+				CerasRobust.Load<LargeCollectionModel>(oversizedBlob, 1, ceras));
+
+			Assert.Contains("Max size exceeded", ex.ToString());
         }
 
         // -------------------------------------------------------------------
@@ -64,8 +64,10 @@ namespace Ceras.Test
             // 2. ROBUST Path (configured for robust format)
             var configRobust = new SerializerConfig();
             CerasRobust.Configure(configRobust);
-            Ceras.Generated.RobustFormatters.UseRobustFormatters(configRobust);
-            var cerasRobust = new CerasSerializer(configRobust);
+			Ceras.Generated.RobustFormatters.UseRobustFormatters(configRobust);
+			// cant test anything string related if compressed
+			configRobust.Robust.StringTableCompression = StringTableCompression.Disabled;
+			var cerasRobust = new CerasSerializer(configRobust);
 
             // Create two distinct string instances with the same content
             var content = "ThisIsAUniqueString_12345";
@@ -81,9 +83,9 @@ namespace Ceras.Test
             int rawOccurrences = CountOccurrences(rawBlob, stringBytes);
             // In Raw mode, strings are inline (often twice if not interned by object cache)
             Assert.True(rawOccurrences >= 1);
-            
-            // 2. ROBUST Path execution
-            var robustBlob = CerasRobust.Save(model, 1, cerasRobust);
+
+			// 2. ROBUST Path execution
+			var robustBlob = CerasRobust.Save(model, 1, cerasRobust);
             int robustOccurrences = CountOccurrences(robustBlob, stringBytes);
 
             // Robust MUST have it exactly once (in the table at the end)
@@ -105,8 +107,8 @@ namespace Ceras.Test
 
             var content = "InternMe";
             var model = new StringModel { A = new string(content), B = new string(content) };
-            
-            var blob = CerasRobust.Save(model, 1, ceras);
+
+			var blob = CerasRobust.Save(model, 1, ceras);
             var cloned = CerasRobust.Load<StringModel>(blob, 1, ceras);
 
             // After loading from robust format, both strings MUST be the same instance

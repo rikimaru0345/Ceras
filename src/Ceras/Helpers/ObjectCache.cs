@@ -201,9 +201,9 @@
                             list[fixup.Index] = _value;
                             continue;
                         }
-                        else if (fixup.Target is object[] array)
+                        else if (fixup.Target is Array arr)
                         {
-                            array[fixup.Index] = _value;
+                            arr.SetValue(_value, fixup.Index);
                             continue;
                         }
                     }

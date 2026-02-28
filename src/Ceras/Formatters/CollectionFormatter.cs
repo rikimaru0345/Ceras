@@ -47,13 +47,26 @@ namespace Ceras.Formatters
 
             var f = _itemFormatter;
             var serializer = _ceras;
+
+            var oldTarget = serializer.CurrentFixupTarget;
+            var oldMember = serializer.CurrentFixupMember;
+            var oldIndex = serializer.CurrentFixupIndex;
+
             serializer.CurrentFixupTarget = ar;
-            for (int i = 0; i < length; i++)
+            try
             {
-                serializer.CurrentFixupIndex = i;
-                f.Deserialize(ref reader, ref ar[i]);
+                for (int i = 0; i < length; i++)
+                {
+                    serializer.CurrentFixupIndex = i;
+                    f.Deserialize(ref reader, ref ar[i]);
+                }
             }
-            serializer.CurrentFixupTarget = null;
+            finally
+            {
+                serializer.CurrentFixupTarget = oldTarget;
+                serializer.CurrentFixupMember = oldMember;
+                serializer.CurrentFixupIndex = oldIndex;
+            }
         }
     }
 
@@ -223,22 +236,36 @@ namespace Ceras.Formatters
 
             var serializer = _ceras;
             var isList = value is System.Collections.IList;
+
+            var oldTarget = serializer.CurrentFixupTarget;
+            var oldMember = serializer.CurrentFixupMember;
+            var oldIndex = serializer.CurrentFixupIndex;
+
             if (isList)
                 serializer.CurrentFixupTarget = value;
 
-            var f = _itemFormatter;
-            for (int i = 0; i < itemCount; i++)
+            try
+            {
+                var f = _itemFormatter;
+                for (int i = 0; i < itemCount; i++)
+                {
+                    if (isList)
+                        serializer.CurrentFixupIndex = i;
+
+                    TItem item = default;
+                    f.Deserialize(ref reader, ref item);
+                    _addMethod(value, item);
+                }
+            }
+            finally
             {
                 if (isList)
-                    serializer.CurrentFixupIndex = i;
-
-                TItem item = default;
-                f.Deserialize(ref reader, ref item);
-                _addMethod(value, item);
+                {
+                    serializer.CurrentFixupTarget = oldTarget;
+                    serializer.CurrentFixupMember = oldMember;
+                    serializer.CurrentFixupIndex = oldIndex;
+                }
             }
-
-            if (isList)
-                serializer.CurrentFixupTarget = null;
         }
     }
 }

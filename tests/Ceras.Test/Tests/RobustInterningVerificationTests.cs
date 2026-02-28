@@ -21,11 +21,13 @@ namespace Ceras.Test
         {
             var config = new SerializerConfig();
             CerasRobust.Configure(config);
-            config.Advanced.AllowReflectionFallback = true;
-            config.ConfigType<InterningTestPotion>().TargetMembers = TargetMember.AllFields;
-            
-            // Force schema generation and registration
-            var info = new SchemaTypeInfo(
+			config.Advanced.AllowReflectionFallback = true;
+			// Must disable compression for this obviously
+			config.Robust.StringTableCompression = StringTableCompression.Disabled;
+			config.ConfigType<InterningTestPotion>().TargetMembers = TargetMember.AllFields;
+
+			// Force schema generation and registration
+			var info = new SchemaTypeInfo(
                 stableName: "SharedString",
                 previousTypeNames: Array.Empty<string>(),
                 kind: SchemaTypeKind.Class,
@@ -34,14 +36,14 @@ namespace Ceras.Test
             config.Robust.SchemaRegistry.Register(typeof(InterningTestPotion), info);
 
             var ceras = new CerasSerializer(config);
-            
-            var p = new InterningTestPotion { Label = "SharedString" }; 
-            
-            byte[] data = CerasRobust.Save(p, 1, ceras);
-            
-            // "SharedString" should appear exactly ONCE in the entire binary 
-            // because it's shared between the Schema (StableName) and the Data (Label field).
-            int count = CountOccurrences(data, "SharedString");
+
+			var p = new InterningTestPotion { Label = "SharedString" };
+
+			byte[] data = CerasRobust.Save(p, 1, ceras);
+
+			// "SharedString" should appear exactly ONCE in the entire binary
+			// because it's shared between the Schema (StableName) and the Data (Label field).
+			int count = CountOccurrences(data, "SharedString");
             Assert.Equal(1, count);
         }
 

@@ -168,13 +168,22 @@ namespace Ceras.Formatters
         {
             if (_isStatic)
             {
-                InvokeCallback(_onBeforeDeserialize, null);
-                for (int i = 0; i < _members.Length; i++)
+                var oldTargetStatic = _ceras.CurrentFixupTarget;
+                _ceras.CurrentFixupTarget = null;
+                try
                 {
-                    var m = _members[i];
-                    m.formatter.DeserializeUntyped(ref reader, null, m.member);
+                    InvokeCallback(_onBeforeDeserialize, null);
+                    for (int i = 0; i < _members.Length; i++)
+                    {
+                        var m = _members[i];
+                        m.formatter.DeserializeUntyped(ref reader, null, m.member);
+                    }
+                    InvokeCallback(_onAfterDeserialize, null);
                 }
-                InvokeCallback(_onAfterDeserialize, null);
+                finally
+                {
+                    _ceras.CurrentFixupTarget = oldTargetStatic;
+                }
                 return;
             }
 
@@ -182,10 +191,26 @@ namespace Ceras.Formatters
             {
                 object boxed = value;
                 InvokeCallback(_onBeforeDeserialize, boxed);
+
+                var oldTargetVT = _ceras.CurrentFixupTarget;
+                var oldMemberVT = _ceras.CurrentFixupMember;
+                var oldIndexVT = _ceras.CurrentFixupIndex;
+
                 for (int i = 0; i < _members.Length; i++)
                 {
                     var m = _members[i];
-                    m.formatter.DeserializeUntyped(ref reader, boxed, m.member);
+                    _ceras.CurrentFixupTarget = boxed;
+                    _ceras.CurrentFixupMember = m.member;
+                    try
+                    {
+                        m.formatter.DeserializeUntyped(ref reader, boxed, m.member);
+                    }
+                    finally
+                    {
+                        _ceras.CurrentFixupTarget = oldTargetVT;
+                        _ceras.CurrentFixupMember = oldMemberVT;
+                        _ceras.CurrentFixupIndex = oldIndexVT;
+                    }
                 }
                 value = (T)boxed;
                 InvokeCallback(_onAfterDeserialize, value);
@@ -201,6 +226,10 @@ namespace Ceras.Formatters
                     // Getter-only members are read after construction so they can be populated in-place.
                     object[] memberValues = new object[_members.Length];
                     FakeContainer fake = new FakeContainer();
+                    var oldTarget = _ceras.CurrentFixupTarget;
+                    var oldMember = _ceras.CurrentFixupMember;
+                    var oldIndex = _ceras.CurrentFixupIndex;
+
                     for (int i = 0; i < _members.Length; i++)
                     {
                         bool isGetterOnly = _members[i].member is PropertyInfo gop && gop.GetSetMethod(true) == null;
@@ -208,12 +237,20 @@ namespace Ceras.Formatters
 
                         _ceras.CurrentFixupTarget = memberValues;
                         _ceras.CurrentFixupIndex = i;
-                        _ceras.CurrentFixupMember = _members[i].member;
-                        _members[i].formatter.DeserializeUntyped(ref reader, fake, FakeContainer.ValueField);
-                        memberValues[i] = fake.Value;
-                        fake.Value = null;
-                        _ceras.CurrentFixupTarget = null;
                         _ceras.CurrentFixupMember = null;
+
+                        try
+                        {
+                            _members[i].formatter.DeserializeUntyped(ref reader, fake, FakeContainer.ValueField);
+                            memberValues[i] = fake.Value;
+                            fake.Value = null;
+                        }
+                        finally
+                        {
+                            _ceras.CurrentFixupTarget = oldTarget;
+                            _ceras.CurrentFixupMember = oldMember;
+                            _ceras.CurrentFixupIndex = oldIndex;
+                        }
                     }
 
                     // Phase 2: construct.
@@ -242,6 +279,10 @@ namespace Ceras.Formatters
                         // getter-only properties are handled in phase 4
                     }
 
+                    var oldTarget4 = _ceras.CurrentFixupTarget;
+                    var oldMember4 = _ceras.CurrentFixupMember;
+                    var oldIndex4 = _ceras.CurrentFixupIndex;
+
                     // Phase 4: read getter-only members directly into the new object's instances (in-place).
                     for (int i = 0; i < _members.Length; i++)
                     {
@@ -254,9 +295,16 @@ namespace Ceras.Formatters
 
                         _ceras.CurrentFixupTarget = value;
                         _ceras.CurrentFixupMember = gop;
-                        _members[i].formatter.DeserializeUntyped(ref reader, value, gop);
-                        _ceras.CurrentFixupTarget = null;
-                        _ceras.CurrentFixupMember = null;
+                        try
+                        {
+                            _members[i].formatter.DeserializeUntyped(ref reader, value, gop);
+                        }
+                        finally
+                        {
+                            _ceras.CurrentFixupTarget = oldTarget4;
+                            _ceras.CurrentFixupMember = oldMember4;
+                            _ceras.CurrentFixupIndex = oldIndex4;
+                        }
                     }
 
                     InvokeCallback(_onAfterDeserialize, value);
@@ -283,13 +331,27 @@ namespace Ceras.Formatters
 
             InvokeCallback(_onBeforeDeserialize, value);
 
+            if (value == null) return;
+
+            var oldTargetStandard = _ceras.CurrentFixupTarget;
+            var oldMemberStandard = _ceras.CurrentFixupMember;
+            var oldIndexStandard = _ceras.CurrentFixupIndex;
+
             for (int i = 0; i < _members.Length; i++)
             {
                 var m = _members[i];
                 _ceras.CurrentFixupTarget = value;
                 _ceras.CurrentFixupMember = m.member;
-                m.formatter.DeserializeUntyped(ref reader, value, m.member);
-                _ceras.CurrentFixupTarget = null;
+                try
+                {
+                    m.formatter.DeserializeUntyped(ref reader, value, m.member);
+                }
+                finally
+                {
+                    _ceras.CurrentFixupTarget = oldTargetStandard;
+                    _ceras.CurrentFixupMember = oldMemberStandard;
+                    _ceras.CurrentFixupIndex = oldIndexStandard;
+                }
             }
 
             InvokeCallback(_onAfterDeserialize, value);

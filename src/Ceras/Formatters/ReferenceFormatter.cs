@@ -84,6 +84,7 @@ namespace Ceras.Formatters {
 						var proxy = _ceras.InstanceData.ObjectCache.GetProxy(objId);
 						proxy.RegisterFixup(target, _ceras.CurrentFixupMember, _ceras.CurrentFixupIndex);
 					}
+					return;
 				}
 				return;
 			}
@@ -284,6 +285,7 @@ namespace Ceras.Formatters {
 						var proxy = _ceras.InstanceData.ObjectCache.GetProxy(objId);
 						proxy.RegisterFixup(target, _ceras.CurrentFixupMember, _ceras.CurrentFixupIndex);
 					}
+					return;
 				}
 				return;
 			}
