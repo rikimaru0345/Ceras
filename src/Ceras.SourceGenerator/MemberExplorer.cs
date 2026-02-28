@@ -13,7 +13,9 @@ namespace Ceras.SourceGenerator
         public static List<SerializedMember> DiscoverMembers(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs)
         {
             var members = new List<SerializedMember>();
-            var seenNames = new HashSet<string>(StringComparer.Ordinal);
+            // Tracks stable names already claimed by backing fields in more-derived types.
+            // Used to silently skip the base-class version when a property is shadowed via 'new'.
+            var claimedBackingFieldNames = new HashSet<string>(StringComparer.Ordinal);
 
             TargetMemberKind currentTargetKind = ResolveEffectiveTargetMemberKind(context, type, attrs.MemberConfig);
 
@@ -78,6 +80,13 @@ namespace Ceras.SourceGenerator
                         {
                             stableName = associatedProp.Name;
                         }
+
+                        // Auto-dedup: when a property is shadowed in a derived class via 'new',
+                        // both the derived and base backing fields share the same stable name.
+                        // Since typeChain is ordered derived→base, we've already added the
+                        // more-derived version first, so silently skip the base-class duplicate.
+                        if (isBackingField && !claimedBackingFieldNames.Add(stableName))
+                            continue;
 
                         members.Add(MakeMember(field.Name, field.Type, isField: true, field, attrs, isGetterOnly: false, stableNameOverride: stableName));
                     }
@@ -374,12 +383,20 @@ namespace Ceras.SourceGenerator
 
         public static void ValidateDuplicateWireNames(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
         {
-            var names = new HashSet<string>(StringComparer.Ordinal);
+            var nameToMembers = new Dictionary<string, List<SerializedMember>>(StringComparer.Ordinal);
             foreach (var m in members)
             {
-                if (!names.Add(m.StableName))
+                if (!nameToMembers.TryGetValue(m.StableName, out var list))
+                    nameToMembers[m.StableName] = list = new List<SerializedMember>();
+                list.Add(m);
+            }
+
+            foreach (var kvp in nameToMembers)
+            {
+                if (kvp.Value.Count > 1)
                 {
-                    context.ReportDiagnostic(Diagnostic.Create(Diag.DuplicateWireName, type.Locations.FirstOrDefault(), type.Name, m.StableName));
+                    var memberList = string.Join(", ", kvp.Value.Select(m => $"'{m.Name}'"));
+                    context.ReportDiagnostic(Diagnostic.Create(Diag.DuplicateWireName, type.Locations.FirstOrDefault(), type.Name, kvp.Key, memberList));
                 }
             }
         }

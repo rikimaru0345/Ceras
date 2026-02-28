@@ -71,7 +71,7 @@ namespace Ceras.SourceGenerator
         public static readonly DiagnosticDescriptor DuplicateWireName = new(
             id: "CERAS009",
             title: "Duplicate stable wire name",
-            messageFormat: "Type '{0}' has multiple members that would be serialized with the name '{1}'. Use [CerasStableName] to resolve the conflict.",
+            messageFormat: "Type '{0}' has multiple members that would be serialized with the name '{1}' ({2}). Use [CerasStableName] or [CerasExclude] on one of them to resolve the conflict.",
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
