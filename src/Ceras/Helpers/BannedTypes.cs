@@ -8,6 +8,8 @@ namespace Ceras.Formatters
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.Linq;
+    using System.Reflection;
+    using Ceras;
 
     // Some types are banned from serialization
     // and instead of throwing crazy errors that don't help the user at all, we give an explanation
@@ -182,6 +184,16 @@ namespace Ceras.Formatters
                 if (isBanned)
                 {
                     foundBan = ban;
+                    return true;
+                }
+            }
+
+            // Check for [Exclude] attribute on the type itself
+            foreach (var attr in type.GetCustomAttributes(true))
+            {
+                if (attr.GetType().FullName == "Ceras.ExcludeAttribute")
+                {
+                    foundBan = new BannedType(type, "The type is explicitly marked with [Exclude].", false);
                     return true;
                 }
             }
