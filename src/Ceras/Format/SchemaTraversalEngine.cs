@@ -278,12 +278,23 @@ namespace Ceras.Format
             {
                 object structObj = CreateInstance(currentType);
                 if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = structObj;
+
+                if (TryReadCustomFormatter(currentType, ref structObj, ref reader))
+                    return structObj;
+
                 ReadAndApplyFields(oldSchema, plan, structObj, ref reader);
                 return structObj;
             }
 
             object obj = CreateInstance(currentType);
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = obj;
+
+            if (TryReadCustomFormatter(currentType, ref obj, ref reader))
+            {
+                if (plan != null && plan.HasChanges && plan.OnAfterDeserialize != null && obj != null)
+                    FireCallback(obj, plan, plan.AddedFieldNames, CollectSkippedFields(plan));
+                return obj;
+            }
 
             ReadAndApplyFields(oldSchema, plan, obj, ref reader);
 
@@ -331,12 +342,19 @@ namespace Ceras.Format
             {
                 object structObj = CreateInstance(currentType);
                 if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = structObj;
+
+                if (TryReadCustomFormatter(currentType, ref structObj, ref reader))
+                    return structObj;
+
                 ReadAndApplyFields(oldSchema, plan, structObj, ref reader);
                 return structObj;
             }
 
             object obj = CreateInstance(currentType);
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = obj;
+
+            if (TryReadCustomFormatter(currentType, ref obj, ref reader))
+                return obj;
 
             ReadAndApplyFields(oldSchema, plan, obj, ref reader);
             return obj;
@@ -701,6 +719,35 @@ namespace Ceras.Format
             if (plan.OnAfterDeserialize == null) return;
             var ctx = new MigrationContext(true, _robustVersion, skippedFields, new HashSet<string>(addedFields ?? Array.Empty<string>(), StringComparer.Ordinal));
             plan.OnAfterDeserialize.Invoke(obj, new object[] { ctx });
+        }
+
+        bool TryReadCustomFormatter(Type type, ref object obj, ref SequenceReader<byte> reader)
+        {
+            if (type == null) return false;
+            var config = _serializer.Config.GetTypeConfig(type, false);
+            if (config == null) return false;
+
+            var formatter = config.CustomFormatter;
+            if (formatter == null) return false;
+
+            // Robust formatters are already handled by ReadValue
+            if (formatter is RobustStringFormatter || formatter is RobustTypeFormatter) return false;
+
+            // Exclude source-generated formatters, as they rely on the normal object cache and 
+            // format expectations that differ from the robust schema traversal stream structure.
+            if (formatter.GetType().Namespace == "Ceras.Generated") return false;
+
+            // Use the "Box trick" to call DeserializeUntyped.
+            // This works for any formatter that follows the DeserializeUntyped pattern
+            // (including FormatterBase<T> and our manual ones).
+            var boxType = typeof(StrongBox<>).MakeGenericType(type);
+            var box = Activator.CreateInstance(boxType, obj);
+            var field = boxType.GetField("Value");
+
+            formatter.DeserializeUntyped(ref reader, box, field);
+
+            obj = field.GetValue(box);
+            return true;
         }
     }
 }
