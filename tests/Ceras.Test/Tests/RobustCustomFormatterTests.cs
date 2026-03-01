@@ -9,7 +9,7 @@ namespace Ceras.Test.Tests {
 	public partial class RobustCustomFormatterTests {
 		[Fact]
 		public void Robust_Respects_CustomFormatter() {
-			var config = new SerializerConfig();
+			var config = new CerasRobustConfig();
 			config.ConfigType<MyCustomStruct>().CustomFormatter = new MyCustomStructFormatter();
 
 			// Enable robust formatting

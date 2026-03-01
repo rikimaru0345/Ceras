@@ -50,7 +50,7 @@
 
             if (type.IsEnum)
             {
-                if (_ceras.Config.Robust.Enabled)
+                if (_ceras.Config is CerasRobustConfig)
                     return (IFormatter)Activator.CreateInstance(typeof(EnumFormatter<>).MakeGenericType(type));
 
                 return (IFormatter)Activator.CreateInstance(typeof(ReinterpretFormatter<>).MakeGenericType(type));

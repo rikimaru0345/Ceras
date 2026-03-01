@@ -19,11 +19,11 @@ namespace Ceras.Test
         [Fact]
         public void SharedStringTable_InternsAcrossSections()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
-			config.Advanced.AllowReflectionFallback = true;
+			config.AllowReflectionFallback = true;
 			// Must disable compression for this obviously
-			config.Robust.StringTableCompression = StringTableCompression.Disabled;
+			config.StringTableCompression = StringTableCompression.Disabled;
 			config.ConfigType<InterningTestPotion>().TargetMembers = TargetMember.AllFields;
 
 			// Force schema generation and registration
@@ -33,7 +33,7 @@ namespace Ceras.Test
                 kind: SchemaTypeKind.Class,
                 fields: new[] { new SchemaFieldInfo("Label", Array.Empty<string>(), "System.String", true) },
                 fixedByteSize: 0);
-            config.Robust.SchemaRegistry.Register(typeof(InterningTestPotion), info);
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(InterningTestPotion), info);
 
             var ceras = new CerasSerializer(config);
 

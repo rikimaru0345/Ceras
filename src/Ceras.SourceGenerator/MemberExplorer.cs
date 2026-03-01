@@ -117,7 +117,58 @@ namespace Ceras.SourceGenerator
                         if (isBackingField && !claimedBackingFieldNames.Add(stableName))
                             continue;
 
-                        members.Add(MakeMember(field.Name, field.Type, isField: true, field, attrs, isGetterOnly: false, stableNameOverride: stableName));
+                        var m = MakeMember(field.Name, field.Type, isField: true, field, attrs, isGetterOnly: false, stableNameOverride: stableName);
+                        
+                        // If it's a backing field, also check attributes on the property
+                        if (associatedProp != null)
+                        {
+                            if (attrs.SerializedAs != null)
+                            {
+                                foreach (var attr in associatedProp.GetAttributes())
+                                {
+                                    if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, attrs.SerializedAs) &&
+                                        attr.ConstructorArguments.Length > 0 &&
+                                        attr.ConstructorArguments[0].Value is string sn)
+                                    {
+                                        m = new SerializedMember(m.Name, sn, m.Type, m.DeclaringType, m.IsField, m.PreviousNames, m.IsMonomorphic, m.IsAccessible, m.IsReadOnly, m.IsGetterOnly, m.IsCtorParam, m.CtorParamName, m.IsReadAccessible, m.IsWriteAccessible);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (attrs.PreviousName != null)
+                            {
+                                var previousNames = new List<string>(m.PreviousNames);
+                                foreach (var attr in associatedProp.GetAttributes())
+                                {
+                                    if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, attrs.PreviousName))
+                                        continue;
+
+                                    if (attr.ConstructorArguments.Length > 0 &&
+                                        attr.ConstructorArguments[0].Value is string primary)
+                                        previousNames.Add(primary);
+
+                                    if (attr.ConstructorArguments.Length > 1 &&
+                                        !attr.ConstructorArguments[1].IsNull)
+                                    {
+                                        foreach (var v in attr.ConstructorArguments[1].Values)
+                                            if (v.Value is string alt)
+                                                previousNames.Add(alt);
+                                    }
+                                }
+                                if (previousNames.Count > m.PreviousNames.Length)
+                                {
+                                    m = new SerializedMember(m.Name, m.StableName, m.Type, m.DeclaringType, m.IsField, previousNames.ToArray(), m.IsMonomorphic, m.IsAccessible, m.IsReadOnly, m.IsGetterOnly, m.IsCtorParam, m.CtorParamName, m.IsReadAccessible, m.IsWriteAccessible);
+                                }
+                            }
+
+                            if (attrs.Monomorphic != null && HasAttribute(associatedProp, attrs.Monomorphic))
+                                m = new SerializedMember(m.Name, m.StableName, m.Type, m.DeclaringType, m.IsField, m.PreviousNames, true, m.IsAccessible, m.IsReadOnly, m.IsGetterOnly, m.IsCtorParam, m.CtorParamName, m.IsReadAccessible, m.IsWriteAccessible);
+                            if (attrs.Polymorphic != null && HasAttribute(associatedProp, attrs.Polymorphic))
+                                m = new SerializedMember(m.Name, m.StableName, m.Type, m.DeclaringType, m.IsField, m.PreviousNames, false, m.IsAccessible, m.IsReadOnly, m.IsGetterOnly, m.IsCtorParam, m.CtorParamName, m.IsReadAccessible, m.IsWriteAccessible);
+                        }
+
+                        members.Add(m);
                     }
                     // Properties are no longer serialized directly. 
                     // Auto-properties are handled via their backing fields.

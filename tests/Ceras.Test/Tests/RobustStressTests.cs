@@ -25,10 +25,10 @@ namespace Ceras.Test
         [Fact]
         public void Robust_SizeLimits_PreventsOOM()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
             CerasRobust.Configure(config);
-            config.Advanced.SizeLimits.MaxCollectionSize = 100; // Small limit
+            config.SizeLimits.MaxCollectionSize = 100; // Small limit
             var ceras = new CerasSerializer(config);
 
             // Verify that a legitimate large save is blocked if it exceeds limits.
@@ -57,16 +57,16 @@ namespace Ceras.Test
         public void Raw_vs_Robust_StringStorage_Comparison()
         {
             // 1. RAW Path (standard config)
-            var configRaw = new SerializerConfig();
+            var configRaw = new CerasRobustConfig();
             Ceras.Generated.RobustFormatters.UseRobustFormatters(configRaw);
             var cerasRaw = new CerasSerializer(configRaw);
 
             // 2. ROBUST Path (configured for robust format)
-            var configRobust = new SerializerConfig();
+            var configRobust = new CerasRobustConfig();
             CerasRobust.Configure(configRobust);
 			Ceras.Generated.RobustFormatters.UseRobustFormatters(configRobust);
 			// cant test anything string related if compressed
-			configRobust.Robust.StringTableCompression = StringTableCompression.Disabled;
+			configRobust.StringTableCompression = StringTableCompression.Disabled;
 			var cerasRobust = new CerasSerializer(configRobust);
 
             // Create two distinct string instances with the same content
@@ -100,7 +100,7 @@ namespace Ceras.Test
         [Fact]
         public void Robust_Interning_PreservesReferences()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
             Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);

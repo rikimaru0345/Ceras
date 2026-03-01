@@ -98,12 +98,12 @@ namespace ReproGame
 
     public class GodotStyleRepro
     {
-        static SerializerConfig MakeConfig()
+        static CerasConfig MakeConfig()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
             Ceras.CerasRobust.Configure(config);
-            config.Robust.Enabled = true;
+            
             return config;
         }
 

@@ -24,7 +24,7 @@ namespace Ceras.Test
 
             // Test: Ctor with argument
             {
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
 
                 config.ConfigType<Person>()
                       // Select ctor, not delegate
@@ -38,7 +38,7 @@ namespace Ceras.Test
 
             // Test: Manual config
             {
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
 
                 config.ConfigType<Person>()
                       .ConstructBy(TypeConstruction.ByStaticMethod(() => StaticPoolTest.CreatePerson()));
@@ -49,7 +49,7 @@ namespace Ceras.Test
 
             // Test: Normal ctor, but explicitly
             {
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
 
                 config.ConfigType<Person>()
                       // Select ctor, not delegate
@@ -61,7 +61,7 @@ namespace Ceras.Test
 
             // Test: Construct from instance-pool
             {
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
 
                 config.ConfigType<Person>()
                       // Instance + method select
@@ -74,7 +74,7 @@ namespace Ceras.Test
 
             // Test: Construct from static-pool
             {
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
 
                 config.ConfigType<Person>()
                       // method select
@@ -87,7 +87,7 @@ namespace Ceras.Test
 
             // Test: Construct from any delegate (in this example: a lambda expression)
             {
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
 
                 Person referenceCapturedByLambda = null;
 
@@ -107,7 +107,7 @@ namespace Ceras.Test
 
             // Test: Construct from instance-pool, with parameter
             {
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
 
                 config.ConfigType<Person>()
                       // Use instance + method selection
@@ -121,7 +121,7 @@ namespace Ceras.Test
 
             // Test: Construct from static-pool, with parameter
             {
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
 
                 config.ConfigType<Person>()
                       // Use instance + method selection
@@ -134,7 +134,7 @@ namespace Ceras.Test
             }
         }
         
-        static Person DoRoundTripTest(SerializerConfig config, string name = "riki")
+        static Person DoRoundTripTest(CerasRawConfig config, string name = "riki")
         {
             var ceras = new CerasSerializer(config);
 

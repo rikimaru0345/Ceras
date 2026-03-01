@@ -38,7 +38,7 @@ namespace Ceras.ImmutableCollections
             return null;
         }
 
-        public static void ApplyToConfig(SerializerConfig config)
+        public static void ApplyToConfig(CerasConfig config)
         {
             var immutableResolver = new ImmutableCollectionFormatterResolver();
             config.OnResolveFormatter.Add((c, t) => immutableResolver.GetFormatter(t));
@@ -47,7 +47,7 @@ namespace Ceras.ImmutableCollections
 
     public static class CerasImmutableExtension
     {
-        public static void UseImmutableFormatters(this SerializerConfig config)
+        public static void UseImmutableFormatters(this CerasConfig config)
         {
             ImmutableCollectionFormatterResolver.ApplyToConfig(config);
         }

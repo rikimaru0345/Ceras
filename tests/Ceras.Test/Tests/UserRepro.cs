@@ -13,15 +13,15 @@ namespace Ceras.Test
         [Fact]
         public void Repro_PreserveNullInList()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
             
             // Manually register types
-            config.Robust.SchemaRegistry.Register(typeof(ReproGame), CreateSchema(typeof(ReproGame)));
-            config.Robust.SchemaRegistry.Register(typeof(ILogicalRepro), CreateSchema(typeof(ILogicalRepro)));
-            config.Robust.SchemaRegistry.Register(typeof(ConcreteRepro), CreateSchema(typeof(ConcreteRepro)));
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ReproGame), CreateSchema(typeof(ReproGame)));
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ILogicalRepro), CreateSchema(typeof(ILogicalRepro)));
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ConcreteRepro), CreateSchema(typeof(ConcreteRepro)));
             
-            config.Robust.SchemaRegistry.Seal();
+            ((CerasRobustConfig)config).SchemaRegistry.Seal();
 
             var ceras = new CerasSerializer(config);
 

@@ -25,64 +25,66 @@ namespace Ceras {
         public const int HeaderSize = 4 + OffsetChecksum;
         public const int FormatVersion = 2;
 
-        public static void Configure(SerializerConfig config) {
+        public static void Configure(CerasRobustConfig config) {
             if (config == null) throw new ArgumentNullException(nameof(config));
 
-            config.Advanced.EmbedChecksum = false;
-            config.Advanced.UseReinterpretFormatter = false;
-            config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
-
-            // Core robust formatters
+            // Register the robust string and type formatters required for schema-aware serialization
             config.ConfigType<string>().CustomFormatter = new RobustStringFormatter();
-            config.ConfigType<Type>().CustomFormatter = new RobustTypeFormatter(config.Robust.SchemaRegistry);
+            config.ConfigType<Type>().CustomFormatter = new RobustTypeFormatter(config.SchemaRegistry);
 
-            // todo: maybe put a RobustPrimitiveResolver here?
+            // Robust format has its own CRC32 checksum in the header, so we don't need the per-object checksum
+            config.EmbedChecksum = false;
+        }
+
+        static CerasRobustConfig GetRobustConfig(CerasSerializer ceras)
+        {
+            if (ceras.Config is not CerasRobustConfig rc)
+                throw new InvalidOperationException("The provided CerasSerializer was not created with a CerasRobustConfig. Use CerasRobustConfig and call CerasRobust.Configure(config) before constructing the serializer.");
+            return rc;
         }
 
         static void VerifyConfig(CerasSerializer ceras)
         {
             var config = ceras.Config;
 
-			var stringFormatter = config.GetExistingTypeConfig(typeof(string), false)?.CustomFormatter;
-			if (!(stringFormatter is RobustStringFormatter))
-                throw new InvalidOperationException("The provided CerasSerializer is not configured for Robust mode. Please call CerasRobust.Configure(config) BEFORE creating the CerasSerializer instance.");
+            var stringFormatter = config.GetExistingTypeConfig(typeof(string), false)?.CustomFormatter;
+            if (!(stringFormatter is RobustStringFormatter))
+                throw new InvalidOperationException("The serializer is not configured for Robust mode. Call CerasRobust.Configure(config) BEFORE creating the CerasSerializer instance.");
 
             var typeFormatter = config.GetExistingTypeConfig(typeof(Type), false)?.CustomFormatter;
             if (!(typeFormatter is RobustTypeFormatter))
-                throw new InvalidOperationException("The provided CerasSerializer is not configured for Robust mode. Please call CerasRobust.Configure(config) BEFORE creating the CerasSerializer instance.");
+                throw new InvalidOperationException("The serializer is not configured for Robust mode. Call CerasRobust.Configure(config) BEFORE creating the CerasSerializer instance.");
         }
 
         public static byte[] Save<T>(T rootObject, uint robustVersion, CerasSerializer ceras) {
             if (ceras == null) throw new ArgumentNullException(nameof(ceras));
             VerifyConfig(ceras);
+            var robustConfig = GetRobustConfig(ceras);
 
-			var registry = ceras.Config.Robust.SchemaRegistry;
-			var internTable = new StringInternTable();
+            var registry = robustConfig.SchemaRegistry;
+            var internTable = new StringInternTable();
 
-			// Ensure the root type is registered so we can resolve its schema
-			registry.TryGetId(typeof(T), out _);
+            // Ensure the root type is registered so we can resolve its schema
+            registry.TryGetId(typeof(T), out _);
 
-			// Ensure the registry is sealed so that discovered generic instantiations
-			// don't affect the fingerprint.
-			registry.Seal();
+            // Ensure the registry is sealed so that discovered generic instantiations
+            // don't affect the fingerprint.
+            registry.Seal();
 
-			int rootTypeId = GetTypeId(typeof(T), registry);
+            int rootTypeId = GetTypeId(typeof(T), registry);
 
             var buffer = new byte[4096];
             int offset = 0;
 
-			WriteHeaderPlaceholder(ref buffer, ref offset, robustVersion);
+            WriteHeaderPlaceholder(ref buffer, ref offset, robustVersion);
 
-			ulong schemaFingerprint = registry.ComputeFingerprint();
+            ulong schemaFingerprint = registry.ComputeFingerprint();
 
             var typeToId = SchemaSection.Write(ref buffer, ref offset, registry, internTable);
 
             int dataStart = offset;
 
             RobustContext.BeginWrite(internTable, typeToId);
-            var oldRobustEnabled2 = ceras.Config.Robust.Enabled;
-            if (!oldRobustEnabled2)
-                ceras.Config.Robust.Enabled = true;
 
             if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
                 Ceras.Helpers.ObjectCache.BeginSerializeTrace();
@@ -101,15 +103,10 @@ namespace Ceras {
             finally
             {
                 RobustContext.End();
-                if (!oldRobustEnabled2)
-                {
-                    try { ceras.Config.Robust.Enabled = false; }
-                    catch (InvalidOperationException) { /* locked */ }
-                }
             }
 
-            int stringTableStart = internTable.Flush(ref buffer, ref offset, ceras.Config.Robust.StringTableCompression);
-            PatchHeader(buffer, offset, robustVersion, dataStart, stringTableStart, schemaFingerprint, (byte)ceras.Config.Robust.StringTableCompression);
+            int stringTableStart = internTable.Flush(ref buffer, ref offset, robustConfig.StringTableCompression);
+            PatchHeader(buffer, offset, robustVersion, dataStart, stringTableStart, schemaFingerprint, (byte)robustConfig.StringTableCompression);
             return buffer[..offset];
         }
 
@@ -124,8 +121,9 @@ namespace Ceras {
             if (data == null) throw new ArgumentNullException(nameof(data));
             VerifyConfig(ceras);
             if (data.Length < HeaderSize) throw new InvalidOperationException("Header too short");
+            var robustConfig = GetRobustConfig(ceras);
 
-            var registry = ceras.Config.Robust.SchemaRegistry;
+            var registry = robustConfig.SchemaRegistry;
 
 			// Ensure the root type is registered so we can resolve its schema
 			registry.TryGetId(typeof(T), out _);
@@ -160,7 +158,7 @@ namespace Ceras {
             var idToType = new Dictionary<int, Type>();
             for (int i = 0; i < 128; i++) if (WellKnownTypes.TryGetType(i, out var wkType)) idToType[i] = wkType;
 
-            var typeBinder = ceras.Config.Advanced.TypeBinder;
+            var typeBinder = ceras.Config.TypeBinder;
             var schemasById = new Dictionary<int, OldTypeSchema>();
             foreach (var s in fileSchemas.Values) schemasById.TryAdd(s.TypeId, s);
 
@@ -228,8 +226,6 @@ namespace Ceras {
 
 			RobustContext.BeginRead(table, idToType);
 
-			// todo: remove this dumb prop, lets create a new kinf of confic that inherits from a shared one or so
-			ceras.Config.Robust.Enabled = true;
 
 			try
 			{

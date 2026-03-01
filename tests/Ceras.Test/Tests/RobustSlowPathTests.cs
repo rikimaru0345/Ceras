@@ -26,18 +26,18 @@ namespace Ceras.Test
         [Fact]
         public void SlowPath_Fires_Callbacks_Even_Without_Changes()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
-            config.Advanced.AllowReflectionFallback = true;
+            config.AllowReflectionFallback = true;
             var ceras = new CerasSerializer(config);
 
             var original = new CallbackType { Value = 42 };
             var data = CerasRobust.Save(original, 1, ceras);
 
             // Trigger mismatch
-            var config2 = new SerializerConfig();
+            var config2 = new CerasRobustConfig();
             CerasRobust.Configure(config2);
-            config2.Advanced.AllowReflectionFallback = true;
+            config2.AllowReflectionFallback = true;
             config2.ConfigType<Dummy2>().ConstructByUninitialized();
             var ceras2 = new CerasSerializer(config2);
 

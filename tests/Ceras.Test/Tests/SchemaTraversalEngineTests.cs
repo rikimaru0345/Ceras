@@ -13,10 +13,10 @@ namespace Ceras.Test
 		public void SchemaTraversalEngine_UsesParameterlessConstructor()
 		{
 			// 1. Setup config and serializer
-			var config = new SerializerConfig();
+			var config = new CerasRobustConfig();
 			CerasRobust.Configure(config);
-			config.Advanced.AllowReflectionFallback = true;
-			config.ConfigType<CtorTestModel>().SetTargetMembers(TargetMember.All);
+			config.AllowReflectionFallback = true;
+			config.ConfigType<CtorTestModel>().SetTargetMembers(TargetMember.AllFields);
 			var ceras = new CerasSerializer(config);
 
 			// 2. Create data with some field
@@ -25,9 +25,9 @@ namespace Ceras.Test
 
 			// 3. To trigger SchemaTraversalEngine, we need a schema mismatch.
 			// We can do this by using a DIFFERENT config that has an EXTRA field for the same type.
-			var config2 = new SerializerConfig();
+			var config2 = new CerasRobustConfig();
 			CerasRobust.Configure(config2);
-			config2.ConfigType<CtorTestModel>().SetTargetMembers(TargetMember.All);
+			config2.ConfigType<CtorTestModel>().SetTargetMembers(TargetMember.AllFields);
 			// We don't actually need to add a field to the C# class, 
 			// just ensure the fingerprint is different or the schema is different.
 			// Actually, CerasRobust.Load will check the fingerprint.
@@ -53,7 +53,7 @@ namespace Ceras.Test
 			// This test verifies that CerasThrowHelper.ThrowGetterOnlyNull is used.
 			// We can't easily check the call stack here, but we can check the exception message.
 			
-			var config = new SerializerConfig();
+			var config = new CerasRobustConfig();
 			// Ensure we use the generated formatters if they exist, 
 			// but here we want to test the one we just modified.
 			// Since we're in a test project that references Ceras, 

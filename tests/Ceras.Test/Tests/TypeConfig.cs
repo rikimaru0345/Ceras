@@ -31,7 +31,7 @@ namespace Ceras.Test
             // Changing any settings for "Serialization Primitives" should not be allowed
             // String, Type, int, ...
 
-            SerializerConfig config = new SerializerConfig();
+            CerasRawConfig config = new CerasRawConfig();
 
             HashSet<Type> primitiveTypes = new HashSet<Type>
             {
@@ -65,7 +65,7 @@ namespace Ceras.Test
         [Fact]
         public void CustomFormatterForEnum()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             config.ConfigType<DayOfWeek>().CustomFormatter = new DayOfWeekFormatter();
 
             var ceras = new CerasSerializer(config);

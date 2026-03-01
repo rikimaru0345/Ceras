@@ -29,9 +29,9 @@ namespace Ceras.Test
         [Fact]
         public void StructWithAutoProps_RobustSerialization_FailsWithoutFix()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
-            config.Advanced.AllowReflectionFallback = true;
+            config.AllowReflectionFallback = true;
             var ceras = new CerasSerializer(config);
 
             var original = new Container

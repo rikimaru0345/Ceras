@@ -26,8 +26,8 @@ public class ObjectIssueTest : TestBase {
 
 		g.someDict.Add("key", new List<ReproTest.Connection>() { new ReproTest.Connection() { Source = text } });
 
-		var config = new SerializerConfig();
-		config.Robust.Enabled = true;
+		var config = new CerasRobustConfig();
+		
 		CerasRobust.Configure(config);
 		Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
 		var ceras = new CerasSerializer(config);

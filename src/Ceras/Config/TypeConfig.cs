@@ -28,12 +28,12 @@
     // todo: what about just calling Dispose() as an alternative to Discard!?
 
     /// <summary>
-    /// <para>For performance reasons <see cref="CerasSerializer"/>, <see cref="SerializerConfig"/>, and <see cref="TypeConfig"/> are not thread-safe! You shouldn't share a single instance of a SerializerConfig either.</para>
+    /// <para>For performance reasons <see cref="CerasSerializer"/>, <see cref="CerasConfig"/>, and <see cref="TypeConfig"/> are not thread-safe. Do not share a config instance between serializers.</para>
     /// </summary>
     public abstract class TypeConfig
     {
         public Type Type { get; }
-        public SerializerConfig Config { get; }
+        public CerasConfig Config { get; }
         public bool IsStatic { get; }
 
         bool _isSealed = false;
@@ -97,18 +97,6 @@
         void ThrowCantSetResolverAndFormatter() => throw new InvalidOperationException("You can only set a custom resolver or a custom formatter instance, not both.");
 
 
-        protected ReadonlyFieldHandling? _readonlyOverride; // null = use global default from config
-        public ReadonlyFieldHandling? ReadonlyFieldOverride
-        {
-            set
-            {
-                ThrowIfSealed();
-                _readonlyOverride = value;
-            }
-
-            get => _readonlyOverride;
-        }
-
         protected TargetMember? _targetMembers;
         public TargetMember? TargetMembers
         {
@@ -121,13 +109,11 @@
             get => _targetMembers;
         }
 
-        public bool? AllowUninitializedObjectFallback { get; set; }
-
         internal readonly List<MemberConfig> _allMembers;
         public IEnumerable<MemberConfig> Members => _allMembers.Where(m => !m.IsCompilerGenerated);
 
 
-        protected TypeConfig(SerializerConfig config, Type type, bool isStatic)
+        protected TypeConfig(CerasConfig config, Type type, bool isStatic)
         {
             Config = config;
             Type = type;
@@ -239,7 +225,7 @@
     /// <inheritdoc/>
     public class TypeConfig<T> : TypeConfig
     {
-        internal TypeConfig(SerializerConfig config, bool isStatic) : base(config, typeof(T), isStatic) { }
+        internal TypeConfig(CerasConfig config, bool isStatic) : base(config, typeof(T), isStatic) { }
 
         #region Construction
 
@@ -393,15 +379,6 @@
         #region Type Settings
 
         /// <summary>
-        /// Configure how readonly fields are handled for this type
-        /// </summary>
-        public TypeConfig<T> SetReadonlyHandling(ReadonlyFieldHandling mode)
-        {
-            _readonlyOverride = mode;
-            return this;
-        }
-
-        /// <summary>
         /// Configure what fields and properties are included by default
         /// </summary>
         public TypeConfig<T> SetTargetMembers(TargetMember targets)
@@ -480,18 +457,6 @@
 
         internal bool HasNonSerializedAttribute;
         internal readonly PropertyInfo AssociatedProperty;
-
-        protected ReadonlyFieldHandling? _readonlyOverride;
-        public ReadonlyFieldHandling? ReadonlyFieldHandling
-        {
-            set
-            {
-                TypeConfig.ThrowIfSealed();
-                _readonlyOverride = value;
-            }
-
-            get => _readonlyOverride;
-        }
 
         /// <summary>
         /// Controls when Ceras will write this member to the class/struct after deserialization.
@@ -592,32 +557,8 @@
                 return new InclusionExclusionResult(false, $"The type '{MemberType.FriendlyName(true)}' is banned from serialization by default and the member has no [Include] attribute.");
 
             // [NonSerialized]
-            if (HasNonSerializedAttribute && TypeConfig.Config.Advanced.RespectNonSerializedAttribute)
+            if (HasNonSerializedAttribute && TypeConfig.Config.RespectNonSerializedAttribute)
                 return new InclusionExclusionResult(false, $"Member has [NonSerializedAttribute] and 'RespectNonSerializedAttribute' is set in the config.");
-
-
-            // Skip readonly fields
-            if (IsReadonlyField)
-            {
-                if (_readonlyOverride.HasValue)
-                {
-                    // Check attribute on member
-                    if (_readonlyOverride.Value == Ceras.ReadonlyFieldHandling.ExcludeFromSerialization)
-                        return new InclusionExclusionResult(false, "Field is readonly and has [ReadonlyConfig] set to exclude.");
-                }
-                else if (TypeConfig.ReadonlyFieldOverride.HasValue)
-                {
-                    // Attribute on Type (MemberConfig)
-                    if (TypeConfig.ReadonlyFieldOverride.Value == Ceras.ReadonlyFieldHandling.ExcludeFromSerialization)
-                        return new InclusionExclusionResult(false, "Field is readonly and the declaring type has a [MemberConfig] which excludes it");
-                }
-                else
-                {
-                    // Get global default from config
-                    if (TypeConfig.Config.Advanced.ReadonlyFieldHandling == Ceras.ReadonlyFieldHandling.ExcludeFromSerialization)
-                        return new InclusionExclusionResult(false, "Field is readonly and the global default in the SerializerConfig is set to exclude");
-                }
-            }
 
             // Calculate inclusion by "TargetMember" mask
             var requiredMask = ComputeMemberTargetMask(memberInfo);
@@ -652,8 +593,6 @@
         {
             if (member is FieldInfo f)
             {
-                var mask = f.IsPublic ? TargetMember.PublicFields : TargetMember.PrivateFields;
-
                 if (f.Name.EndsWith("k__BackingField"))
                 {
                     var match = System.Text.RegularExpressions.Regex.Match(f.Name, @"^<(.*)>k__BackingField$");
@@ -662,40 +601,16 @@
                         string propName = match.Groups[1].Value;
                         var prop = f.DeclaringType.GetProperty(propName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
                         if (prop != null)
-                        {
-                            if (prop.GetGetMethod(true).IsPublic)
-                                mask |= TargetMember.PublicProperties;
-                            else
-                                mask |= TargetMember.PrivateProperties;
-                        }
+                            return prop.GetGetMethod(true).IsPublic ? TargetMember.PublicFields : TargetMember.PrivateFields;
                     }
                 }
 
-                return mask;
+                return f.IsPublic ? TargetMember.PublicFields : TargetMember.PrivateFields;
             }
             else if (member is PropertyInfo p)
-            {
-                if (p.GetGetMethod(true).IsPublic)
-                    return TargetMember.PublicProperties;
-                else
-                    return TargetMember.PrivateProperties;
-            }
+                return p.GetGetMethod(true).IsPublic ? TargetMember.PublicFields : TargetMember.PrivateFields;
             else
                 throw new ArgumentOutOfRangeException();
-        }
-
-        internal ReadonlyFieldHandling ComputeReadonlyHandling()
-        {
-            // Local?
-            if (_readonlyOverride.HasValue && _readonlyOverride.Value != Ceras.ReadonlyFieldHandling.Inherit)
-                return _readonlyOverride.Value;
-
-            // Type?
-            if (TypeConfig.ReadonlyFieldOverride.HasValue && TypeConfig.ReadonlyFieldOverride.Value != Ceras.ReadonlyFieldHandling.Inherit)
-                return TypeConfig.ReadonlyFieldOverride.Value;
-
-            // Global
-            return TypeConfig.Config.Advanced.ReadonlyFieldHandling;
         }
 
         public override string ToString() => $"{TypeConfig.Type.FriendlyName()}.{Member.Name} ({(ComputeFinalInclusionFast() ? "Included" : "Excluded")})";
@@ -720,21 +635,8 @@
         public MemberConfig(TypeConfig typeConfig, MemberInfo member) : base(typeConfig, member) { }
 
 
-        public TypeConfig<TDeclaring> SetReadonlyHandling(ReadonlyFieldHandling r)
-        {
-            _readonlyOverride = r;
-            return TypeConfig;
-        }
-
         public TypeConfig<TDeclaring> Include()
         {
-            SetIncludeWithReason(SerializationOverride.ForceInclude, "User called Include()");
-            return TypeConfig;
-        }
-
-        public TypeConfig<TDeclaring> Include(ReadonlyFieldHandling readonlyHandling)
-        {
-            ReadonlyFieldHandling = readonlyHandling;
             SetIncludeWithReason(SerializationOverride.ForceInclude, "User called Include()");
             return TypeConfig;
         }

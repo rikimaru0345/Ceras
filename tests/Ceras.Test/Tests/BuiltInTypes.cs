@@ -386,10 +386,10 @@ namespace Ceras.Test
         [Fact]
         public void BasicUsage()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             config.DefaultTargets = TargetMember.AllFields;
-            config.Advanced.BitmapMode = BitmapMode.SaveAsPng;
-            config.Advanced.RespectNonSerializedAttribute = false;
+            
+            config.RespectNonSerializedAttribute = false;
 
             var ceras = new CerasSerializer(config);
 

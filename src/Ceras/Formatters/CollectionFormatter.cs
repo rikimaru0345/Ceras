@@ -150,7 +150,7 @@ namespace Ceras.Formatters
         {
             _ceras = serializer;
             _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(typeof(TItem));
-            _maxSize = serializer.Config.Advanced.SizeLimits.MaxCollectionSize;
+            _maxSize = serializer.Config.SizeLimits.MaxCollectionSize;
             var collectionType = typeof(TCollection);
             
             CerasSerializer.AddFormatterConstructedType(collectionType);

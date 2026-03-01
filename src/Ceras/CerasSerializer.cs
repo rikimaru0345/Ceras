@@ -81,11 +81,10 @@ namespace Ceras
 
         public static void ClearGenericCaches() { ObjectCache.RefProxyPoolRegister.TrimAll(); }
 
-        internal readonly SerializerConfig Config;
-        public SerializerConfig GetConfig() => Config;
+        internal readonly CerasConfig Config;
+        public CerasConfig GetConfig() => Config;
         public ICerasAdvanced Advanced => this;
 
-        readonly Type[] _knownTypes;
         readonly ReflectionFallbackResolver _dynamicResolver;
         readonly FormatterResolverCallback[] _userResolvers;
         internal readonly ITypeBinder TypeBinder;
@@ -108,14 +107,13 @@ namespace Ceras
 
 
 
-        public CerasSerializer(SerializerConfig config = null)
+        public CerasSerializer(CerasConfig config = null)
         {
-            if (config != null && !config.Claim(this)) throw new CerasException("SerializerConfig already in use");
-            Config = config ?? new SerializerConfig();
+            if (config != null && !config.Claim(this)) throw new CerasException("The provided config is already in use by another CerasSerializer. Create a new config instance for each serializer.");
+            Config = config ?? new CerasRawConfig();
 
-			if (Config.ExternalObjectResolver == null) Config.ExternalObjectResolver = new ErrorResolver();
-            TypeBinder = Config.Advanced.TypeBinder;
-            DiscardObjectMethod = Config.Advanced.DiscardObjectMethod;
+            TypeBinder = Config.TypeBinder;
+            DiscardObjectMethod = Config.DiscardObjectMethod;
             _userResolvers = Config.OnResolveFormatter.ToArray();
             _resolvers.Add(new PrimitiveResolver(this));
             _resolvers.Add(new ReinterpretFormatterResolver(this));
@@ -125,36 +123,32 @@ namespace Ceras
             IFormatter stringFormatter;
             var stringTypeConfig = Config.GetExistingTypeConfig(typeof(string), false);
             if (stringTypeConfig?.CustomFormatter != null) stringFormatter = stringTypeConfig.CustomFormatter;
-            else if (Config.Advanced.SizeLimits.MaxStringLength < uint.MaxValue) stringFormatter = new MaxSizeStringFormatter(Config.Advanced.SizeLimits.MaxStringLength);
+            else if (Config.SizeLimits.MaxStringLength < uint.MaxValue) stringFormatter = new MaxSizeStringFormatter(Config.SizeLimits.MaxStringLength);
             else stringFormatter = new StringFormatter();
             PrepareFormatter(stringFormatter);
             SetFormatters(typeof(string), stringFormatter, stringFormatter);
 
-			IFormatter typeFormatter;
-			var typeTypeConfig = Config.GetExistingTypeConfig(typeof(Type), false);
-			if (typeTypeConfig?.CustomFormatter != null) {
-				typeFormatter = typeTypeConfig.CustomFormatter;
-				PrepareFormatter(typeFormatter);
-			}
-			else {
-				typeFormatter = new TypeFormatter(this);
-			}
-			var runtimeType = GetType().GetType();
+            IFormatter typeFormatter;
+            var typeTypeConfig = Config.GetExistingTypeConfig(typeof(Type), false);
+            if (typeTypeConfig?.CustomFormatter != null) {
+                typeFormatter = typeTypeConfig.CustomFormatter;
+                PrepareFormatter(typeFormatter);
+            }
+            else {
+                typeFormatter = new TypeFormatter(this);
+            }
+            var runtimeType = GetType().GetType();
             SetFormatters(typeof(Type), typeFormatter, typeFormatter);
             SetFormatters(runtimeType, typeFormatter, typeFormatter);
             _resolvers.Add(new ReflectionFormatterResolver(this));
             _dynamicResolver = new ReflectionFallbackResolver(this);
 
-            _knownTypes = Config.KnownTypes.ToArray();
+            ProtocolChecksum.Finish();
 
-            foreach (var t in _knownTypes) ProtocolChecksum.Add(t.FullName); ProtocolChecksum.Finish();
-            foreach (var t in _knownTypes) if (!t.ContainsGenericParameters) GetReferenceFormatter(t);
-
-            _instanceDataPool = new NoLockFactoryPool<InstanceData>(() => new InstanceData { ObjectCache = new ObjectCache(Config.Advanced.ObjectCacheComparer), TypeCache = new TypeCache(_knownTypes), EncounteredSchemaTypes = new HashSet<Type>() });
+            _instanceDataPool = new NoLockFactoryPool<InstanceData>(() => new InstanceData { ObjectCache = new ObjectCache(Config.ObjectCacheComparer), TypeCache = new TypeCache(Array.Empty<Type>()), EncounteredSchemaTypes = new HashSet<Type>() });
             InstanceData = _instanceDataPool.RentObject();
-			if (Config.Advanced.SealTypesWhenUsingKnownTypes && _knownTypes.Length > 0 && typeFormatter is TypeFormatter tf) tf.Seal();
 
-			Config.Seal();
+            Config.Seal();
 
             void SetFormatters(Type type, IFormatter specific, IFormatter reference) { var meta = GetTypeMetaData(type); meta.SpecificFormatter = specific; meta.ReferenceFormatter = reference; }
         }
@@ -180,13 +174,12 @@ namespace Ceras
             EnterRecursive(RecursionMode.Serialization);
             try
             {
-                InstanceData.CurrentRoot = obj as IExternalRootObject;
-                if (Config.Advanced.EmbedChecksum) SerializerBinary.WriteInt32Fixed(writer, ProtocolChecksum.Checksum);
+                if (Config.EmbedChecksum) SerializerBinary.WriteInt32Fixed(writer, ProtocolChecksum.Checksum);
                 GetFormatter<T>().Serialize(writer, obj);
-                if (!Config.Advanced.PersistTypeCache) InstanceData.TypeCache.ResetSerializationCache();
+                InstanceData.TypeCache.ResetSerializationCache();
                 InstanceData.ObjectCache.ClearSerializationCache();
             }
-            finally { InstanceData.EncounteredSchemaTypes.Clear(); InstanceData.CurrentRoot = null; LeaveRecursive(RecursionMode.Serialization); }
+            finally { InstanceData.EncounteredSchemaTypes.Clear(); LeaveRecursive(RecursionMode.Serialization); }
         }
 
         public T Deserialize<T>(byte[] buffer) { T value = default; int offset = 0; Deserialize(ref value, buffer, ref offset); return value; }
@@ -206,9 +199,9 @@ namespace Ceras
             EnterRecursive(RecursionMode.Deserialization);
             try
             {
-                if (Config.Advanced.EmbedChecksum && SerializerBinary.ReadInt32Fixed(ref reader) != ProtocolChecksum.Checksum) throw new InvalidOperationException("Checksum mismatch");
+                if (Config.EmbedChecksum && SerializerBinary.ReadInt32Fixed(ref reader) != ProtocolChecksum.Checksum) throw new InvalidOperationException("Checksum mismatch");
                 GetFormatter<T>().Deserialize(ref reader, ref value);
-                if (!Config.Advanced.PersistTypeCache) InstanceData.TypeCache.ResetDeserializationCache();
+                InstanceData.TypeCache.ResetDeserializationCache();
                 InstanceData.ObjectCache.ClearDeserializationCache();
                 InstanceData.EncounteredSchemaTypes.Clear();
             }
@@ -256,7 +249,7 @@ namespace Ceras
 
         internal void VerifyReflectionFallbackAllowed(Type type)
         {
-            if (!Config.Advanced.AllowReflectionFallback)
+            if (!Config.AllowReflectionFallback)
             {
                 string contextMsg = "";
                 if (_contextStack.Count > 0)
@@ -266,7 +259,7 @@ namespace Ceras
                     contextMsg = $"\n(This type was encountered while processing {memberPart} in type '{ctx.Type.FriendlyName(true)}')";
                 }
 
-                throw new InvalidOperationException($"No specialized or generated formatter found for type '{type.FriendlyName(true)}', and reflection-based fallback is disabled in SerializerConfig.Advanced.AllowReflectionFallback. Please add [CerasSerializable] to the type or register a custom formatter.{contextMsg}");
+                throw new InvalidOperationException($"No formatter found for type '{type.FriendlyName(true)}' and reflection fallback is disabled. Add [CerasSerializable] to the type or register a custom formatter.{contextMsg}");
             }
         }
 
@@ -308,8 +301,8 @@ namespace Ceras
             var meta = GetTypeMetaData(type);
             if (meta.Type.IsValueType) return GetSpecificFormatter(type, meta);
             if (meta.ReferenceFormatter != null) return meta.ReferenceFormatter;
-            bool isType = typeof(Type).IsAssignableFrom(type), isExternal = typeof(IExternalRootObject).IsAssignableFrom(type);
-            var refFormatterType = (type.IsSealed && !isType && !isExternal) ? typeof(ReferenceFormatter_KnownSealedType<>).MakeGenericType(type) : typeof(ReferenceFormatter<>).MakeGenericType(type);
+            bool isType = typeof(Type).IsAssignableFrom(type);
+            var refFormatterType = (type.IsSealed && !isType) ? typeof(ReferenceFormatter_KnownSealedType<>).MakeGenericType(type) : typeof(ReferenceFormatter<>).MakeGenericType(type);
             return meta.ReferenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
         }
 
@@ -437,10 +430,9 @@ namespace Ceras
                 if (f.GetCustomAttribute<CerasNoInjectAttribute>() != null) continue;
                 var ft = f.FieldType;
                 if (ft == typeof(CerasSerializer)) SafeInject(formatter, f, this);
-                else if (ft == typeof(SerializerConfig)) SafeInject(formatter, f, Config);
-                else if (ft == typeof(IAdvancedConfig)) SafeInject(formatter, f, Config.Advanced);
-                else if (ft == typeof(ISizeLimitsConfig)) SafeInject(formatter, f, Config.Advanced.SizeLimits);
-                else if (ft == typeof(SchemaRegistry)) SafeInject(formatter, f, Config.Robust.SchemaRegistry);
+                else if (ft == typeof(CerasConfig)) SafeInject(formatter, f, Config);
+                else if (ft == typeof(SizeLimits)) SafeInject(formatter, f, Config.SizeLimits);
+                else if (ft == typeof(SchemaRegistry) && Config is CerasRobustConfig rc) SafeInject(formatter, f, rc.SchemaRegistry);
                 else if (typeof(IFormatter).IsAssignableFrom(ft))
                 {
                     var itfMember = ReflectionHelper.FindClosedType(ft, typeof(IFormatter<>));
@@ -507,7 +499,6 @@ namespace Ceras
         public TypeCache TypeCache;
         public ObjectCache ObjectCache;
         public ObjectCache.RefProxy CurrentProxy;
-        public IExternalRootObject CurrentRoot;
         public object UserContext;
         public HashSet<Type> EncounteredSchemaTypes;
 

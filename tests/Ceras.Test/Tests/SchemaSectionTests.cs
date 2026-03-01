@@ -35,7 +35,7 @@ namespace Ceras.Test
     {
         SchemaRegistry CreateRegistry()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
 
 			// Manual registration for local types to ensure they have the stable names the tests expect
@@ -43,28 +43,28 @@ namespace Ceras.Test
                 new SchemaFieldInfo("Heal", Array.Empty<string>(), "System.Int32", true),
                 new SchemaFieldInfo("Label", Array.Empty<string>(), "System.String", true)
             }, 0);
-            config.Robust.SchemaRegistry.Register(typeof(Potion), potionInfo);
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(Potion), potionInfo);
 
             var weaponInfo = new SchemaTypeInfo("Ceras.Test.Weapon", Array.Empty<string>(), SchemaTypeKind.Class, new[] {
                 new SchemaFieldInfo("Damage", Array.Empty<string>(), "System.Int32", true),
                 new SchemaFieldInfo("Name", new[] { "OldName" }, "System.String", true),
                 new SchemaFieldInfo("Weight", Array.Empty<string>(), "System.Single", true)
             }, 0);
-            config.Robust.SchemaRegistry.Register(typeof(Weapon), weaponInfo);
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(Weapon), weaponInfo);
 
             var point2Info = new SchemaTypeInfo("Ceras.Test.Point2", Array.Empty<string>(), SchemaTypeKind.Struct, new[] {
                 new SchemaFieldInfo("X", Array.Empty<string>(), "System.Single", true),
                 new SchemaFieldInfo("Y", Array.Empty<string>(), "System.Single", true)
             }, 8);
-            config.Robust.SchemaRegistry.Register(typeof(Point2), point2Info);
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(Point2), point2Info);
 
             var vec2Info = new SchemaTypeInfo("Ceras.Test.Vec2Struct", Array.Empty<string>(), SchemaTypeKind.Struct, new[] {
                 new SchemaFieldInfo("X", Array.Empty<string>(), "System.Single", true),
                 new SchemaFieldInfo("Y", Array.Empty<string>(), "System.Single", true)
             }, 8);
-            config.Robust.SchemaRegistry.Register(typeof(Vec2Struct), vec2Info);
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(Vec2Struct), vec2Info);
 
-            return config.Robust.SchemaRegistry;
+            return ((CerasRobustConfig)config).SchemaRegistry;
         }
 
         // ── Round-trip helpers ────────────────────────────────────────────────

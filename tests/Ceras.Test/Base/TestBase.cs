@@ -26,45 +26,43 @@ namespace Ceras.Test
         protected Vector3 rngVec => new Vector3(rngFloat, rngFloat, rngFloat);
 
 
-        protected SerializerConfig CreateConfig(Action<SerializerConfig> f)
+        protected CerasConfig CreateConfig(Action<CerasConfig> f, bool robust = false)
         {
-            var s = new SerializerConfig();
+            CerasConfig s = robust ? new CerasRobustConfig() : new CerasRobustConfig();
             f(s);
             return s;
         }
 
-        protected Func<SerializerConfig> Config_WithReinterpret => () => CreateConfig(x =>
+        protected Func<CerasConfig> Config_WithReinterpret => () => CreateConfig(x =>
         {
-            x.Advanced.UseReinterpretFormatter = true;
-            x.Advanced.AllowReflectionFallback = true;
+            x.AllowReflectionFallback = true;
             x.UseImmutableFormatters();
         });
-        protected Func<SerializerConfig> Config_NoReinterpret => () => CreateConfig(x =>
+        protected Func<CerasConfig> Config_NoReinterpret => () => CreateConfig(x =>
         {
-            x.Advanced.UseReinterpretFormatter = false;
-            x.Advanced.AllowReflectionFallback = true;
+            x.AllowReflectionFallback = true;
             x.UseImmutableFormatters();
         });
-        protected Func<SerializerConfig> Config_WithVersioning => () => CreateConfig(x =>
+        protected Func<CerasConfig> Config_WithVersioning => () => CreateConfig(x =>
         {
-            Ceras.CerasRobust.Configure(x);
-            x.Advanced.AllowReflectionFallback = true;
+            Ceras.CerasRobust.Configure((CerasRobustConfig)x);
+            x.AllowReflectionFallback = true;
             x.UseImmutableFormatters();
-        });
+        }, robust: true);
 
-        Func<SerializerConfig>[] _currentTestConfigurations;
+        Func<CerasConfig>[] _currentTestConfigurations;
 
         public TestBase()
         {
-            _currentTestConfigurations = new Func<SerializerConfig>[]
+            _currentTestConfigurations = new Func<CerasConfig>[]
             {
-                () => new SerializerConfig { Advanced = { AllowReflectionFallback = true } },
-                () => CreateConfig(x => { x.Advanced.UseReinterpretFormatter = false; x.Advanced.AllowReflectionFallback = true; x.UseImmutableFormatters(); }),
-                () => CreateConfig(x => { Ceras.CerasRobust.Configure(x); x.Advanced.AllowReflectionFallback = true; x.UseImmutableFormatters(); }),
+                () => new CerasRawConfig { AllowReflectionFallback = true },
+                () => CreateConfig(x => { x.AllowReflectionFallback = true; x.UseImmutableFormatters(); }),
+                () => CreateConfig(x => { Ceras.CerasRobust.Configure((CerasRobustConfig)x); x.AllowReflectionFallback = true; x.UseImmutableFormatters(); }, robust: true),
             };
         }
 
-        protected void SetSerializerConfigurations(params Func<SerializerConfig>[] configs) => _currentTestConfigurations = configs;
+        protected void SetSerializerConfigurations(params Func<CerasConfig>[] configs) => _currentTestConfigurations = configs;
 
 
 
@@ -95,7 +93,7 @@ namespace Ceras.Test
         }
 
 
-        public T Clone<T>(T source, SerializerConfig config = null)
+        public T Clone<T>(T source, CerasConfig config = null)
         {
             if (config != null)
             {

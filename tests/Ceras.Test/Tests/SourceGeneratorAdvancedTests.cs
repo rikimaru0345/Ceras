@@ -11,9 +11,9 @@ namespace Ceras.Test.Tests
 {
     public class SourceGeneratorAdvancedTests : TestBase
     {
-        SerializerConfig CreateSgConfig()
+        CerasConfig CreateSgConfig()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
             return config;
         }
@@ -209,7 +209,7 @@ namespace Ceras.Test.Tests
 
     // --- Helper Types for Inheritance ---
 
-    [MemberConfig(TargetMember.All)]
+    [MemberConfig(TargetMember.AllFields)]
     public interface IGrandInterface { }
 
     public abstract partial class GrandBase : IGrandInterface
@@ -235,7 +235,7 @@ namespace Ceras.Test.Tests
         public int GetDerivedPrivate() => _derivedPrivate;
     }
 
-    [MemberConfig(TargetMember.AllPublic)]
+    [MemberConfig(TargetMember.PublicFields)]
     public abstract partial class BaseWithOverride : IGrandInterface
     {
         int _basePrivate;
@@ -259,7 +259,7 @@ namespace Ceras.Test.Tests
     }
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.All)]
+    [MemberConfig(TargetMember.AllFields)]
     public partial class ConcreteFromAbstract : AbstractBase
     {
         public int Value;

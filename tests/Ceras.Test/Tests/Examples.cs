@@ -20,7 +20,7 @@ namespace Ceras.Test
             // Let's say we want to make sure that some type (in this example 'SecretData')
             // will never be serialized. There are various ways to do this.
 
-            SerializerConfig config = new SerializerConfig();
+            CerasRawConfig config = new CerasRawConfig();
             config.OnConfigNewType = (Ceras.TypeConfig t) =>
             {
                 // 'OnConfigNewType' will be called once for every type Ceras encounters.

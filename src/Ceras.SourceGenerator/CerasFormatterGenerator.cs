@@ -142,14 +142,10 @@ namespace Ceras.SourceGenerator
             sbUse.AppendLine("{");
             sbUse.AppendLine("    public static class RobustFormatters");
             sbUse.AppendLine("    {");
-            sbUse.AppendLine("        public static void UseRobustFormatters(global::Ceras.SerializerConfig config)");
+            sbUse.AppendLine("        public static void UseRobustFormatters(global::Ceras.CerasConfig config)");
             sbUse.AppendLine("        {");
-            sbUse.AppendLine("            config.Robust.Enabled = true;");
-            sbUse.AppendLine("            config.Robust.Lock();");
+            sbUse.AppendLine("            var robustConfig = config as global::Ceras.CerasRobustConfig;");
             sbUse.AppendLine();
-            sbUse.AppendLine("            // In robust mode we populate in-place and overwrite everything.");
-            sbUse.AppendLine("            config.Advanced.ReadonlyFieldHandling = global::Ceras.ReadonlyFieldHandling.ForcedOverwrite;");
-            sbUse.AppendLine("            config.Advanced.AllowUninitializedObjectFallback = true;");
 
             foreach (var type in finalTypes)
             {
@@ -170,7 +166,7 @@ namespace Ceras.SourceGenerator
                 sbUse.AppendLine($"            var {varName} = config.ConfigType<{typeFqn}>();");
                 sbUse.AppendLine($"            if ({varName}.CustomFormatter == null) {varName}.CustomFormatter = new {formatterName}();");
 
-                if (vt) sbUse.AppendLine($"            config.Robust.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
+                if (vt) sbUse.AppendLine($"            if (robustConfig != null) robustConfig.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
             }
             // Register discovered interface and abstract types with minimal schemas.
             // These types have no formatters but may appear as generic type arguments in
@@ -188,13 +184,14 @@ namespace Ceras.SourceGenerator
 
                 string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 string stableName = GetRobustName(type);
-                sbUse.AppendLine($"            config.Robust.SchemaRegistry.Register(typeof({typeFqn}),");
-                sbUse.AppendLine($"                new global::Ceras.Format.SchemaTypeInfo(");
-                sbUse.AppendLine($"                    stableName: {QuoteString(stableName)},");
-                sbUse.AppendLine($"                    previousTypeNames: global::System.Array.Empty<string>(),");
-                sbUse.AppendLine($"                    kind: global::Ceras.Format.SchemaTypeKind.Class,");
-                sbUse.AppendLine($"                    fields: global::System.Array.Empty<global::Ceras.Format.SchemaFieldInfo>(),");
-                sbUse.AppendLine($"                    fixedByteSize: 0));");
+                sbUse.AppendLine($"            if (robustConfig != null)");
+                sbUse.AppendLine($"                robustConfig.SchemaRegistry.Register(typeof({typeFqn}),");
+                sbUse.AppendLine($"                    new global::Ceras.Format.SchemaTypeInfo(");
+                sbUse.AppendLine($"                        stableName: {QuoteString(stableName)},");
+                sbUse.AppendLine($"                        previousTypeNames: global::System.Array.Empty<string>(),");
+                sbUse.AppendLine($"                        kind: global::Ceras.Format.SchemaTypeKind.Class,");
+                sbUse.AppendLine($"                        fields: global::System.Array.Empty<global::Ceras.Format.SchemaFieldInfo>(),");
+                sbUse.AppendLine($"                        fixedByteSize: 0));");
             }
 
             sbUse.AppendLine("        }");

@@ -37,11 +37,11 @@
                 var itemType = type.GetElementType();
                 int rank = type.GetArrayRank();
                 var maxCount = itemType == typeof(byte)
-                        ? _ceras.Config.Advanced.SizeLimits.MaxByteArraySize
-                        : _ceras.Config.Advanced.SizeLimits.MaxArraySize;
+                        ? _ceras.Config.SizeLimits.MaxByteArraySize
+                        : _ceras.Config.SizeLimits.MaxArraySize;
 
 
-                if (rank == 1 && _ceras.Config.Advanced.UseReinterpretFormatter && ReflectionHelper.IsBlittableType(itemType))
+                if (rank == 1 && (_ceras.Config is CerasRawConfig rawCfg) && rawCfg.UseReinterpretFormatter && ReflectionHelper.IsBlittableType(itemType))
                 {
                     // ReinterpretArrayFormatter<> (reinterpret)
                     var formatterType = typeof(ReinterpretArrayFormatter<>).MakeGenericType(itemType);

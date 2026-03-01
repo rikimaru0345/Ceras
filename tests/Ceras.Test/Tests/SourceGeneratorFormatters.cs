@@ -14,7 +14,7 @@ namespace Ceras.Test
         [Fact]
         public void GeneratedFormatter_RoundTrips_SimplePublicFields()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
@@ -33,7 +33,7 @@ namespace Ceras.Test
         [Fact]
         public void GeneratedFormatter_RoundTrips_PublicProperties()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
@@ -51,11 +51,11 @@ namespace Ceras.Test
             // Serialize once with the generated formatter, once with ReflectionFallbackFormatter.
             // Bytes must be identical (same schema, same member order).
 
-            var generatedConfig = new SerializerConfig();
+            var generatedConfig = new CerasRawConfig();
             RobustFormatters.UseRobustFormatters(generatedConfig);
             var generatedCeras = new CerasSerializer(generatedConfig);
 
-            var dynamicConfig = new SerializerConfig();
+            var dynamicConfig = new CerasRawConfig();
             var dynamicCeras  = new CerasSerializer(dynamicConfig);
 
             var obj = new SimpleFieldModel { Name = "Bob", Age = 42 };
@@ -70,10 +70,10 @@ namespace Ceras.Test
         public void GeneratedFormatter_CrossDeserialize()
         {
             // Bytes written by ReflectionFallbackFormatter can be read by the generated formatter.
-            var dynamicConfig = new SerializerConfig();
+            var dynamicConfig = new CerasRawConfig();
             var dynamicCeras  = new CerasSerializer(dynamicConfig);
 
-            var generatedConfig = new SerializerConfig();
+            var generatedConfig = new CerasRawConfig();
             RobustFormatters.UseRobustFormatters(generatedConfig);
             var generatedCeras = new CerasSerializer(generatedConfig);
 
@@ -88,7 +88,7 @@ namespace Ceras.Test
         [Fact]
         public void GeneratedFormatter_RoundTrips_ReadonlyCtorModel()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
@@ -101,7 +101,7 @@ namespace Ceras.Test
         [Fact]
         public void GeneratedFormatter_RoundTrips_InitCtorModel()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
@@ -125,7 +125,7 @@ namespace Ceras.Test
     }
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.PublicProperties)]
+    [MemberConfig(TargetMember.AllFields)]
     public class PropertyModel
     {
         public float X { get; set; }

@@ -53,7 +53,7 @@ namespace Ceras.Test
 
     // Discovery through getter-only members (Reference types)
     [CerasSerializable]
-    [MemberConfig(TargetMember.All, ReadonlyFieldHandling.Members)]
+    [MemberConfig(TargetMember.AllFields)]
     public partial class GetterOnlyRoot
     {
         // Reference type field initialized in-place
@@ -104,7 +104,7 @@ namespace Ceras.Test
         [Fact]
         public void NoPartialNeeded_WhenMembersHandledByCtorOrPop()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
@@ -126,8 +126,7 @@ namespace Ceras.Test
         [Fact]
         public void GetterOnlyDiscovery_WorksForReferenceTypes()
         {
-            var config = new SerializerConfig();
-            config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+            var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
@@ -153,27 +152,12 @@ namespace Ceras.Test
             Assert.Equal("ModifiedField", clone.ChildField.Name);
             Assert.Equal("ModifiedProp", clone.ChildProp.Name);
             Assert.Equal("ModifiedCtor", clone.ChildCtor.Name);
-
-            // 4. Verify members list
-            var tc = config.ConfigType<GetterOnlyRoot>();
-            
-            // Reference types should be INCLUDED (because we enabled ReadonlyFieldHandling.Members)
-            Assert.Contains(tc.Members, m => m.PersistentName == "ChildField" && m.ComputeFinalInclusionFast());
-            Assert.Contains(tc.Members, m => m.PersistentName == "ChildProp" && m.ComputeFinalInclusionFast());
-            Assert.Contains(tc.Members, m => m.PersistentName == "ChildCtor" && m.ComputeFinalInclusionFast());
-
-            // Value types should be EXCLUDED (because they are computed/readonly value types)
-            var ignoredIntMember = tc.Members.FirstOrDefault(m => m.PersistentName == "IgnoredInt");
-            Assert.True(ignoredIntMember == null || !ignoredIntMember.ComputeFinalInclusionFast());
-
-            var ignoredFloatMember = tc.Members.FirstOrDefault(m => m.PersistentName == "IgnoredFloat");
-            Assert.True(ignoredFloatMember == null || !ignoredFloatMember.ComputeFinalInclusionFast());
         }
 
         [Fact]
         public void RecursiveDiscovery_And_Records_Work()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             // This registers all formatters that the source generator produced
             RobustFormatters.UseRobustFormatters(config);
 
@@ -222,7 +206,7 @@ namespace Ceras.Test
         [Fact]
         public void BannedTypeWorks()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
 
             var rootType = typeof(DiscoveryRoot);

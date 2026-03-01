@@ -28,11 +28,11 @@ namespace Ceras.Test
         [Fact]
         public void DumpSchema_ShowsID0_ForUnresolvedFieldTypes()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
-            config.Robust.Enabled = true;
             
-            var registry = config.Robust.SchemaRegistry;
+            
+            var registry = ((CerasRobustConfig)config).SchemaRegistry;
 
             // 1. Manually register a type with a field pointing to a non-existent type
             var info = new SchemaTypeInfo(
@@ -64,11 +64,11 @@ namespace Ceras.Test
         [Fact]
         public void DumpSchema_ShowsID0_ForUnresolvedGenericArguments()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
-            config.Robust.Enabled = true;
             
-            var registry = config.Robust.SchemaRegistry;
+            
+            var registry = ((CerasRobustConfig)config).SchemaRegistry;
 
             // Register a generic instantiation with an unresolved argument
             var info = new SchemaTypeInfo(

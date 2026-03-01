@@ -31,10 +31,10 @@ namespace Ceras.Test {
 	public class RobustGenericTest {
 		[Fact]
 		public void TestRobustGenericList() {
-			var config = new SerializerConfig();
+			var config = new CerasRobustConfig();
 			CerasRobust.Configure(config);
 			Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-			// config.Robust.SchemaRegistry is read-only, it has a default instance
+			// ((CerasRobustConfig)config).SchemaRegistry is read-only, it has a default instance
 
 			var ceras = new CerasSerializer(config);
 
@@ -51,7 +51,7 @@ namespace Ceras.Test {
 			var bytes = CerasRobust.Save(chunk, version, ceras);
 
 			// Log schema for debugging if needed
-			// Console.WriteLine(CerasRobust.DumpSchema(config.Robust.SchemaRegistry));
+			// Console.WriteLine(CerasRobust.DumpSchema(((CerasRobustConfig)config).SchemaRegistry));
 
 			var loadedChunk = CerasRobust.Load<MapChunk>(bytes, version, ceras);
 
@@ -66,12 +66,12 @@ namespace Ceras.Test {
 
 		[Fact]
 		public void TestRobustGenericListTraversal() {
-			var config = new SerializerConfig();
+			var config = new CerasRobustConfig();
 			CerasRobust.Configure(config);
 			Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
 
 			// Add a dummy to the registry to include it in the fingerprint.
-			config.Robust.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+			((CerasRobustConfig)config).SchemaRegistry.Register(typeof(DummyForMismatch), null);
 			var ceras = new CerasSerializer(config);
 
 			var chunk = new MapChunk {
@@ -85,7 +85,7 @@ namespace Ceras.Test {
 			var bytes = CerasRobust.Save(chunk, version, ceras);
 
 			// Force fingerprint mismatch by clearing registry
-			config.Robust.SchemaRegistry.InternalClear();
+			((CerasRobustConfig)config).SchemaRegistry.InternalClear();
 			
 			// Re-populate registry so it has the same IDs as the data we're about to load
 			// We need to re-call UseRobustFormatters because InternalClear() wiped it.
@@ -102,12 +102,12 @@ namespace Ceras.Test {
 
 				[Fact]
 				public void TestRobustGenericPair() {
-					var config = new SerializerConfig();
+					var config = new CerasRobustConfig();
 					CerasRobust.Configure(config);
 					Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
 		
 					// Fingerprint F1 (includes DummyForMismatch)
-					config.Robust.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+					((CerasRobustConfig)config).SchemaRegistry.Register(typeof(DummyForMismatch), null);
 					var ceras = new CerasSerializer(config);
 		
 					var pair = new Pair<int, string> { Item1 = 42, Item2 = "Hello" };
@@ -121,7 +121,7 @@ namespace Ceras.Test {
 					Assert.Equal("Hello", loadedPair.Item2);
 		
 					// 2. Traversal roundtrip (Fingerprint mismatch)
-					config.Robust.SchemaRegistry.InternalClear();
+					((CerasRobustConfig)config).SchemaRegistry.InternalClear();
 					Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
 					// We DO NOT register DummyForMismatch here, so the fingerprint will mismatch.
 					var loadedPair2 = CerasRobust.Load<Pair<int, string>>(bytes, version, ceras);

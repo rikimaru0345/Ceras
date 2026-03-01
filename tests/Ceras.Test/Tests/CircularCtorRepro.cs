@@ -35,14 +35,14 @@ namespace Ceras.Test
         {
             CerasSerializer.ClearFormatterConstructedTypes();
 
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             config.DefaultTargets = TargetMember.AllFields;
             CerasRobust.Configure(config);
             
             // Manual registration for robust mode in tests
-            config.Robust.SchemaRegistry.Register(typeof(GameRoot), CreateSchema(typeof(GameRoot)));
-            config.Robust.SchemaRegistry.Register(typeof(ParentEntity), CreateSchema(typeof(ParentEntity)));
-            config.Robust.SchemaRegistry.Register(typeof(ChildEntity), CreateSchema(typeof(ChildEntity)));
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(GameRoot), CreateSchema(typeof(GameRoot)));
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ParentEntity), CreateSchema(typeof(ParentEntity)));
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ChildEntity), CreateSchema(typeof(ChildEntity)));
             
             var ceras = new CerasSerializer(config);
 
@@ -90,16 +90,16 @@ namespace Ceras.Test
         [Fact]
         public void Repro_CircularReference_With_CerasConstructor_SourceGenerator()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             config.DefaultTargets = TargetMember.AllFields;
-            config.Advanced.AllowReflectionFallback = false;
+            config.AllowReflectionFallback = false;
             RobustFormatters.UseRobustFormatters(config);
             CerasRobust.Configure(config);
             
             // Manual registration for robust mode in tests
-            config.Robust.SchemaRegistry.Register(typeof(GameRoot), CreateSchema(typeof(GameRoot)));
-            config.Robust.SchemaRegistry.Register(typeof(ParentEntity), CreateSchema(typeof(ParentEntity)));
-            config.Robust.SchemaRegistry.Register(typeof(ChildEntity), CreateSchema(typeof(ChildEntity)));
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(GameRoot), CreateSchema(typeof(GameRoot)));
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ParentEntity), CreateSchema(typeof(ParentEntity)));
+            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ChildEntity), CreateSchema(typeof(ChildEntity)));
             
             var ceras = new CerasSerializer(config);
 

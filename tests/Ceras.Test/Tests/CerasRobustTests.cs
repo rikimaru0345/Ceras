@@ -48,7 +48,7 @@ namespace Ceras.Test
     {
         CerasSerializer CreateSerializer()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
             CerasRobust.Configure(config);
             return new CerasSerializer(config);
@@ -139,7 +139,7 @@ namespace Ceras.Test
             var ceras = CreateSerializer();
             byte[]  data = CerasRobust.Save(new SaveHero(), robustVersion: 1, ceras);
             ulong   fp   = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(CerasRobust.OffsetFingerprint));
-            Assert.Equal(ceras.Config.Robust.SchemaRegistry.ComputeFingerprint(), fp);
+            Assert.Equal(((CerasRobustConfig)ceras.Config).SchemaRegistry.ComputeFingerprint(), fp);
         }
 
         [Fact]
@@ -176,7 +176,7 @@ namespace Ceras.Test
         [Fact]
         public void DuplicateStrings_WriteOnlyOnce_InStringTable()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
             CerasRobust.Configure(config);
             var ceras = new CerasSerializer(config);
@@ -281,10 +281,10 @@ namespace Ceras.Test
         [Fact]
         public void Configure_DisablesEmbedChecksum()
         {
-            var config = new SerializerConfig();
-            config.Advanced.EmbedChecksum = true;
+            var config = new CerasRobustConfig();
+            config.EmbedChecksum = true;
             CerasRobust.Configure(config);
-            Assert.False(config.Advanced.EmbedChecksum);
+            Assert.False(config.EmbedChecksum);
         }
     }
 }

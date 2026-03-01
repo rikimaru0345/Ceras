@@ -45,76 +45,37 @@ namespace Ceras
 
 
 	/// <summary>
-	/// Configure what members to include by default in this type, you can also add [Exclude] and [Include] to individual members as well to override the member config.
+	/// Configure what members to include by default in this type. You can also add [Exclude] and [Include]
+	/// to individual members to override the per-type setting.
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Interface | AttributeTargets.Assembly)]
 	public sealed class MemberConfigAttribute : Attribute
-    {
-        public TargetMember TargetMembers { get; set; }
-        public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
+	{
+		public TargetMember TargetMembers { get; set; }
 
-        bool? _allowUninitializedObjectFallback;
-        public bool AllowUninitializedObjectFallback
-        {
-            get => _allowUninitializedObjectFallback ?? false;
-            set => _allowUninitializedObjectFallback = value;
-        }
+		public MemberConfigAttribute(TargetMember targetMembers = TargetMember.AllFields)
+		{
+			TargetMembers = targetMembers;
+		}
+	}
 
-        internal bool? InternalAllowUninitializedObjectFallback => _allowUninitializedObjectFallback;
+	/// <summary>
+	/// What members should be serialized and deserialized.
+	/// Ceras serializes fields only — never properties directly (auto-property backing fields are included).
+	/// </summary>
+	[Flags]
+	public enum TargetMember
+	{
+		None = 0,
 
-		public MemberConfigAttribute(TargetMember targetMembers = TargetMember.AllFields, ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Inherit) {
-            TargetMembers = targetMembers;
-            ReadonlyFieldHandling = readonlyFieldHandling;
-        }
-    }
+		/// <summary>Fields declared with the <c>public</c> keyword.</summary>
+		PublicFields = 1 << 0,
+		/// <summary>Fields declared with any non-public visibility (private, internal, protected).</summary>
+		PrivateFields = 1 << 1,
 
-    /// <summary>
-    /// Use this to override global or class-level settings for a single field or property.
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-    public sealed class ReadonlyConfigAttribute : Attribute
-    {
-        public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
-
-        public ReadonlyConfigAttribute(ReadonlyFieldHandling readonlyFieldHandling = ReadonlyFieldHandling.Inherit)
-        {
-            ReadonlyFieldHandling = readonlyFieldHandling;
-        }
-    }
-
-    /// <summary>
-    /// What members should be serialized and deserialized
-    /// </summary>
-    [Flags]
-    public enum TargetMember
-    {
-        None = 0,
-
-        /// <summary>
-        /// Include all fields with the "public" keyword, pretty obvious. As with all visibility checks, "public" just means "has the public keyword", and doesn't require complete outside visibility (like, the containing class or struct doesn't have to be public for the field to count as public)
-        /// </summary>
-        PublicFields = 1 << 0,
-        /// <summary>
-        /// Include all private fields. Hidden compiler-generated fields (like backing fields for properties, enumerator state-machines, ...) are not included.
-        /// </summary>
-        PrivateFields = 1 << 1,
-        /// <summary>
-        /// Only properties marked with the "public" keyword. So properties marked as internal/protected/private are not included
-        /// </summary>
-        PublicProperties = 1 << 2,
-        /// <summary>
-        /// Properties that are not public (so "internal", "private", or "protected")
-        /// </summary>
-        PrivateProperties = 1 << 3,
-
-        AllPublic = PublicFields | PublicProperties,
-        AllPrivate = PrivateFields | PrivateProperties,
-
-        AllFields = PublicFields | PrivateFields,
-        AllProperties = PublicProperties | PrivateProperties,
-
-        All = PublicFields | PrivateFields | PublicProperties | PrivateProperties
-    }
+		/// <summary>All fields, both public and private. This is the default.</summary>
+		AllFields = PublicFields | PrivateFields,
+	}
 
     /// <summary>
     /// Add this to a member if you have changed the name.

@@ -20,8 +20,8 @@ namespace Ceras.Test
         [Fact]
         public void NoFormatter_IncludesContextInException()
         {
-            var config = new SerializerConfig();
-            config.Advanced.AllowReflectionFallback = false;
+            var config = new CerasRawConfig();
+            config.AllowReflectionFallback = false;
             var ceras = new CerasSerializer(config);
 
             var member = typeof(MyClass).GetField(nameof(MyClass.MyMember));
@@ -35,7 +35,7 @@ namespace Ceras.Test
                 Console.WriteLine(ex.Message);
                 Console.WriteLine("DEBUG MESSAGE END");
 
-                Assert.Contains("No specialized or generated formatter found for type", ex.Message);
+                Assert.Contains("No formatter found for type", ex.Message);
                 Assert.Contains("UnserializableType", ex.Message);
                 Assert.Contains("encountered while processing member 'MyMember' in type 'Ceras.Test.ImprovedErrorMessageTest+MyClass'", ex.Message);
             }
@@ -64,15 +64,15 @@ namespace Ceras.Test
         [Fact]
         public void NoFormatter_DI_IncludesContextInException()
         {
-            var config = new SerializerConfig();
-            config.Advanced.AllowReflectionFallback = false;
+            var config = new CerasRawConfig();
+            config.AllowReflectionFallback = false;
             var ceras = new CerasSerializer(config);
 
             var formatter = new FakeGeneratedFormatter();
 
             var ex = Assert.Throws<InvalidOperationException>(() => ((ICerasAdvanced)ceras).PrepareFormatter(formatter));
 
-            Assert.Contains("No specialized or generated formatter found for type", ex.Message);
+            Assert.Contains("No formatter found for type", ex.Message);
             Assert.Contains("UnserializableType", ex.Message);
             Assert.Contains("encountered while processing a member in type 'Ceras.Test.ImprovedErrorMessageTest+ParentClass'", ex.Message);
         }

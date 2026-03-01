@@ -76,8 +76,8 @@ namespace Ceras.Test.Tests
         [Fact]
         public void TestPrivateConstructorSupport()
         {
-            var config = new SerializerConfig();
-            config.Advanced.AllowReflectionFallback = false;
+            var config = new CerasRawConfig();
+            config.AllowReflectionFallback = false;
             RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
@@ -92,8 +92,8 @@ namespace Ceras.Test.Tests
         [Fact]
         public void TestInheritedPropertyMapping()
         {
-            var config = new SerializerConfig();
-            config.Advanced.AllowReflectionFallback = false;
+            var config = new CerasRawConfig();
+            config.AllowReflectionFallback = false;
             RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
@@ -111,8 +111,8 @@ namespace Ceras.Test.Tests
         [Fact]
         public void TestInheritedInitOnlyPropertyMapping()
         {
-            var config = new SerializerConfig();
-            config.Advanced.AllowReflectionFallback = false;
+            var config = new CerasRawConfig();
+            config.AllowReflectionFallback = false;
             RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 

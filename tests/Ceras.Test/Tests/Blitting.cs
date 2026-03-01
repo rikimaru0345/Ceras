@@ -121,8 +121,8 @@ namespace Ceras.Test
         [Fact]
         public void BlittableTypesUseCorrectFormatter()
         {
-            var config = new SerializerConfig();
-            config.Advanced.UseReinterpretFormatter = true;
+            var config = new CerasRawConfig();
+            
             var ceras = new CerasSerializer(config);
 
             foreach (var t in _blittableTypes)
@@ -250,7 +250,7 @@ namespace Ceras.Test
             };
 
 
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             config.OnConfigNewType = t => t.CustomResolver = (c, t2) => c.Advanced.GetFormatterResolver<ReinterpretFormatterResolver>().GetFormatter(t2);
             //config.OnConfigNewType = t => t.CustomFormatter = (IFormatter)Activator.CreateInstance(typeof(EnumFormatterUnsafe<>).MakeGenericType(t.Type));
             var ceras = new CerasSerializer(config);

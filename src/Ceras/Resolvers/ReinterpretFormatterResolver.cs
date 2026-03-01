@@ -23,7 +23,7 @@ namespace Ceras.Resolvers
 
         public IFormatter GetFormatter(Type type)
         {
-            if(!_ceras.Config.Advanced.UseReinterpretFormatter)
+            if (!(_ceras.Config is CerasRawConfig rawCfg) || !rawCfg.UseReinterpretFormatter)
                 return null;
 
             if (!ReflectionHelper.IsBlittableType(type))

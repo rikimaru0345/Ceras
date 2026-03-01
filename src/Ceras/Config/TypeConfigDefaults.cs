@@ -29,9 +29,7 @@ namespace Ceras
             var memberConfigAttrib = type.GetCustomAttribute<MemberConfigAttribute>();
             if (memberConfigAttrib != null)
             {
-                typeConfig.ReadonlyFieldOverride = memberConfigAttrib.ReadonlyFieldHandling;
                 typeConfig.TargetMembers = memberConfigAttrib.TargetMembers;
-                typeConfig.AllowUninitializedObjectFallback = memberConfigAttrib.InternalAllowUninitializedObjectFallback;
             }
 
             //
@@ -54,7 +52,7 @@ namespace Ceras
             }
 
             // 2. Robust mode: always use uninitialized objects
-            if (typeConfig.Config.Robust.Enabled)
+            if (typeConfig.Config is CerasRobustConfig)
             {
                 typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
                 return;
@@ -75,18 +73,14 @@ namespace Ceras
                 return;
             }
 
-            // 5. Fallback: uninitialized object (if allowed)
-            bool allowFallback = typeConfig.AllowUninitializedObjectFallback ?? typeConfig.Config.Advanced.AllowUninitializedObjectFallback;
-            if (allowFallback)
-            {
-                typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
-            }
+            // 5. Fallback: uninitialized object
+            typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
         }
 
         internal static void CheckStructWithAutoProps(TypeConfig typeConfig)
         {
             var type = typeConfig.Type;
-            if (type.IsValueType && typeConfig.Config.Warnings.ExceptionOnStructWithAutoProperties)
+            if (type.IsValueType && typeConfig.Config.WarnOnStructWithAutoProperties)
             {
                 var allDataMembers = type.GetAllDataMembers().ToArray();
                 
@@ -132,40 +126,19 @@ namespace Ceras
             }
 
 
-            // Skip compiler generated
+            // Skip compiler generated (backing fields for auto-properties are NOT compiler-generated per IsCompilerGenerated, so they are included)
             if (memberConfig.IsCompilerGenerated)
-                if (memberConfig.TypeConfig.Config.Advanced.SkipCompilerGeneratedFields)
-                {
-                    memberConfig.ExcludeWithReason("Compiler generated field");
-                    return;
-                }
-
-            if (memberInfo is FieldInfo f)
             {
-                var readOnlyConfig = f.GetCustomAttribute<ReadonlyConfigAttribute>(true);
-                if(readOnlyConfig != null)
-                memberConfig.ReadonlyFieldHandling = readOnlyConfig.ReadonlyFieldHandling;
-
-                // Getter-only fields (readonly) are allowed if they are reference types
-                // or if we are using ForcedOverwrite
-                if (memberConfig.IsReadonlyField && memberConfig.MemberType.IsValueType)
-                {
-                    if (memberConfig.ComputeReadonlyHandling() != ReadonlyFieldHandling.ForcedOverwrite)
-                    {
-                        memberConfig.ExcludeWithReason("Readonly field of value type (cannot be populated in-place)");
-                        return;
-                    }
-                }
+                memberConfig.ExcludeWithReason("Compiler generated field");
+                return;
             }
-            else if (memberInfo is PropertyInfo p)
+
+            if (memberInfo is PropertyInfo)
             {
-                // prop: skip computed
+                // Properties are never serialized directly; backing fields are handled as fields above.
+                // A property can only be included via an explicit [Include] attribute.
                 if (ShouldSkipProperty(memberConfig))
                     return;
-            }
-            else
-            {
-                throw new InvalidOperationException(memberInfo.Name + " must be a field or a property");
             }
 
 
@@ -226,13 +199,7 @@ namespace Ceras
                     return true;
                 }
 
-                // If it's a reference type, we can populate it in-place IF we are in the right mode
-                var handling = m.ComputeReadonlyHandling();
-                if (handling != ReadonlyFieldHandling.Members && handling != ReadonlyFieldHandling.ForcedOverwrite)
-                {
-                    m.ExcludeWithReason("Getter-only property of reference type (can only be populated if ReadonlyFieldHandling is set to 'Members')");
-                    return true;
-                }
+                // Getter-only reference-type properties can be populated in-place (we always use ForcedOverwrite behavior)
             }
 
             return false;
@@ -250,8 +217,7 @@ namespace Ceras
                 if(typeConfig.TypeConstruction == null)
                     typeConfig.TypeConstruction = ConstructNull.Instance;
 
-                typeConfig.TargetMembers = TargetMember.AllFields | TargetMember.PublicProperties;
-                typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
+                typeConfig.TargetMembers = TargetMember.AllFields;
                 return;
             }
 
@@ -290,7 +256,6 @@ namespace Ceras
         static void ForceSerialization(TypeConfig typeConfig)
         {
             typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
-            typeConfig.ReadonlyFieldOverride = ReadonlyFieldHandling.ForcedOverwrite;
             typeConfig.TargetMembers = TargetMember.PrivateFields;
             typeConfig.CustomResolver = ForceDynamicResolver;
         }

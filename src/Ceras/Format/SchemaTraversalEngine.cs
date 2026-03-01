@@ -41,8 +41,8 @@ namespace Ceras.Format
             _stringTable     = stringTable;
             _robustVersion   = robustVersion;
             _serializer      = serializer;
-            _registry        = serializer.Config.Robust.SchemaRegistry;
-            _maxCollectionSize = serializer.Config.Advanced.SizeLimits.MaxCollectionSize;
+            _registry        = ((CerasRobustConfig)serializer.Config).SchemaRegistry;
+            _maxCollectionSize = serializer.Config.SizeLimits.MaxCollectionSize;
 
             _oldById = new Dictionary<int, OldTypeSchema>();
             foreach (var s in oldSchemas.Values)
@@ -198,12 +198,8 @@ namespace Ceras.Format
 
             if (marker == RefExternalObject)
             {
-                int externalId = SerializerBinary.ReadInt32Fixed(ref reader);
-                if (_serializer?.Config.ExternalObjectResolver != null)
-                {
-                    _serializer.Config.ExternalObjectResolver.Resolve(externalId, out object obj);
-                    return obj;
-                }
+                // ExternalRootObject pattern has been removed; skip the ID
+                SerializerBinary.ReadInt32Fixed(ref reader);
                 return null;
             }
 
@@ -331,11 +327,6 @@ namespace Ceras.Format
                 var ctor = tc.GetRefFormatterConstructor();
                 if (ctor != null) return ctor();
             }
-
-            bool allowFallback = typeConfig.AllowUninitializedObjectFallback ?? _serializer.Config.Advanced.AllowUninitializedObjectFallback;
-
-            if (!allowFallback)
-                throw new Ceras.Exceptions.CerasException($"Type '{type.FullName}' has no parameterless constructor and no construction mode is configured. Fallback to GetUninitializedObject is disabled in SerializerConfig.Advanced.AllowUninitializedObjectFallback.");
 
             return RuntimeHelpers.GetUninitializedObject(type);
         }

@@ -14,7 +14,7 @@ namespace Ceras.Test {
 	}
 
 	[CerasSerializable]
-	[MemberConfig(TargetMember.All)]
+	[MemberConfig(TargetMember.AllFields)]
 	public class ClassWithBannedFieldRepro {
 		public BannedClassRepro Banned = new BannedClassRepro();
 	}
@@ -22,7 +22,7 @@ namespace Ceras.Test {
 	public class UserReproTest : TestBase {
 		[Fact]
 		public void ExcludedClass_IsExcluded() {
-			var config = new SerializerConfig();
+			var config = new CerasRobustConfig();
 			Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
 			CerasRobust.Configure(config);
 			var ceras = new CerasSerializer(config);
@@ -40,7 +40,7 @@ namespace Ceras.Test {
 
 		[Fact]
 		public void RuntimeDiscoveredType_InRobustMode_IsSerializedAsNull() {
-			var config1 = new SerializerConfig();
+			var config1 = new CerasRobustConfig();
 			Ceras.Generated.RobustFormatters.UseRobustFormatters(config1);
 			CerasRobust.Configure(config1);
 			var ceras1 = new CerasSerializer(config1);
@@ -52,7 +52,7 @@ namespace Ceras.Test {
 			var data = CerasRobust.Save(root, 1, ceras1);
 
 			// 2. Load
-			var config2 = new SerializerConfig();
+			var config2 = new CerasRobustConfig();
 			CerasRobust.Configure(config2);
 			Ceras.Generated.RobustFormatters.UseRobustFormatters(config2);
 			var ceras2 = new CerasSerializer(config2);
@@ -66,7 +66,7 @@ namespace Ceras.Test {
 
 		[Fact]
 		public void WillReuseExistingObject() {
-			var config = new SerializerConfig();
+			var config = new CerasRobustConfig();
 			Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
 			CerasRobust.Configure(config);
 			var ceras = new CerasSerializer(config);

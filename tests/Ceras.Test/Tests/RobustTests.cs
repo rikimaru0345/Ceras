@@ -103,9 +103,10 @@ namespace Ceras.Test
 
     public class RobustTests : TestBase
     {
-        SerializerConfig GeneratedConfig()
+        CerasConfig GeneratedConfig()
         {
-            var c = new SerializerConfig();
+            var c = new CerasRawConfig();
+
             RobustFormatters.UseRobustFormatters(c);
             return c;
         }
@@ -225,7 +226,8 @@ namespace Ceras.Test
         [Fact]
         public void Robust_CircularReference_Polymorphic()
         {
-            var config = GeneratedConfig();
+            var config = new CerasRobustConfig();
+            RobustFormatters.UseRobustFormatters(config);
             CerasRobust.Configure(config);
             var ceras = new CerasSerializer(config);
 
@@ -258,7 +260,8 @@ namespace Ceras.Test
         [Fact]
         public void Robust_GenericStruct_Monomorphic()
         {
-            var config = GeneratedConfig();
+            var config = new CerasRobustConfig();
+            RobustFormatters.UseRobustFormatters(config);
             CerasRobust.Configure(config);
             var ceras = new CerasSerializer(config);
 

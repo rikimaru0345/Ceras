@@ -25,7 +25,7 @@ namespace Ceras.Test
     {
         CerasSerializer CreateSerializer()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
             CerasRobust.Configure(config);
             return new CerasSerializer(config);
@@ -63,7 +63,7 @@ namespace Ceras.Test
         public void Robust_Polymorphic_RoundTrip()
         {
             var ceras = CreateSerializer();
-            var registry = ceras.Config.Robust.SchemaRegistry;
+            var registry = ((CerasRobustConfig)ceras.Config).SchemaRegistry;
 
             var hero = new HeroWithPolymorphic { Extra = new ExtraInfo { Note = "Special" } };
 

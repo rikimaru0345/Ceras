@@ -25,10 +25,10 @@ namespace Ceras.Test
 
         CerasSerializer CreateSerializer()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
             Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-            config.Advanced.AllowReflectionFallback = true;
+            config.AllowReflectionFallback = true;
             return new CerasSerializer(config);
         }
 

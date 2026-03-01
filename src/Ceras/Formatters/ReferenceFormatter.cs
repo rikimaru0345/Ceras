@@ -59,7 +59,7 @@ namespace Ceras.Formatters {
 
 			var entry = GetOrCreateEntry(specificType);
 			if (entry.IsType) { SerializerBinary.WriteUInt32Bias(writer, InlineType, Bias); _typeFormatter.Serialize(writer, (Type)(object)value); return; }
-			if (entry.IsExternalRootObject) { var externalObj = (IExternalRootObject)value; if (!ReferenceEquals(_ceras.InstanceData.CurrentRoot, value)) { SerializerBinary.WriteUInt32Bias(writer, ExternalObject, Bias); SerializerBinary.WriteInt32Fixed(writer, externalObj.GetReferenceId()); _ceras.Config.OnExternalObject?.Invoke(externalObj); return; } }
+		// ExternalRootObject support removed
 
 			if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id)) {
 				SerializerBinary.WriteUInt32Bias(writer, id, Bias);
@@ -80,7 +80,7 @@ namespace Ceras.Formatters {
 				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId);
 				return;
 			}
-			if (objId == ExternalObject) { int externalId = SerializerBinary.ReadInt32Fixed(ref reader); _ceras.Config.ExternalObjectResolver.Resolve(externalId, out value); return; }
+		// ExternalRootObject support removed
 			var specificType = (objId == NewValue) ? null : typeof(T);
 			if (objId == NewValue) _typeFormatter.Deserialize(ref reader, ref specificType);
 			var entry = GetOrCreateEntry(specificType);
@@ -165,14 +165,13 @@ namespace Ceras.Formatters {
 
 		class DispatcherEntry {
 			public readonly Type Type;
-			public readonly bool IsType, IsExternalRootObject, IsValueType;
+			public readonly bool IsType, IsValueType;
 			public SerializeDelegate<T> SerializeDispatcher;
 			public DeserializeDelegate<T> DeserializeDispatcher;
 			public Func<object> Constructor;
 			public DispatcherEntry(Type type) {
 				Type = type;
 				IsType = typeof(Type).IsAssignableFrom(type);
-				IsExternalRootObject = typeof(IExternalRootObject).IsAssignableFrom(type);
 				IsValueType = type.IsValueType;
 			}
 		}

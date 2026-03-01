@@ -16,7 +16,7 @@ namespace Ceras.Test
         [Fact]
         void KnownColorFormatter()
         {
-            SerializerConfig config = new SerializerConfig();
+            CerasRawConfig config = new CerasRawConfig();
 
             config.ConfigType<Color>()
                   .CustomFormatter = new ColorFormatter();

@@ -81,7 +81,7 @@ namespace Ceras.Test.RobustGenerics
     {
         CerasSerializer CreateSerializer()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
             Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
             return new CerasSerializer(config);
@@ -124,7 +124,7 @@ namespace Ceras.Test.RobustGenerics
             uint version = 1;
             // First serializer with DummyForMismatch (Fingerprint F1)
             var s1 = CreateSerializer();
-            s1.Config.Robust.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+            ((CerasRobustConfig)s1.Config).SchemaRegistry.Register(typeof(DummyForMismatch), null);
             var bytes = CerasRobust.Save(model, version, s1);
 
             // 1. Normal (Fresh)
@@ -134,7 +134,7 @@ namespace Ceras.Test.RobustGenerics
             // 2. Traversal
             var serializer = CreateSerializer();
             // Re-populate and add dummy to force mismatch initially (wait, if I clear it, I only need to not add dummy after)
-            serializer.Config.Robust.SchemaRegistry.InternalClear();
+            ((CerasRobustConfig)serializer.Config).SchemaRegistry.InternalClear();
             Ceras.Generated.RobustFormatters.UseRobustFormatters(serializer.Config);
             // No DummyForMismatch here!
             var loaded2 = CerasRobust.Load<UnregisteredListModel>(bytes, version, serializer);
@@ -152,7 +152,7 @@ namespace Ceras.Test.RobustGenerics
 
             uint version = 1;
             var s1 = CreateSerializer();
-            s1.Config.Robust.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+            ((CerasRobustConfig)s1.Config).SchemaRegistry.Register(typeof(DummyForMismatch), null);
             var bytes = CerasRobust.Save(model, version, s1);
 
             // 1. Normal
@@ -162,7 +162,7 @@ namespace Ceras.Test.RobustGenerics
 
             // 2. Traversal
             var serializer = CreateSerializer();
-            serializer.Config.Robust.SchemaRegistry.InternalClear();
+            ((CerasRobustConfig)serializer.Config).SchemaRegistry.InternalClear();
             Ceras.Generated.RobustFormatters.UseRobustFormatters(serializer.Config);
             var loaded2 = CerasRobust.Load<StatusModel>(bytes, version, serializer);
             Assert.Equal(Status.Active, loaded2.CurrentStatus);
@@ -175,7 +175,7 @@ namespace Ceras.Test.RobustGenerics
 
             uint version = 1;
             var s1 = CreateSerializer();
-            s1.Config.Robust.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+            ((CerasRobustConfig)s1.Config).SchemaRegistry.Register(typeof(DummyForMismatch), null);
             var bytes = CerasRobust.Save(model, version, s1);
 
             // 1. Normal
@@ -184,7 +184,7 @@ namespace Ceras.Test.RobustGenerics
 
             // 2. Traversal
             var serializer = CreateSerializer();
-            serializer.Config.Robust.SchemaRegistry.InternalClear();
+            ((CerasRobustConfig)serializer.Config).SchemaRegistry.InternalClear();
             Ceras.Generated.RobustFormatters.UseRobustFormatters(serializer.Config);
             var loaded2 = CerasRobust.Load<GenericPair<int, string>>(bytes, version, serializer);
             Assert.Equal(42, loaded2.Item1);

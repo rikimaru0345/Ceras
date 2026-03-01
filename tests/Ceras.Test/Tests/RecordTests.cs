@@ -3,10 +3,10 @@ using Xunit;
 using Ceras;
 
 namespace Ceras.Test.Tests {
-    [CerasSerializable, MemberConfig(TargetMembers = TargetMember.AllPublic)]
+    [CerasSerializable, MemberConfig(TargetMembers = TargetMember.AllFields)]
     public partial record SimpleRecord(int Id, string Name);
 
-    [CerasSerializable, MemberConfig(TargetMembers = TargetMember.AllPublic)]
+    [CerasSerializable, MemberConfig(TargetMembers = TargetMember.AllFields)]
     public partial record struct StructRecord(double X, double Y);
 
     public class RecordTests : TestBase {

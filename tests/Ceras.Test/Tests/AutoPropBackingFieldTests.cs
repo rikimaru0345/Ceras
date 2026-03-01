@@ -46,9 +46,15 @@ namespace Ceras.Test {
 		public string Str { get; set; }
 	}
 
+	[CerasSerializable, MemberConfig(TargetMembers = TargetMember.AllFields)]
+	partial class ThingWithSerializedAs {
+		[CerasStableName("NewName")]
+		public int OldName { get; set; }
+	}
+
 	public class AutoPropBackingFieldTests : TestBase {
-		SerializerConfig GeneratedConfig() {
-			var c = new SerializerConfig();
+		CerasRawConfig GeneratedConfig() {
+			var c = new CerasRawConfig();
 			RobustFormatters.UseRobustFormatters(c);
 			return c;
 		}
@@ -73,6 +79,28 @@ namespace Ceras.Test {
 			Assert.Equal(original.SomeInteger, clone.SomeInteger);
 			Assert.Equal(original.SomeXY, clone.SomeXY);
 			Assert.Equal(original.Str, clone.Str);
+		}
+
+		[Fact]
+		public void Robust_SchemaNames_UsePropertyName_ForBackingFields() {
+			var config = new CerasRobustConfig();
+            RobustFormatters.UseRobustFormatters(config);
+            
+            Assert.True(((CerasRobustConfig)config).SchemaRegistry.TryGetInfo(typeof(ThingWithBackingFields), out var schema));
+            Assert.Contains(schema.Fields, f => f.StableName == "SomeBool");
+            Assert.Contains(schema.Fields, f => f.StableName == "SomeInteger");
+            Assert.Contains(schema.Fields, f => f.StableName == "SomeXY");
+            Assert.Contains(schema.Fields, f => f.StableName == "Str");
+		}
+
+		[Fact]
+		public void Robust_SchemaNames_HonorsSerializedAs_OnProperties() {
+			var config = new CerasRobustConfig();
+            RobustFormatters.UseRobustFormatters(config);
+            
+            Assert.True(((CerasRobustConfig)config).SchemaRegistry.TryGetInfo(typeof(ThingWithSerializedAs), out var schema));
+            Assert.Contains(schema.Fields, f => f.StableName == "NewName");
+            Assert.DoesNotContain(schema.Fields, f => f.StableName == "OldName");
 		}
 
 	}

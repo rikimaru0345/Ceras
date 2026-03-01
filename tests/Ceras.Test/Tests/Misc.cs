@@ -50,7 +50,7 @@ namespace Ceras.Test
 		[Fact]
 		public void SerializeStatic()
 		{
-			var config = new SerializerConfig();
+			var config = new CerasRawConfig();
 			config.ConfigStaticType(typeof(StaticClassTest))
 				  .Members.First(m => m.PersistentName == "NotIncluded3")
 				  .SerializationOverride = SerializationOverride.ForceSkip;
@@ -148,8 +148,8 @@ namespace Ceras.Test
 		[Fact]
 		public void AllowReflectionFallbackTest()
 		{
-			var config = new SerializerConfig();
-			config.Advanced.AllowReflectionFallback = false;
+			var config = new CerasRawConfig();
+			config.AllowReflectionFallback = false;
 			var ceras = new CerasSerializer(config);
 
 			var obj = new NonGeneratedType { Value = 42 };

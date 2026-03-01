@@ -41,9 +41,9 @@ namespace Ceras.Test
 
         public SchemaRegistryTests()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
-            _registry = config.Robust.SchemaRegistry;
+            _registry = ((CerasRobustConfig)config).SchemaRegistry;
         }
 
         [Fact]
@@ -173,7 +173,7 @@ namespace Ceras.Test
         public void Formatter_StillWorks_WithVersionTolerant()
         {
             // The formatter itself must still produce correct output after the schema changes
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 

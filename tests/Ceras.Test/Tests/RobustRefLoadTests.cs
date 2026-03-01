@@ -12,7 +12,7 @@ namespace Ceras.Test
         [Fact]
         public void LoadRef_FastPath()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
             var ceras = new CerasSerializer(config);
 
@@ -29,7 +29,7 @@ namespace Ceras.Test
         [Fact]
         public void LoadRef_SlowPath()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
             var ceras = new CerasSerializer(config);
 
@@ -49,7 +49,7 @@ namespace Ceras.Test
         [Fact]
         public void LoadRef_List_SlowPath()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
             var ceras = new CerasSerializer(config);
 

@@ -18,7 +18,7 @@ namespace Ceras.Test
             // so that if the same collection instance is seen twice, it is correctly shared.
             // Before the fix, SG used CollectionFormatter directly, which bypasses reference tracking.
 
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
             var ceras = new CerasSerializer(config);
 
@@ -42,12 +42,12 @@ namespace Ceras.Test
             // This test verifies that CerasRobust correctly handles types 
             // when encountered in a polymorphic context (e.g. through an interface).
 
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
             RobustFormatters.UseRobustFormatters(config);
             
             // Manual registration for types used in Robust mode
-            var registry = config.Robust.SchemaRegistry;
+            var registry = ((CerasRobustConfig)config).SchemaRegistry;
             registry.Register(typeof(RobustRoot), null);
             registry.Register(typeof(RobustChild), null);
             registry.Register(typeof(IRobustInterface), new SchemaTypeInfo("IRobustInterface", Array.Empty<string>(), SchemaTypeKind.Class, Array.Empty<SchemaFieldInfo>(), 0));
@@ -74,11 +74,11 @@ namespace Ceras.Test
             // 2. The same object is later encountered through a typed field.
             // If reference tracking is broken for collections in SG, the ID mapping gets desynced.
 
-            var config = new SerializerConfig();
+            var config = new CerasRobustConfig();
             CerasRobust.Configure(config);
             RobustFormatters.UseRobustFormatters(config);
 
-            var registry = config.Robust.SchemaRegistry;
+            var registry = ((CerasRobustConfig)config).SchemaRegistry;
             registry.Register(typeof(DesyncModel), null);
             registry.Register(typeof(DesyncChild), null);
             registry.Register(typeof(List<DesyncChild>), null);
