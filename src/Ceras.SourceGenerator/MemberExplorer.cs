@@ -10,7 +10,7 @@ namespace Ceras.SourceGenerator
 {
     internal static class MemberExplorer
     {
-        public static List<SerializedMember> DiscoverMembers(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs, List<string>? blacklistPatterns = null)
+        public static List<SerializedMember> DiscoverMembers(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs, List<string>? blacklistPatterns = null, HashSet<INamedTypeSymbol>? explicitlyRegisteredTypes = null)
         {
             var members = new List<SerializedMember>();
             // Tracks stable names already claimed by backing fields in more-derived types.
@@ -59,8 +59,12 @@ namespace Ceras.SourceGenerator
                         if (hasExclude) continue;
 
                         // Hard-banned types (delegates, enumerators, reflection, blacklisted) can never round-trip.
-                        // Skip unconditionally — even [Include] cannot override this.
-                        if (IsBanned(field.Type, blacklistPatterns)) continue;
+                        // Exception: if the type was explicitly registered with [CerasSerializable] (e.g. via
+                        // assembly-level [CerasSerializable<Vector2I>]), it overrides a wildcard blacklist pattern.
+                        bool isExplicitlyRegistered = explicitlyRegisteredTypes != null
+                            && field.Type is INamedTypeSymbol fieldType
+                            && explicitlyRegisteredTypes.Contains(fieldType);
+                        if (!isExplicitlyRegistered && IsBanned(field.Type, blacklistPatterns)) continue;
 
                         // Engine-object types (e.g. Godot.GodotObject subclasses) CAN be serialized
                         // when the user provides a custom formatter.  Include the field but emit a
@@ -81,14 +85,19 @@ namespace Ceras.SourceGenerator
                         bool isFieldPublic = field.DeclaredAccessibility == Accessibility.Public;
                         bool isPropPublic = associatedProp != null && associatedProp.DeclaredAccessibility == Accessibility.Public;
 
-                        bool isIncludedByConfig = IsFieldIncluded(field, currentTargetKind);
-                        if (!isIncludedByConfig && associatedProp != null)
+                        // Backing fields are compiler-generated; TargetMember.PrivateFields explicitly
+                        // excludes them (see doc comment on TargetMember.PrivateFields). Treat them as
+                        // properties for the purpose of config inclusion — only include if the associated
+                        // property itself would be in scope.
+                        bool isIncludedByConfig;
+                        if (isBackingField && associatedProp != null)
                         {
-                            // If the field is a backing field, check if the property is included by config
-                            if ((currentTargetKind & TargetMemberKind.PublicProperties) != 0 && isPropPublic)
-                                isIncludedByConfig = true;
-                            else if ((currentTargetKind & TargetMemberKind.PrivateProperties) != 0 && !isPropPublic)
-                                isIncludedByConfig = true;
+                            isIncludedByConfig = ((currentTargetKind & TargetMemberKind.PublicProperties) != 0 && isPropPublic)
+                                             || ((currentTargetKind & TargetMemberKind.PrivateProperties) != 0 && !isPropPublic);
+                        }
+                        else
+                        {
+                            isIncludedByConfig = IsFieldIncluded(field, currentTargetKind);
                         }
 
                         if (!hasInclude && !isFieldPublic && !isBackingField && !isIncludedByConfig)
@@ -466,27 +475,9 @@ namespace Ceras.SourceGenerator
                     string normParam = NormalizeName(p.Name);
                     var match = members.FirstOrDefault(m => {
                         if (NormalizeName(m.Name) == normParam) return true;
-                        
-                        // Look up the member in the type or its base types
-                        ISymbol? symbol = null;
-                        var curType = type;
-                        while(curType != null) {
-                            symbol = curType.GetMembers(m.Name).FirstOrDefault();
-                            if (symbol != null) break;
-                            curType = curType.BaseType;
-                        }
-
-                        if (symbol is IFieldSymbol field && field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField"))
-                        {
-                            var matchRegex = System.Text.RegularExpressions.Regex.Match(field.Name, @"^<(.*)>k__BackingField$");
-                            if (matchRegex.Success && NormalizeName(matchRegex.Groups[1].Value) == normParam)
-                                return true;
-                        }
-
-                        // If the member is a property (not a backing field), check its name
-                        if (symbol is IPropertySymbol prop && NormalizeName(prop.Name) == normParam)
-                            return true;
-
+                        // StableName is the property name for auto-property backing fields (e.g. "Position"
+                        // for "<Position>k__BackingField"), so this correctly matches inherited properties.
+                        if (NormalizeName(m.StableName) == normParam) return true;
                         return false;
                     });
                     if (match == null)
@@ -590,27 +581,7 @@ namespace Ceras.SourceGenerator
                     string normParam = NormalizeName(p.Name);
                     bool hasMatch = members.Any(m => {
                         if (NormalizeName(m.Name) == normParam) return true;
-
-                        // Look up the member in the type or its base types
-                        ISymbol? symbol = null;
-                        var curType = type;
-                        while(curType != null) {
-                            symbol = curType.GetMembers(m.Name).FirstOrDefault();
-                            if (symbol != null) break;
-                            curType = curType.BaseType;
-                        }
-
-                        if (symbol is IFieldSymbol field && field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField"))
-                        {
-                            var matchRegex = System.Text.RegularExpressions.Regex.Match(field.Name, @"^<(.*)>k__BackingField$");
-                            if (matchRegex.Success && NormalizeName(matchRegex.Groups[1].Value) == normParam)
-                                return true;
-                        }
-
-                        // If the member is a property (not a backing field), check its name
-                        if (symbol is IPropertySymbol prop && NormalizeName(prop.Name) == normParam)
-                            return true;
-
+                        if (NormalizeName(m.StableName) == normParam) return true;
                         return false;
                     });
 

@@ -67,7 +67,7 @@ namespace Ceras.SourceGenerator
             foreach (var attr in compilation.Assembly.GetAttributes())
             {
                 if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr) ||
-                    SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableGenericAttr))
+                    SymbolEqualityComparer.Default.Equals(attr.AttributeClass?.OriginalDefinition, cerasSerializableGenericAttr))
                 {
                     if (attr.AttributeClass!.IsGenericType)
                     {
@@ -112,6 +112,7 @@ namespace Ceras.SourceGenerator
                 context, compilation, finalRoots, attrBag, excludeFromDiscoveryAttr, blacklistPatterns);
 
             var finalTypes = results.Keys.ToImmutableArray();
+            var finalTypesSet = new HashSet<INamedTypeSymbol>(finalTypes, SymbolEqualityComparer.Default);
 
             // Report discovery paths for auto-included types
             foreach (var r in results.Values)
@@ -155,7 +156,7 @@ namespace Ceras.SourceGenerator
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
 
                 // Discover members once per type to check constructability and generate the formatter
-                var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns);
+                var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns, finalTypesSet);
 
                 // Only register if we can actually construct it (to avoid broken formatters being used)
                 if (!type.IsValueType && !MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr, members))
@@ -211,7 +212,7 @@ namespace Ceras.SourceGenerator
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
 
                 MemberExplorer.ValidateIncludeExcludeConflicts(context, type, attrBag);
-                var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns);
+                var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns, finalTypesSet);
 
                 bool canConstruct = type.IsValueType || MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr, members);
                 if (!canConstruct)
