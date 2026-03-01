@@ -155,6 +155,25 @@ namespace Ceras.SourceGenerator {
 		}
 
 		/// <summary>
+		/// Returns true if the given type or any of its base types or interfaces has the specified attribute.
+		/// </summary>
+		public static bool HasAttributeInHierarchy(ITypeSymbol type, INamedTypeSymbol? attributeType) {
+			if (attributeType == null) return false;
+
+			var current = type;
+			while (current != null) {
+				if (HasAttribute(current, attributeType)) return true;
+				current = current.BaseType;
+			}
+
+			foreach (var iface in type.AllInterfaces) {
+				if (HasAttribute(iface, attributeType)) return true;
+			}
+
+			return false;
+		}
+
+		/// <summary>
 		/// Peels away Nullable&lt;T&gt;, arrays, and well-known generic collections (List&lt;T&gt;, HashSet&lt;T&gt;,
 		/// Dictionary&lt;,&gt;, Queue&lt;T&gt;, Stack&lt;T&gt;) to get to the element/value type that Ceras actually
 		/// needs a polymorphic formatter for.  Returns null if the type cannot be meaningfully unwrapped.

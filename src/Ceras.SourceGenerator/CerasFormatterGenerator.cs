@@ -257,7 +257,7 @@ namespace Ceras.SourceGenerator
                             Diag.PolymorphicFieldTypeNotSerializable,
                             memberLocation, memberDisplay, typeDisplay, coreDisplay));
                     }
-                    else if (!HasAttribute(coreType, cerasSerializableAttr))
+                    else if (!HasAttributeInHierarchy(coreType, cerasSerializableAttr))
                     {
                         // Soft warning: type is in the graph only via member propagation, not explicitly tagged.
                         // Subtypes ARE discovered, but the setup is implicit and breaks if the type is removed
