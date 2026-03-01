@@ -46,7 +46,28 @@ namespace Ceras.SourceGenerator {
 			return sb.ToString();
 		}
 
-		public static bool IsWellKnownType(INamedTypeSymbol type) {
+		public static bool IsFastPrimitive(ITypeSymbol type) {
+			switch (type.SpecialType) {
+				case SpecialType.System_Boolean:
+				case SpecialType.System_Byte:
+				case SpecialType.System_SByte:
+				case SpecialType.System_Char:
+				case SpecialType.System_Int16:
+				case SpecialType.System_UInt16:
+				case SpecialType.System_Int32:
+				case SpecialType.System_UInt32:
+				case SpecialType.System_Single:
+				case SpecialType.System_Int64:
+				case SpecialType.System_UInt64:
+				case SpecialType.System_Double:
+					return true;
+			}
+			string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+			return fqn == "global::System.Guid" || fqn == "global::System.DateTime" || fqn == "global::System.TimeSpan";
+		}
+
+		public static bool IsWellKnownType(ITypeSymbol type) {
+			if (type.SpecialType != SpecialType.None) return true; // primitives, string, object, …
 			var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 			return fqn.StartsWith("global::System.");
 		}
