@@ -155,7 +155,7 @@ namespace Ceras.SourceGenerator
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
 
                 // Discover members once per type to check constructability and generate the formatter
-                var members = MemberExplorer.DiscoverMembers(context, type, attrBag);
+                var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns);
 
                 // Only register if we can actually construct it (to avoid broken formatters being used)
                 if (!type.IsValueType && !MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr, members))
@@ -211,7 +211,7 @@ namespace Ceras.SourceGenerator
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
 
                 MemberExplorer.ValidateIncludeExcludeConflicts(context, type, attrBag);
-                var members = MemberExplorer.DiscoverMembers(context, type, attrBag);
+                var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns);
 
                 bool canConstruct = type.IsValueType || MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr, members);
                 if (!canConstruct)

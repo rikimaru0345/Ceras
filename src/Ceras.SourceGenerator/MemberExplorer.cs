@@ -10,7 +10,7 @@ namespace Ceras.SourceGenerator
 {
     internal static class MemberExplorer
     {
-        public static List<SerializedMember> DiscoverMembers(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs)
+        public static List<SerializedMember> DiscoverMembers(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs, List<string>? blacklistPatterns = null)
         {
             var members = new List<SerializedMember>();
             // Tracks stable names already claimed by backing fields in more-derived types.
@@ -41,7 +41,7 @@ namespace Ceras.SourceGenerator
                         // Type-level [Exclude] is always a hard ban, checked before anything else.
                         if (HasAttribute(field.Type, attrs.Exclude)) continue;
 
-                        bool isBackingField = field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField");
+                        bool isBackingField = field.Name.EndsWith("k__BackingField"); // Relaxed check: name pattern is enough
                         IPropertySymbol? associatedProp = null;
                         if (isBackingField)
                         {
@@ -58,9 +58,9 @@ namespace Ceras.SourceGenerator
 
                         if (hasExclude) continue;
 
-                        // Hard-banned types (delegates, enumerators, reflection) can never round-trip.
+                        // Hard-banned types (delegates, enumerators, reflection, blacklisted) can never round-trip.
                         // Skip unconditionally — even [Include] cannot override this.
-                        if (IsBanned(field.Type)) continue;
+                        if (IsBanned(field.Type, blacklistPatterns)) continue;
 
                         // Engine-object types (e.g. Godot.GodotObject subclasses) CAN be serialized
                         // when the user provides a custom formatter.  Include the field but emit a
@@ -173,41 +173,58 @@ namespace Ceras.SourceGenerator
         /// Delegates carry method references; enumerators are ephemeral; reflection
         /// metadata is not restorable.  These are skipped unconditionally.
         /// </summary>
-        public static bool IsBanned(ITypeSymbol type)
+        public static bool IsBanned(ITypeSymbol type, List<string>? blacklistPatterns = null)
         {
             if (type is INamedTypeSymbol named)
             {
-                var fqn = named.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var fqnWithGlobal = named.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var fqn = fqnWithGlobal.Replace("global::", "");
+
+                // Check against blacklist if provided
+                if (blacklistPatterns != null)
+                {
+                    var curBlacklist = named;
+                    while (curBlacklist != null)
+                    {
+                        string curFqn = curBlacklist.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
+                        foreach (var p in blacklistPatterns)
+                        {
+                            if (p.EndsWith("*")) { if (curFqn.StartsWith(p.Substring(0, p.Length - 1))) return true; }
+                            else if (curFqn == p) return true;
+                        }
+                        curBlacklist = curBlacklist.BaseType;
+                    }
+                }
 
                 // Delegates, Actions, Funcs
-                if (fqn == "global::System.Delegate" || fqn == "global::System.MulticastDelegate") return true;
+                if (fqn == "System.Delegate" || fqn == "System.MulticastDelegate") return true;
                 var cur = named.BaseType;
                 while (cur != null)
                 {
-                    var baseFqn = cur.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    if (baseFqn == "global::System.Delegate" || baseFqn == "global::System.MulticastDelegate") return true;
+                    var baseFqn = cur.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
+                    if (baseFqn == "System.Delegate" || baseFqn == "System.MulticastDelegate") return true;
                     cur = cur.BaseType;
                 }
 
                 // Reflection metadata
-                if (fqn.StartsWith("global::System.Reflection."))
+                if (fqn.StartsWith("System.Reflection."))
                 {
-                    if (fqn == "global::System.Reflection.MemberInfo") return true;
-                    if (fqn == "global::System.Reflection.MethodInfo") return true;
-                    if (fqn == "global::System.Reflection.PropertyInfo") return true;
-                    if (fqn == "global::System.Reflection.FieldInfo") return true;
-                    if (fqn == "global::System.Reflection.EventInfo") return true;
-                    if (fqn == "global::System.Reflection.ConstructorInfo") return true;
-                    if (fqn == "global::System.Reflection.Assembly") return true;
+                    if (fqn == "System.Reflection.MemberInfo") return true;
+                    if (fqn == "System.Reflection.MethodInfo") return true;
+                    if (fqn == "System.Reflection.PropertyInfo") return true;
+                    if (fqn == "System.Reflection.FieldInfo") return true;
+                    if (fqn == "System.Reflection.EventInfo") return true;
+                    if (fqn == "System.Reflection.ConstructorInfo") return true;
+                    if (fqn == "System.Reflection.Assembly") return true;
                 }
 
                 // Enumerators
-                if (fqn == "global::System.Collections.IEnumerator") return true;
+                if (fqn == "System.Collections.IEnumerator") return true;
                 foreach (var iface in named.AllInterfaces)
                 {
-                    var ifaceFqn = iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                    if (ifaceFqn == "global::System.Collections.IEnumerator") return true;
-                    if (ifaceFqn.StartsWith("global::System.Collections.Generic.IEnumerator<")) return true;
+                    var ifaceFqn = iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
+                    if (ifaceFqn == "System.Collections.IEnumerator") return true;
+                    if (ifaceFqn.StartsWith("System.Collections.Generic.IEnumerator<")) return true;
                 }
             }
             return false;

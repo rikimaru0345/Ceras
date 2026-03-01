@@ -56,7 +56,7 @@ namespace Ceras.SourceGenerator
                     if (!IsWellKnownType(currentType))
                     {
                         // Discover members of current type
-                        var members = DiscoverMembers(context, currentType, attrs);
+                        var members = DiscoverMembers(context, currentType, attrs, blacklistPatterns);
                         foreach (var m in members)
                         {
                             ExploreType(m.Type, currentType, currentResult.DiscoveryPath);
