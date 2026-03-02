@@ -68,7 +68,7 @@ namespace LiveTesting
         Person2 _personSealed;
 
         byte[] _buffer = new byte[0x1000];
-        CerasSerializer _ceras = new CerasSerializer();
+        CerasFastSerializer _ceras = new CerasFastSerializer();
 
         [GlobalSetup]
         public void Setup()
@@ -430,7 +430,7 @@ namespace LiveTesting
             CerasRawConfig config = new CerasRawConfig();
 
             var knownTypes = new[] { typeof(Person), typeof(List<>), typeof(Person[]) };
-            _ceras = new CerasSerializer(config);
+            _ceras = new CerasFastSerializer(config);
 
             //
             // Run each serializer once to verify they work correctly!
@@ -1015,13 +1015,13 @@ namespace LiveTesting
             CerasRawConfig config = new CerasRawConfig();
 
 
-            _cerasNormal = new CerasSerializer(config);
+            _cerasNormal = new CerasFastSerializer(config);
 
 
             config = new CerasRawConfig();
 
 
-            _cerasNoRefs = new CerasSerializer(config);
+            _cerasNoRefs = new CerasFastSerializer(config);
 
         }
 

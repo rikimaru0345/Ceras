@@ -22,7 +22,7 @@ namespace Ceras.Test
         {
             var config = new CerasRawConfig();
             config.AllowReflectionFallback = false;
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var member = typeof(MyClass).GetField(nameof(MyClass.MyMember));
             
@@ -66,7 +66,7 @@ namespace Ceras.Test
         {
             var config = new CerasRawConfig();
             config.AllowReflectionFallback = false;
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var formatter = new FakeGeneratedFormatter();
 

@@ -20,8 +20,8 @@ namespace Ceras.Test
 
         static void TryWithCount(int boolCount, int floatCount)
         {
-            var serializer = new CerasSerializer();
-            var deserializer = new CerasSerializer();
+            var serializer = new CerasFastSerializer();
+            var deserializer = new CerasFastSerializer();
 
             var dict = new Dictionary<string, object>();
             bool[] boolArray = new bool[boolCount];

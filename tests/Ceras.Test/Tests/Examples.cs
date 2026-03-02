@@ -62,7 +62,7 @@ namespace Ceras.Test
                 }
             };
 
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var x = new NormalClass();
             x.Objects.Add(new AnotherClass
@@ -127,7 +127,7 @@ namespace Ceras.Test
 
 
             // But if we overwrite the object instead, we expect all methods to appear in the list
-            var c = new CerasSerializer();
+            var c = new CerasFastSerializer();
 
             var data = c.Serialize(test); // we serialize AGAIN (in addition to the clone above), so we expect 0,1,2,1,2
             Assert.True(test.Actions.SequenceEqual(new int[] { 0, 1, 2, 1, 2 }));
@@ -139,7 +139,7 @@ namespace Ceras.Test
         [Fact]
         public void CallbackWithContext()
         {
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             var obj = new CallbackTestWithContext();
             obj.Text = "abc";

@@ -70,7 +70,7 @@ namespace Ceras.Test {
 
 		[Fact]
 		public void Robust_FullRoundTrip_GeneratedFormatter() {
-			var ceras = new CerasSerializer(GeneratedConfig());
+			var ceras = new CerasFastSerializer(GeneratedConfig());
 			var original = GenerateData();
 
 			var clone = ceras.Deserialize<ThingWithBackingFields>(ceras.Serialize(original));

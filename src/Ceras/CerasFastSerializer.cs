@@ -7,27 +7,30 @@ namespace Ceras
     /// Fast, transient serialization suitable for networking and undo stacks.
     /// Does not support version tolerance or schema migration.
     /// </summary>
-    public class CerasFastSerializer
+    public sealed class CerasFastSerializer : CerasSerializer
     {
-        readonly CerasSerializer _serializer;
-        public CerasRawConfig Config { get; }
-        
-        public ProtocolChecksum ProtocolChecksum => _serializer.ProtocolChecksum;
+        public new CerasRawConfig Config => (CerasRawConfig)base.Config;
 
-        public CerasFastSerializer(Action<CerasRawConfig> configure = null)
+        public CerasFastSerializer(Action<CerasRawConfig> configure = null) : base(MakeConfig(configure)) { }
+        internal CerasFastSerializer(CerasRawConfig config) : base(config) { }
+
+        static CerasRawConfig MakeConfig(Action<CerasRawConfig> configure)
         {
-            Config = new CerasRawConfig();
-            configure?.Invoke(Config);
-            _serializer = new CerasSerializer(Config);
+            var config = new CerasRawConfig();
+            configure?.Invoke(config);
+            return config;
         }
 
-        public byte[] Serialize<T>(T obj) => _serializer.Serialize(obj);
-        public void Serialize<T>(IBufferWriter<byte> writer, T obj) => _serializer.Serialize(writer, obj);
-        public int Serialize<T>(T obj, ref byte[] buffer, int offset = 0) => _serializer.Serialize(obj, ref buffer, offset);
+        public new byte[] Serialize<T>(T obj) => base.Serialize(obj);
+        public new void Serialize<T>(IBufferWriter<byte> writer, T obj) => base.Serialize(writer, obj);
+        public new int Serialize<T>(T obj, ref byte[] buffer, int offset = 0) => base.Serialize(obj, ref buffer, offset);
 
-        public T Deserialize<T>(byte[] buffer) => _serializer.Deserialize<T>(buffer);
-        public void Deserialize<T>(ref T obj, byte[] buffer) => _serializer.Deserialize(ref obj, buffer);
-        public void Deserialize<T>(ref T obj, byte[] buffer, ref int offset) => _serializer.Deserialize(ref obj, buffer, ref offset);
-        public void Deserialize<T>(ref SequenceReader<byte> reader, ref T obj) => _serializer.Deserialize(ref reader, ref obj);
+        public new T Deserialize<T>(byte[] buffer) => base.Deserialize<T>(buffer);
+        public new void Deserialize<T>(ref T obj, byte[] buffer) => base.Deserialize(ref obj, buffer);
+        public void Deserialize<T>(ref T obj, byte[] buffer, ref int offset) => base.Deserialize(ref obj, buffer, ref offset);
+        public new void Deserialize<T>(ref SequenceReader<byte> reader, ref T obj) => base.Deserialize(ref reader, ref obj);
+
+        public new T Clone<T>(T obj) => base.Clone(obj);
+        public new object UserContext { get => base.UserContext; set => base.UserContext = value; }
     }
 }

@@ -21,9 +21,7 @@ namespace Ceras
 	/// </summary>
 	public class CerasRobustConfig : CerasConfig
 	{
-		internal CerasRobustConfig() { }
-
-		internal CerasRobustSerializer Serializer;
+		public CerasRobustConfig() { }
 
 		internal readonly RobustConfig _robustConfig = new RobustConfig();
 

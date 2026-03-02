@@ -26,7 +26,7 @@ namespace Ceras.Test
 			};
 
 
-			var s = new CerasSerializer();
+			var s = new CerasFastSerializer();
 
 			var data = s.Serialize(dict);
 
@@ -55,7 +55,7 @@ namespace Ceras.Test
 				  .Members.First(m => m.PersistentName == "NotIncluded3")
 				  .SerializationOverride = SerializationOverride.ForceSkip;
 
-			var ceras = new CerasSerializer(config);
+			var ceras = new CerasFastSerializer(config);
 
 			var dataDefault = ceras.SerializeStatic(typeof(StaticClassTest));
 
@@ -106,7 +106,7 @@ namespace Ceras.Test
 		[Fact]
 		public void SerializeStaticPart()
 		{
-			var ceras = new CerasSerializer();
+			var ceras = new CerasFastSerializer();
 
 			var obj = new StaticMembersTest();
 
@@ -150,7 +150,7 @@ namespace Ceras.Test
 		{
 			var config = new CerasRawConfig();
 			config.AllowReflectionFallback = false;
-			var ceras = new CerasSerializer(config);
+			var ceras = new CerasFastSerializer(config);
 
 			var obj = new NonGeneratedType { Value = 42 };
 
@@ -167,7 +167,7 @@ namespace Ceras.Test
 		[Fact]
 		public void CircularReferenceRecyclingTest()
 		{
-			var ceras = new CerasSerializer();
+			var ceras = new CerasFastSerializer();
 
 			// Simple self-reference
 			{

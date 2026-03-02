@@ -136,7 +136,7 @@ namespace Ceras.Test
         
         static Person DoRoundTripTest(CerasRawConfig config, string name = "riki")
         {
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var p = new Person();
             p.Name = name;

@@ -59,7 +59,7 @@ namespace Ceras.Test
             // 1. RAW Path: use a plain CerasSerializer (no robust string table)
             var rawConfig = new CerasRawConfig();
             rawConfig.UseGeneratedFormatters();
-            var cerasRaw = new CerasSerializer(rawConfig);
+            var cerasRaw = new CerasFastSerializer(rawConfig);
 
             // 2. ROBUST Path
             var robust = new CerasRobustSerializer(config =>

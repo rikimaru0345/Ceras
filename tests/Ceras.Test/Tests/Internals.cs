@@ -23,7 +23,7 @@ namespace Ceras.Test
 		[Fact(Skip = "Not implemented yet; causes no problems though. See comment for more details.")]
         public void BoxedReferencesAreNotCached()
         {
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             object[] ar = new object[]
             {
@@ -50,7 +50,7 @@ namespace Ceras.Test
         [Fact]
         public void ClearGenericCaches()
         {
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             var list = new List<Cat>();
             for (int i = 0; i < 1000; i++)
@@ -89,7 +89,7 @@ namespace Ceras.Test
         {
             // We need to ensure the type meta-data is correct.
 
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             // true and false keywords are both highlighted in the same color, so this makes it easier to see :P
             const bool False = false;

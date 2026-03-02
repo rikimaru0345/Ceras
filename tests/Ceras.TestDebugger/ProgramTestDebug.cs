@@ -66,7 +66,7 @@
             dyn.c = "c";
             dyn.func = new Func<string>(((object)dyn).ToString);
             
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
             var data = ceras.Serialize(dyn);
             var dyn2 = ceras.Deserialize<dynamic>(data);
         }
@@ -78,7 +78,7 @@
         {
             var config = new CerasRawConfig();
             config.Advanced.BitmapMode = BitmapMode.SaveAsBmp;
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var home = Environment.ExpandEnvironmentVariables("%HOMEDRIVE%%HOMEPATH%");
             var downloads = Path.Combine(home, "Downloads");

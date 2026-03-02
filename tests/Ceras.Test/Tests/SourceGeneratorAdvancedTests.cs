@@ -63,7 +63,7 @@ namespace Ceras.Test.Tests
         public void CustomCollection_VerifyInPlaceCalls()
         {
             var config = CreateSgConfig();
-            config.ConfigType<CustomList>().CustomFormatter = new CustomListFormatter(new CerasSerializer());
+            config.ConfigType<CustomList>().CustomFormatter = new CustomListFormatter(new CerasFastSerializer());
             
             var obj = new CustomCollectionContainer();
             obj.Items.Add(1);

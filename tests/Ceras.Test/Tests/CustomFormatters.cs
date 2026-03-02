@@ -29,7 +29,7 @@ namespace Ceras.Test
                 Color.White,
             };
             
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
             var clone = ceras.Deserialize<Color[]>(ceras.Serialize(colors));
 
             for (int i = 0; i < colors.Length; i++)

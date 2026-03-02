@@ -16,7 +16,7 @@ namespace Ceras.Test
         {
             var config = new CerasRawConfig();
             config.UseGeneratedFormatters();
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var original = new SimpleFieldModel
             {
@@ -35,7 +35,7 @@ namespace Ceras.Test
         {
             var config = new CerasRawConfig();
             config.UseGeneratedFormatters();
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var original = new PropertyModel { X = 3.14f, Y = -1.0f };
 
@@ -53,10 +53,10 @@ namespace Ceras.Test
 
             var generatedConfig = new CerasRawConfig();
             generatedConfig.UseGeneratedFormatters();
-            var generatedCeras = new CerasSerializer(generatedConfig);
+            var generatedCeras = new CerasFastSerializer(generatedConfig);
 
             var dynamicConfig = new CerasRawConfig();
-            var dynamicCeras  = new CerasSerializer(dynamicConfig);
+            var dynamicCeras  = new CerasFastSerializer(dynamicConfig);
 
             var obj = new SimpleFieldModel { Name = "Bob", Age = 42 };
 
@@ -71,11 +71,11 @@ namespace Ceras.Test
         {
             // Bytes written by ReflectionFallbackFormatter can be read by the generated formatter.
             var dynamicConfig = new CerasRawConfig();
-            var dynamicCeras  = new CerasSerializer(dynamicConfig);
+            var dynamicCeras  = new CerasFastSerializer(dynamicConfig);
 
             var generatedConfig = new CerasRawConfig();
             generatedConfig.UseGeneratedFormatters();
-            var generatedCeras = new CerasSerializer(generatedConfig);
+            var generatedCeras = new CerasFastSerializer(generatedConfig);
 
             var original = new SimpleFieldModel { Name = "Cross", Age = 99 };
             byte[] bytes = dynamicCeras.Serialize(original);
@@ -90,7 +90,7 @@ namespace Ceras.Test
         {
             var config = new CerasRawConfig();
             config.UseGeneratedFormatters();
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var original = new ReadonlyCtorModel(42);
             var clone = ceras.Deserialize<ReadonlyCtorModel>(ceras.Serialize(original));
@@ -103,7 +103,7 @@ namespace Ceras.Test
         {
             var config = new CerasRawConfig();
             config.UseGeneratedFormatters();
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var original = new InitCtorModel(123);
             var clone = ceras.Deserialize<InitCtorModel>(ceras.Serialize(original));

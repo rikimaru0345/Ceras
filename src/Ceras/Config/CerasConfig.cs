@@ -11,7 +11,7 @@ namespace Ceras
 	/// Callback used to provide a custom formatter for a specific type.
 	/// Return null to fall through to the next resolver.
 	/// </summary>
-	internal delegate IFormatter FormatterResolverCallback(CerasSerializer ceras, Type typeToBeFormatted);
+	public delegate IFormatter FormatterResolverCallback(CerasSerializer ceras, Type typeToBeFormatted);
 
 	/// <summary>
 	/// Size limits used to protect against malicious or corrupt input during deserialization.
@@ -55,6 +55,7 @@ namespace Ceras
 		}
 
 		CerasSerializer _claimedBy;
+		internal CerasSerializer Serializer => _claimedBy;
 		internal bool Claim(CerasSerializer ceras)
 		{
 			if (_claimedBy != null && !ReferenceEquals(_claimedBy, ceras)) return false;
@@ -155,7 +156,7 @@ namespace Ceras
 		/// List of callbacks tried in order when Ceras needs a formatter for a type.
 		/// Return null to fall through to the next callback or Ceras's built-in resolution.
 		/// </summary>
-		internal List<FormatterResolverCallback> OnResolveFormatter { get; } = new List<FormatterResolverCallback>();
+		public List<FormatterResolverCallback> OnResolveFormatter { get; } = new List<FormatterResolverCallback>();
 
 		/// <summary>
 		/// Converts between Type and string for type names embedded in serialized data.

@@ -36,34 +36,30 @@ namespace Ceras
         public const int Size = 42;
     }
 
-    public class CerasRobustSerializer
+    public sealed class CerasRobustSerializer : CerasSerializer
     {
         public const int FormatVersion = 2;
 
-        readonly CerasSerializer _serializer;
         internal readonly CerasRobustConfig _config;
 
-        public CerasRobustConfig Config => _config;
+        public new CerasRobustConfig Config => _config;
 
-        public CerasRobustSerializer(Action<CerasRobustConfig> configure = null)
+        public CerasRobustSerializer(Action<CerasRobustConfig> configure = null) : base(MakeConfig(configure))
         {
-            _config = new CerasRobustConfig();
-            _config.Serializer = this;
-
-            InitializeRobustFormatters(_config);
-
-            // Robust format has its own CRC32 checksum in the header, so we don't need the per-object checksum
-
-            configure?.Invoke(_config);
-
-            _serializer = new CerasSerializer(_config);
+            _config = (CerasRobustConfig)base.Config;
         }
 
-        internal CerasRobustSerializer(CerasRobustConfig config, CerasSerializer serializer, bool compatibility)
+        internal CerasRobustSerializer(CerasRobustConfig config) : base(config)
         {
             _config = config;
-            _serializer = serializer;
-            _config.Serializer = this;
+        }
+
+        static CerasRobustConfig MakeConfig(Action<CerasRobustConfig> configure)
+        {
+            var config = new CerasRobustConfig();
+            InitializeRobustFormatters(config);
+            configure?.Invoke(config);
+            return config;
         }
 
         static void InitializeRobustFormatters(CerasRobustConfig config)
@@ -114,7 +110,7 @@ namespace Ceras
             {
                 var writer = new ArrayBufferWriter<byte>();
                 SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
-                _serializer.Serialize(writer, rootObject);
+                Serialize(writer, rootObject);
 
                 var data = writer.WrittenSpan;
                 SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
@@ -178,7 +174,7 @@ namespace Ceras
             var idToType = new Dictionary<int, Type>();
             for (int i = 0; i < 128; i++) if (WellKnownTypes.TryGetType(i, out var wkType)) idToType[i] = wkType;
 
-            var typeBinder = _serializer.Config.TypeBinder;
+            var typeBinder = Config.TypeBinder;
             var schemasById = new Dictionary<int, OldTypeSchema>();
             foreach (var s in fileSchemas.Values) schemasById.TryAdd(s.TypeId, s);
 
@@ -255,13 +251,13 @@ namespace Ceras
                 if (schemaFingerprint != currentFingerprint)
                 {
                     if (Ceras.Helpers.ObjectCache.DebugTraceEnabled) Console.WriteLine($"[CerasRobust] Fingerprint mismatch! File: {schemaFingerprint:X16}, Current: {currentFingerprint:X16}. Using SchemaTraversalEngine (slow path).");
-                    var engine = new SchemaTraversalEngine(fileSchemas, table, robustVersion, _serializer);
+                    var engine = new SchemaTraversalEngine(fileSchemas, table, robustVersion, this);
                     value = engine.ReadRoot<T>(ref reader, value);
                     return;
                 }
 
                 if (Ceras.Helpers.ObjectCache.DebugTraceEnabled) Console.WriteLine($"[CerasRobust] Fingerprints match ({currentFingerprint:X16}). Using CerasSerializer (fast path).");
-                _serializer.Deserialize(ref reader, ref value);
+                Deserialize(ref reader, ref value);
             }
             finally
             {

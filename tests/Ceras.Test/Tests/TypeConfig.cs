@@ -12,7 +12,7 @@ namespace Ceras.Test
         [Fact]
         public void CanGenerateDebugReports()
         {
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             var reportBool = ceras.GenerateSerializationDebugReport(typeof(bool));
             var reportType = ceras.GenerateSerializationDebugReport(typeof(Type));
@@ -68,7 +68,7 @@ namespace Ceras.Test
             var config = new CerasRawConfig();
             config.ConfigType<DayOfWeek>().CustomFormatter = new DayOfWeekFormatter();
 
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
             
             Assert.True(ceras.Deserialize<DayOfWeek>(ceras.Serialize(DayOfWeek.Sunday)) == DayOfWeek.Sunday);
             Assert.True(ceras.Deserialize<DayOfWeek>(ceras.Serialize(DayOfWeek.Monday)) == DayOfWeek.Monday);
@@ -81,7 +81,7 @@ namespace Ceras.Test
         public void CtorTest()
         {
             var obj = new ConstructorTest(5);
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             // Ceras is now smart enough to find the constructor automatically 
             // because 'int x' parameter matches 'public int x' field.

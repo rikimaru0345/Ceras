@@ -391,7 +391,7 @@ namespace Ceras.Test
             
             config.RespectNonSerializedAttribute = false;
 
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var c = new Container
             {

@@ -79,7 +79,7 @@ namespace Ceras.Test.Tests
             var config = new CerasRawConfig();
             config.AllowReflectionFallback = false;
             RobustFormatters.UseRobustFormatters(config);
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var original = PrivateCtorModel.Create();
             original.Value = 456;
@@ -95,7 +95,7 @@ namespace Ceras.Test.Tests
             var config = new CerasRawConfig();
             config.AllowReflectionFallback = false;
             RobustFormatters.UseRobustFormatters(config);
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var original = new DerivedWagon(new TestVector3(1, 2, 3), "TestWagon");
             var bytes = ceras.Serialize(original);
@@ -114,7 +114,7 @@ namespace Ceras.Test.Tests
             var config = new CerasRawConfig();
             config.AllowReflectionFallback = false;
             RobustFormatters.UseRobustFormatters(config);
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var original = new RecordDerived(42, "TestRecord");
             var bytes = ceras.Serialize(original);

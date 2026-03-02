@@ -89,7 +89,7 @@ namespace Ceras.Test
         [Fact]
         public void Issue24_TestNonGenericCollectionInheritingFromGenericInterface()
         {
-            CerasSerializer s = new CerasSerializer();
+            CerasFastSerializer s = new CerasFastSerializer();
 
             var dict = new MultiLangText();
             dict.Add("a", "b");

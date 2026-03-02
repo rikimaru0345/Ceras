@@ -25,7 +25,7 @@ namespace Ceras.Test
 
         public class Adult : Person
         {
-            public byte[] Serialize() => new CerasSerializer().Serialize<object>(this);
+            public byte[] Serialize() => new CerasFastSerializer().Serialize<object>(this);
 
             internal void SetFriendsToNull()
             {
@@ -43,7 +43,7 @@ namespace Ceras.Test
 
             var config = new CerasRawConfig();
 
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var data = ceras.Serialize<object>(p);
 

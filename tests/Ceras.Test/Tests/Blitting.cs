@@ -123,7 +123,7 @@ namespace Ceras.Test
         {
             var config = new CerasRawConfig();
             
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             foreach (var t in _blittableTypes)
             {
@@ -174,7 +174,7 @@ namespace Ceras.Test
 
 
             // Clone
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
             var serializedData = ceras.Serialize(bigStruct);
             var clone = ceras.Deserialize<BigStruct>(serializedData);
 
@@ -253,7 +253,7 @@ namespace Ceras.Test
             var config = new CerasRawConfig();
             config.OnConfigNewType = t => t.CustomResolver = (c, t2) => c.GetFormatterResolver<ReinterpretFormatterResolver>().GetFormatter(t2);
             //config.OnConfigNewType = t => t.CustomFormatter = (IFormatter)Activator.CreateInstance(typeof(EnumFormatterUnsafe<>).MakeGenericType(t.Type));
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var typesToTest = new[]
             {
@@ -265,8 +265,8 @@ namespace Ceras.Test
                 typeof(TestEnumUInt64),
             };
             
-            var serializeMethod = typeof(CerasSerializer).GetMethods().First(m => m.Name == nameof(CerasSerializer.Serialize) && m.GetParameters().Length == 1);
-            var deserializeMethod = typeof(CerasSerializer).GetMethods().First(m => m.Name == nameof(CerasSerializer.Deserialize) && m.GetParameters().Length == 1);
+            var serializeMethod = typeof(CerasFastSerializer).GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic).First(m => m.Name == nameof(CerasFastSerializer.Serialize) && m.GetParameters().Length == 1);
+            var deserializeMethod = typeof(CerasFastSerializer).GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic).First(m => m.Name == nameof(CerasFastSerializer.Deserialize) && m.GetParameters().Length == 1);
             
 
             foreach (var t in typesToTest)

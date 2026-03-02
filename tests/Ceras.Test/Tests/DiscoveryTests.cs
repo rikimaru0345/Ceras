@@ -104,7 +104,7 @@ namespace Ceras.Test
         {
             var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasRobustSerializer(config);
 
             // 1. Verify discovery worked
             Assert.NotNull(config.ConfigType<NoPartialNeeded>().CustomFormatter);
@@ -126,7 +126,7 @@ namespace Ceras.Test
         {
             var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasRobustSerializer(config);
 
             // 1. Verify that ChildField, ChildProp, and ChildCtor were all discovered
             // (meaning DiscoveryChild has a generated formatter assigned)
@@ -159,7 +159,7 @@ namespace Ceras.Test
             // This registers all formatters that the source generator produced
             RobustFormatters.UseRobustFormatters(config);
 
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasRobustSerializer(config);
 
             // 1. Verify all expected types have generated formatters assigned
             // (Note: ConfigType<T> returns TypeConfig<T> which has CustomFormatter property)
@@ -214,7 +214,7 @@ namespace Ceras.Test
             Assert.False(bannedMember.ComputeFinalInclusionFast());
 
             // Round-trip check
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasRobustSerializer(config);
             var original = new DiscoveryRoot { Banned = new BannedType { Secret = 999 } };
             var data = ceras.Serialize(original);
             var clone = ceras.Deserialize<DiscoveryRoot>(data);

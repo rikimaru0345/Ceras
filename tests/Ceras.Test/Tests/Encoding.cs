@@ -5,11 +5,11 @@
 
     public class Encoding
     {
-        CerasSerializer _ceras;
+        CerasFastSerializer _ceras;
 
         public Encoding()
         {
-            _ceras = new CerasSerializer();
+            _ceras = new CerasFastSerializer();
         }
 
 

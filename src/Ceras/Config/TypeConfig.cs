@@ -46,7 +46,7 @@
 
 
 		internal FormatterResolverCallback _customResolver;
-		internal FormatterResolverCallback CustomResolver
+		public FormatterResolverCallback CustomResolver
 		{
 			get => _customResolver;
 			set

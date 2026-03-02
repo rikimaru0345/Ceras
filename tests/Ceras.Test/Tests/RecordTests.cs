@@ -12,7 +12,7 @@ namespace Ceras.Test.Tests {
     public class RecordTests : TestBase {
         [Fact]
         public void TestRecordSerialization() {
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
             
             var r1 = new SimpleRecord(42, "Test");
             var r2 = ceras.Deserialize<SimpleRecord>(ceras.Serialize(r1));

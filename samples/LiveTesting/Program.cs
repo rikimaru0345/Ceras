@@ -274,7 +274,7 @@ namespace LiveTesting
         static void Repro65()
         {
             // Write
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             var obj1 = new PropertyValue
             {
@@ -316,7 +316,7 @@ namespace LiveTesting
 
         static void InferConstructor()
         {
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             var obj = new CtorTest("riki", 12354);
 
@@ -465,7 +465,7 @@ namespace LiveTesting
 
             var config = new CerasRawConfig();
             var typeConfig = config.ConfigType<System.Drawing.Color>();
-            CerasSerializer ceras = new CerasSerializer(config);
+            CerasFastSerializer ceras = new CerasFastSerializer(config);
 
             var colorData = ceras.Serialize(new System.Drawing.Color[] { System.Drawing.Color.Red, System.Drawing.Color.Aquamarine });
 
@@ -704,7 +704,7 @@ namespace LiveTesting
             config.ConfigType<HashSet<byte[]>>()
                   .SetFormatter(new HashSetFormatterThatKeepsItsComparer());
 
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var set = new HashSet<byte[]>(new CustomComparer());
             set.Add(new byte[] { 1, 2, 3 });
@@ -842,7 +842,7 @@ namespace LiveTesting
                 config.ConfigType<ReadonlyTestClass>()
                       .ConstructByUninitialized();
 
-                var ceras = new CerasSerializer(config);
+                var ceras = new CerasFastSerializer(config);
 
                 var obj = new ReadonlyTestClass("a");
                 var data = ceras.Serialize(obj);
@@ -862,7 +862,7 @@ namespace LiveTesting
 
                 // Serialize and deserialize delegate
                 CerasRawConfig config = new CerasRawConfig();
-                var ceras = new CerasSerializer(config);
+                var ceras = new CerasFastSerializer(config);
 
                 var data = ceras.Serialize<object>(body);
                 var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
@@ -886,7 +886,7 @@ namespace LiveTesting
 
                 // Serialize and deserialize expression
                 CerasRawConfig config = new CerasRawConfig();
-                var ceras = new CerasSerializer(config);
+                var ceras = new CerasFastSerializer(config);
 
                 var data = ceras.Serialize(getCharAtIndex);
                 var dataAsStr = Encoding.ASCII.GetString(data).Replace('\0', ' ');
@@ -910,7 +910,7 @@ namespace LiveTesting
 
         static void TuplesTest()
         {
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             var obj1 = Tuple.Create(5, "a", DateTime.Now, 3.141);
 
@@ -945,7 +945,7 @@ namespace LiveTesting
 
             // Should be true by default!
 
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             try
             {
@@ -962,12 +962,12 @@ namespace LiveTesting
             // 2. Check while deserializing
             //
             config = new CerasRawConfig();
-            ceras = new CerasSerializer(config);
+            ceras = new CerasFastSerializer(config);
 
             var data = ceras.Serialize(obj);
 
             config = new CerasRawConfig();
-            ceras = new CerasSerializer(config);
+            ceras = new CerasFastSerializer(config);
 
             try
             {
@@ -992,7 +992,7 @@ namespace LiveTesting
                 return null;
             });
 
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var f = ceras.GetSpecificFormatter(typeof(Person));
 
@@ -1020,7 +1020,7 @@ namespace LiveTesting
             // By default the setting is off. Fields are ignored.
             {
                 CerasRawConfig config = new CerasRawConfig();
-                CerasSerializer ceras = new CerasSerializer(config);
+                CerasFastSerializer ceras = new CerasFastSerializer(config);
 
                 ReadonlyFieldsTest obj = new ReadonlyFieldsTest(5, "xyz", new ReadonlyFieldsTest.ContainerThingA { Setting1 = 10, Setting2 = "asdasdas" });
 
@@ -1043,7 +1043,7 @@ namespace LiveTesting
                       .ConfigMember(f => f.String).Include();
 
 
-                CerasSerializer ceras = new CerasSerializer(config);
+                CerasFastSerializer ceras = new CerasFastSerializer(config);
 
                 ReadonlyFieldsTest obj = new ReadonlyFieldsTest(5, "55555", new ReadonlyFieldsTest.ContainerThingA { Setting1 = 555555, Setting2 = "555555555" });
 
@@ -1075,7 +1075,7 @@ namespace LiveTesting
                       .ConfigMember(f => f.String).Exclude()
                       .ConfigMember(f => f.Container).Include();
 
-                CerasSerializer ceras = new CerasSerializer(config);
+                CerasFastSerializer ceras = new CerasFastSerializer(config);
 
                 ReadonlyFieldsTest obj = new ReadonlyFieldsTest(5, "55555", new ReadonlyFieldsTest.ContainerThingA { Setting1 = 555555, Setting2 = "555555555" });
 
@@ -1106,7 +1106,7 @@ namespace LiveTesting
             // which means that it should work exactly like as if the field were not readonly.
             {
                 CerasRawConfig config = new CerasRawConfig();
-                CerasSerializer ceras = new CerasSerializer(config);
+                CerasFastSerializer ceras = new CerasFastSerializer(config);
 
                 // This time we want Ceras to fix everything, reference mismatches and value mismatches alike.
 
@@ -1142,7 +1142,7 @@ namespace LiveTesting
             // Test #4:
             // Everything should work fine when using the MemberConfig attribute as well
             {
-                var ceras = new CerasSerializer();
+                var ceras = new CerasFastSerializer();
 
                 var obj = new ReadonlyFieldsTest2();
                 obj.Numbers.Clear();
@@ -1206,7 +1206,7 @@ namespace LiveTesting
 
         static void MemberInfoAndTypeInfoTest()
         {
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             var multipleTypesHolder = new TypeTestClass();
             multipleTypesHolder.Type1 = typeof(Person);
@@ -1259,7 +1259,7 @@ namespace LiveTesting
             {
                 ["name"] = "Test",
             };
-            var s = new CerasSerializer();
+            var s = new CerasFastSerializer();
 
             var data = s.Serialize(dict);
             var clone = s.Deserialize<Dictionary<string, object>>(data);
@@ -1273,7 +1273,7 @@ namespace LiveTesting
 
         static void MaintainTypeTest()
         {
-            CerasSerializer ceras = new CerasSerializer();
+            CerasFastSerializer ceras = new CerasFastSerializer();
 
             var dict = new Dictionary<string, object>
             {
@@ -1302,7 +1302,7 @@ namespace LiveTesting
             var data2 = new Dictionary<string, object>();
             data2["test"] = 5;
 
-            var s = new CerasSerializer();
+            var s = new CerasFastSerializer();
             var clonedDict = s.Deserialize<Dictionary<string, object>>(s.Serialize(data2));
 
             var originalType = data2["test"].GetType();
@@ -1321,7 +1321,7 @@ namespace LiveTesting
 
         static void InterfaceFormatterTest()
         {
-            CerasSerializer ceras = new CerasSerializer();
+            CerasFastSerializer ceras = new CerasFastSerializer();
 
             var intListFormatter = ceras.GetFormatter<IList<int>>();
 
@@ -1356,7 +1356,7 @@ namespace LiveTesting
         static void InheritTest()
         {
             var config = new CerasRawConfig();
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             // This should be no problem:
             // - including inherited fields
@@ -1406,7 +1406,7 @@ namespace LiveTesting
             var c = new StructTestClass();
             c.TestStruct = 5;
 
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
             var data = ceras.Serialize<object>(c);
             var clone = ceras.Deserialize<object>(data);
 
@@ -1419,7 +1419,7 @@ namespace LiveTesting
 
         static void WrongRefTypeTest()
         {
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             var container = new WrongRefTypeTestClass();
 
@@ -1470,7 +1470,7 @@ namespace LiveTesting
                 numbers.Add(i);
             numbers = numbers.OrderBy(n => rng.Next(1000)).ToList();
 
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             var cerasData = ceras.Serialize(numbers);
 
@@ -1527,7 +1527,7 @@ namespace LiveTesting
 
 			CerasRawConfig config = new CerasRawConfig();
 
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
 
             var vt = ValueTuple.Create(5, "b", DateTime.Now);
 
@@ -1545,7 +1545,7 @@ namespace LiveTesting
 
         static void NullableTest()
         {
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             var obj = new NullableTestClass
             {
@@ -1583,7 +1583,7 @@ namespace LiveTesting
 
             try
             {
-                var ceras = new CerasSerializer();
+                var ceras = new CerasFastSerializer();
                 var data = ceras.Serialize(enumerable);
 
                 Debug.Assert(false, "Serialization of IEnumerator is supposed to fail, but it did not!");
@@ -1597,7 +1597,7 @@ namespace LiveTesting
             var container = new GenericTest<IEnumerable<int>> { Value = enumerable };
             try
             {
-                var ceras = new CerasSerializer();
+                var ceras = new CerasFastSerializer();
                 var data = ceras.Serialize(container);
 
                 Debug.Assert(false, "Serialization of IEnumerator is supposed to fail, but it did not!");
@@ -1626,7 +1626,7 @@ namespace LiveTesting
             var config = new CerasRawConfig();
 
 
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config);
             var data = ceras.Serialize(p);
             data.VisualizePrint("Property Test");
             var clone = ceras.Deserialize<PropertyClass>(data);
@@ -1644,7 +1644,7 @@ namespace LiveTesting
         {
             var data = new List<int> { 6, 32, 573, 246, 24, 2, 9 };
 
-            var s = new CerasSerializer();
+            var s = new CerasFastSerializer();
 
             var p = new Person() { Name = "abc", Health = 30 };
             var pData = s.Serialize<object>(p);
@@ -1672,7 +1672,7 @@ namespace LiveTesting
 
         static void ComplexTest()
         {
-            var s = new CerasSerializer();
+            var s = new CerasFastSerializer();
 
             var c = new ComplexClass();
             var complexClassData = s.Serialize(c);
@@ -1688,7 +1688,7 @@ namespace LiveTesting
 
         static void EnumTest()
         {
-            var s = new CerasSerializer();
+            var s = new CerasFastSerializer();
 
             var longEnum = LongEnum.b;
 
@@ -1704,7 +1704,7 @@ namespace LiveTesting
 
         static void GuidTest()
         {
-            var s = new CerasSerializer();
+            var s = new CerasFastSerializer();
 
             var g = staticGuid;
 
@@ -1736,8 +1736,8 @@ namespace LiveTesting
                 Type = SetName.SetNameType.Join
             };
 
-            CerasSerializer sender = new CerasSerializer(config);
-            CerasSerializer receiver = new CerasSerializer(config);
+            CerasSerializer sender = new CerasFastSerializer(config);
+            CerasSerializer receiver = new CerasFastSerializer(config);
 
             Console.WriteLine("Hash: " + sender.ProtocolChecksum.Checksum);
 

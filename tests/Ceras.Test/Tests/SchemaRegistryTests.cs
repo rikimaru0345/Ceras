@@ -173,7 +173,7 @@ namespace Ceras.Test
             // The formatter itself must still produce correct output after the schema changes
             var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config);
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasRobustSerializer(config);
 
             var original = new Weapon { AttackPower = 50, Name = "Excalibur", Weight = 3.2f };
             var clone    = ceras.Deserialize<Weapon>(ceras.Serialize(original));

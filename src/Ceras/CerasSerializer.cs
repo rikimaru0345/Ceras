@@ -20,7 +20,7 @@ namespace Ceras
 	using Ceras.Resolvers;
 	using Ceras.Format;
 
-	internal class CerasSerializer
+	public abstract class CerasSerializer
 	{
 		internal static readonly Type _rtTypeType;
 		static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
@@ -82,8 +82,7 @@ namespace Ceras
 
 		public static void ClearGenericCaches() { ObjectCache.RefProxyPoolRegister.TrimAll(); }
 
-		internal readonly CerasConfig Config;
-		public CerasConfig GetConfig() => Config;
+		protected internal readonly CerasConfig Config;
 
 		readonly ReflectionFallbackResolver _dynamicResolver;
 		readonly FormatterResolverCallback[] _userResolvers;
@@ -97,7 +96,7 @@ namespace Ceras
 		int _recursionDepth = 0;
 		RecursionMode _mode = RecursionMode.Idle;
 
-		public object UserContext { get => InstanceData.UserContext; set => InstanceData.UserContext = value; }
+		internal object UserContext { get => InstanceData.UserContext; set => InstanceData.UserContext = value; }
 		public ProtocolChecksum ProtocolChecksum { get; } = new ProtocolChecksum();
 
 		// Fixup context for circular references in [CerasConstructor]
@@ -106,7 +105,7 @@ namespace Ceras
 
 
 
-		internal CerasSerializer(CerasConfig config = null)
+		protected CerasSerializer(CerasConfig config = null)
 		{
 			if (config != null && !config.Claim(this)) throw new CerasException("The provided config is already in use by another CerasSerializer. Create a new config instance for each serializer.");
 			Config = config ?? new CerasRawConfig();
@@ -153,14 +152,14 @@ namespace Ceras
 			void SetFormatters(Type type, IFormatter specific, IFormatter reference) { var meta = GetTypeMetaData(type); meta.SpecificFormatter = specific; meta.ReferenceFormatter = reference; }
 		}
 
-		public byte[] Serialize<T>(T obj)
+		protected internal byte[] Serialize<T>(T obj)
 		{
 			var writer = new ArrayBufferWriter<byte>();
 			Serialize(writer, obj);
 			return writer.WrittenSpan.ToArray();
 		}
 
-		public int Serialize<T>(T obj, ref byte[] buffer, int offset = 0)
+		protected internal int Serialize<T>(T obj, ref byte[] buffer, int offset = 0)
 		{
 			var writer = new FixedArrayBufferWriter(buffer, offset);
 			Serialize(writer, obj);
@@ -169,7 +168,7 @@ namespace Ceras
 			return size;
 		}
 
-		public void Serialize<T>(IBufferWriter<byte> writer, T obj)
+		protected internal void Serialize<T>(IBufferWriter<byte> writer, T obj)
 		{
 			EnterRecursive(RecursionMode.Serialization);
 			try
@@ -181,9 +180,9 @@ namespace Ceras
 			finally { InstanceData.EncounteredSchemaTypes.Clear(); LeaveRecursive(RecursionMode.Serialization); }
 		}
 
-		public T Deserialize<T>(byte[] buffer) { T value = default; int offset = 0; Deserialize(ref value, buffer, ref offset); return value; }
-		public void Deserialize<T>(ref T value, byte[] buffer) { int offset = 0; Deserialize(ref value, buffer, ref offset); }
-		public void Deserialize<T>(ref T value, byte[] buffer, ref int offset, int expectedReadLength = -1)
+		protected internal T Deserialize<T>(byte[] buffer) { T value = default; int offset = 0; Deserialize(ref value, buffer, ref offset); return value; }
+		protected internal void Deserialize<T>(ref T value, byte[] buffer) { int offset = 0; Deserialize(ref value, buffer, ref offset); }
+		protected internal void Deserialize<T>(ref T value, byte[] buffer, ref int offset, int expectedReadLength = -1)
 		{
 			var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset);
 			var reader = new SequenceReader<byte>(seq);
@@ -193,7 +192,7 @@ namespace Ceras
 			if (expectedReadLength != -1 && consumed != expectedReadLength) throw new UnexpectedBytesConsumedException("Mismatch", expectedReadLength, consumed, offset - consumed, offset);
 		}
 
-		public void Deserialize<T>(ref SequenceReader<byte> reader, ref T value)
+		protected internal void Deserialize<T>(ref SequenceReader<byte> reader, ref T value)
 		{
 			EnterRecursive(RecursionMode.Deserialization);
 			try
@@ -220,16 +219,16 @@ namespace Ceras
 			public Span<byte> GetSpan(int sizeHint = 0) { SerializerBinary.EnsureCapacity(ref Buffer, Offset, sizeHint); return Buffer.AsSpan(Offset); }
 		}
 
-		public T Clone<T>(T obj) => Deserialize<T>(Serialize(obj));
+		protected internal T Clone<T>(T obj) => Deserialize<T>(Serialize(obj));
 
-		public async ValueTask SaveAsync<T>(T obj, Stream stream)
+		protected async ValueTask SaveAsync<T>(T obj, Stream stream)
 		{
 			var writer = new ArrayBufferWriter<byte>();
 			Serialize(writer, obj);
 			await stream.WriteAsync(writer.WrittenMemory);
 		}
 
-		public async ValueTask<T> LoadAsync<T>(Stream stream)
+		protected async ValueTask<T> LoadAsync<T>(Stream stream)
 		{
 			// For a real implementation we'd read in chunks, but for now we read everything
 			// to fulfill the API requirement.
@@ -238,12 +237,12 @@ namespace Ceras
 			return Deserialize<T>(ms.ToArray());
 		}
 
-                public byte[] SerializeStatic(Type type) { var writer = new ArrayBufferWriter<byte>(); SerializeStatic(type, writer); return writer.WrittenSpan.ToArray(); }
-                public void SerializeStatic(Type type, IBufferWriter<byte> writer) { var meta = GetStaticTypeMetaData(type); if (meta.StaticSerialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticSerialize(writer); }
-                public int SerializeStatic(Type type, ref byte[] buffer, ref int offset) { var writer = new FixedArrayBufferWriter(buffer, offset); SerializeStatic(type, writer); buffer = writer.Buffer; int size = writer.Offset - offset; offset = writer.Offset; return size; }
-                public void DeserializeStatic(Type type, byte[] buffer) { int offset = 0; DeserializeStatic(type, buffer, ref offset); }
-                public int DeserializeStatic(Type type, byte[] buffer, ref int offset) { var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset); var reader = new SequenceReader<byte>(seq); DeserializeStatic(type, ref reader); int size = (int)reader.Consumed; offset += size; return size; }
-                public void DeserializeStatic(Type type, ref SequenceReader<byte> reader) { var meta = GetStaticTypeMetaData(type); if (meta.StaticDeserialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticDeserialize(ref reader); }
+		internal byte[] SerializeStatic(Type type) { var writer = new ArrayBufferWriter<byte>(); SerializeStatic(type, writer); return writer.WrittenSpan.ToArray(); }
+		internal void SerializeStatic(Type type, IBufferWriter<byte> writer) { var meta = GetStaticTypeMetaData(type); if (meta.StaticSerialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticSerialize(writer); }
+		internal int SerializeStatic(Type type, ref byte[] buffer, ref int offset) { var writer = new FixedArrayBufferWriter(buffer, offset); SerializeStatic(type, writer); buffer = writer.Buffer; int size = writer.Offset - offset; offset = writer.Offset; return size; }
+		internal void DeserializeStatic(Type type, byte[] buffer) { int offset = 0; DeserializeStatic(type, buffer, ref offset); }
+		internal int DeserializeStatic(Type type, byte[] buffer, ref int offset) { var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset); var reader = new SequenceReader<byte>(seq); DeserializeStatic(type, ref reader); int size = (int)reader.Consumed; offset += size; return size; }
+		internal void DeserializeStatic(Type type, ref SequenceReader<byte> reader) { var meta = GetStaticTypeMetaData(type); if (meta.StaticDeserialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticDeserialize(ref reader); }
 
 		internal void VerifyReflectionFallbackAllowed(Type type)
 		{
@@ -285,14 +284,14 @@ namespace Ceras
 			return ((writer) => formatter.Serialize(writer, default), (ref SequenceReader<byte> reader) => formatter.Deserialize(ref reader, ref dummy));
 		}
 
-		public Type PeekType(byte[] buffer) { var seq = new ReadOnlySequence<byte>(buffer); var reader = new SequenceReader<byte>(seq); Type t = null; GetFormatter<Type>().Deserialize(ref reader, ref t); return t; }
-		public IEnumerable<IFormatterResolver> GetFormatterResolvers() { foreach (var r in _resolvers) yield return r; yield return _dynamicResolver; }
-                public IFormatterResolver GetFormatterResolver<TResolver>() where TResolver : IFormatterResolver => GetFormatterResolvers().OfType<TResolver>().FirstOrDefault();
-		public IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
-		public IFormatter<T> GetSpecificFormatter<T>() => (IFormatter<T>)GetSpecificFormatter(typeof(T));
-		public IFormatter<T> GetReferenceFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
+		internal Type PeekType(byte[] buffer) { var seq = new ReadOnlySequence<byte>(buffer); var reader = new SequenceReader<byte>(seq); Type t = null; GetFormatter<Type>().Deserialize(ref reader, ref t); return t; }
+		internal IEnumerable<IFormatterResolver> GetFormatterResolvers() { foreach (var r in _resolvers) yield return r; yield return _dynamicResolver; }
+		internal IFormatterResolver GetFormatterResolver<TResolver>() where TResolver : IFormatterResolver => GetFormatterResolvers().OfType<TResolver>().FirstOrDefault();
+		internal IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
+		internal IFormatter<T> GetSpecificFormatter<T>() => (IFormatter<T>)GetSpecificFormatter(typeof(T));
+		internal IFormatter<T> GetReferenceFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
 
-		public IFormatter GetReferenceFormatter(Type type)
+		internal IFormatter GetReferenceFormatter(Type type)
 		{
 			var meta = GetTypeMetaData(type);
 			if (meta.Type.IsValueType) return GetSpecificFormatter(type, meta);
@@ -302,7 +301,7 @@ namespace Ceras
 			return meta.ReferenceFormatter = (IFormatter)Ceras.Helpers.Instantiator.Create(refFormatterType, this);
 		}
 
-		public IFormatter GetSpecificFormatter(Type type) => GetSpecificFormatter(type, GetTypeMetaData(type));
+		internal IFormatter GetSpecificFormatter(Type type) => GetSpecificFormatter(type, GetTypeMetaData(type));
 		IFormatter GetSpecificFormatter(Type type, TypeMetaData meta)
 		{
 			if (meta.SpecificFormatter != null) return meta.SpecificFormatter;

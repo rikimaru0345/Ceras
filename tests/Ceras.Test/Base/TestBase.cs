@@ -119,14 +119,14 @@ namespace Ceras.Test
 
             if (config is CerasRobustConfig robustConfig)
             {
-                var robustSerializer = robustConfig.Serializer;
+                var robustSerializer = (CerasRobustSerializer)robustConfig.Serializer;
                 var robustData = robustSerializer.Save(source, 1);
                 var cloneResult = robustSerializer.Load<T>(robustData, 1);
                 _callsToClone++;
                 return cloneResult;
             }
 
-            var serializer = new CerasSerializer((CerasRawConfig)config);
+            var serializer = new CerasFastSerializer((CerasRawConfig)config);
 
             var data = serializer.Serialize(source);
             var cloneResult2 = serializer.Deserialize<T>(data);
