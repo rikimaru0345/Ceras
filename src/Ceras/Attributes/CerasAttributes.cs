@@ -52,12 +52,10 @@ namespace Ceras
 	public sealed class MemberConfigAttribute : Attribute
 	{
 		public TargetMember TargetMembers { get; set; }
-		public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
 
 		public MemberConfigAttribute(TargetMember targetMembers = TargetMember.AllFields)
 		{
 			TargetMembers = targetMembers;
-			ReadonlyFieldHandling = ReadonlyFieldHandling.ExcludeFromSerialization;
 		}
 	}
 

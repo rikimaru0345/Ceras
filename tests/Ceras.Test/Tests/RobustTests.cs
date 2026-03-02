@@ -102,13 +102,7 @@ namespace Ceras.Test
 
     public class RobustTests : TestBase
     {
-        CerasRawConfig GeneratedConfig()
-        {
-            var c = new CerasRawConfig();
-
-            RobustFormatters.UseRobustFormatters(c);
-            return c;
-        }
+        Action<CerasRawConfig> GeneratedConfig() => c => RobustFormatters.UseRobustFormatters(c);
 
         RobustData MakeRobustData() => new RobustData
         {

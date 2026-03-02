@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Reflection;
 using Ceras;
 using Ceras.Formatters;
+using Ceras.Generated;
 using Xunit;
 
 namespace Ceras.Test.Tests {

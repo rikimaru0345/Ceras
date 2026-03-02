@@ -71,7 +71,7 @@ public class Player
 **2. Configure your serializer once at startup:**
 
 ```csharp
-var config = new SerializerConfig();
+var config = new CerasRawConfig();
 RobustFormatters.UseRobustFormatters(config);
 CerasRobust.ConfigureRobust format(config);
 
@@ -122,7 +122,7 @@ The resulting binary size is about the same as MessagePack-CSharp.
 
 The shown results are obtained from **[this code](https://github.com/rikimaru0345/Ceras/blob/master/samples/LiveTesting/Benchmarks.cs)** and I encourage you to not only try it yourself, but to also provide feedback about scenarios you had good and bad results with.
 
-Don't forget to tune the settings in `SerializerConfig` for your specific situation.
+Don't forget to tune the settings in `CerasConfig` for your specific situation.
 Using Ceras to read/write network packets might require different settings than, lets say, saving a settings-object to a file, or persisting items/spells/monsters in a game, or ... 
 
 The project is still heavily work-in-progress, meaning that over time more optimizations will get implemented (your feedback is important here!).

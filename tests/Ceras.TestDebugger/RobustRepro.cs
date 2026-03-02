@@ -12,7 +12,7 @@ namespace Ceras.TestDebugger
         public static void Run()
         {
             var generatedCeras = new CerasSerializer(GeneratedConfig());
-            var dynamicCeras   = new CerasSerializer(new SerializerConfig());
+            var dynamicCeras   = new CerasSerializer(new CerasRawConfig());
 
             var obj = new Item { Name = "Mithril Helm", Quantity = 123456, Rarity = ItemRarity.Epic, Weight = 3.7f };
             Console.WriteLine($"Serializing: Name='{obj.Name}', Quantity={obj.Quantity}, Rarity={obj.Rarity}, Weight={obj.Weight}");
@@ -41,9 +41,9 @@ namespace Ceras.TestDebugger
                 Console.WriteLine($"Length mismatch: Dynamic={dynamicBytes.Length}, Generated={generatedBytes.Length}");
         }
 
-        static SerializerConfig GeneratedConfig()
+        static CerasConfig GeneratedConfig()
         {
-            var c = new SerializerConfig();
+            var c = new CerasRawConfig();
             RobustFormatters.UseRobustFormatters(c);
             return c;
         }

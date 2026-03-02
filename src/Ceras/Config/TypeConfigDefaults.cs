@@ -103,7 +103,7 @@ namespace Ceras
                 {
                     var msg = $"The struct '{type.FriendlyName()}' cannot be serialized because it only consists of auto-properties. " +
                               "Ceras serializes structs by their fields, but auto-properties use hidden backing-fields that are excluded by default. " +
-                              "To fix this, either: 1. Use normal fields, 2. Add [CerasSerializable] and use the source generator, or 3. Disable this warning in SerializerConfig.Warnings.";
+                              "To fix this, either: 1. Use normal fields, 2. Add [CerasSerializable] and use the source generator, or 3. Disable this warning in CerasConfig.WarnOnStructWithAutoProperties.";
 
                     throw new TargetInvocationException(new Exception(msg));
                 }

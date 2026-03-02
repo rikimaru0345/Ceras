@@ -26,12 +26,9 @@ namespace NetworkExample
             // Now we need our serializer
             // !! Important:
             // !! The settings of the serializers for client and server must be the same!
-            var config = new CerasRawConfig();
-            config.Advanced.PersistTypeCache = true;
-            
-            // We use the same config instance for both so they share the same type cache
-            _sendCeras = new CerasFastSerializer(config);
-            _receiveCeras = new CerasFastSerializer(config);
+            // We configure both serializers identically so they share the same type-cache behaviour
+            _sendCeras    = new CerasFastSerializer(c => c.Advanced.PersistTypeCache = true);
+            _receiveCeras = new CerasFastSerializer(c => c.Advanced.PersistTypeCache = true);
 
             // Start a thread that receives and reacts to messages from the server
             StartReceiving();

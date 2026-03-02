@@ -28,12 +28,9 @@ namespace NetworkExample
             // We want to keep "learned" types
             // That means when the other side sends us a type (using the full name) we never want to transmit that again,
             // the type should (from then on) be known as a some ID.
-            var config = new CerasRawConfig();
-            config.Advanced.PersistTypeCache = true;
-            
-            // We use the same config instance for both so they share the same type cache
-            _sendCeras = new CerasFastSerializer(config);
-            _receiveCeras = new CerasFastSerializer(config);
+            // We configure both serializers identically so they share the same type-cache behaviour
+            _sendCeras    = new CerasFastSerializer(c => c.Advanced.PersistTypeCache = true);
+            _receiveCeras = new CerasFastSerializer(c => c.Advanced.PersistTypeCache = true);
 
             StartReceivingMessages();
         }

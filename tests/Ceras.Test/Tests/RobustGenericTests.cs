@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Xunit;
 using Ceras;
 using Ceras.Format;
+using Ceras.Generated;
 
 namespace Ceras.Test.RobustGenerics
 {

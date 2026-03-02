@@ -19,12 +19,6 @@ namespace Ceras
             _serializer = new CerasSerializer(Config);
         }
 
-        public CerasFastSerializer(CerasRawConfig config)
-        {
-            Config = config ?? throw new ArgumentNullException(nameof(config));
-            _serializer = new CerasSerializer(Config);
-        }
-
         public byte[] Serialize<T>(T obj) => _serializer.Serialize(obj);
         public void Serialize<T>(IBufferWriter<byte> writer, T obj) => _serializer.Serialize(writer, obj);
         public int Serialize<T>(T obj, ref byte[] buffer, int offset = 0) => _serializer.Serialize(obj, ref buffer, offset);

@@ -46,17 +46,6 @@ namespace Ceras
             _serializer = new CerasSerializer(_config);
         }
 
-        public CerasRobustSerializer(CerasRobustConfig config)
-        {
-            _config = config ?? throw new ArgumentNullException(nameof(config));
-            _config.Serializer = this;
-
-            InitializeRobustFormatters(_config);
-            _config.EmbedChecksum = false;
-
-            _serializer = new CerasSerializer(_config);
-        }
-
         internal CerasRobustSerializer(CerasRobustConfig config, CerasSerializer serializer, bool compatibility)
         {
             _config = config;

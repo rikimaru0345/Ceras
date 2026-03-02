@@ -74,7 +74,7 @@ namespace Tutorial
             //     
             //  - c. [MemberConfig] attribute
             //
-            //  - d. "DefaultTargets" setting in the SerializerConfig
+            //  - d. "DefaultTargets" setting in the CerasConfig
             //       which defaults to 'TargetMember.PublicFields'
             //
 
@@ -306,7 +306,7 @@ namespace Tutorial
              */
 
             /*
-            SerializerConfig config = new SerializerConfig();
+            CerasRawConfig config = new CerasRawConfig();
 
             config.GenerateChecksum = true;
             config.KnownTypes.Add();

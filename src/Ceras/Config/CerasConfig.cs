@@ -29,18 +29,6 @@ namespace Ceras
 	}
 
 	/// <summary>
-	/// Configuration for how 'readonly' fields are handled.
-	/// </summary>
-	public enum ReadonlyFieldHandling {
-		/// <summary>Readonly fields are completely ignored. Default for <see cref="CerasRobustSerializer"/>.</summary>
-		ExcludeFromSerialization,
-		/// <summary>Readonly fields are included, and Ceras will overwrite them using Unsafe code. Default for <see cref="CerasFastSerializer"/>.</summary>
-		ForcedOverwrite,
-		/// <summary>Readonly fields are included, but instead of overwriting the field itself, Ceras will only overwrite the members of the object already in the field. Does not work for value-types or null fields.</summary>
-		Members,
-	}
-
-	/// <summary>
 	/// Base configuration shared by <see cref="CerasRawConfig"/> and <see cref="CerasRobustConfig"/>.
 	/// Use one of those concrete subclasses — do not instantiate this directly.
 	/// </summary>
@@ -247,12 +235,6 @@ namespace Ceras
 				set { if (_isSealed) throw new InvalidOperationException("Sealed"); _persistTypeCache = value; }
 			}
 			bool _persistTypeCache;
-
-			public ReadonlyFieldHandling ReadonlyFieldHandling {
-				get => _readonlyFieldHandling;
-				set { if (_isSealed) throw new InvalidOperationException("Sealed"); _readonlyFieldHandling = value; }
-			}
-			ReadonlyFieldHandling _readonlyFieldHandling = ReadonlyFieldHandling.ExcludeFromSerialization;
 
 			public bool SealTypesWhenUsingKnownTypes {
 				get => _sealTypesWhenUsingKnownTypes;

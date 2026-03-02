@@ -319,8 +319,8 @@ namespace LiveTesting
             var ceras = new CerasSerializer();
 
             var obj = new CtorTest("riki", 12354);
-            
-            var clone = ceras.Advanced.Clone(obj);
+
+			var clone = ceras.Advanced.Clone(obj);
 
         }
 
@@ -330,7 +330,7 @@ namespace LiveTesting
 
             Repro65();
 
-            /*
+			/*
             var nameAge = new NameAge("riki", null);
 
             var (nameSetter, nameSetterLambda) = ReadonlySetter.GenerateSetter<NameAge, string>(GetField(() => nameAge.Name));
@@ -350,7 +350,7 @@ namespace LiveTesting
             object boxedNameAge = nameAge;
             object boxedNewAgeValue = newAge;
 
-            MicroBenchmark.Run(2, 
+            MicroBenchmark.Run(2,
                 new BenchJob("setValue(box, box)", () => ageField.SetValue(boxedNameAge, boxedNewAgeValue)),
                 new BenchJob("ageSetter", () => ageSetter(ref nameAge, newAge))
                 );
@@ -360,7 +360,7 @@ namespace LiveTesting
 
 
 
-            /*
+			/*
             var eqOpNullableTest = StructEquality<Test?>.EqualFunction;
 
             var name = "abc";
@@ -386,12 +386,12 @@ namespace LiveTesting
             Console.ReadLine();
             */
 
-            //SaveDelegateIL(StructEquality<Test?>.Lambda);
+			//SaveDelegateIL(StructEquality<Test?>.Lambda);
 
 
 
 
-            new Ceras.Test.BuiltInTypes().MultidimensionalArrays();
+			new Ceras.Test.BuiltInTypes().MultidimensionalArrays();
 
             RuntimeColorTest();
 
@@ -463,7 +463,7 @@ namespace LiveTesting
         {
             Console.WriteLine("Running on: " + TargetFramework.FrameworkName);
 
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             var typeConfig = config.ConfigType<System.Drawing.Color>();
             CerasSerializer ceras = new CerasSerializer(config);
 
@@ -525,7 +525,7 @@ namespace LiveTesting
                 //            Debug.Fail("string encoding failure");
                 //    }
                 //}),
-                
+
                 //("New", () =>
                 //{
                 //    foreach (var testString in testStrings)
@@ -692,7 +692,7 @@ namespace LiveTesting
             // Our HashSet<byte> is losing its Comparer
             // We use a custom formatter to fix it
 
-            SerializerConfig config = new SerializerConfig();
+            CerasRawConfig config = new CerasRawConfig();
 
             config.OnResolveFormatter.Add((c, t) =>
             {
@@ -838,10 +838,9 @@ namespace LiveTesting
         {
             // Primitive test (private readonly in a base type)
             {
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
                 config.ConfigType<ReadonlyTestClass>()
                       .ConstructByUninitialized()
-                      .SetReadonlyHandling(ReadonlyFieldHandling.ForcedOverwrite)
                       .SetTargetMembers(TargetMember.PrivateFields);
 
                 var ceras = new CerasSerializer(config);
@@ -863,7 +862,7 @@ namespace LiveTesting
                 MethodCallExpression body = (MethodCallExpression)getCharAtIndex.Body;
 
                 // Serialize and deserialize delegate
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
                 var ceras = new CerasSerializer(config);
 
                 var data = ceras.Serialize<object>(body);
@@ -887,7 +886,7 @@ namespace LiveTesting
 
 
                 // Serialize and deserialize expression
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
                 var ceras = new CerasSerializer(config);
 
                 var data = ceras.Serialize(getCharAtIndex);
@@ -942,7 +941,7 @@ namespace LiveTesting
             obj.Add("asdasdas");
             obj.Add(new Person() { Name = "abc" });
 
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             config.KnownTypes.Add(typeof(List<>));
             config.KnownTypes.Add(typeof(int));
             // Some types not added on purpose
@@ -966,7 +965,7 @@ namespace LiveTesting
             //
             // 2. Check while deserializing
             //
-            config = new SerializerConfig();
+            config = new CerasRawConfig();
             config.KnownTypes.Add(typeof(List<>));
             config.KnownTypes.Add(typeof(int));
             config.Advanced.SealTypesWhenUsingKnownTypes = false;
@@ -974,7 +973,7 @@ namespace LiveTesting
 
             var data = ceras.Serialize(obj);
 
-            config = new SerializerConfig();
+            config = new CerasRawConfig();
             config.KnownTypes.Add(typeof(List<>));
             config.KnownTypes.Add(typeof(int));
             config.Advanced.SealTypesWhenUsingKnownTypes = true;
@@ -995,7 +994,7 @@ namespace LiveTesting
 
         static void InjectSpecificFormatterTest()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             config.OnResolveFormatter.Add((c, t) =>
             {
                 if (t == typeof(Person))
@@ -1030,7 +1029,7 @@ namespace LiveTesting
             // Test #1:
             // By default the setting is off. Fields are ignored.
             {
-                SerializerConfig config = new SerializerConfig();
+                CerasRawConfig config = new CerasRawConfig();
                 CerasSerializer ceras = new CerasSerializer(config);
 
                 ReadonlyFieldsTest obj = new ReadonlyFieldsTest(5, "xyz", new ReadonlyFieldsTest.ContainerThingA { Setting1 = 10, Setting2 = "asdasdas" });
@@ -1047,8 +1046,7 @@ namespace LiveTesting
             // Test #2A:
             // In the 'Members' mode we expect an exception for readonly value-typed fields.
             {
-                SerializerConfig config = new SerializerConfig();
-                config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+                CerasRawConfig config = new CerasRawConfig();
 
                 config.ConfigType<ReadonlyFieldsTest>()
                       .ConfigMember(f => f.Int).Include()
@@ -1080,13 +1078,12 @@ namespace LiveTesting
             // In the 'Members' mode (when not dealing with value-types)
             // we want Ceras to re-use the already existing object
             {
-                SerializerConfig config = new SerializerConfig();
-                config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.Members;
+                CerasRawConfig config = new CerasRawConfig();
 
                 config.ConfigType<ReadonlyFieldsTest>()
                       .ConfigMember(f => f.Int).Exclude()
                       .ConfigMember(f => f.String).Exclude()
-                      .ConfigMember(f => f.Container).Include(ReadonlyFieldHandling.Members);
+                      .ConfigMember(f => f.Container).Include();
 
                 CerasSerializer ceras = new CerasSerializer(config);
 
@@ -1118,8 +1115,7 @@ namespace LiveTesting
             // In 'ForcedOverwrite' mode Ceras should fix all possible mismatches by force (reflection),
             // which means that it should work exactly like as if the field were not readonly.
             {
-                SerializerConfig config = new SerializerConfig();
-                config.Advanced.ReadonlyFieldHandling = ReadonlyFieldHandling.ForcedOverwrite;
+                CerasRawConfig config = new CerasRawConfig();
                 CerasSerializer ceras = new CerasSerializer(config);
 
                 // This time we want Ceras to fix everything, reference mismatches and value mismatches alike.
@@ -1143,9 +1139,9 @@ namespace LiveTesting
                 Debug.Assert(existingTarget.Int == 5);
                 Debug.Assert(existingTarget.String == "55555");
 
-                // The container type was wrong, Ceras should have fixed that by instantiating a different object 
-                // and writing that into the readonly field.
-                var container = existingTarget.Container as ReadonlyFieldsTest.ContainerThingA;
+				// The container type was wrong, Ceras should have fixed that by instantiating a different object
+				// and writing that into the readonly field.
+				var container = existingTarget.Container as ReadonlyFieldsTest.ContainerThingA;
                 Debug.Assert(container != null);
 
                 // Contents of the container should be correct as well
@@ -1212,8 +1208,7 @@ namespace LiveTesting
             }
         }
 
-        [MemberConfig(ReadonlyFieldHandling = ReadonlyFieldHandling.Members)]
-        class ReadonlyFieldsTest2
+		class ReadonlyFieldsTest2
         {
             public readonly List<int> Numbers = new List<int> { -1, -1, -1, -1 };
         }
@@ -1370,7 +1365,7 @@ namespace LiveTesting
 
         static void InheritTest()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             config.KnownTypes.Add(typeof(SyncUnitHealth));
             var ceras = new CerasSerializer(config);
 
@@ -1492,15 +1487,15 @@ namespace LiveTesting
 
 
 
-            // 2.) Object Data
-            // Many fields/properties, some nesting
+			// 2.) Object Data
+			// Many fields/properties, some nesting
 
 
 
-            /*
+			/*
              * todo
              *
-             * - prewarm proxy pool; prewarm 
+             * - prewarm proxy pool; prewarm
              *
              * - would ThreadsafeTypeKeyHashTable actually help for the cases where we need to type switch?
              *
@@ -1527,21 +1522,21 @@ namespace LiveTesting
              *
              * - optimize simple properties: serializing the backing field directly, don't call Get/Set (add a setting so it can be deactivated)
             */
-        }
+		}
 
-        static void TupleTest()
+		static void TupleTest()
         {
-            // todo:
-            //
-            // - ValueTuple: can already be serialized as is! We just need to somehow enforce serialization of public fields
-            //     maybe a predefined list of fixed overrides? An additional step directly after ShouldSerializeMember?
-            //
-            // - Tuple: does not work and (for now) can't be fixed. 
-            //   we'll need support for a different kind of ReferenceSerializer (one that does not create an instance)
-            //   and a different DynamicSerializer (one that collects the values into local variables, then instantiates the object)
-            //
+			// todo:
+			//
+			// - ValueTuple: can already be serialized as is! We just need to somehow enforce serialization of public fields
+			//     maybe a predefined list of fixed overrides? An additional step directly after ShouldSerializeMember?
+			//
+			// - Tuple: does not work and (for now) can't be fixed.
+			//   we'll need support for a different kind of ReferenceSerializer (one that does not create an instance)
+			//   and a different DynamicSerializer (one that collects the values into local variables, then instantiates the object)
+			//
 
-            SerializerConfig config = new SerializerConfig();
+			CerasRawConfig config = new CerasRawConfig();
             config.DefaultTargets = TargetMember.AllPublic;
             var ceras = new CerasSerializer(config);
 
@@ -1639,7 +1634,7 @@ namespace LiveTesting
             p.Other.PropertyClasses.Add(p);
             p.Other.PropertyClasses.Add(p);
 
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             config.DefaultTargets = TargetMember.All;
 
             var ceras = new CerasSerializer(config);
@@ -1743,7 +1738,7 @@ namespace LiveTesting
 
         static void NetworkTest()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             config.Advanced.PersistTypeCache = true;
             config.KnownTypes.Add(typeof(SetName));
             config.KnownTypes.Add(typeof(NewPlayer));

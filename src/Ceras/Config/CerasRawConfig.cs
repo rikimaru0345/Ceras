@@ -10,7 +10,7 @@ namespace Ceras
 	/// </summary>
 	public class CerasRawConfig : CerasConfig
 	{
-		public CerasRawConfig() { }
+		internal CerasRawConfig() { }
 
 		/// <summary>
 		/// When true, Ceras uses an extremely fast "reinterpret" formatter for blittable types

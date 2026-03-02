@@ -76,7 +76,7 @@
 #if NETFRAMEWORK
         static void TestBitmapFormatter()
         {
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             config.Advanced.BitmapMode = BitmapMode.SaveAsBmp;
             var ceras = new CerasSerializer(config);
 

@@ -3,7 +3,8 @@
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.Test")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.AotGenerator")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.TestDebugger")]
-namespace Ceras {
+namespace Ceras
+{
 	using System;
 	using System.Buffers;
 	using System.Collections.Generic;
@@ -18,16 +19,20 @@ namespace Ceras {
 	using Ceras.Resolvers;
 	using Ceras.Format;
 
-	public class CerasSerializer : ICerasAdvanced {
+	public class CerasSerializer : ICerasAdvanced
+	{
 		internal static readonly Type _rtTypeType;
 		static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
 
-		public static void AddFormatterConstructedType(Type type) {
+		public static void AddFormatterConstructedType(Type type)
+		{
 			lock (_formatterConstructedTypes) _formatterConstructedTypes.Add(type);
 		}
 
-		public static void ClearFormatterConstructedTypes() {
-			lock (_formatterConstructedTypes) {
+		public static void ClearFormatterConstructedTypes()
+		{
+			lock (_formatterConstructedTypes)
+			{
 				_formatterConstructedTypes.Clear();
 				_formatterConstructedTypes.Add(typeof(Type));
 				_formatterConstructedTypes.Add(_rtTypeType);
@@ -35,23 +40,27 @@ namespace Ceras {
 			}
 		}
 
-		internal static bool IsFormatterConstructed(Type type) {
+		internal static bool IsFormatterConstructed(Type type)
+		{
 			if (type.IsAbstract) return true;
 
 			// Check manual registration
-			lock (_formatterConstructedTypes) {
+			lock (_formatterConstructedTypes)
+			{
 				if (_formatterConstructedTypes.Contains(type)) return true;
 			}
 
 			return false;
 		}
 
-		internal bool IsFormatterConstructedInstance(Type type) {
+		internal bool IsFormatterConstructedInstance(Type type)
+		{
 			if (IsFormatterConstructed(type)) return true;
 			var meta = GetTypeMetaData(type);
 			return meta.TypeConfig?.CustomFormatter != null;
 		}
-		internal static bool IsPrimitiveType(Type type) {
+		internal static bool IsPrimitiveType(Type type)
+		{
 			if (type.IsPrimitive) return true;
 			if (type.IsArray) return IsPrimitiveType(type.GetElementType());
 			if (type == typeof(string) || type == typeof(Type)) return true;
@@ -61,7 +70,8 @@ namespace Ceras {
 
 		internal static HashSet<Assembly> _frameworkAssemblies = new HashSet<Assembly> { typeof(object).Assembly, typeof(Uri).Assembly, typeof(Enumerable).Assembly };
 
-		static CerasSerializer() {
+		static CerasSerializer()
+		{
 			var type = typeof(Type);
 			_rtTypeType = type.GetType();
 			_formatterConstructedTypes.Add(type);
@@ -97,7 +107,8 @@ namespace Ceras {
 
 
 
-		internal CerasSerializer(CerasConfig config = null) {
+		internal CerasSerializer(CerasConfig config = null)
+		{
 			if (config != null && !config.Claim(this)) throw new CerasException("The provided config is already in use by another CerasSerializer. Create a new config instance for each serializer.");
 			Config = config ?? new CerasRawConfig();
 
@@ -119,11 +130,13 @@ namespace Ceras {
 
 			IFormatter typeFormatter;
 			var typeTypeConfig = Config.GetExistingTypeConfig(typeof(Type), false);
-			if (typeTypeConfig?.CustomFormatter != null) {
+			if (typeTypeConfig?.CustomFormatter != null)
+			{
 				typeFormatter = typeTypeConfig.CustomFormatter;
 				PrepareFormatter(typeFormatter);
 			}
-			else {
+			else
+			{
 				typeFormatter = new TypeFormatter(this);
 			}
 			var runtimeType = GetType().GetType();
@@ -142,13 +155,15 @@ namespace Ceras {
 			void SetFormatters(Type type, IFormatter specific, IFormatter reference) { var meta = GetTypeMetaData(type); meta.SpecificFormatter = specific; meta.ReferenceFormatter = reference; }
 		}
 
-		public byte[] Serialize<T>(T obj) {
+		public byte[] Serialize<T>(T obj)
+		{
 			var writer = new ArrayBufferWriter<byte>();
 			Serialize(writer, obj);
 			return writer.WrittenSpan.ToArray();
 		}
 
-		public int Serialize<T>(T obj, ref byte[] buffer, int offset = 0) {
+		public int Serialize<T>(T obj, ref byte[] buffer, int offset = 0)
+		{
 			var writer = new FixedArrayBufferWriter(buffer, offset);
 			Serialize(writer, obj);
 			buffer = writer.Buffer;
@@ -156,9 +171,11 @@ namespace Ceras {
 			return size;
 		}
 
-		public void Serialize<T>(IBufferWriter<byte> writer, T obj) {
+		public void Serialize<T>(IBufferWriter<byte> writer, T obj)
+		{
 			EnterRecursive(RecursionMode.Serialization);
-			try {
+			try
+			{
 				if (Config.EmbedChecksum) SerializerBinary.WriteInt32Fixed(writer, ProtocolChecksum.Checksum);
 				GetFormatter<T>().Serialize(writer, obj);
 				InstanceData.TypeCache.ResetSerializationCache();
@@ -169,7 +186,8 @@ namespace Ceras {
 
 		public T Deserialize<T>(byte[] buffer) { T value = default; int offset = 0; Deserialize(ref value, buffer, ref offset); return value; }
 		public void Deserialize<T>(ref T value, byte[] buffer) { int offset = 0; Deserialize(ref value, buffer, ref offset); }
-		public void Deserialize<T>(ref T value, byte[] buffer, ref int offset, int expectedReadLength = -1) {
+		public void Deserialize<T>(ref T value, byte[] buffer, ref int offset, int expectedReadLength = -1)
+		{
 			var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset);
 			var reader = new SequenceReader<byte>(seq);
 			Deserialize(ref reader, ref value);
@@ -178,9 +196,11 @@ namespace Ceras {
 			if (expectedReadLength != -1 && consumed != expectedReadLength) throw new UnexpectedBytesConsumedException("Mismatch", expectedReadLength, consumed, offset - consumed, offset);
 		}
 
-		public void Deserialize<T>(ref SequenceReader<byte> reader, ref T value) {
+		public void Deserialize<T>(ref SequenceReader<byte> reader, ref T value)
+		{
 			EnterRecursive(RecursionMode.Deserialization);
-			try {
+			try
+			{
 				if (Config.EmbedChecksum && SerializerBinary.ReadInt32Fixed(ref reader) != ProtocolChecksum.Checksum) throw new InvalidOperationException("Checksum mismatch");
 				GetFormatter<T>().Deserialize(ref reader, ref value);
 				InstanceData.TypeCache.ResetDeserializationCache();
@@ -190,11 +210,13 @@ namespace Ceras {
 			finally { LeaveRecursive(RecursionMode.Deserialization); }
 		}
 
-		public void SetCurrentObject(object value) {
+		public void SetCurrentObject(object value)
+		{
 			InstanceData.CurrentProxy?.SetObjectValue(value);
 		}
 
-		public class FixedArrayBufferWriter : IBufferWriter<byte> {
+		public class FixedArrayBufferWriter : IBufferWriter<byte>
+		{
 			public byte[] Buffer; public int Offset;
 			public FixedArrayBufferWriter(byte[] buffer, int offset) { Buffer = buffer ?? CerasBufferPool.Rent(0x4000); Offset = offset; }
 			public void Advance(int count) => Offset += count;
@@ -204,13 +226,15 @@ namespace Ceras {
 
 		public T Clone<T>(T obj) => Deserialize<T>(Serialize(obj));
 
-		public async ValueTask SaveAsync<T>(T obj, Stream stream) {
+		public async ValueTask SaveAsync<T>(T obj, Stream stream)
+		{
 			var writer = new ArrayBufferWriter<byte>();
 			Serialize(writer, obj);
 			await stream.WriteAsync(writer.WrittenMemory);
 		}
 
-		public async ValueTask<T> LoadAsync<T>(Stream stream) {
+		public async ValueTask<T> LoadAsync<T>(Stream stream)
+		{
 			// For a real implementation we'd read in chunks, but for now we read everything
 			// to fulfill the API requirement.
 			var ms = new MemoryStream();
@@ -225,10 +249,13 @@ namespace Ceras {
 		int ICerasAdvanced.DeserializeStatic(Type type, byte[] buffer, ref int offset) { var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset); var reader = new SequenceReader<byte>(seq); ((ICerasAdvanced)this).DeserializeStatic(type, ref reader); int size = (int)reader.Consumed; offset += size; return size; }
 		void ICerasAdvanced.DeserializeStatic(Type type, ref SequenceReader<byte> reader) { var meta = GetStaticTypeMetaData(type); if (meta.StaticDeserialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticDeserialize(ref reader); }
 
-		internal void VerifyReflectionFallbackAllowed(Type type) {
-			if (!Config.AllowReflectionFallback) {
+		internal void VerifyReflectionFallbackAllowed(Type type)
+		{
+			if (!Config.AllowReflectionFallback)
+			{
 				string contextMsg = "";
-				if (_contextStack.Count > 0) {
+				if (_contextStack.Count > 0)
+				{
 					var ctx = _contextStack.Peek();
 					string memberPart = ctx.Member != null ? $"member '{ctx.Member.Name}'" : "a member";
 					contextMsg = $"\n(This type was encountered while processing {memberPart} in type '{ctx.Type.FriendlyName(true)}')";
@@ -242,7 +269,8 @@ namespace Ceras {
 		internal void PushContext(Type type, MemberInfo member) => _contextStack.Push((type, member));
 		internal void PopContext() => _contextStack.Pop();
 
-		void PrepareStaticSerializationDispatchers(TypeMetaData meta) {
+		void PrepareStaticSerializationDispatchers(TypeMetaData meta)
+		{
 			VerifyReflectionFallbackAllowed(meta.Type);
 			var formatterType = typeof(ReflectionFallbackFormatter<>).MakeGenericType(meta.Type);
 			var f = Activator.CreateInstance(formatterType, new object[] { this, true });
@@ -255,7 +283,8 @@ namespace Ceras {
 			meta.StaticSerialize = result.ser; meta.StaticDeserialize = result.deser;
 		}
 
-		static (StaticSerializeDelegate, StaticDeserializeDelegate) CreateStaticDelegates<T>(IFormatter<T> formatter) {
+		static (StaticSerializeDelegate, StaticDeserializeDelegate) CreateStaticDelegates<T>(IFormatter<T> formatter)
+		{
 			T dummy = default;
 			return ((writer) => formatter.Serialize(writer, default), (ref SequenceReader<byte> reader) => formatter.Deserialize(ref reader, ref dummy));
 		}
@@ -269,7 +298,8 @@ namespace Ceras {
 		public IFormatter<T> GetSpecificFormatter<T>() => (IFormatter<T>)GetSpecificFormatter(typeof(T));
 		public IFormatter<T> GetReferenceFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
 
-		public IFormatter GetReferenceFormatter(Type type) {
+		public IFormatter GetReferenceFormatter(Type type)
+		{
 			var meta = GetTypeMetaData(type);
 			if (meta.Type.IsValueType) return GetSpecificFormatter(type, meta);
 			if (meta.ReferenceFormatter != null) return meta.ReferenceFormatter;
@@ -279,10 +309,12 @@ namespace Ceras {
 		}
 
 		public IFormatter GetSpecificFormatter(Type type) => GetSpecificFormatter(type, GetTypeMetaData(type));
-		IFormatter GetSpecificFormatter(Type type, TypeMetaData meta) {
+		IFormatter GetSpecificFormatter(Type type, TypeMetaData meta)
+		{
 			if (meta.SpecificFormatter != null) return meta.SpecificFormatter;
 
-			if (type.IsAbstract() || type.IsInterface || type.ContainsGenericParameters) {
+			if (type.IsAbstract() || type.IsInterface || type.ContainsGenericParameters)
+			{
 				var msg = $"Type '{type.FriendlyName()}' is abstract, an interface, or an open generic type, and cannot be serialized directly.\n" +
 						  $"Metadata: IsAbstract={type.IsAbstract()}, IsInterface={type.IsInterface}, ContainsGenericParameters={type.ContainsGenericParameters}, IsFrameworkType={meta.IsFrameworkType}, IsPrimitive={meta.IsPrimitive}";
 				throw new InvalidOperationException(msg);
@@ -298,7 +330,8 @@ namespace Ceras {
 
 		internal TypeMetaData GetTypeMetaData(Type type) { ref var meta = ref _metaData.GetOrAddValueRef(type); return meta ?? CreateMetaData(type, false); }
 		internal TypeMetaData GetStaticTypeMetaData(Type type) { ref var meta = ref _staticMetaData.GetOrAddValueRef(type); return meta ?? CreateMetaData(type, true); }
-		TypeMetaData CreateMetaData(Type type, bool isStatic) {
+		TypeMetaData CreateMetaData(Type type, bool isStatic)
+		{
 			var dict = isStatic ? _staticMetaData : _metaData;
 			ref var meta = ref dict.GetOrAddValueRef(type);
 			if (meta != null)
@@ -320,7 +353,8 @@ namespace Ceras {
 			return meta;
 		}
 
-		Schema CreatePrimarySchema(Type type, bool isStatic) {
+		Schema CreatePrimarySchema(Type type, bool isStatic)
+		{
 			if (IsPrimitiveType(type) || type.IsAbstract() || type.IsInterface || type.ContainsGenericParameters)
 				return null;
 
@@ -328,7 +362,8 @@ namespace Ceras {
 			tc.Seal();
 
 			var s = new Schema(type, isStatic);
-			foreach (var mc in tc._allMembers) {
+			foreach (var mc in tc._allMembers)
+			{
 				if (!mc.ComputeFinalInclusionFast())
 					continue;
 
@@ -337,11 +372,13 @@ namespace Ceras {
 				// Match generator: Generated formatters are in a separate class; they cannot access private members.
 				// Users must declare fields/properties as internal or public to be serializable.
 				bool isAccessible = false;
-				if (member is FieldInfo fi) {
+				if (member is FieldInfo fi)
+				{
 					isAccessible = fi.IsPublic || fi.IsAssembly || fi.IsFamilyOrAssembly;
 					if (fi.IsStatic != isStatic) continue;
 				}
-				else if (member is PropertyInfo pi) {
+				else if (member is PropertyInfo pi)
+				{
 					var getter = pi.GetGetMethod(true);
 					var setter = pi.GetSetMethod(true);
 
@@ -359,7 +396,8 @@ namespace Ceras {
 				// we'll allow it if it's NOT a Robust format scenario.
 				// Wait, the user said "Fast networking mode May not be stable from one compile to the next".
 				// So let's allow private members if they were explicitly included.
-				if (!isAccessible) {
+				if (!isAccessible)
+				{
 					// If it was explicitly included, we allow it.
 					if (!mc.ComputeFinalInclusionFast())
 						continue;
@@ -376,7 +414,8 @@ namespace Ceras {
 			return s;
 		}
 
-		void PrepareFormatter(IFormatter formatter) {
+		void PrepareFormatter(IFormatter formatter)
+		{
 			var formatterType = formatter.GetType();
 			var initMethod = formatterType.GetMethod("Initialize", BindingFlags.Instance | BindingFlags.NonPublic);
 			if (initMethod != null)
@@ -388,7 +427,8 @@ namespace Ceras {
 			if (formatterType.GetCustomAttribute<CerasNoInjectAttribute>() != null) return;
 			var config = formatterType.GetCustomAttribute<CerasInjectAttribute>() ?? CerasInjectAttribute.Default;
 			var fields = formatterType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-			foreach (var f in fields) {
+			foreach (var f in fields)
+			{
 				if (f.IsPrivate && !config.IncludePrivate) continue;
 				if (f.GetCustomAttribute<CerasNoInjectAttribute>() != null) continue;
 				var ft = f.FieldType;
@@ -396,24 +436,29 @@ namespace Ceras {
 				else if (ft == typeof(CerasConfig)) SafeInject(formatter, f, Config);
 				else if (ft == typeof(SizeLimits)) SafeInject(formatter, f, Config.SizeLimits);
 				else if (ft == typeof(SchemaRegistry) && Config is CerasRobustConfig rc) SafeInject(formatter, f, rc.SchemaRegistry);
-				else if (typeof(IFormatter).IsAssignableFrom(ft)) {
+				else if (typeof(IFormatter).IsAssignableFrom(ft))
+				{
 					var itfMember = ReflectionHelper.FindClosedType(ft, typeof(IFormatter<>));
 					if (itfMember == null) continue;
 					var fmtType = itfMember.GetGenericArguments()[0];
 					bool noRef = f.GetCustomAttribute<CerasNoReference>() != null;
 
 					if (targetType != null) PushContext(targetType, null);
-					try {
+					try
+					{
 						if (ft.IsGenericType && ft.GetGenericTypeDefinition() == typeof(IFormatter<>)) SafeInject(formatter, f, noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatter(fmtType));
-						else if (ReflectionHelper.IsAssignableToGenericType(ft, typeof(IFormatter<>))) {
+						else if (ReflectionHelper.IsAssignableToGenericType(ft, typeof(IFormatter<>)))
+						{
 							// If the field is typed to a specific formatter implementation (like CollectionFormatter),
 							// we should use GetSpecificFormatter to ensure we get a matching instance.
 							// ReferenceFormatter<T> is usually not assignable to CollectionFormatter<T, TItem>.
 							var rf = noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatter(fmtType);
-							if (ft.IsAssignableFrom(rf.GetType())) {
+							if (ft.IsAssignableFrom(rf.GetType()))
+							{
 								SafeInject(formatter, f, rf);
 							}
-							else {
+							else
+							{
 								var df = GetSpecificFormatter(fmtType);
 								if (ft.IsAssignableFrom(df.GetType()))
 									SafeInject(formatter, f, df);
@@ -422,7 +467,8 @@ namespace Ceras {
 							}
 						}
 					}
-					finally {
+					finally
+					{
 						if (targetType != null) PopContext();
 					}
 				}
@@ -436,7 +482,8 @@ namespace Ceras {
 		void LeaveRecursive(RecursionMode leavingMode) { _recursionDepth--; if (_recursionDepth == 0) _mode = RecursionMode.Idle; else { _instanceDataPool.ReturnObject(InstanceData); InstanceData = _recursionStack.Pop(); } }
 	}
 
-	public interface ICerasAdvanced {
+	public interface ICerasAdvanced
+	{
 		byte[] SerializeStatic(Type type);
 		void SerializeStatic(Type type, IBufferWriter<byte> writer);
 		int SerializeStatic(Type type, ref byte[] buffer, ref int offset);
@@ -450,7 +497,8 @@ namespace Ceras {
 		void PrepareFormatter(IFormatter formatter);
 	}
 
-	struct InstanceData {
+	struct InstanceData
+	{
 		public TypeCache TypeCache;
 		public ObjectCache ObjectCache;
 		public ObjectCache.RefProxy CurrentProxy;
@@ -464,7 +512,8 @@ namespace Ceras {
 	}
 	enum RecursionMode { Idle, Serialization, Deserialization, }
 
-	public class ProtocolChecksum {
+	public class ProtocolChecksum
+	{
 		xxHash _hash = new xxHash(); bool _isClosed; int _checksum;
 		public int Checksum => _isClosed ? _checksum : throw new InvalidOperationException("Not computed");
 		internal ProtocolChecksum() { _hash.Init(0); }
@@ -472,7 +521,8 @@ namespace Ceras {
 		internal void Finish() { _isClosed = true; _checksum = (int)_hash.Digest(); }
 	}
 
-	class TypeMetaData {
+	class TypeMetaData
+	{
 		public readonly Type Type; public readonly bool IsFrameworkType; public readonly bool IsPrimitive;
 		public readonly TypeConfig TypeConfig;
 		public IFormatter SpecificFormatter, ReferenceFormatter;
