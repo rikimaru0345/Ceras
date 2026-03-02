@@ -123,7 +123,7 @@ namespace Ceras.Format
                 }
             }
 
-            // Phase 2: Actual writing (WITHOUT the string table, CerasRobust handles that)
+            // Phase 2: Actual writing (WITHOUT the string table, CerasRobustSerializer handles that)
             var entryWriter = new ArrayBufferWriter<byte>(4096);
             int finalCount = 0;
             

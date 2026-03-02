@@ -1,8 +1,6 @@
-using System;
 using System.Collections.Generic;
 using Xunit;
 using Ceras;
-using Ceras.Format;
 
 namespace Ceras.Test {
 	[CerasSerializable]
@@ -31,12 +29,7 @@ namespace Ceras.Test {
 	public class RobustGenericTest {
 		[Fact]
 		public void TestRobustGenericList() {
-			var config = new CerasRobustConfig();
-			CerasRobust.Configure(config);
-			Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-			// ((CerasRobustConfig)config).SchemaRegistry is read-only, it has a default instance
-
-			var ceras = new CerasSerializer(config);
+			var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
 
 			var chunk = new MapChunk {
 				Entities = new List<ICombatEntity>
@@ -46,14 +39,9 @@ namespace Ceras.Test {
 				}
 			};
 
-			// Roundtrip through CerasRobust
 			uint version = 1;
-			var bytes = CerasRobust.Save(chunk, version, ceras);
-
-			// Log schema for debugging if needed
-			// Console.WriteLine(CerasRobust.DumpSchema(((CerasRobustConfig)config).SchemaRegistry));
-
-			var loadedChunk = CerasRobust.Load<MapChunk>(bytes, version, ceras);
+			var bytes = robust.Save(chunk, version);
+			var loadedChunk = robust.Load<MapChunk>(bytes, version);
 
 			Assert.NotNull(loadedChunk);
 			Assert.NotNull(loadedChunk.Entities);
@@ -66,13 +54,12 @@ namespace Ceras.Test {
 
 		[Fact]
 		public void TestRobustGenericListTraversal() {
-			var config = new CerasRobustConfig();
-			CerasRobust.Configure(config);
-			Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-
-			// Add a dummy to the registry to include it in the fingerprint.
-			((CerasRobustConfig)config).SchemaRegistry.Register(typeof(DummyForMismatch), null);
-			var ceras = new CerasSerializer(config);
+			var robust = new CerasRobustSerializer(config =>
+			{
+				config.UseGeneratedFormatters();
+				// Add a dummy to the registry to include it in the fingerprint (F1).
+				config.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+			});
 
 			var chunk = new MapChunk {
 				Entities = new List<ICombatEntity>
@@ -82,17 +69,14 @@ namespace Ceras.Test {
 			};
 
 			uint version = 1;
-			var bytes = CerasRobust.Save(chunk, version, ceras);
+			var bytes = robust.Save(chunk, version);
 
-			// Force fingerprint mismatch by clearing registry
-			((CerasRobustConfig)config).SchemaRegistry.InternalClear();
-			
-			// Re-populate registry so it has the same IDs as the data we're about to load
-			// We need to re-call UseRobustFormatters because InternalClear() wiped it.
-			Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-			// We DO NOT register DummyForMismatch here, so the fingerprint will mismatch.
+			// Force fingerprint mismatch: clear registry and re-populate WITHOUT DummyForMismatch.
+			robust.Config.SchemaRegistry.InternalClear();
+			robust.Config.UseGeneratedFormatters();
+			// We DO NOT register DummyForMismatch here, so the fingerprint (F2) will differ from F1.
 
-			var loadedChunk = CerasRobust.Load<MapChunk>(bytes, version, ceras);
+			var loadedChunk = robust.Load<MapChunk>(bytes, version);
 
 			Assert.NotNull(loadedChunk);
 			Assert.Single(loadedChunk.Entities);
@@ -100,34 +84,32 @@ namespace Ceras.Test {
 			Assert.Equal("Orc", ((CombatEntity)loadedChunk.Entities[0]).Name);
 		}
 
-				[Fact]
-				public void TestRobustGenericPair() {
-					var config = new CerasRobustConfig();
-					CerasRobust.Configure(config);
-					Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-		
-					// Fingerprint F1 (includes DummyForMismatch)
-					((CerasRobustConfig)config).SchemaRegistry.Register(typeof(DummyForMismatch), null);
-					var ceras = new CerasSerializer(config);
-		
-					var pair = new Pair<int, string> { Item1 = 42, Item2 = "Hello" };
-		
-					uint version = 1;
-					var bytes = CerasRobust.Save(pair, version, ceras);
-		
-					// 1. Normal roundtrip (Fast path)
-					var loadedPair = CerasRobust.Load<Pair<int, string>>(bytes, version, ceras);
-					Assert.Equal(42, loadedPair.Item1);
-					Assert.Equal("Hello", loadedPair.Item2);
-		
-					// 2. Traversal roundtrip (Fingerprint mismatch)
-					((CerasRobustConfig)config).SchemaRegistry.InternalClear();
-					Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-					// We DO NOT register DummyForMismatch here, so the fingerprint will mismatch.
-					var loadedPair2 = CerasRobust.Load<Pair<int, string>>(bytes, version, ceras);
-					Assert.Equal(42, loadedPair2.Item1);
-					Assert.Equal("Hello", loadedPair2.Item2);
-				}
-		
+		[Fact]
+		public void TestRobustGenericPair() {
+			var robust = new CerasRobustSerializer(config =>
+			{
+				config.UseGeneratedFormatters();
+				// Fingerprint F1 (includes DummyForMismatch)
+				config.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+			});
+
+			var pair = new Pair<int, string> { Item1 = 42, Item2 = "Hello" };
+
+			uint version = 1;
+			var bytes = robust.Save(pair, version);
+
+			// 1. Normal roundtrip (Fast path)
+			var loadedPair = robust.Load<Pair<int, string>>(bytes, version);
+			Assert.Equal(42, loadedPair.Item1);
+			Assert.Equal("Hello", loadedPair.Item2);
+
+			// 2. Traversal roundtrip (Fingerprint mismatch)
+			robust.Config.SchemaRegistry.InternalClear();
+			robust.Config.UseGeneratedFormatters();
+			// We DO NOT register DummyForMismatch here, so the fingerprint will mismatch.
+			var loadedPair2 = robust.Load<Pair<int, string>>(bytes, version);
+			Assert.Equal(42, loadedPair2.Item1);
+			Assert.Equal("Hello", loadedPair2.Item2);
+		}
 	}
 }

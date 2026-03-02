@@ -12,15 +12,13 @@ namespace Ceras.Test
         [Fact]
         public void LoadRef_FastPath()
         {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            var ceras = new CerasSerializer(config);
+            var robust = new CerasRobustSerializer();
 
             var original = new RefLoadData { Name = "Original", Value = 123 };
-            var data = CerasRobust.Save(original, 1, ceras);
+            var data = robust.Save(original, 1);
 
             var existing = new RefLoadData { Name = "Existing", Value = 0 };
-            CerasRobust.Load(ref existing, data, 1, ceras);
+            robust.Load(ref existing, data, 1);
 
             Assert.Equal("Original", existing.Name);
             Assert.Equal(123, existing.Value);
@@ -29,18 +27,16 @@ namespace Ceras.Test
         [Fact]
         public void LoadRef_SlowPath()
         {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            var ceras = new CerasSerializer(config);
+            var robust = new CerasRobustSerializer();
 
             var original = new RefLoadData { Name = "Original", Value = 123 };
-            var data = CerasRobust.Save(original, 1, ceras);
+            var data = robust.Save(original, 1);
 
             // Force slow path by changing fingerprint
-            data[CerasRobust.OffsetFingerprint] ^= 0xFF;
+            data[CerasRobustSerializer.OffsetFingerprint] ^= 0xFF;
 
             var existing = new RefLoadData { Name = "Existing", Value = 0 };
-            CerasRobust.Load(ref existing, data, 1, ceras);
+            robust.Load(ref existing, data, 1);
 
             Assert.Equal("Original", existing.Name);
             Assert.Equal(123, existing.Value);
@@ -49,18 +45,16 @@ namespace Ceras.Test
         [Fact]
         public void LoadRef_List_SlowPath()
         {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            var ceras = new CerasSerializer(config);
+            var robust = new CerasRobustSerializer();
 
             var original = new List<int> { 1, 2, 3 };
-            var data = CerasRobust.Save(original, 1, ceras);
+            var data = robust.Save(original, 1);
 
             // Force slow path by changing fingerprint
-            data[CerasRobust.OffsetFingerprint] ^= 0xFF;
+            data[CerasRobustSerializer.OffsetFingerprint] ^= 0xFF;
 
             var existing = new List<int> { 9, 8, 7, 6 };
-            CerasRobust.Load(ref existing, data, 1, ceras);
+            robust.Load(ref existing, data, 1);
 
             Assert.Equal(3, existing.Count);
             Assert.Equal(1, existing[0]);

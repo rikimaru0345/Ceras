@@ -9,14 +9,11 @@ namespace Ceras.Test.Tests {
 	public partial class RobustCustomFormatterTests {
 		[Fact]
 		public void Robust_Respects_CustomFormatter() {
-			var config = new CerasRobustConfig();
-			config.ConfigType<MyCustomStruct>().CustomFormatter = new MyCustomStructFormatter();
-
-			// Enable robust formatting
-			Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-			CerasRobust.Configure(config);
-
-			var ceras = new CerasSerializer(config);
+			var robust = new CerasRobustSerializer(config =>
+			{
+				config.ConfigType<MyCustomStruct>().CustomFormatter = new MyCustomStructFormatter();
+				config.UseGeneratedFormatters();
+			});
 
 			var original = new ClassWithCustomStruct {
 				Id = 42,
@@ -26,10 +23,10 @@ namespace Ceras.Test.Tests {
 			MyCustomStructFormatter.WasSerializedCalled = false;
 			MyCustomStructFormatter.WasDeserializedCalled = false;
 
-			var data = ceras.Serialize(original);
+			var data = robust.Serialize(original);
 
 			// It should be properly deserialized using the custom formatter
-			var loaded = ceras.Deserialize<ClassWithCustomStruct>(data);
+			var loaded = robust.Deserialize<ClassWithCustomStruct>(data);
 
 			Assert.Equal(42, loaded.Id);
 			Assert.Equal("CustomSerialized", loaded.MyStruct.MagicValue);

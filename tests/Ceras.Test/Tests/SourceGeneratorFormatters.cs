@@ -15,7 +15,7 @@ namespace Ceras.Test
         public void GeneratedFormatter_RoundTrips_SimplePublicFields()
         {
             var config = new CerasRawConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            config.UseGeneratedFormatters();
             var ceras = new CerasSerializer(config);
 
             var original = new SimpleFieldModel
@@ -34,7 +34,7 @@ namespace Ceras.Test
         public void GeneratedFormatter_RoundTrips_PublicProperties()
         {
             var config = new CerasRawConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            config.UseGeneratedFormatters();
             var ceras = new CerasSerializer(config);
 
             var original = new PropertyModel { X = 3.14f, Y = -1.0f };
@@ -52,7 +52,7 @@ namespace Ceras.Test
             // Bytes must be identical (same schema, same member order).
 
             var generatedConfig = new CerasRawConfig();
-            RobustFormatters.UseRobustFormatters(generatedConfig);
+            generatedConfig.UseGeneratedFormatters();
             var generatedCeras = new CerasSerializer(generatedConfig);
 
             var dynamicConfig = new CerasRawConfig();
@@ -74,7 +74,7 @@ namespace Ceras.Test
             var dynamicCeras  = new CerasSerializer(dynamicConfig);
 
             var generatedConfig = new CerasRawConfig();
-            RobustFormatters.UseRobustFormatters(generatedConfig);
+            generatedConfig.UseGeneratedFormatters();
             var generatedCeras = new CerasSerializer(generatedConfig);
 
             var original = new SimpleFieldModel { Name = "Cross", Age = 99 };
@@ -89,7 +89,7 @@ namespace Ceras.Test
         public void GeneratedFormatter_RoundTrips_ReadonlyCtorModel()
         {
             var config = new CerasRawConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            config.UseGeneratedFormatters();
             var ceras = new CerasSerializer(config);
 
             var original = new ReadonlyCtorModel(42);
@@ -102,7 +102,7 @@ namespace Ceras.Test
         public void GeneratedFormatter_RoundTrips_InitCtorModel()
         {
             var config = new CerasRawConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            config.UseGeneratedFormatters();
             var ceras = new CerasSerializer(config);
 
             var original = new InitCtorModel(123);

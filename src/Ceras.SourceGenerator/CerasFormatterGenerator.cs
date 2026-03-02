@@ -196,6 +196,16 @@ namespace Ceras.SourceGenerator
 
             sbUse.AppendLine("        }");
             sbUse.AppendLine("    }");
+            sbUse.AppendLine();
+            sbUse.AppendLine("    /// <summary>");
+            sbUse.AppendLine("    /// Extension methods on <see cref=\"global::Ceras.CerasConfig\"/> for registering generated formatters.");
+            sbUse.AppendLine("    /// </summary>");
+            sbUse.AppendLine("    public static class CerasConfigExtensions");
+            sbUse.AppendLine("    {");
+            sbUse.AppendLine("        /// <summary>Registers all generated formatters and schemas into the config.</summary>");
+            sbUse.AppendLine("        public static void UseGeneratedFormatters(this global::Ceras.CerasConfig config)");
+            sbUse.AppendLine("            => RobustFormatters.UseRobustFormatters(config);");
+            sbUse.AppendLine("    }");
             sbUse.AppendLine("}");
 
             context.AddSource("RobustFormatters.g.cs", SourceText.From(sbUse.ToString(), Encoding.UTF8));

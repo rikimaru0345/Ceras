@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace NetworkExample
 {
@@ -14,8 +14,8 @@ namespace NetworkExample
     {
         readonly TcpClient _tcpClient;
         readonly NetworkStream _netStream;
-        readonly CerasSerializer _sendCeras;
-        readonly CerasSerializer _receiveCeras;
+        readonly CerasFastSerializer _sendCeras;
+        readonly CerasFastSerializer _receiveCeras;
 
         string _clientName;
 
@@ -28,11 +28,12 @@ namespace NetworkExample
             // We want to keep "learned" types
             // That means when the other side sends us a type (using the full name) we never want to transmit that again,
             // the type should (from then on) be known as a some ID.
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             config.Advanced.PersistTypeCache = true;
             
-            _sendCeras = new CerasSerializer(config);
-            _receiveCeras = new CerasSerializer(config);
+            // We use the same config instance for both so they share the same type cache
+            _sendCeras = new CerasFastSerializer(config);
+            _receiveCeras = new CerasFastSerializer(config);
 
             StartReceivingMessages();
         }

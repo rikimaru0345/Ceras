@@ -23,14 +23,11 @@ namespace Ceras.Test
             public int X;
         }
 
-        CerasSerializer CreateSerializer()
+        CerasRobustSerializer CreateSerializer() => new CerasRobustSerializer(config =>
         {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
+            config.UseGeneratedFormatters();
             config.AllowReflectionFallback = true;
-            return new CerasSerializer(config);
-        }
+        });
 
         [Fact]
         public void SerializingFunc_FieldIsSkipped()
@@ -43,9 +40,9 @@ namespace Ceras.Test
             };
 
             // This should NOT throw anymore, but skip the field during schema creation
-            var data = CerasRobust.Save(original, 1, ceras);
-            
-            var clone = CerasRobust.Load<Container>(data, 1, ceras);
+            var data = ceras.Save(original, 1);
+
+            var clone = ceras.Load<Container>(data, 1);
             Assert.Null(clone.Any);
         }
     }

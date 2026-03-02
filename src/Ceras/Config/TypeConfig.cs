@@ -387,6 +387,15 @@
             return this;
         }
 
+        /// <summary>
+        /// Set how readonly fields are handled for this type
+        /// </summary>
+        public TypeConfig<T> SetReadonlyHandling(ReadonlyFieldHandling handling)
+        {
+            // todo: implement this properly in MemberConfig logic
+            return this;
+        }
+
         #endregion
 
         #region Member Config
@@ -638,6 +647,12 @@
         public TypeConfig<TDeclaring> Include()
         {
             SetIncludeWithReason(SerializationOverride.ForceInclude, "User called Include()");
+            return TypeConfig;
+        }
+
+        public TypeConfig<TDeclaring> Include(ReadonlyFieldHandling readonlyFieldHandling)
+        {
+            SetIncludeWithReason(SerializationOverride.ForceInclude, "User called Include(ReadonlyFieldHandling)");
             return TypeConfig;
         }
 

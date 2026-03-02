@@ -52,10 +52,12 @@ namespace Ceras
 	public sealed class MemberConfigAttribute : Attribute
 	{
 		public TargetMember TargetMembers { get; set; }
+		public ReadonlyFieldHandling ReadonlyFieldHandling { get; set; }
 
 		public MemberConfigAttribute(TargetMember targetMembers = TargetMember.AllFields)
 		{
 			TargetMembers = targetMembers;
+			ReadonlyFieldHandling = ReadonlyFieldHandling.ExcludeFromSerialization;
 		}
 	}
 
@@ -75,6 +77,12 @@ namespace Ceras
 
 		/// <summary>All fields, both public and private. This is the default.</summary>
 		AllFields = PublicFields | PrivateFields,
+
+		/// <summary>Alias for AllFields</summary>
+		All = AllFields,
+
+		/// <summary>Compatibility alias for PublicFields</summary>
+		AllPublic = PublicFields,
 	}
 
     /// <summary>
@@ -106,7 +114,7 @@ namespace Ceras
 
 
     /// <summary>
-    /// Put this on any constructor or static method as a hint of what constructor/factory to use by default. (Can be overriden through <see cref="SerializerConfig.ConfigType{T}"/>)
+    /// Put this on any constructor or static method as a hint of what constructor/factory to use by default. (Can be overriden through <see cref="CerasConfig.ConfigType{T}"/>)
     /// </summary>
     [AttributeUsage(AttributeTargets.Constructor | AttributeTargets.Method)]
     public class CerasConstructorAttribute : Attribute

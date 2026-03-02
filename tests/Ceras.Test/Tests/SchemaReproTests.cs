@@ -28,31 +28,26 @@ namespace Ceras.Test
         [Fact]
         public void DumpSchema_ShowsID0_ForUnresolvedFieldTypes()
         {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            
-            
-            var registry = ((CerasRobustConfig)config).SchemaRegistry;
-
-            // 1. Manually register a type with a field pointing to a non-existent type
-            var info = new SchemaTypeInfo(
-                stableName: "Ceras.Test.MockType",
-                previousTypeNames: Array.Empty<string>(),
-                kind: SchemaTypeKind.Class,
-                fields: new[] {
-                    new SchemaFieldInfo("UnresolvedField", Array.Empty<string>(), "Some.Missing.Type", true)
-                },
-                fixedByteSize: 0
-            );
-
-            registry.Register(typeof(MockType), info);
+            var robust = new CerasRobustSerializer(config =>
+            {
+                // 1. Manually register a type with a field pointing to a non-existent type
+                var info = new SchemaTypeInfo(
+                    stableName: "Ceras.Test.MockType",
+                    previousTypeNames: Array.Empty<string>(),
+                    kind: SchemaTypeKind.Class,
+                    fields: new[] {
+                        new SchemaFieldInfo("UnresolvedField", Array.Empty<string>(), "Some.Missing.Type", true)
+                    },
+                    fixedByteSize: 0
+                );
+                config.SchemaRegistry.Register(typeof(MockType), info);
+            });
 
             // 2. Serialize something (this writes the schema section)
-            var ceras = new CerasSerializer(config);
-            var data = CerasRobust.Save(new MockType(), 1, ceras);
+            var data = robust.Save(new MockType(), 1);
 
             // 3. Dump the schema from the bytes
-            var dump = CerasRobust.DumpSchema(data);
+            var dump = CerasRobustSerializer.DumpSchema(data);
 
             // 4. Check if it contains [ID:0]
             // The expected output format from DumpEntry (via DumpSchema) is:
@@ -64,34 +59,26 @@ namespace Ceras.Test
         [Fact]
         public void DumpSchema_ShowsID0_ForUnresolvedGenericArguments()
         {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            
-            
-            var registry = ((CerasRobustConfig)config).SchemaRegistry;
+            var robust = new CerasRobustSerializer(config =>
+            {
+                // Register a generic instantiation with an unresolved argument
+                var info = new SchemaTypeInfo(
+                    stableName: "System.Collections.Generic.List`1[Some.Missing.Type]",
+                    previousTypeNames: Array.Empty<string>(),
+                    kind: SchemaTypeKind.GenericInstantiation,
+                    fields: Array.Empty<SchemaFieldInfo>(),
+                    fixedByteSize: 0,
+                    underlyingTypeName: "System.Collections.Generic.List`1",
+                    argTypeNames: new[] { "Some.Missing.Type" }
+                );
+                config.SchemaRegistry.Register(typeof(List<object>), info);
+            });
 
-            // Register a generic instantiation with an unresolved argument
-            var info = new SchemaTypeInfo(
-                stableName: "System.Collections.Generic.List`1[Some.Missing.Type]",
-                previousTypeNames: Array.Empty<string>(),
-                kind: SchemaTypeKind.GenericInstantiation,
-                fields: Array.Empty<SchemaFieldInfo>(),
-                fixedByteSize: 0,
-                underlyingTypeName: "System.Collections.Generic.List`1",
-                argTypeNames: new[] { "Some.Missing.Type" }
-            );
+            var data = robust.Save(new List<object>(), 1);
 
-            registry.Register(typeof(List<object>), info);
+            var dump = CerasRobustSerializer.DumpSchema(data);
 
-            var ceras = new CerasSerializer(config);
-            var data = CerasRobust.Save(new List<object>(), 1, ceras);
-
-            var dump = CerasRobust.DumpSchema(data);
-
-            // Generic arguments are dumped too. 
-            // We need to see how they are dumped.
-            // In CerasRobust.cs: ArgTypeNames = fs.ArgTypeIds?.Select(Resolve).ToArray()
-            
+            // Generic arguments are dumped too.
             Assert.Contains("ID:0", dump);
         }
     }

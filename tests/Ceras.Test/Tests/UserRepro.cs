@@ -13,17 +13,14 @@ namespace Ceras.Test
         [Fact]
         public void Repro_PreserveNullInList()
         {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            
-            // Manually register types
-            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ReproGame), CreateSchema(typeof(ReproGame)));
-            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ILogicalRepro), CreateSchema(typeof(ILogicalRepro)));
-            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ConcreteRepro), CreateSchema(typeof(ConcreteRepro)));
-            
-            ((CerasRobustConfig)config).SchemaRegistry.Seal();
-
-            var ceras = new CerasSerializer(config);
+            var robust = new CerasRobustSerializer(config =>
+            {
+                // Manually register types
+                config.SchemaRegistry.Register(typeof(ReproGame), CreateSchema(typeof(ReproGame)));
+                config.SchemaRegistry.Register(typeof(ILogicalRepro), CreateSchema(typeof(ILogicalRepro)));
+                config.SchemaRegistry.Register(typeof(ConcreteRepro), CreateSchema(typeof(ConcreteRepro)));
+                config.SchemaRegistry.Seal();
+            });
 
             var game = new ReproGame();
             game.Entities.Add(new ConcreteRepro { Value = 1 });
@@ -31,10 +28,10 @@ namespace Ceras.Test
             game.Entities.Add(new ConcreteRepro { Value = 2 });
 
             // 1. Save
-            var data = CerasRobust.Save(game, 1, ceras);
+            var data = robust.Save(game, 1);
 
             // 2. Load
-            var loadedGame = CerasRobust.Load<ReproGame>(data, 1, ceras);
+            var loadedGame = robust.Load<ReproGame>(data, 1);
 
             // 3. Verify
             Assert.NotNull(loadedGame);

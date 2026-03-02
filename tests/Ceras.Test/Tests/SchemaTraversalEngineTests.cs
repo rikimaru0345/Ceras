@@ -13,35 +13,23 @@ namespace Ceras.Test
 		public void SchemaTraversalEngine_UsesParameterlessConstructor()
 		{
 			// 1. Setup config and serializer
-			var config = new CerasRobustConfig();
-			CerasRobust.Configure(config);
-			config.AllowReflectionFallback = true;
-			config.ConfigType<CtorTestModel>().SetTargetMembers(TargetMember.AllFields);
-			var ceras = new CerasSerializer(config);
+			var robust = new CerasRobustSerializer(config =>
+			{
+				config.AllowReflectionFallback = true;
+				config.ConfigType<CtorTestModel>().SetTargetMembers(TargetMember.AllFields);
+			});
 
 			// 2. Create data with some field
 			var original = new CtorTestModel { Value = 42 };
-			var data = CerasRobust.Save(original, 1, ceras);
+			var data = robust.Save(original, 1);
 
 			// 3. To trigger SchemaTraversalEngine, we need a schema mismatch.
-			// We can do this by using a DIFFERENT config that has an EXTRA field for the same type.
-			var config2 = new CerasRobustConfig();
-			CerasRobust.Configure(config2);
-			config2.ConfigType<CtorTestModel>().SetTargetMembers(TargetMember.AllFields);
-			// We don't actually need to add a field to the C# class, 
-			// just ensure the fingerprint is different or the schema is different.
-			// Actually, CerasRobust.Load will check the fingerprint.
-			// If we change the "StableName" or add a field in the config, it will trigger it.
-			
-			// Let's force a schema mismatch by changing a property in the registry manually if possible, 
-			// or just by using a model that has an extra field in the "new" version.
-			
-			// A simpler way: CerasRobust.Load automatically uses SchemaTraversalEngine IF the fingerprints don't match.
+			// A simpler way: Load automatically uses SchemaTraversalEngine IF the fingerprints don't match.
 			// We can fake a fingerprint mismatch by patching the data.
-			data[CerasRobust.OffsetFingerprint] ^= 0xFF; // Flip a byte in the fingerprint
+			data[CerasRobustSerializer.OffsetFingerprint] ^= 0xFF; // Flip a byte in the fingerprint
 
 			CtorTestModel.CtorCalled = false;
-			var clone = CerasRobust.Load<CtorTestModel>(data, 1, ceras);
+			var clone = robust.Load<CtorTestModel>(data, 1);
 
 			Assert.Equal(42, clone.Value);
 			Assert.True(CtorTestModel.CtorCalled, "Constructor should have been called by SchemaTraversalEngine");

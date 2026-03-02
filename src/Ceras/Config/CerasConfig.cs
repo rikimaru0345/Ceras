@@ -2,6 +2,7 @@ namespace Ceras
 {
 	using Ceras.Formatters;
 	using Ceras.Helpers;
+	using Ceras.Resolvers;
 	using System;
 	using System.Collections.Generic;
 	using IFormatter = Formatters.IFormatter;
@@ -28,19 +29,38 @@ namespace Ceras
 	}
 
 	/// <summary>
+	/// Configuration for how 'readonly' fields are handled.
+	/// </summary>
+	public enum ReadonlyFieldHandling {
+		/// <summary>Readonly fields are completely ignored. Default for <see cref="CerasRobustSerializer"/>.</summary>
+		ExcludeFromSerialization,
+		/// <summary>Readonly fields are included, and Ceras will overwrite them using Unsafe code. Default for <see cref="CerasFastSerializer"/>.</summary>
+		ForcedOverwrite,
+		/// <summary>Readonly fields are included, but instead of overwriting the field itself, Ceras will only overwrite the members of the object already in the field. Does not work for value-types or null fields.</summary>
+		Members,
+	}
+
+	/// <summary>
 	/// Base configuration shared by <see cref="CerasRawConfig"/> and <see cref="CerasRobustConfig"/>.
 	/// Use one of those concrete subclasses — do not instantiate this directly.
 	/// </summary>
 	public abstract class CerasConfig
 	{
+		public CerasConfig() {
+			_advanced = new AdvancedConfig(this);
+		}
+
 		bool _isSealed;
 		internal bool IsSealed => _isSealed;
-		internal virtual void Seal() => _isSealed = true;
+		internal virtual void Seal() {
+			_isSealed = true;
+			_advanced.Seal();
+		}
 
 		CerasSerializer _claimedBy;
 		internal bool Claim(CerasSerializer ceras)
 		{
-			if (_claimedBy != null) return false;
+			if (_claimedBy != null && !ReferenceEquals(_claimedBy, ceras)) return false;
 			_claimedBy = ceras;
 			return true;
 		}
@@ -186,7 +206,11 @@ namespace Ceras
 		/// already has a value is set to null by incoming data). Use this to return objects to a pool.
 		/// <para>Default: null</para>
 		/// </summary>
-		public Action<object> DiscardObjectMethod { get; set; }
+		public Action<object> DiscardObjectMethod {
+			get => _discardObjectMethod;
+			set { if (_isSealed) throw new InvalidOperationException("Sealed"); _discardObjectMethod = value; }
+		}
+		Action<object> _discardObjectMethod;
 
 		/// <summary>
 		/// When false, Ceras throws if it would fall back to the reflection-based formatter.
@@ -201,6 +225,46 @@ namespace Ceras
 		/// <para>Default: true</para>
 		/// </summary>
 		public bool WarnOnStructWithAutoProperties { get; set; } = true;
+
+		protected readonly List<Type> _knownTypes = new List<Type>();
+		public List<Type> KnownTypes => _knownTypes;
+
+		protected readonly AdvancedConfig _advanced;
+		public AdvancedConfig Advanced => _advanced;
+
+		public IExternalObjectResolver ExternalObjectResolver { get; set; }
+		public Action<object> OnExternalObject { get; set; }
+
+		public class AdvancedConfig {
+			CerasConfig _config;
+			internal AdvancedConfig(CerasConfig config) { _config = config; }
+
+			bool _isSealed;
+			internal void Seal() => _isSealed = true;
+
+			public bool PersistTypeCache {
+				get => _persistTypeCache;
+				set { if (_isSealed) throw new InvalidOperationException("Sealed"); _persistTypeCache = value; }
+			}
+			bool _persistTypeCache;
+
+			public ReadonlyFieldHandling ReadonlyFieldHandling {
+				get => _readonlyFieldHandling;
+				set { if (_isSealed) throw new InvalidOperationException("Sealed"); _readonlyFieldHandling = value; }
+			}
+			ReadonlyFieldHandling _readonlyFieldHandling = ReadonlyFieldHandling.ExcludeFromSerialization;
+
+			public bool SealTypesWhenUsingKnownTypes {
+				get => _sealTypesWhenUsingKnownTypes;
+				set { if (_isSealed) throw new InvalidOperationException("Sealed"); _sealTypesWhenUsingKnownTypes = value; }
+			}
+			bool _sealTypesWhenUsingKnownTypes = true;
+
+			public Action<object> DiscardObjectMethod {
+				get => _config.DiscardObjectMethod;
+				set => _config.DiscardObjectMethod = value;
+			}
+		}
 
 		#endregion
 	}

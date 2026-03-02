@@ -19,27 +19,26 @@ namespace Ceras.Test
         [Fact]
         public void SharedStringTable_InternsAcrossSections()
         {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-			config.AllowReflectionFallback = true;
-			// Must disable compression for this obviously
-			config.StringTableCompression = StringTableCompression.Disabled;
-			config.ConfigType<InterningTestPotion>().TargetMembers = TargetMember.AllFields;
+            var robust = new CerasRobustSerializer(config =>
+            {
+                config.AllowReflectionFallback = true;
+                // Must disable compression for this obviously
+                config.StringTableCompression = StringTableCompression.Disabled;
+                config.ConfigType<InterningTestPotion>().TargetMembers = TargetMember.AllFields;
 
-			// Force schema generation and registration
-			var info = new SchemaTypeInfo(
-                stableName: "SharedString",
-                previousTypeNames: Array.Empty<string>(),
-                kind: SchemaTypeKind.Class,
-                fields: new[] { new SchemaFieldInfo("Label", Array.Empty<string>(), "System.String", true) },
-                fixedByteSize: 0);
-            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(InterningTestPotion), info);
-
-            var ceras = new CerasSerializer(config);
+                // Force schema generation and registration
+                var info = new SchemaTypeInfo(
+                    stableName: "SharedString",
+                    previousTypeNames: Array.Empty<string>(),
+                    kind: SchemaTypeKind.Class,
+                    fields: new[] { new SchemaFieldInfo("Label", Array.Empty<string>(), "System.String", true) },
+                    fixedByteSize: 0);
+                config.SchemaRegistry.Register(typeof(InterningTestPotion), info);
+            });
 
 			var p = new InterningTestPotion { Label = "SharedString" };
 
-			byte[] data = CerasRobust.Save(p, 1, ceras);
+			byte[] data = robust.Save(p, 1);
 
 			// "SharedString" should appear exactly ONCE in the entire binary
 			// because it's shared between the Schema (StableName) and the Data (Label field).

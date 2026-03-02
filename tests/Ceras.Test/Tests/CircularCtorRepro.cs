@@ -35,23 +35,21 @@ namespace Ceras.Test
         {
             CerasSerializer.ClearFormatterConstructedTypes();
 
-            var config = new CerasRobustConfig();
-            config.DefaultTargets = TargetMember.AllFields;
-            CerasRobust.Configure(config);
-            
-            // Manual registration for robust mode in tests
-            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(GameRoot), CreateSchema(typeof(GameRoot)));
-            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ParentEntity), CreateSchema(typeof(ParentEntity)));
-            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ChildEntity), CreateSchema(typeof(ChildEntity)));
-            
-            var ceras = new CerasSerializer(config);
+            var robust = new CerasRobustSerializer(config =>
+            {
+                config.DefaultTargets = TargetMember.AllFields;
+                // Manual registration for robust mode in tests
+                config.SchemaRegistry.Register(typeof(GameRoot), CreateSchema(typeof(GameRoot)));
+                config.SchemaRegistry.Register(typeof(ParentEntity), CreateSchema(typeof(ParentEntity)));
+                config.SchemaRegistry.Register(typeof(ChildEntity), CreateSchema(typeof(ChildEntity)));
+            });
 
             var game = new GameRoot();
             var parent = new ParentEntity();
             var child = new ChildEntity(parent);
-            
+
             parent.Children.Add(child);
-            
+
             // CRITICAL: We add the child to 'AllEntities' FIRST.
             // When deserializing, 'AllEntities[0]' will start deserializing the child.
             // The child will then trigger deserialization of 'Parent'.
@@ -61,10 +59,10 @@ namespace Ceras.Test
             game.Parents.Add(parent);
 
             // 1. Save
-            var data = CerasRobust.Save(game, 1, ceras);
+            var data = robust.Save(game, 1);
 
             // 2. Load
-            var loadedGame = CerasRobust.Load<GameRoot>(data, 1, ceras);
+            var loadedGame = robust.Load<GameRoot>(data, 1);
 
             // 3. Verify
             Assert.NotNull(loadedGame);
@@ -90,33 +88,31 @@ namespace Ceras.Test
         [Fact]
         public void Repro_CircularReference_With_CerasConstructor_SourceGenerator()
         {
-            var config = new CerasRobustConfig();
-            config.DefaultTargets = TargetMember.AllFields;
-            config.AllowReflectionFallback = false;
-            RobustFormatters.UseRobustFormatters(config);
-            CerasRobust.Configure(config);
-            
-            // Manual registration for robust mode in tests
-            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(GameRoot), CreateSchema(typeof(GameRoot)));
-            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ParentEntity), CreateSchema(typeof(ParentEntity)));
-            ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(ChildEntity), CreateSchema(typeof(ChildEntity)));
-            
-            var ceras = new CerasSerializer(config);
+            var robust = new CerasRobustSerializer(config =>
+            {
+                config.DefaultTargets = TargetMember.AllFields;
+                config.AllowReflectionFallback = false;
+                config.UseGeneratedFormatters();
+                // Manual registration for robust mode in tests
+                config.SchemaRegistry.Register(typeof(GameRoot), CreateSchema(typeof(GameRoot)));
+                config.SchemaRegistry.Register(typeof(ParentEntity), CreateSchema(typeof(ParentEntity)));
+                config.SchemaRegistry.Register(typeof(ChildEntity), CreateSchema(typeof(ChildEntity)));
+            });
 
             var game = new GameRoot();
             var parent = new ParentEntity();
             var child = new ChildEntity(parent);
-            
+
             parent.Children.Add(child);
-            
+
             game.AllEntities.Add(child);
             game.Parents.Add(parent);
 
             // 1. Save
-            var data = CerasRobust.Save(game, 1, ceras);
+            var data = robust.Save(game, 1);
 
             // 2. Load
-            var loadedGame = CerasRobust.Load<GameRoot>(data, 1, ceras);
+            var loadedGame = robust.Load<GameRoot>(data, 1);
 
             // 3. Verify
             Assert.NotNull(loadedGame);

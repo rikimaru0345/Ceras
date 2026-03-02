@@ -1,4 +1,4 @@
-﻿namespace NetworkExample
+namespace NetworkExample
 {
     using Ceras;
     using Ceras.Helpers; // This is where the ceras.WriteToStream extensions are in
@@ -11,8 +11,8 @@
     {
         TcpClient _client;
         NetworkStream _netStream;
-        CerasSerializer _sendCeras;
-        CerasSerializer _receiveCeras;
+        CerasFastSerializer _sendCeras;
+        CerasFastSerializer _receiveCeras;
 
         public void Start()
         {
@@ -26,11 +26,12 @@
             // Now we need our serializer
             // !! Important:
             // !! The settings of the serializers for client and server must be the same!
-            var config = new SerializerConfig();
+            var config = new CerasRawConfig();
             config.Advanced.PersistTypeCache = true;
             
-            _sendCeras = new CerasSerializer(config);
-            _receiveCeras = new CerasSerializer(config);
+            // We use the same config instance for both so they share the same type cache
+            _sendCeras = new CerasFastSerializer(config);
+            _receiveCeras = new CerasFastSerializer(config);
 
             // Start a thread that receives and reacts to messages from the server
             StartReceiving();

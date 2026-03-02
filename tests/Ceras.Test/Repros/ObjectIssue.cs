@@ -26,13 +26,9 @@ public class ObjectIssueTest : TestBase {
 
 		g.someDict.Add("key", new List<ReproTest.Connection>() { new ReproTest.Connection() { Source = text } });
 
-		var config = new CerasRobustConfig();
-		
-		CerasRobust.Configure(config);
-		Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-		var ceras = new CerasSerializer(config);
-		var data = CerasRobust.Save(g, 1, ceras);
-		var clone = CerasRobust.Load<ReproTest.Game>(data, 1, ceras);
+		var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+		var data = robust.Save(g, 1);
+		var clone = robust.Load<ReproTest.Game>(data, 1);
 
 		Assert.Equal(text, g.Str); // This works, even though "_str" is private
 		Assert.Equal(text, clone.Obj); // fails when obj is private and "all fields" is set

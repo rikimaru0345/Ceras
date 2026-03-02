@@ -25,19 +25,18 @@ namespace Ceras.Test
         [Fact]
         public void Robust_SizeLimits_PreventsOOM()
         {
-            var config = new CerasRobustConfig();
-            Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-            CerasRobust.Configure(config);
-            config.SizeLimits.MaxCollectionSize = 100; // Small limit
-            var ceras = new CerasSerializer(config);
+            var robust = new CerasRobustSerializer(config =>
+            {
+                config.UseGeneratedFormatters();
+                config.SizeLimits.MaxCollectionSize = 100; // Small limit
+            });
 
             // Verify that a legitimate large save is blocked if it exceeds limits.
             var oversized = new LargeCollectionModel { Items = Enumerable.Range(0, 200).ToList() };
-            var oversizedBlob = CerasRobust.Save(oversized, 1, ceras);
+            var oversizedBlob = robust.Save(oversized, 1);
 
-			// CerasRobust wraps InvalidOperationException in a CerasException
 			var ex = Assert.Throws<Ceras.Exceptions.CerasException>(() =>
-				CerasRobust.Load<LargeCollectionModel>(oversizedBlob, 1, ceras));
+				robust.Load<LargeCollectionModel>(oversizedBlob, 1));
 
 			Assert.Contains("Max size exceeded", ex.ToString());
         }
@@ -56,18 +55,18 @@ namespace Ceras.Test
         [Fact]
         public void Raw_vs_Robust_StringStorage_Comparison()
         {
-            // 1. RAW Path (standard config)
-            var configRaw = new CerasRobustConfig();
-            Ceras.Generated.RobustFormatters.UseRobustFormatters(configRaw);
-            var cerasRaw = new CerasSerializer(configRaw);
+            // 1. RAW Path: use a plain CerasSerializer (no robust string table)
+            var rawConfig = new CerasRawConfig();
+            rawConfig.UseGeneratedFormatters();
+            var cerasRaw = new CerasSerializer(rawConfig);
 
-            // 2. ROBUST Path (configured for robust format)
-            var configRobust = new CerasRobustConfig();
-            CerasRobust.Configure(configRobust);
-			Ceras.Generated.RobustFormatters.UseRobustFormatters(configRobust);
-			// cant test anything string related if compressed
-			configRobust.StringTableCompression = StringTableCompression.Disabled;
-			var cerasRobust = new CerasSerializer(configRobust);
+            // 2. ROBUST Path
+            var robust = new CerasRobustSerializer(config =>
+            {
+                config.UseGeneratedFormatters();
+                // cant test anything string related if compressed
+                config.StringTableCompression = StringTableCompression.Disabled;
+            });
 
             // Create two distinct string instances with the same content
             var content = "ThisIsAUniqueString_12345";
@@ -78,21 +77,21 @@ namespace Ceras.Test
             var model = new StringModel { A = s1, B = s2 };
 
             // 1. RAW Path execution
-            var rawBlob = CerasRaw.Serialize(model, cerasRaw);
+            var rawBlob = cerasRaw.Serialize(model);
             byte[] stringBytes = System.Text.Encoding.UTF8.GetBytes(content);
             int rawOccurrences = CountOccurrences(rawBlob, stringBytes);
             // In Raw mode, strings are inline (often twice if not interned by object cache)
             Assert.True(rawOccurrences >= 1);
 
-			// 2. ROBUST Path execution
-			var robustBlob = CerasRobust.Save(model, 1, cerasRobust);
+            // 2. ROBUST Path execution
+            var robustBlob = robust.Save(model, 1);
             int robustOccurrences = CountOccurrences(robustBlob, stringBytes);
 
             // Robust MUST have it exactly once (in the table at the end)
             Assert.Equal(1, robustOccurrences);
 
             // 3. Position check: String data should be at the very end of Robust blob
-            long stringTableOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(robustBlob.AsSpan(CerasRobust.OffsetStringTable));
+            long stringTableOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(robustBlob.AsSpan(CerasRobustSerializer.OffsetStringTable));
             int firstMatchIdx = IndexOf(robustBlob, stringBytes);
             Assert.True(firstMatchIdx >= stringTableOff, $"String data should be in the table at the end. Match at {firstMatchIdx}, Table starts at {stringTableOff}");
         }
@@ -100,16 +99,13 @@ namespace Ceras.Test
         [Fact]
         public void Robust_Interning_PreservesReferences()
         {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-            var ceras = new CerasSerializer(config);
+            var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
 
             var content = "InternMe";
             var model = new StringModel { A = new string(content), B = new string(content) };
 
-			var blob = CerasRobust.Save(model, 1, ceras);
-            var cloned = CerasRobust.Load<StringModel>(blob, 1, ceras);
+            var blob = robust.Save(model, 1);
+            var cloned = robust.Load<StringModel>(blob, 1);
 
             // After loading from robust format, both strings MUST be the same instance
             Assert.True(ReferenceEquals(cloned.A, cloned.B), "Robust path should automatically intern all strings");

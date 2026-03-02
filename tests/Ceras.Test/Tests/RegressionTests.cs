@@ -18,9 +18,9 @@ namespace Ceras.Test
             // so that if the same collection instance is seen twice, it is correctly shared.
             // Before the fix, SG used CollectionFormatter directly, which bypasses reference tracking.
 
-            var config = new CerasRobustConfig();
-            RobustFormatters.UseRobustFormatters(config);
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasFastSerializer(config => {
+                RobustFormatters.UseRobustFormatters(config);
+            });
 
             var list = new List<int> { 1, 2, 3 };
             var original = new CollectionSharingModel
@@ -42,25 +42,23 @@ namespace Ceras.Test
             // This test verifies that CerasRobust correctly handles types 
             // when encountered in a polymorphic context (e.g. through an interface).
 
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            RobustFormatters.UseRobustFormatters(config);
-            
-            // Manual registration for types used in Robust mode
-            var registry = ((CerasRobustConfig)config).SchemaRegistry;
-            registry.Register(typeof(RobustRoot), null);
-            registry.Register(typeof(RobustChild), null);
-            registry.Register(typeof(IRobustInterface), new SchemaTypeInfo("IRobustInterface", Array.Empty<string>(), SchemaTypeKind.Class, Array.Empty<SchemaFieldInfo>(), 0));
-
-            var ceras = new CerasSerializer(config);
+            var ceras = new CerasRobustSerializer(config => {
+                RobustFormatters.UseRobustFormatters(config);
+                
+                // Manual registration for types used in Robust mode
+                var registry = config.SchemaRegistry;
+                registry.Register(typeof(RobustRoot), null);
+                registry.Register(typeof(RobustChild), null);
+                registry.Register(typeof(IRobustInterface), new SchemaTypeInfo("IRobustInterface", Array.Empty<string>(), SchemaTypeKind.Class, Array.Empty<SchemaFieldInfo>(), 0));
+            });
 
             var original = new RobustRoot
             {
                 Child = new RobustChild { Value = 42 }
             };
 
-            var bytes = CerasRobust.Save(original, 1, ceras);
-            var clone = CerasRobust.Load<RobustRoot>(bytes, 1, ceras);
+            var bytes = ceras.Save(original, 1);
+            var clone = ceras.Load<RobustRoot>(bytes, 1);
 
             Assert.IsType<RobustChild>(clone.Child);
             Assert.Equal(((RobustChild)original.Child).Value, ((RobustChild)clone.Child).Value);
@@ -74,18 +72,16 @@ namespace Ceras.Test
             // 2. The same object is later encountered through a typed field.
             // If reference tracking is broken for collections in SG, the ID mapping gets desynced.
 
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            RobustFormatters.UseRobustFormatters(config);
+            var ceras = new CerasRobustSerializer(config => {
+                RobustFormatters.UseRobustFormatters(config);
 
-            var registry = ((CerasRobustConfig)config).SchemaRegistry;
-            registry.Register(typeof(DesyncModel), null);
-            registry.Register(typeof(DesyncChild), null);
-            registry.Register(typeof(List<DesyncChild>), null);
-            registry.Register(typeof(DesyncChild[]), null);
-            registry.Register(typeof(IDesyncInterface), new SchemaTypeInfo("IDesyncInterface", Array.Empty<string>(), SchemaTypeKind.Class, Array.Empty<SchemaFieldInfo>(), 0));
-
-            var ceras = new CerasSerializer(config);
+                var registry = config.SchemaRegistry;
+                registry.Register(typeof(DesyncModel), null);
+                registry.Register(typeof(DesyncChild), null);
+                registry.Register(typeof(List<DesyncChild>), null);
+                registry.Register(typeof(DesyncChild[]), null);
+                registry.Register(typeof(IDesyncInterface), new SchemaTypeInfo("IDesyncInterface", Array.Empty<string>(), SchemaTypeKind.Class, Array.Empty<SchemaFieldInfo>(), 0));
+            });
 
             var child = new DesyncChild { Name = "Child" };
             var list = new List<DesyncChild> { child };
@@ -96,8 +92,8 @@ namespace Ceras.Test
                 TypedList = list
             };
 
-            var bytes = CerasRobust.Save(original, 1, ceras);
-            var clone = CerasRobust.Load<DesyncModel>(bytes, 1, ceras);
+            var bytes = ceras.Save(original, 1);
+            var clone = ceras.Load<DesyncModel>(bytes, 1);
 
             Assert.Same(clone.PolymorphicList, clone.TypedList);
             Assert.Single((List<DesyncChild>)clone.PolymorphicList);

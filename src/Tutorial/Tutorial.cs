@@ -27,7 +27,7 @@ namespace Tutorial
             // aka. "I'm here for the cool features! I want to optimize for max-performance later"
             var person = new Person { Name = "riki", Health = 100 };
 
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             var data = ceras.Serialize(person);
             data.VisualizePrint("Simple Person");
@@ -78,13 +78,13 @@ namespace Tutorial
             //       which defaults to 'TargetMember.PublicFields'
             //
 
-            SerializerConfig config = new SerializerConfig();
+            var serializer = new CerasFastSerializer(config => {
+                config.DefaultTargets = TargetMember.PublicFields | TargetMember.PrivateFields;
 
-            config.DefaultTargets = TargetMember.PublicProperties | TargetMember.PrivateFields;
-
-            config.ConfigType<Person>()
-                  .ConfigMember(p => p.Name).Include()
-                  .ConfigMember(p => p.BestFriend).Include();
+                config.ConfigType<Person>()
+                      .ConfigMember(p => p.Name).Include()
+                      .ConfigMember(p => p.BestFriend).Include();
+            });
 
 
 
@@ -144,7 +144,7 @@ namespace Tutorial
              * Ceras has Attributes to include or skip fields. (todo: and later to set optional names/keys...)
              *
              */
-            CerasSerializer ceras = new CerasSerializer();
+            CerasFastSerializer ceras = new CerasFastSerializer();
 
             var obj = new SomeAttributeExample();
             var data = ceras.Serialize(obj);
@@ -185,48 +185,20 @@ namespace Tutorial
             //
             // Hint: This can also be used to quickly set or reset an object to some predefined values in other scenarios.
 
-            var serializer = new CerasSerializer();
-
-            Person recycledPerson = new Person { Health = 35, Name = "test" };
-            byte[] buffer = serializer.Serialize(recycledPerson); // Lets assume we already got a network buffer and now we just have to read it.
-
-            for (int i = 0; i < 100; i++)
-            {
-                // No person object will be allocated, the fields
-                // of 'recycledPerson' will just be overwritten
-                serializer.Deserialize<Person>(ref recycledPerson, buffer);
-            }
-
-
-
-            //
-            // Now we'll use some extremely simple object-pooling solution to reduce GC pressure.
-            // The 'MyVerySimplePool' is obviously just for illustration, in something like Unity3D you would
-            // of course make something much more elaborate...
-            //
-            // If the data in the buffer tells us "it's a 'null' object" then Ceras will of course set 'recycledPerson' to null.
-            // But now you might wonder what happens to the instance that was previously inside 'recycledPerson'.
-            // Normally the answer would be that the object would be simply lost (and eventually its space would be reclaimed by the .NET "garbage-collector").
-            //
-            // In some scenarios (games) we don't want this because garbage-collections often cause stutters.
-            // A common solution to this is object-pooling.
-            // Ceras supports that by allowing you to "catch" unused objects, so you can return them to your object-pool.
-
             MyVerySimplePool<Person> pool = new MyVerySimplePool<Person>();
 
-            SerializerConfig config = new SerializerConfig();
+            var serializer = new CerasFastSerializer();
 
-            config.ConfigType<Person>()
-                  .ConstructBy(() => new Person()) // select ctor
-                  .ConstructBy(pool, () => pool.GetFromPool()); // or create from a pool
+            serializer = new CerasFastSerializer(config => {
+                config.ConfigType<Person>()
+                      .ConstructBy(() => new Person()) // select ctor
+                      .ConstructBy(pool, () => pool.GetFromPool()); // or create from a pool
 
-            config.Advanced.DiscardObjectMethod = obj =>
-            {
-                pool.ReturnToPool((Person)obj);
-            };
-
-
-            serializer = new CerasSerializer(config);
+                config.Advanced.DiscardObjectMethod = obj =>
+                {
+                    pool.ReturnToPool((Person)obj);
+                };
+            });
 
             // todo: the example is not fully done yet
 
@@ -253,10 +225,9 @@ namespace Tutorial
              */
             var person = new Person { Name = "riki", Health = 100 };
 
-            SerializerConfig config = new SerializerConfig();
-            config.KnownTypes.Add(typeof(Person));
-
-            var serializer = new CerasSerializer(config);
+            var serializer = new CerasFastSerializer(config => {
+                config.KnownTypes.Add(typeof(Person));
+            });
 
             var data = serializer.Serialize(person);
 
@@ -308,15 +279,14 @@ namespace Tutorial
              *
              */
 
-            SerializerConfig config = new SerializerConfig();
-            config.OnResolveFormatter.Add((s, t) =>
-            {
-                if (t == typeof(Person))
-                    return new MyCustomPersonFormatter();
-                return null;
+            var serializer = new CerasFastSerializer(config => {
+                config.OnResolveFormatter.Add((s, t) =>
+                {
+                    if (t == typeof(Person))
+                        return new MyCustomPersonFormatter();
+                    return null;
+                });
             });
-
-            var serializer = new CerasSerializer(config);
 
             var p = new Person { Name = "riki", Health = 100 };
             p.BestFriend = p;
@@ -398,36 +368,22 @@ namespace Tutorial
             //
 
 
-            SerializerConfig config = new SerializerConfig();
-            // 1. Create a config with a (pretty simple) custom external-object-resolver.
-            var myGameObjectsResolver = new MyGameObjectsResolver();
-            config.ExternalObjectResolver = myGameObjectsResolver;
-            // 2. Using KnownTypes is not neccesary at all, it just makes the serialized data a bit smaller.
-            config.KnownTypes.Add(typeof(MyAbility));
-            config.KnownTypes.Add(typeof(MyMonster));
-            config.KnownTypes.Add(typeof(List<>));
+            var serializer = new CerasFastSerializer(config => {
+                // 1. Create a config with a (pretty simple) custom external-object-resolver.
+                var myGameObjectsResolver = new MyGameObjectsResolver();
+                config.ExternalObjectResolver = myGameObjectsResolver;
+                // 2. Using KnownTypes is not neccesary at all, it just makes the serialized data a bit smaller.
+                config.KnownTypes.Add(typeof(MyAbility));
+                config.KnownTypes.Add(typeof(MyMonster));
+                config.KnownTypes.Add(typeof(List<MyAbility>));
 
-
-            // Ceras will call "OnExternalObject" (if you provide a function) when it encounters one of your IExternalRootObjects.
-            // 
-            // So what would you use that for?
-            // Pretty often when serializing one object, you probably also want to know about all the other IExternalRootObjects that
-            // part of the "object graph" in some way (referenced by the original object) so you can save them as well.
-            // 
-            // Maybe it would be a good idea to also include the last time an object has changed.
-            // Like, you could have an OnPropertyChanged and whenever something changes you'd set something like a 'LastModified' date.
-            // Then later you have the list of all the IExternalRootObjects and you can check LastModified to see if you have
-            // to serialize and save it into a file again, or if the object is still up to date.
-            //
-            // In our example that means when serializing our Monster, the OnExternalObject function would
-            // get called for the two abilities; that way we can save them as well.
+                myGameObjectsResolver.Serializer = null; // wait, we need the serializer itself here
+            });
+            // We need to link the resolver back to the serializer...
+            ((MyGameObjectsResolver)serializer.Config.ExternalObjectResolver).Serializer = serializer;
 
             List<IExternalRootObject> externalObjects = new List<IExternalRootObject>();
-
-            config.OnExternalObject = obj => { externalObjects.Add(obj); };
-
-            var serializer = new CerasSerializer(config);
-            myGameObjectsResolver.Serializer = serializer;
+            serializer.Config.OnExternalObject = obj => { externalObjects.Add((IExternalRootObject)obj); };
 
             var monsterData = serializer.Serialize(monster);
             // we can write this monster to the "monsters" sql-table now
@@ -567,7 +523,7 @@ namespace Tutorial
     class MyGameObjectsResolver : IExternalObjectResolver
     {
         // todo: in the future ExternalObject resolvers will also support dependency-injection, so you won't have to set this yourself...
-        public CerasSerializer Serializer;
+        public CerasFastSerializer Serializer;
 
         public void Resolve<T>(int id, out T value)
         {

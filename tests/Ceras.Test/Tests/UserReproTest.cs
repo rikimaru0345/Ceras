@@ -22,16 +22,13 @@ namespace Ceras.Test {
 	public class UserReproTest : TestBase {
 		[Fact]
 		public void ExcludedClass_IsExcluded() {
-			var config = new CerasRobustConfig();
-			Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-			CerasRobust.Configure(config);
-			var ceras = new CerasSerializer(config);
+			var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
 
 			var original = new ClassWithBannedFieldRepro();
 			original.Banned.Value = 2345;
 
-			var data = CerasRobust.Save(original, 1, ceras);
-			var clone = CerasRobust.Load<ClassWithBannedFieldRepro>(data, 1, ceras);
+			var data = robust.Save(original, 1);
+			var clone = robust.Load<ClassWithBannedFieldRepro>(data, 1);
 
 			// Banned class should not be serialized
 			// We expect that after Load "Value" will be its default (42)
@@ -40,23 +37,17 @@ namespace Ceras.Test {
 
 		[Fact]
 		public void RuntimeDiscoveredType_InRobustMode_IsSerializedAsNull() {
-			var config1 = new CerasRobustConfig();
-			Ceras.Generated.RobustFormatters.UseRobustFormatters(config1);
-			CerasRobust.Configure(config1);
-			var ceras1 = new CerasSerializer(config1);
+			var robust1 = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
 
 			var root = new ContainerRepro { Entities = new List<IEntityRepro>() };
 			root.Entities.Add(new RealEntityRepro { Value = 123 });
 
 			// 1. Save
-			var data = CerasRobust.Save(root, 1, ceras1);
+			var data = robust1.Save(root, 1);
 
-			// 2. Load
-			var config2 = new CerasRobustConfig();
-			CerasRobust.Configure(config2);
-			Ceras.Generated.RobustFormatters.UseRobustFormatters(config2);
-			var ceras2 = new CerasSerializer(config2);
-			var loaded = CerasRobust.Load<ContainerRepro>(data, 1, ceras2);
+			// 2. Load with a fresh serializer (simulates game restart)
+			var robust2 = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+			var loaded = robust2.Load<ContainerRepro>(data, 1);
 
 			// This should now succeed thanks to FullNameMarker fallback!
 			Assert.NotNull(loaded.Entities[0]);
@@ -66,10 +57,7 @@ namespace Ceras.Test {
 
 		[Fact]
 		public void WillReuseExistingObject() {
-			var config = new CerasRobustConfig();
-			Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-			CerasRobust.Configure(config);
-			var ceras = new CerasSerializer(config);
+			var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
 
 			var original = new ReuseTestClass();
 			original.list1.Add(1000);
@@ -78,7 +66,7 @@ namespace Ceras.Test {
 
 			var listCountA = MyList<int>.created;
 
-			var data = CerasRobust.Save(original, 1, ceras);
+			var data = robust.Save(original, 1);
 
 			// Saving should not create anything
 			Assert.Equal(listCountA, MyList<int>.created);
@@ -86,7 +74,7 @@ namespace Ceras.Test {
 			var clone = new ReuseTestClass();
 			var listCountB = MyList<int>.created;
 
-			CerasRobust.Load(ref clone, data, 1, ceras);
+			robust.Load(ref clone, data, 1);
 
 			var listCountC = MyList<int>.created;
 

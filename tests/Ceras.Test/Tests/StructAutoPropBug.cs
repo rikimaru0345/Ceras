@@ -29,10 +29,7 @@ namespace Ceras.Test
         [Fact]
         public void StructWithAutoProps_RobustSerialization_FailsWithoutFix()
         {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            config.AllowReflectionFallback = true;
-            var ceras = new CerasSerializer(config);
+            var robust = new CerasRobustSerializer(config => config.AllowReflectionFallback = true);
 
             var original = new Container
             {
@@ -41,8 +38,8 @@ namespace Ceras.Test
 
             // This should trigger the warning if we don't fix it,
             // or fail to serialize the properties.
-            var data = CerasRobust.Save(original, 1, ceras);
-            var clone = CerasRobust.Load<Container>(data, 1, ceras);
+            var data = robust.Save(original, 1);
+            var clone = robust.Load<Container>(data, 1);
 
             Assert.Equal("Iron", clone.Cost.ItemName);
             Assert.Equal(10, clone.Cost.Count);

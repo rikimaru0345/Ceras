@@ -23,13 +23,7 @@ namespace Ceras.Test
 
     public class RobustFormatTests : TestBase
     {
-        CerasSerializer CreateSerializer()
-        {
-            var config = new CerasRobustConfig();
-            RobustFormatters.UseRobustFormatters(config);
-            CerasRobust.Configure(config);
-            return new CerasSerializer(config);
-        }
+        CerasRobustSerializer CreateSerializer() => new CerasRobustSerializer(config => config.UseGeneratedFormatters());
 
         [Fact]
         public void Robust_Enum_RoundTrip()
@@ -37,9 +31,9 @@ namespace Ceras.Test
             var ceras = CreateSerializer();
 
             var hero = new HeroWithEnum { State = StateEnum.On };
-            
-            byte[] data = CerasRobust.Save(hero, 1, ceras);
-            var clone = CerasRobust.Load<HeroWithEnum>(data, 1, ceras);
+
+            byte[] data = ceras.Save(hero, 1);
+            var clone = ceras.Load<HeroWithEnum>(data, 1);
 
             Assert.Equal(StateEnum.On, clone.State);
         }
@@ -51,8 +45,8 @@ namespace Ceras.Test
 
             var hero = new HeroWithList { Scores = new List<int> { 1, 2, 3 } };
 
-            byte[] data = CerasRobust.Save(hero, 1, ceras);
-            var clone = CerasRobust.Load<HeroWithList>(data, 1, ceras);
+            byte[] data = ceras.Save(hero, 1);
+            var clone = ceras.Load<HeroWithList>(data, 1);
 
             Assert.NotNull(clone.Scores);
             Assert.Equal(3, clone.Scores.Count);
@@ -63,20 +57,19 @@ namespace Ceras.Test
         public void Robust_Polymorphic_RoundTrip()
         {
             var ceras = CreateSerializer();
-            var registry = ((CerasRobustConfig)ceras.Config).SchemaRegistry;
 
             var hero = new HeroWithPolymorphic { Extra = new ExtraInfo { Note = "Special" } };
 
             // Manual registration
-            registry.Register(typeof(ExtraInfo), new SchemaTypeInfo(
+            ceras.Config.SchemaRegistry.Register(typeof(ExtraInfo), new SchemaTypeInfo(
                 "ExtraInfo", Array.Empty<string>(), SchemaTypeKind.Class,
                 new[] { new SchemaFieldInfo("Note", Array.Empty<string>(), "System.String", true) }, 0));
-            registry.Register(typeof(HeroWithPolymorphic), new SchemaTypeInfo(
+            ceras.Config.SchemaRegistry.Register(typeof(HeroWithPolymorphic), new SchemaTypeInfo(
                 "HeroWithPolymorphic", Array.Empty<string>(), SchemaTypeKind.Class,
                 new[] { new SchemaFieldInfo("Extra", Array.Empty<string>(), "System.Object", false) }, 0));
 
-            byte[] data = CerasRobust.Save(hero, 1, ceras);
-            var clone = CerasRobust.Load<HeroWithPolymorphic>(data, 1, ceras);
+            byte[] data = ceras.Save(hero, 1);
+            var clone = ceras.Load<HeroWithPolymorphic>(data, 1);
 
             Assert.IsType<ExtraInfo>(clone.Extra);
             Assert.Equal("Special", ((ExtraInfo)clone.Extra).Note);

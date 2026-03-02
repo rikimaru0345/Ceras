@@ -26,22 +26,19 @@ namespace Ceras.Test
         [Fact]
         public void SlowPath_Fires_Callbacks_Even_Without_Changes()
         {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            config.AllowReflectionFallback = true;
-            var ceras = new CerasSerializer(config);
+            var robust1 = new CerasRobustSerializer(config => config.AllowReflectionFallback = true);
 
             var original = new CallbackType { Value = 42 };
-            var data = CerasRobust.Save(original, 1, ceras);
+            var data = robust1.Save(original, 1);
 
-            // Trigger mismatch
-            var config2 = new CerasRobustConfig();
-            CerasRobust.Configure(config2);
-            config2.AllowReflectionFallback = true;
-            config2.ConfigType<Dummy2>().ConstructByUninitialized();
-            var ceras2 = new CerasSerializer(config2);
+            // Trigger mismatch by loading with a different config (extra type → different fingerprint)
+            var robust2 = new CerasRobustSerializer(config =>
+            {
+                config.AllowReflectionFallback = true;
+                config.ConfigType<Dummy2>().ConstructByUninitialized();
+            });
 
-            var result = CerasRobust.Load<CallbackType>(data, 1, ceras2);
+            var result = robust2.Load<CallbackType>(data, 1);
             
             Assert.Equal(42, result.Value);
             Assert.True(result.CallbackCalled, "Callback should be called in slow path even if no changes to the type occurred");

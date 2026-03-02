@@ -1,7 +1,7 @@
 namespace Ceras
 {
 	/// <summary>
-	/// Configuration for <see cref="CerasRawSerializer"/>: the fast, transient serializer suitable for
+	/// Configuration for <see cref="CerasFastSerializer"/>: the fast, transient serializer suitable for
 	/// networking, undo stacks, and other short-lived data.
 	/// <para>
 	/// Wire format is NOT stable across builds (no schema header, no version tolerance).
@@ -10,6 +10,8 @@ namespace Ceras
 	/// </summary>
 	public class CerasRawConfig : CerasConfig
 	{
+		public CerasRawConfig() { }
+
 		/// <summary>
 		/// When true, Ceras uses an extremely fast "reinterpret" formatter for blittable types
 		/// (plain structs with no managed references). Uses native memory layout; does not respect

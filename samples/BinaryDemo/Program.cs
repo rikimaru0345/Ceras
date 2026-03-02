@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -12,7 +12,7 @@ namespace BinaryDemo
     {
         static void Main(string[] args)
         {
-            var ceras = new CerasSerializer();
+            var ceras = new CerasFastSerializer();
 
             //
             // Setup
@@ -37,10 +37,10 @@ namespace BinaryDemo
 
             //
             // Repeat with KnownTypes
-            var config = new SerializerConfig();
-            config.KnownTypes.Add(typeof(int));
-            config.KnownTypes.Add(typeof(Person));
-            ceras = new CerasSerializer(config);
+            ceras = new CerasFastSerializer(config => {
+                config.KnownTypes.Add(typeof(int));
+                config.KnownTypes.Add(typeof(Person));
+            });
             
             data = ceras.Serialize(a);
             VisualizePrint(data);

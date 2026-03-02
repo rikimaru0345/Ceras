@@ -98,51 +98,46 @@ namespace ReproGame
 
     public class GodotStyleRepro
     {
-        static CerasConfig MakeConfig()
+        static CerasRobustSerializer MakeSerializer() => new CerasRobustSerializer(config =>
         {
-            var config = new CerasRobustConfig();
             config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
-            Ceras.CerasRobust.Configure(config);
-            
-            return config;
-        }
+        });
 
         [Fact]
         public void TestGodotSerialization()
         {
-            var config = MakeConfig();
-            var ceras = new CerasSerializer(config);
-
+            var robust = MakeSerializer();
             var rail = new RailSegment { Curve = new Curve3D { Points = new[] { 1f, 2f, 3f } } };
 
-            // Standard Serialize/Deserialize
-            var data = ceras.Serialize(rail);
-            var clone = ceras.Deserialize<RailSegment>(data);
+            // Standard Serialize/Deserialize (raw path through robust serializer)
+            var data = robust.Serialize(rail);
+            var clone = robust.Deserialize<RailSegment>(data);
 
             Assert.NotNull(clone.Curve);
             Assert.Equal(3, clone.Curve.Points.Length);
 
             // Robust Save/Load (fast path — same fingerprint)
-            var robustData = Ceras.CerasRobust.Save(rail, 1, ceras);
-            var robustClone = Ceras.CerasRobust.Load<RailSegment>(robustData, 1, ceras);
+            var robustData = robust.Save(rail, 1);
+            var robustClone = robust.Load<RailSegment>(robustData, 1);
 
             Assert.NotNull(robustClone.Curve);
             Assert.Equal(3, robustClone.Curve.Points.Length);
 
             // Robust Load with a fresh serializer (same schema → fast path again).
             // This is the most realistic scenario: save in one session, load in the next.
-            var config3 = MakeConfig();
-            var ceras3 = new CerasSerializer(config3);
-            var robustCloneFresh = Ceras.CerasRobust.Load<RailSegment>(robustData, 1, ceras3);
+            var robust3 = MakeSerializer();
+            var robustCloneFresh = robust3.Load<RailSegment>(robustData, 1);
             Assert.NotNull(robustCloneFresh.Curve);
             Assert.Equal(3, robustCloneFresh.Curve.Points.Length);
 
             // Robust Slow Path (force fingerprint mismatch by adding a dummy type)
-            var config2 = MakeConfig();
-            config2.ConfigType<DummyType>();
-            var ceras2 = new CerasSerializer(config2);
+            var robust2 = new CerasRobustSerializer(config =>
+            {
+                config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
+                config.ConfigType<DummyType>();
+            });
 
-            var robustCloneSlow = Ceras.CerasRobust.Load<RailSegment>(robustData, 1, ceras2);
+            var robustCloneSlow = robust2.Load<RailSegment>(robustData, 1);
             Assert.NotNull(robustCloneSlow.Curve);
             Assert.Equal(3, robustCloneSlow.Curve.Points.Length);
         }
@@ -158,15 +153,12 @@ namespace ReproGame
         [Fact]
         public void CurveIsNotNullAfterLoad()
         {
-            var config = MakeConfig();
-            var ceras = new CerasSerializer(config);
-
+            var robust = MakeSerializer();
             var rail = new RailSegment { Curve = new Curve3D { Points = new[] { 10f, 20f } } };
-            var data = Ceras.CerasRobust.Save(rail, 1, ceras);
+            var data = robust.Save(rail, 1);
 
             // Fresh serializer — simulates game restart / new session load
-            var ceras2 = new CerasSerializer(MakeConfig());
-            var loaded = Ceras.CerasRobust.Load<RailSegment>(data, 1, ceras2);
+            var loaded = MakeSerializer().Load<RailSegment>(data, 1);
 
             // Without the [Include] fix this would be null → NullReferenceException in VisualRailSegment._Ready
             Assert.NotNull(loaded.Curve);

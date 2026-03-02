@@ -28,24 +28,33 @@ namespace Ceras.Test
 
         protected CerasConfig CreateConfig(Action<CerasConfig> f, bool robust = false)
         {
-            CerasConfig s = robust ? new CerasRobustConfig() : new CerasRobustConfig();
-            f(s);
-            return s;
+            if (robust)
+            {
+                var robustSerializer = new CerasRobustSerializer(config => f(config));
+                return robustSerializer._config;
+            }
+            else
+            {
+                var config = new CerasRawConfig();
+                f(config);
+                return config;
+            }
         }
 
         protected Func<CerasConfig> Config_WithReinterpret => () => CreateConfig(x =>
         {
             x.AllowReflectionFallback = true;
+            if (x is CerasRawConfig raw) raw.UseReinterpretFormatter = true;
             x.UseImmutableFormatters();
         });
         protected Func<CerasConfig> Config_NoReinterpret => () => CreateConfig(x =>
         {
             x.AllowReflectionFallback = true;
+            if (x is CerasRawConfig raw) raw.UseReinterpretFormatter = false;
             x.UseImmutableFormatters();
         });
         protected Func<CerasConfig> Config_WithVersioning => () => CreateConfig(x =>
         {
-            Ceras.CerasRobust.Configure((CerasRobustConfig)x);
             x.AllowReflectionFallback = true;
             x.UseImmutableFormatters();
         }, robust: true);
@@ -58,7 +67,7 @@ namespace Ceras.Test
             {
                 () => new CerasRawConfig { AllowReflectionFallback = true },
                 () => CreateConfig(x => { x.AllowReflectionFallback = true; x.UseImmutableFormatters(); }),
-                () => CreateConfig(x => { Ceras.CerasRobust.Configure((CerasRobustConfig)x); x.AllowReflectionFallback = true; x.UseImmutableFormatters(); }, robust: true),
+                () => CreateConfig(x => { x.AllowReflectionFallback = true; x.UseImmutableFormatters(); }, robust: true),
             };
         }
 
@@ -95,45 +104,38 @@ namespace Ceras.Test
 
         public T Clone<T>(T source, CerasConfig config = null)
         {
-            if (config != null)
-            {
-                // Try to find and call the source-generated registration helper
-                var generatedType = Type.GetType("Ceras.Generated.RobustFormatters, Ceras.Generated") ??
-                                    Type.GetType("Ceras.Generated.RobustFormatters");
+            if (config == null) config = new CerasRawConfig();
 
-                if (generatedType != null)
-                {
-                    var method = generatedType.GetMethod("UseRobustFormatters", BindingFlags.Static | BindingFlags.Public);
-                    if (method != null)
-                        method.Invoke(null, new object[] { config });
-                }
+            // Try to find and call the source-generated registration helper
+            var generatedType = Type.GetType("Ceras.Generated.RobustFormatters, Ceras.Generated") ??
+                                Type.GetType("Ceras.Generated.RobustFormatters");
+
+            if (generatedType != null)
+            {
+                var method = generatedType.GetMethod("UseRobustFormatters", BindingFlags.Static | BindingFlags.Public);
+                if (method != null)
+                    method.Invoke(null, new object[] { config });
             }
 
-            var ceras = new CerasSerializer(config);
-
-            // Robustters (RobustTypeFormatter and RobustStringFormatter) require 
-            // a RobustContext which is only set up by CerasRobust.Save and Load.
-            // If we are using the robust config, we must use those methods.
-            bool isRobust = config != null && config.GetExistingTypeConfig(typeof(Type), false)?.CustomFormatter is Ceras.Format.RobustTypeFormatter;
-
-            if (isRobust)
+            if (config is CerasRobustConfig robustConfig)
             {
-                var robustData = Ceras.CerasRobust.Save(source, 1, ceras);
-                var cloneResult = Ceras.CerasRobust.Load<T>(robustData, 1, ceras);
+                var robustSerializer = robustConfig.Serializer ?? new CerasRobustSerializer(robustConfig);
+                robustConfig.Serializer = robustSerializer;
+
+                var robustData = robustSerializer.Save(source, 1);
+                var cloneResult = robustSerializer.Load<T>(robustData, 1);
                 _callsToClone++;
                 return cloneResult;
             }
 
-            byte[] data = new byte[0x1000];
-            int len = ceras.Serialize(source, ref data);
+            var serializer = new CerasFastSerializer((CerasRawConfig)config);
 
-            T clone = default(T);
-            int read = 0;
-            ceras.Deserialize(ref clone, data, ref read, len);
+            var data = serializer.Serialize(source);
+            var cloneResult2 = serializer.Deserialize<T>(data);
 
             _callsToClone++;
 
-            return clone;
+            return cloneResult2;
         }
 
         int _callsToClone = 0;

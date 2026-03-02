@@ -79,13 +79,7 @@ namespace Ceras.Test.RobustGenerics
 
     public class RobustGenericTests
     {
-        CerasSerializer CreateSerializer()
-        {
-            var config = new CerasRobustConfig();
-            CerasRobust.Configure(config);
-            Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
-            return new CerasSerializer(config);
-        }
+        CerasRobustSerializer CreateSerializer() => new CerasRobustSerializer(config => config.UseGeneratedFormatters());
 
         [Fact]
         public void GenericList_Roundtrip()
@@ -100,10 +94,10 @@ namespace Ceras.Test.RobustGenerics
             };
 
             uint version = 1;
-            var bytes = CerasRobust.Save(model, version, CreateSerializer());
-            
+            var bytes = CreateSerializer().Save(model, version);
+
             // Use a FRESH serializer for loading to simulate restart
-            var loaded = CerasRobust.Load<GenericListModel>(bytes, version, CreateSerializer());
+            var loaded = CreateSerializer().Load<GenericListModel>(bytes, version);
 
             Assert.NotNull(loaded.Entities);
             Assert.Equal(2, loaded.Entities.Count);
@@ -124,20 +118,19 @@ namespace Ceras.Test.RobustGenerics
             uint version = 1;
             // First serializer with DummyForMismatch (Fingerprint F1)
             var s1 = CreateSerializer();
-            ((CerasRobustConfig)s1.Config).SchemaRegistry.Register(typeof(DummyForMismatch), null);
-            var bytes = CerasRobust.Save(model, version, s1);
+            s1.Config.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+            var bytes = s1.Save(model, version);
 
             // 1. Normal (Fresh)
-            var loaded = CerasRobust.Load<UnregisteredListModel>(bytes, version, CreateSerializer());
+            var loaded = CreateSerializer().Load<UnregisteredListModel>(bytes, version);
             Assert.Equal("Secret", loaded.Items[0].Data);
 
             // 2. Traversal
             var serializer = CreateSerializer();
-            // Re-populate and add dummy to force mismatch initially (wait, if I clear it, I only need to not add dummy after)
-            ((CerasRobustConfig)serializer.Config).SchemaRegistry.InternalClear();
-            Ceras.Generated.RobustFormatters.UseRobustFormatters(serializer.Config);
+            serializer.Config.SchemaRegistry.InternalClear();
+            serializer.Config.UseGeneratedFormatters();
             // No DummyForMismatch here!
-            var loaded2 = CerasRobust.Load<UnregisteredListModel>(bytes, version, serializer);
+            var loaded2 = serializer.Load<UnregisteredListModel>(bytes, version);
             Assert.Equal("Secret", loaded2.Items[0].Data);
         }
 
@@ -152,19 +145,19 @@ namespace Ceras.Test.RobustGenerics
 
             uint version = 1;
             var s1 = CreateSerializer();
-            ((CerasRobustConfig)s1.Config).SchemaRegistry.Register(typeof(DummyForMismatch), null);
-            var bytes = CerasRobust.Save(model, version, s1);
+            s1.Config.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+            var bytes = s1.Save(model, version);
 
             // 1. Normal
-            var loaded = CerasRobust.Load<StatusModel>(bytes, version, CreateSerializer());
+            var loaded = CreateSerializer().Load<StatusModel>(bytes, version);
             Assert.Equal(Status.Active, loaded.CurrentStatus);
             Assert.Equal(2, loaded.History.Count);
 
             // 2. Traversal
             var serializer = CreateSerializer();
-            ((CerasRobustConfig)serializer.Config).SchemaRegistry.InternalClear();
-            Ceras.Generated.RobustFormatters.UseRobustFormatters(serializer.Config);
-            var loaded2 = CerasRobust.Load<StatusModel>(bytes, version, serializer);
+            serializer.Config.SchemaRegistry.InternalClear();
+            serializer.Config.UseGeneratedFormatters();
+            var loaded2 = serializer.Load<StatusModel>(bytes, version);
             Assert.Equal(Status.Active, loaded2.CurrentStatus);
         }
 
@@ -175,18 +168,18 @@ namespace Ceras.Test.RobustGenerics
 
             uint version = 1;
             var s1 = CreateSerializer();
-            ((CerasRobustConfig)s1.Config).SchemaRegistry.Register(typeof(DummyForMismatch), null);
-            var bytes = CerasRobust.Save(model, version, s1);
+            s1.Config.SchemaRegistry.Register(typeof(DummyForMismatch), null);
+            var bytes = s1.Save(model, version);
 
             // 1. Normal
-            var loaded = CerasRobust.Load<GenericPair<int, string>>(bytes, version, CreateSerializer());
+            var loaded = CreateSerializer().Load<GenericPair<int, string>>(bytes, version);
             Assert.Equal(42, loaded.Item1);
 
             // 2. Traversal
             var serializer = CreateSerializer();
-            ((CerasRobustConfig)serializer.Config).SchemaRegistry.InternalClear();
-            Ceras.Generated.RobustFormatters.UseRobustFormatters(serializer.Config);
-            var loaded2 = CerasRobust.Load<GenericPair<int, string>>(bytes, version, serializer);
+            serializer.Config.SchemaRegistry.InternalClear();
+            serializer.Config.UseGeneratedFormatters();
+            var loaded2 = serializer.Load<GenericPair<int, string>>(bytes, version);
             Assert.Equal(42, loaded2.Item1);
         }
 
@@ -202,8 +195,8 @@ namespace Ceras.Test.RobustGenerics
             };
 
             uint version = 1;
-            var bytes = CerasRobust.Save(model, version, CreateSerializer());
-            var loaded = CerasRobust.Load<DictionaryModel>(bytes, version, CreateSerializer());
+            var bytes = CreateSerializer().Save(model, version);
+            var loaded = CreateSerializer().Load<DictionaryModel>(bytes, version);
             Assert.Equal("Orc", ((CombatEntity)loaded.Entities["K"]).Name);
         }
 
@@ -217,8 +210,8 @@ namespace Ceras.Test.RobustGenerics
             };
 
             uint version = 1;
-            var bytes = CerasRobust.Save(model, version, CreateSerializer());
-            var loaded = CerasRobust.Load<ArrayModel>(bytes, version, CreateSerializer());
+            var bytes = CreateSerializer().Save(model, version);
+            var loaded = CreateSerializer().Load<ArrayModel>(bytes, version);
             Assert.Single(loaded.EntityArray);
             Assert.Equal(new int[] { 1, 2, 3 }, loaded.IntArray);
         }
@@ -228,8 +221,8 @@ namespace Ceras.Test.RobustGenerics
         {
             var model = new NullableModel { MaybeInt = 123, MaybeFloat = null };
             uint version = 1;
-            var bytes = CerasRobust.Save(model, version, CreateSerializer());
-            var loaded = CerasRobust.Load<NullableModel>(bytes, version, CreateSerializer());
+            var bytes = CreateSerializer().Save(model, version);
+            var loaded = CreateSerializer().Load<NullableModel>(bytes, version);
             Assert.Equal(123, loaded.MaybeInt);
             Assert.Null(loaded.MaybeFloat);
         }
