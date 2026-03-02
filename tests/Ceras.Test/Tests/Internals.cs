@@ -38,7 +38,7 @@ namespace Ceras.Test
             Assert.True(Equals(ar[3], ar[6]));
             Assert.False(ReferenceEquals(ar[3], ar[6]));
 
-            var arClone = ceras.Advanced.Clone(ar);
+            var arClone = ceras.Clone(ar);
 
             Assert.True(Equals(arClone[0], arClone[3]));
             Assert.False(ReferenceEquals(arClone[0], arClone[3]));

@@ -38,7 +38,7 @@
 
 
 
-        public PrimitiveResolver(CerasSerializer ceras)
+        internal PrimitiveResolver(CerasSerializer ceras)
         {
             _ceras = ceras;
         }
@@ -51,9 +51,9 @@
             if (type.IsEnum)
             {
                 if (_ceras.Config is CerasRobustConfig)
-                    return (IFormatter)Activator.CreateInstance(typeof(EnumFormatter<>).MakeGenericType(type));
+                    return (IFormatter)Ceras.Helpers.Instantiator.Create(typeof(EnumFormatter<>).MakeGenericType(type));
 
-                return (IFormatter)Activator.CreateInstance(typeof(ReinterpretFormatter<>).MakeGenericType(type));
+                return (IFormatter)Ceras.Helpers.Instantiator.Create(typeof(ReinterpretFormatter<>).MakeGenericType(type));
             }
 
             return null;

@@ -29,7 +29,7 @@ namespace Ceras.Formatters
         readonly MethodInfo _onBeforeSerialize, _onAfterSerialize, _onBeforeDeserialize, _onAfterDeserialize;
         readonly Func<object> _factory;
 
-        public ReflectionFallbackFormatter(CerasSerializer serializer, bool isStatic)
+        internal ReflectionFallbackFormatter(CerasSerializer serializer, bool isStatic)
         {
             _ceras = serializer;
             _isStatic = isStatic;

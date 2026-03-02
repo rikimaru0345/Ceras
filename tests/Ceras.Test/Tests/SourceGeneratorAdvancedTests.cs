@@ -171,7 +171,7 @@ namespace Ceras.Test.Tests
     public class CustomListFormatter : IFormatter<CustomList>
     {
         IFormatter<int> _intFormatter;
-        public CustomListFormatter(CerasSerializer s) => _intFormatter = s.GetFormatter<int>();
+        internal CustomListFormatter(CerasSerializer s) => _intFormatter = s.GetFormatter<int>();
 
         public void Serialize(IBufferWriter<byte> writer, CustomList value)
         {

@@ -70,7 +70,7 @@ namespace Ceras.Test
 
             var formatter = new FakeGeneratedFormatter();
 
-            var ex = Assert.Throws<InvalidOperationException>(() => ((ICerasAdvanced)ceras).PrepareFormatter(formatter));
+            var ex = Assert.Throws<InvalidOperationException>(() => ((CerasSerializer)ceras).PrepareFormatter(formatter));
 
             Assert.Contains("No formatter found for type", ex.Message);
             Assert.Contains("UnserializableType", ex.Message);

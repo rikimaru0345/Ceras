@@ -38,8 +38,6 @@ namespace BinaryDemo
             //
             // Repeat with KnownTypes
             ceras = new CerasFastSerializer(config => {
-                config.KnownTypes.Add(typeof(int));
-                config.KnownTypes.Add(typeof(Person));
             });
             
             data = ceras.Serialize(a);

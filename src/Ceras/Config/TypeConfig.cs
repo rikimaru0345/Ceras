@@ -13,20 +13,6 @@
 	using IFormatter = Formatters.IFormatter;
 
 
-	// Serialization Constructors:
-	// todo: exception: "your Type ... has no default ctor; you can activate an automatic fallback to 'GetUninitializedObject' if you want"
-	// todo: allow the worst case scenario (self ref with ctor) by using GetUninitializedObject, then reading and assigning, and then running the ctor after that!
-	// todo: "You have a configuration error on type 'bla': You selected 'mode' to create new objects, but the formatter used by ceras to handle this type is not 'ReflectionFallbackFormatter' which is required for this mode to work. If this formatter is a custom (user-provided) formatter then you probably want to set the construction mode to either 'Null' so Ceras does not create an object and the formatter can handle it; or you can set it to 'Normal' so Ceras creates a new object instance using 'new()'. Generally: passing any arguments to functions can only work with the ReflectionFallbackFormatter."
-	// todo: Compile some sort of 'EnsureInstance()' method that we can call for each specific type and can use directly in the ref-formatter-dispatcher.
-	// todo: when deferring to the dynamic object formatter, everything has to be done there: checking if an instance already exists, if it's the right type, and possibly discard it using the discard method
-
-	// Extra Features:
-	// todo: Methods for: BeforeReadingMember, BeforeWritingMember, AfterReadingMember, ... BeforeReadingObject, AfterReadingObject, ...
-	// todo: DiscardObject method
-	// todo: CustomSchema (with a method to obtain a default schema given some settings)
-	// todo: If we create something from uninitialized; do we give an option to run some specific ctor? Do we write some props/fields again after calling the ctor??
-	// todo: what about just calling Dispose() as an alternative to Discard!?
-
 	/// <summary>
 	/// <para>For performance reasons <see cref="CerasSerializer"/>, <see cref="CerasConfig"/>, and <see cref="TypeConfig"/> are not thread-safe. Do not share a config instance between serializers.</para>
 	/// </summary>
@@ -59,8 +45,8 @@
 		internal Dictionary<ParameterInfo, MemberInfo> ParameterMap;
 
 
-		protected FormatterResolverCallback _customResolver;
-		public FormatterResolverCallback CustomResolver
+		internal FormatterResolverCallback _customResolver;
+		internal FormatterResolverCallback CustomResolver
 		{
 			get => _customResolver;
 			set

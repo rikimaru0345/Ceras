@@ -9,7 +9,7 @@ namespace Ceras.Formatters
     {
         readonly IFormatter<Type> _typeFormatter;
 
-        public MemberInfoFormatter(CerasSerializer ceras)
+        internal MemberInfoFormatter(CerasSerializer ceras)
         {
             _typeFormatter = ceras.GetFormatter<Type>();
         }

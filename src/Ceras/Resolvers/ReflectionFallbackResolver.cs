@@ -12,7 +12,7 @@
         {
             CerasSerializer _ceras;
     
-            public ReflectionFallbackResolver(CerasSerializer ceras)
+            internal ReflectionFallbackResolver(CerasSerializer ceras)
             {
                 _ceras = ceras;
             }
@@ -27,7 +27,7 @@
                     throw new InvalidOperationException("ReflectionFallbackFormatter is not allowed to serialize serialization-primitives.");
     
                 var formatterType = typeof(ReflectionFallbackFormatter<>).MakeGenericType(type);
-                return (IFormatter)Activator.CreateInstance(formatterType, new object[] { _ceras, false });
+                return (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType, new object[] { _ceras, false });
             }
         }
     }

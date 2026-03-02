@@ -16,7 +16,7 @@ namespace Ceras.Resolvers
     {
         readonly CerasSerializer _ceras;
 
-        public ReinterpretFormatterResolver(CerasSerializer ceras)
+        internal ReinterpretFormatterResolver(CerasSerializer ceras)
         {
             _ceras = ceras;
         }
@@ -31,7 +31,7 @@ namespace Ceras.Resolvers
 
             var formatterType = typeof(ReinterpretFormatter<>).MakeGenericType(type);
 
-            return (IFormatter) Activator.CreateInstance(formatterType);
+            return (IFormatter) Ceras.Helpers.Instantiator.Create(formatterType);
         }
     }
 }

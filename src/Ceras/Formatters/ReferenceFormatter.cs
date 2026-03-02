@@ -13,7 +13,6 @@ namespace Ceras.Formatters {
 		const int Null = -1;
 		const int NewValue = -2;
 		const int NewValueSameType = -3;
-		const int ExternalObject = -4;
 		const int InlineType = -5;
 		const int Bias = 5;
 
@@ -21,7 +20,7 @@ namespace Ceras.Formatters {
 		readonly IFormatter<Type> _typeFormatter;
 		readonly TypeDictionary<DispatcherEntry> _dispatchers = new TypeDictionary<DispatcherEntry>();
 
-		public ReferenceFormatter(CerasSerializer ceras) {
+		internal ReferenceFormatter(CerasSerializer ceras) {
 			_ceras = ceras;
 			if (typeof(T).IsStatic()) throw new InvalidOperationException("static");
 			_typeFormatter = ceras.GetFormatter<Type>();
@@ -74,7 +73,7 @@ namespace Ceras.Formatters {
 
 		public void Deserialize(ref SequenceReader<byte> reader, ref T value) {
 			var objId = SerializerBinary.ReadUInt32Bias(ref reader, Bias);
-			if (objId == Null) { if (value != null) _ceras.DiscardObjectMethod?.Invoke(value); value = default; return; }
+			if (objId == Null) { value = default; return; }
 			if (objId == InlineType) { Type type = null; _typeFormatter.Deserialize(ref reader, ref type); value = (T)(object)type; return; }
 			if (objId >= 0) {
 				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId);
@@ -88,7 +87,6 @@ namespace Ceras.Formatters {
 			if (!entry.IsValueType) {
 				if (value != null) {
 					if (value.GetType() != specificType) {
-						_ceras.DiscardObjectMethod?.Invoke(value);
 						value = (T)entry.Constructor();
 					}
 				}
@@ -215,7 +213,7 @@ namespace Ceras.Formatters {
 		const int Null = -1, NewValueSameType = -3, Bias = 5;
 		readonly CerasSerializer _ceras; readonly IFormatter<T> _formatter; 
 		readonly Func<object> _constructor;
-		public ReferenceFormatter_KnownSealedType(CerasSerializer ceras) {
+		internal ReferenceFormatter_KnownSealedType(CerasSerializer ceras) {
 			_ceras = ceras;
 			var type = typeof(T);
 			if (type.IsStatic()) throw new InvalidOperationException("static");
@@ -253,7 +251,7 @@ namespace Ceras.Formatters {
 
 		public void Deserialize(ref SequenceReader<byte> reader, ref T value) {
 			var objId = SerializerBinary.ReadUInt32Bias(ref reader, Bias);
-			if (objId == Null) { if (value != null) _ceras.DiscardObjectMethod?.Invoke(value); value = default; return; }
+			if (objId == Null) { value = default; return; }
 			if (objId >= 0) {
 				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId);
 				return;

@@ -148,7 +148,7 @@ namespace Ceras.Test
             var context = new ContextObject();
             ceras.UserContext = context;
 
-            var clone = ceras.Advanced.Clone(obj);
+            var clone = ceras.Clone(obj);
 
             // Source object should have gotten calls to OnBeforeSerialize and OnAfterSerialize, 
             // each method incrementing the counter by one.

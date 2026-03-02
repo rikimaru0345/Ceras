@@ -17,9 +17,9 @@ namespace Ceras.TestDebugger
             var obj = new Item { Name = "Mithril Helm", Quantity = 123456, Rarity = ItemRarity.Epic, Weight = 3.7f };
             Console.WriteLine($"Serializing: Name='{obj.Name}', Quantity={obj.Quantity}, Rarity={obj.Rarity}, Weight={obj.Weight}");
 
-            var meta = dynamicCeras.Advanced.GetFormatterResolver<ReflectionFormatterResolver>().GetFormatter(typeof(Item));
+            var meta = dynamicCeras.GetFormatterResolver<ReflectionFormatterResolver>().GetFormatter(typeof(Item));
             // Actually, let's just look at the PrimarySchema
-            var primarySchema = ((ICerasAdvanced)dynamicCeras).GetFormatterResolver<ReflectionFormatterResolver>().GetFormatter(typeof(Item));
+            var primarySchema = ((CerasSerializer)dynamicCeras).GetFormatterResolver<ReflectionFormatterResolver>().GetFormatter(typeof(Item));
             // I can't easily get the schema from here.
             
             Console.WriteLine("Field order according to SchemaMemberComparer:");

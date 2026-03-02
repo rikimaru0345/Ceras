@@ -15,7 +15,7 @@
         readonly CerasSerializer _ceras;
         Dictionary<Type, IFormatter> _formatterInstances = new Dictionary<Type, IFormatter>();
 
-        public CollectionFormatterResolver(CerasSerializer ceras)
+        internal CollectionFormatterResolver(CerasSerializer ceras)
         {
             _ceras = ceras;
         }
@@ -45,7 +45,7 @@
                 {
                     // ReinterpretArrayFormatter<> (reinterpret)
                     var formatterType = typeof(ReinterpretArrayFormatter<>).MakeGenericType(itemType);
-                    formatter = (IFormatter)Activator.CreateInstance(formatterType, maxCount);
+                    formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType, maxCount);
                 }
                 else
                 {
@@ -53,13 +53,13 @@
                     {
                         // ArrayFormatter<>
                         var formatterType = typeof(ArrayFormatter<>).MakeGenericType(itemType);
-                        formatter = (IFormatter)Activator.CreateInstance(formatterType, _ceras, maxCount);
+                        formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType, _ceras, maxCount);
                     }
                     else if (rank <= 6)
                     {
                         // MultiDimensionalArrayFormatter
                         var formatterType = typeof(MultiDimensionalArrayFormatter<>).MakeGenericType(itemType);
-                        formatter = (IFormatter)Activator.CreateInstance(formatterType, _ceras, maxCount);
+                        formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType, _ceras, maxCount);
                     }
                     else
                     {
@@ -79,7 +79,7 @@
             if (closedStack != null)
             {
                 var formatterType = typeof(StackFormatter<>).MakeGenericType(closedStack.GetGenericArguments());
-                formatter = (IFormatter)Activator.CreateInstance(formatterType);
+                formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType);
                 _formatterInstances[type] = formatter;
                 return formatter;
             }
@@ -88,7 +88,7 @@
             if (closedQueue != null)
             {
                 var formatterType = typeof(QueueFormatter<>).MakeGenericType(closedQueue.GetGenericArguments());
-                formatter = (IFormatter)Activator.CreateInstance(formatterType);
+                formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType);
                 _formatterInstances[type] = formatter;
                 return formatter;
             }
@@ -97,7 +97,7 @@
             if (closedRD != null)
             {
                 var formatterType = typeof(ReadOnlyDictionaryFormatter<,>).MakeGenericType(closedRD.GetGenericArguments());
-                formatter = (IFormatter)Activator.CreateInstance(formatterType);
+                formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType);
                 _formatterInstances[type] = formatter;
                 return formatter;
             }
@@ -116,7 +116,7 @@
 
                 // Use the general case collection formatter
                 var formatterType = typeof(CollectionFormatter<,>).MakeGenericType(type, itemType);
-                formatter = (IFormatter)Activator.CreateInstance(formatterType, _ceras);
+                formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType, _ceras);
 
                 _formatterInstances[type] = formatter;
                 return formatter;

@@ -11,7 +11,7 @@
     {
         readonly CerasSerializer _ceras;
 
-        public ReflectionFormatterResolver(CerasSerializer ceras)
+        internal ReflectionFormatterResolver(CerasSerializer ceras)
         {
             _ceras = ceras;
         }
@@ -21,7 +21,7 @@
             if (typeof(MemberInfo).IsAssignableFrom(type))
             {
                 var memberInfoFormatterType = typeof(MemberInfoFormatter<>).MakeGenericType(type);
-                var memberInfoFormatter = Activator.CreateInstance(memberInfoFormatterType, args: _ceras);
+                var memberInfoFormatter = Ceras.Helpers.Instantiator.Create(memberInfoFormatterType, args: _ceras);
                 return (IFormatter)memberInfoFormatter;
             }
 

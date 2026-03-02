@@ -21,7 +21,7 @@ namespace Ceras.Resolvers
         readonly TypeDictionary<IFormatter> _primitiveFormatters = new TypeDictionary<IFormatter>();
         readonly CerasSerializer _ceras;
 
-        public StandardFormatterResolver(CerasSerializer ceras)
+        internal StandardFormatterResolver(CerasSerializer ceras)
         {
             _ceras = ceras;
             _primitiveFormatters.GetOrAddValueRef(typeof(DateTime)) = new DateTimeFormatter();
@@ -43,18 +43,18 @@ namespace Ceras.Resolvers
                 if (genericDef == typeof(Nullable<>))
                 {
                     var closedType = ReflectionHelper.FindClosedType(type, typeof(Nullable<>));
-                    return (IFormatter)Activator.CreateInstance(typeof(NullableFormatter<>).MakeGenericType(closedType.GetGenericArguments()), _ceras);
+                    return (IFormatter)Ceras.Helpers.Instantiator.Create(typeof(NullableFormatter<>).MakeGenericType(closedType.GetGenericArguments()), _ceras);
                 }
                 if (genericDef == typeof(KeyValuePair<,>))
                 {
                     var closedType = ReflectionHelper.FindClosedType(type, typeof(KeyValuePair<,>));
-                    return (IFormatter)Activator.CreateInstance(typeof(KeyValuePairFormatter<,>).MakeGenericType(closedType.GetGenericArguments()), _ceras);
+                    return (IFormatter)Ceras.Helpers.Instantiator.Create(typeof(KeyValuePairFormatter<,>).MakeGenericType(closedType.GetGenericArguments()), _ceras);
                 }
                 if (_iTupleInterface.IsAssignableFrom(type))
                 {
                     var nArgs = type.GenericTypeArguments.Length;
                     var formatterType = (type.IsValueType ? _valueTupleFormatterTypes : _tupleFormatterTypes)[nArgs].MakeGenericType(type.GenericTypeArguments);
-                    var formatter = (IFormatter)Activator.CreateInstance(formatterType);
+                    var formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType);
                     CerasSerializer.AddFormatterConstructedType(type);
                     return formatter;
                 }
@@ -65,7 +65,7 @@ namespace Ceras.Resolvers
         class NullableFormatter<T> : FormatterBase<T?> where T : struct
         {
             IFormatter<T> _specificFormatter;
-            public NullableFormatter(CerasSerializer serializer) { _specificFormatter = serializer.GetSpecificFormatter<T>(); }
+            internal NullableFormatter(CerasSerializer serializer) { _specificFormatter = serializer.GetSpecificFormatter<T>(); }
             public override void Serialize(IBufferWriter<byte> writer, T? value)
             {
                 if (value.HasValue) { SerializerBinary.WriteByte(writer, 1); _specificFormatter.Serialize(writer, value.Value); }
@@ -81,7 +81,7 @@ namespace Ceras.Resolvers
         class KeyValuePairFormatter<TKey, TValue> : FormatterBase<KeyValuePair<TKey, TValue>>
         {
             IFormatter<TKey> _keyFormatter; IFormatter<TValue> _valueFormatter;
-            public KeyValuePairFormatter(CerasSerializer ceras) { _keyFormatter = ceras.GetReferenceFormatter<TKey>(); _valueFormatter = ceras.GetReferenceFormatter<TValue>(); }
+            internal KeyValuePairFormatter(CerasSerializer ceras) { _keyFormatter = ceras.GetReferenceFormatter<TKey>(); _valueFormatter = ceras.GetReferenceFormatter<TValue>(); }
             public override void Serialize(IBufferWriter<byte> writer, KeyValuePair<TKey, TValue> value) { _keyFormatter.Serialize(writer, value.Key); _valueFormatter.Serialize(writer, value.Value); }
             public override void Deserialize(ref SequenceReader<byte> reader, ref KeyValuePair<TKey, TValue> kvp)
             {

@@ -15,7 +15,6 @@ namespace Ceras.Format
         const int RefNull             = -1;
         const int RefNewValue         = -2;
         const int RefNewValueSameType = -3;
-        const int RefExternalObject   = -4;
         const int RefInlineType       = -5;
 
         readonly Dictionary<string, OldTypeSchema>     _oldByName;
@@ -194,13 +193,6 @@ namespace Ceras.Format
             if (marker == RefNull) return null;
             if (marker >= 0) {
                 return marker < _objectCache.Count ? _objectCache[marker] : null;
-            }
-
-            if (marker == RefExternalObject)
-            {
-                // ExternalRootObject pattern has been removed; skip the ID
-                SerializerBinary.ReadInt32Fixed(ref reader);
-                return null;
             }
 
             if (marker == RefInlineType)
@@ -631,7 +623,6 @@ namespace Ceras.Format
         {
             int marker = SerializerBinary.ReadUInt32Bias(ref reader, RefBias);
             if (marker == RefNull || marker >= 0) return;
-            if (marker == RefExternalObject) { SerializerBinary.ReadInt32Fixed(ref reader); return; }
             if (marker == RefInlineType) { SkipValue(WellKnownTypes.Type, ref reader); return; }
 
             int typeId = marker == RefNewValue ? (int)SchemaSection.ReadLeb128(ref reader) : expectedTypeId;

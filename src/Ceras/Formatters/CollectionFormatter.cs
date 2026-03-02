@@ -12,7 +12,7 @@ namespace Ceras.Formatters
         readonly IFormatter<TItem> _itemFormatter;
         readonly uint _maxCount;
 
-        public ArrayFormatter(CerasSerializer serializer, uint maxCount)
+        internal ArrayFormatter(CerasSerializer serializer, uint maxCount)
         {
             _ceras = serializer;
             _maxCount = maxCount;
@@ -68,7 +68,7 @@ namespace Ceras.Formatters
         readonly uint _maxCount;
         readonly IFormatter<TItem> _itemFormatter;
 
-        public MultiDimensionalArrayFormatter(CerasSerializer serializer, uint maxCount)
+        internal MultiDimensionalArrayFormatter(CerasSerializer serializer, uint maxCount)
         {
             _maxCount = maxCount;
             _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(typeof(TItem));
@@ -146,7 +146,7 @@ namespace Ceras.Formatters
         readonly Action<TCollection, TItem> _addMethod;
         readonly Func<TCollection, int> _getCountMethod;
 
-        public CollectionFormatter(CerasSerializer serializer)
+        internal CollectionFormatter(CerasSerializer serializer)
         {
             _ceras = serializer;
             _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(typeof(TItem));

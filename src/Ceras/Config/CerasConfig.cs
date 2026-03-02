@@ -11,7 +11,7 @@ namespace Ceras
 	/// Callback used to provide a custom formatter for a specific type.
 	/// Return null to fall through to the next resolver.
 	/// </summary>
-	public delegate IFormatter FormatterResolverCallback(CerasSerializer ceras, Type typeToBeFormatted);
+	internal delegate IFormatter FormatterResolverCallback(CerasSerializer ceras, Type typeToBeFormatted);
 
 	/// <summary>
 	/// Size limits used to protect against malicious or corrupt input during deserialization.
@@ -146,7 +146,7 @@ namespace Ceras
 		/// List of callbacks tried in order when Ceras needs a formatter for a type.
 		/// Return null to fall through to the next callback or Ceras's built-in resolution.
 		/// </summary>
-		public List<FormatterResolverCallback> OnResolveFormatter { get; } = new List<FormatterResolverCallback>();
+		internal List<FormatterResolverCallback> OnResolveFormatter { get; } = new List<FormatterResolverCallback>();
 
 		/// <summary>
 		/// Controls which members are serialized by default. Individual types can override this via
@@ -190,17 +190,6 @@ namespace Ceras
 		public IEqualityComparer<object> ObjectCacheComparer { get; set; }
 
 		/// <summary>
-		/// Called when Ceras would discard an existing object instance (e.g. when a field that
-		/// already has a value is set to null by incoming data). Use this to return objects to a pool.
-		/// <para>Default: null</para>
-		/// </summary>
-		public Action<object> DiscardObjectMethod {
-			get => _discardObjectMethod;
-			set { if (_isSealed) throw new InvalidOperationException("Sealed"); _discardObjectMethod = value; }
-		}
-		Action<object> _discardObjectMethod;
-
-		/// <summary>
 		/// When false, Ceras throws if it would fall back to the reflection-based formatter.
 		/// Useful to ensure source-generated formatters are always used in performance-critical paths.
 		/// <para>Default: true</para>
@@ -214,14 +203,8 @@ namespace Ceras
 		/// </summary>
 		public bool WarnOnStructWithAutoProperties { get; set; } = true;
 
-		protected readonly List<Type> _knownTypes = new List<Type>();
-		public List<Type> KnownTypes => _knownTypes;
-
 		protected readonly AdvancedConfig _advanced;
 		public AdvancedConfig Advanced => _advanced;
-
-		public IExternalObjectResolver ExternalObjectResolver { get; set; }
-		public Action<object> OnExternalObject { get; set; }
 
 		public class AdvancedConfig {
 			CerasConfig _config;
@@ -235,17 +218,6 @@ namespace Ceras
 				set { if (_isSealed) throw new InvalidOperationException("Sealed"); _persistTypeCache = value; }
 			}
 			bool _persistTypeCache;
-
-			public bool SealTypesWhenUsingKnownTypes {
-				get => _sealTypesWhenUsingKnownTypes;
-				set { if (_isSealed) throw new InvalidOperationException("Sealed"); _sealTypesWhenUsingKnownTypes = value; }
-			}
-			bool _sealTypesWhenUsingKnownTypes = true;
-
-			public Action<object> DiscardObjectMethod {
-				get => _config.DiscardObjectMethod;
-				set => _config.DiscardObjectMethod = value;
-			}
 		}
 
 		#endregion

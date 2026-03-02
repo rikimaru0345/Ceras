@@ -3,6 +3,7 @@
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.Test")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.AotGenerator")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.TestDebugger")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.ImmutableCollections")]
 namespace Ceras
 {
 	using System;
@@ -19,7 +20,7 @@ namespace Ceras
 	using Ceras.Resolvers;
 	using Ceras.Format;
 
-	public class CerasSerializer : ICerasAdvanced
+	internal class CerasSerializer
 	{
 		internal static readonly Type _rtTypeType;
 		static readonly HashSet<Type> _formatterConstructedTypes = new HashSet<Type>();
@@ -83,7 +84,6 @@ namespace Ceras
 
 		internal readonly CerasConfig Config;
 		public CerasConfig GetConfig() => Config;
-		public ICerasAdvanced Advanced => this;
 
 		readonly ReflectionFallbackResolver _dynamicResolver;
 		readonly FormatterResolverCallback[] _userResolvers;
@@ -92,7 +92,6 @@ namespace Ceras
 		readonly TypeDictionary<TypeMetaData> _metaData = new TypeDictionary<TypeMetaData>();
 		readonly TypeDictionary<TypeMetaData> _staticMetaData = new TypeDictionary<TypeMetaData>();
 		readonly NoLockFactoryPool<InstanceData> _instanceDataPool;
-		internal readonly Action<object> DiscardObjectMethod;
 		readonly Stack<InstanceData> _recursionStack = new Stack<InstanceData>();
 		internal InstanceData InstanceData;
 		int _recursionDepth = 0;
@@ -113,7 +112,6 @@ namespace Ceras
 			Config = config ?? new CerasRawConfig();
 
 			TypeBinder = Config.TypeBinder;
-			DiscardObjectMethod = Config.DiscardObjectMethod;
 			_userResolvers = Config.OnResolveFormatter.ToArray();
 			_resolvers.Add(new PrimitiveResolver(this));
 			_resolvers.Add(new ReinterpretFormatterResolver(this));
@@ -242,12 +240,12 @@ namespace Ceras
 			return Deserialize<T>(ms.ToArray());
 		}
 
-		byte[] ICerasAdvanced.SerializeStatic(Type type) { var writer = new ArrayBufferWriter<byte>(); ((ICerasAdvanced)this).SerializeStatic(type, writer); return writer.WrittenSpan.ToArray(); }
-		void ICerasAdvanced.SerializeStatic(Type type, IBufferWriter<byte> writer) { var meta = GetStaticTypeMetaData(type); if (meta.StaticSerialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticSerialize(writer); }
-		int ICerasAdvanced.SerializeStatic(Type type, ref byte[] buffer, ref int offset) { var writer = new FixedArrayBufferWriter(buffer, offset); ((ICerasAdvanced)this).SerializeStatic(type, writer); buffer = writer.Buffer; int size = writer.Offset - offset; offset = writer.Offset; return size; }
-		void ICerasAdvanced.DeserializeStatic(Type type, byte[] buffer) { int offset = 0; ((ICerasAdvanced)this).DeserializeStatic(type, buffer, ref offset); }
-		int ICerasAdvanced.DeserializeStatic(Type type, byte[] buffer, ref int offset) { var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset); var reader = new SequenceReader<byte>(seq); ((ICerasAdvanced)this).DeserializeStatic(type, ref reader); int size = (int)reader.Consumed; offset += size; return size; }
-		void ICerasAdvanced.DeserializeStatic(Type type, ref SequenceReader<byte> reader) { var meta = GetStaticTypeMetaData(type); if (meta.StaticDeserialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticDeserialize(ref reader); }
+                public byte[] SerializeStatic(Type type) { var writer = new ArrayBufferWriter<byte>(); SerializeStatic(type, writer); return writer.WrittenSpan.ToArray(); }
+                public void SerializeStatic(Type type, IBufferWriter<byte> writer) { var meta = GetStaticTypeMetaData(type); if (meta.StaticSerialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticSerialize(writer); }
+                public int SerializeStatic(Type type, ref byte[] buffer, ref int offset) { var writer = new FixedArrayBufferWriter(buffer, offset); SerializeStatic(type, writer); buffer = writer.Buffer; int size = writer.Offset - offset; offset = writer.Offset; return size; }
+                public void DeserializeStatic(Type type, byte[] buffer) { int offset = 0; DeserializeStatic(type, buffer, ref offset); }
+                public int DeserializeStatic(Type type, byte[] buffer, ref int offset) { var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset); var reader = new SequenceReader<byte>(seq); DeserializeStatic(type, ref reader); int size = (int)reader.Consumed; offset += size; return size; }
+                public void DeserializeStatic(Type type, ref SequenceReader<byte> reader) { var meta = GetStaticTypeMetaData(type); if (meta.StaticDeserialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticDeserialize(ref reader); }
 
 		internal void VerifyReflectionFallbackAllowed(Type type)
 		{
@@ -273,7 +271,7 @@ namespace Ceras
 		{
 			VerifyReflectionFallbackAllowed(meta.Type);
 			var formatterType = typeof(ReflectionFallbackFormatter<>).MakeGenericType(meta.Type);
-			var f = Activator.CreateInstance(formatterType, new object[] { this, true });
+			var f = Ceras.Helpers.Instantiator.Create(formatterType, new object[] { this, true });
 			var initMethod = formatterType.GetMethod("Initialize", BindingFlags.Instance | BindingFlags.NonPublic);
 			if (initMethod != null)
 				initMethod.Invoke(f, null);
@@ -291,9 +289,7 @@ namespace Ceras
 
 		public Type PeekType(byte[] buffer) { var seq = new ReadOnlySequence<byte>(buffer); var reader = new SequenceReader<byte>(seq); Type t = null; GetFormatter<Type>().Deserialize(ref reader, ref t); return t; }
 		public IEnumerable<IFormatterResolver> GetFormatterResolvers() { foreach (var r in _resolvers) yield return r; yield return _dynamicResolver; }
-		IFormatterResolver ICerasAdvanced.GetFormatterResolver<TResolver>() => Advanced.GetFormatterResolvers().OfType<TResolver>().FirstOrDefault();
-		void ICerasAdvanced.PrepareFormatter(IFormatter formatter) => PrepareFormatter(formatter);
-
+                public IFormatterResolver GetFormatterResolver<TResolver>() where TResolver : IFormatterResolver => GetFormatterResolvers().OfType<TResolver>().FirstOrDefault();
 		public IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
 		public IFormatter<T> GetSpecificFormatter<T>() => (IFormatter<T>)GetSpecificFormatter(typeof(T));
 		public IFormatter<T> GetReferenceFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
@@ -305,7 +301,7 @@ namespace Ceras
 			if (meta.ReferenceFormatter != null) return meta.ReferenceFormatter;
 			bool isType = typeof(Type).IsAssignableFrom(type);
 			var refFormatterType = (type.IsSealed && !isType) ? typeof(ReferenceFormatter_KnownSealedType<>).MakeGenericType(type) : typeof(ReferenceFormatter<>).MakeGenericType(type);
-			return meta.ReferenceFormatter = (IFormatter)Activator.CreateInstance(refFormatterType, this);
+			return meta.ReferenceFormatter = (IFormatter)Ceras.Helpers.Instantiator.Create(refFormatterType, this);
 		}
 
 		public IFormatter GetSpecificFormatter(Type type) => GetSpecificFormatter(type, GetTypeMetaData(type));
@@ -414,7 +410,7 @@ namespace Ceras
 			return s;
 		}
 
-		void PrepareFormatter(IFormatter formatter)
+                public void PrepareFormatter(IFormatter formatter)
 		{
 			var formatterType = formatter.GetType();
 			var initMethod = formatterType.GetMethod("Initialize", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -482,20 +478,6 @@ namespace Ceras
 		void LeaveRecursive(RecursionMode leavingMode) { _recursionDepth--; if (_recursionDepth == 0) _mode = RecursionMode.Idle; else { _instanceDataPool.ReturnObject(InstanceData); InstanceData = _recursionStack.Pop(); } }
 	}
 
-	public interface ICerasAdvanced
-	{
-		byte[] SerializeStatic(Type type);
-		void SerializeStatic(Type type, IBufferWriter<byte> writer);
-		int SerializeStatic(Type type, ref byte[] buffer, ref int offset);
-		void DeserializeStatic(Type type, byte[] buffer);
-		int DeserializeStatic(Type type, byte[] buffer, ref int offset);
-		void DeserializeStatic(Type type, ref SequenceReader<byte> reader);
-		Type PeekType(byte[] buffer);
-		T Clone<T>(T obj);
-		IEnumerable<IFormatterResolver> GetFormatterResolvers();
-		IFormatterResolver GetFormatterResolver<TResolver>() where TResolver : IFormatterResolver;
-		void PrepareFormatter(IFormatter formatter);
-	}
 
 	struct InstanceData
 	{

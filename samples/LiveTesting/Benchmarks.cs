@@ -430,7 +430,6 @@ namespace LiveTesting
             CerasRawConfig config = new CerasRawConfig();
             config.DefaultTargets = TargetMember.AllPublic;
             var knownTypes = new[] { typeof(Person), typeof(List<>), typeof(Person[]) };
-            config.KnownTypes.AddRange(knownTypes);
             _ceras = new CerasSerializer(config);
 
             //
@@ -1015,18 +1014,12 @@ namespace LiveTesting
 
             CerasRawConfig config = new CerasRawConfig();
             config.DefaultTargets = TargetMember.AllPublic;
-            config.KnownTypes.Add(typeof(Person));
-            config.KnownTypes.Add(typeof(List<>));
-            config.KnownTypes.Add(typeof(Person[]));
 
             _cerasNormal = new CerasSerializer(config);
 
 
             config = new CerasRawConfig();
             config.DefaultTargets = TargetMember.AllPublic;
-            config.KnownTypes.Add(typeof(Person));
-            config.KnownTypes.Add(typeof(List<>));
-            config.KnownTypes.Add(typeof(Person[]));
 
             _cerasNoRefs = new CerasSerializer(config);
 

@@ -15,7 +15,7 @@ namespace Ceras.Formatters
 
         bool _isSealed;
 
-        public TypeFormatter(CerasSerializer ceras)
+        internal TypeFormatter(CerasSerializer ceras)
         {
             _ceras = ceras;
             _typeBinder = ceras.TypeBinder;

@@ -320,7 +320,7 @@ namespace LiveTesting
 
             var obj = new CtorTest("riki", 12354);
 
-			var clone = ceras.Advanced.Clone(obj);
+			var clone = ceras.Clone(obj);
 
         }
 
@@ -942,12 +942,9 @@ namespace LiveTesting
             obj.Add(new Person() { Name = "abc" });
 
             var config = new CerasRawConfig();
-            config.KnownTypes.Add(typeof(List<>));
-            config.KnownTypes.Add(typeof(int));
             // Some types not added on purpose
 
             // Should be true by default!
-            Debug.Assert(config.Advanced.SealTypesWhenUsingKnownTypes);
 
             var ceras = new CerasSerializer(config);
 
@@ -966,17 +963,11 @@ namespace LiveTesting
             // 2. Check while deserializing
             //
             config = new CerasRawConfig();
-            config.KnownTypes.Add(typeof(List<>));
-            config.KnownTypes.Add(typeof(int));
-            config.Advanced.SealTypesWhenUsingKnownTypes = false;
             ceras = new CerasSerializer(config);
 
             var data = ceras.Serialize(obj);
 
             config = new CerasRawConfig();
-            config.KnownTypes.Add(typeof(List<>));
-            config.KnownTypes.Add(typeof(int));
-            config.Advanced.SealTypesWhenUsingKnownTypes = true;
             ceras = new CerasSerializer(config);
 
             try
@@ -1366,7 +1357,6 @@ namespace LiveTesting
         static void InheritTest()
         {
             var config = new CerasRawConfig();
-            config.KnownTypes.Add(typeof(SyncUnitHealth));
             var ceras = new CerasSerializer(config);
 
             // This should be no problem:
@@ -1740,12 +1730,6 @@ namespace LiveTesting
         {
             var config = new CerasRawConfig();
             config.Advanced.PersistTypeCache = true;
-            config.KnownTypes.Add(typeof(SetName));
-            config.KnownTypes.Add(typeof(NewPlayer));
-            config.KnownTypes.Add(typeof(LongEnum));
-            config.KnownTypes.Add(typeof(ByteEnum));
-            config.KnownTypes.Add(typeof(ComplexClass));
-            config.KnownTypes.Add(typeof(Complex2));
 
             var msg = new SetName
             {

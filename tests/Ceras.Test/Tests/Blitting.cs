@@ -251,7 +251,7 @@ namespace Ceras.Test
 
 
             var config = new CerasRawConfig();
-            config.OnConfigNewType = t => t.CustomResolver = (c, t2) => c.Advanced.GetFormatterResolver<ReinterpretFormatterResolver>().GetFormatter(t2);
+            config.OnConfigNewType = t => t.CustomResolver = (c, t2) => c.GetFormatterResolver<ReinterpretFormatterResolver>().GetFormatter(t2);
             //config.OnConfigNewType = t => t.CustomFormatter = (IFormatter)Activator.CreateInstance(typeof(EnumFormatterUnsafe<>).MakeGenericType(t.Type));
             var ceras = new CerasSerializer(config);
 

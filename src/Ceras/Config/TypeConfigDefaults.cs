@@ -263,7 +263,7 @@ namespace Ceras
 
         static IFormatter ForceDynamicResolver(CerasSerializer ceras, Type type)
         {
-            var r = ((ICerasAdvanced)ceras).GetFormatterResolver<ReflectionFallbackResolver>();
+            var r = ceras.GetFormatterResolver<ReflectionFallbackResolver>();
             return r.GetFormatter(type);
         }
     }
