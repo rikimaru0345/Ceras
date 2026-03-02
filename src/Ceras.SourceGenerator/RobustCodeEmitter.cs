@@ -19,7 +19,8 @@ namespace Ceras.SourceGenerator {
 
 			sb.AppendLine($"    internal sealed class {formatterName} : global::Ceras.Formatters.FormatterBase<{typeFqn}>");
 			sb.AppendLine("    {");
-			sb.AppendLine("        global::Ceras.CerasSerializer _ceras;");
+			if (type.IsReferenceType)
+				sb.AppendLine("        global::Ceras.CerasSerializer _ceras;");
 			sb.AppendLine();
 
 			// --- Formatter fields (one per distinct member type) -------------------

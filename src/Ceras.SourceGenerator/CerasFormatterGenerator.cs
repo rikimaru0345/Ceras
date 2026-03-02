@@ -40,8 +40,8 @@ namespace Ceras.SourceGenerator
                     {
                         var attrType = method.ContainingType;
                         var attrFqn = attrType.ToDisplayString();
-                        if (attrFqn == "Ceras.CerasSerializableAttribute" || 
-                            attrFqn == "Ceras.CerasSerializableAttribute<T>")
+						if (attrFqn == "Ceras.CerasSerializableAttribute" ||
+							attrFqn == "Ceras.CerasSerializableAttribute<T>")
                         {
                             return ctx.SemanticModel.GetDeclaredSymbol(typeDecl);
                         }
@@ -90,8 +90,8 @@ namespace Ceras.SourceGenerator
             var serializedAsAttr = compilation.GetTypeByMetadataName(SerializedAsFqn);
             var cerasConstructorAttr = compilation.GetTypeByMetadataName(CerasConstructorFqn);
 
-            var attrBag = new AttributeBag(includeAttr, excludeAttr, 
-                previousNameAttr, previousTypeAttr, serializedAsAttr,
+			var attrBag = new AttributeBag(includeAttr, excludeAttr,
+				previousNameAttr, previousTypeAttr, serializedAsAttr,
                 cerasSerializableAttr, cerasConstructorAttr);
 
             var blacklistPatterns = new List<string>();

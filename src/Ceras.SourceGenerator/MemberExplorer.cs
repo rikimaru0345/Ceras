@@ -308,7 +308,7 @@ namespace Ceras.SourceGenerator
 
         static SerializedMember MakeMember(
             string name, ITypeSymbol type, bool isField,
-            ISymbol symbol, AttributeBag attrs, bool isGetterOnly = false, string stableNameOverride = null)
+            ISymbol symbol, AttributeBag attrs, bool isGetterOnly = false, string? stableNameOverride = null)
         {
             string stableName = stableNameOverride ?? name;
             if (attrs.SerializedAs != null)
@@ -355,12 +355,16 @@ namespace Ceras.SourceGenerator
             bool isReadAccessible = isAccessible;
             bool isWriteAccessible = isAccessible;
 
-            bool isReadOnly = isField ? ((IFieldSymbol)symbol).IsReadOnly : (((IPropertySymbol)symbol).SetMethod == null || ((IPropertySymbol)symbol).SetMethod.IsInitOnly);
-            
-            if (isReadOnly) isWriteAccessible = false;
+            bool isReadOnly = false;
+            if (symbol is IFieldSymbol field)
+            {
+                isReadOnly = field.IsReadOnly;
+            }
 
             if (symbol is IPropertySymbol prop)
             {
+                isReadOnly = prop.SetMethod == null || prop.SetMethod.IsInitOnly;
+
                 isReadAccessible = prop.GetMethod != null &&
                                  (prop.GetMethod.DeclaredAccessibility == Accessibility.Public ||
                                   prop.GetMethod.DeclaredAccessibility == Accessibility.Internal);
@@ -378,6 +382,8 @@ namespace Ceras.SourceGenerator
 
                 isAccessible = isReadAccessible && isWriteAccessible;
             }
+
+            if (isReadOnly) isWriteAccessible = false;
 
             return new SerializedMember(name, stableName, type, symbol.ContainingType, isField,
                 previousNames.ToArray(), isMonomorphic, isAccessible, isReadOnly, isGetterOnly,

@@ -13,3 +13,7 @@ tab_width = 4
 dotnet_style_parentheses_in_arithmetic_binary_operators = always_for_clarity
 
 csharp_new_line_before_open_brace = none
+
+# RS1032, RS2008: Roslyn Analyzer standard compliance (noise for internal project)
+dotnet_diagnostic.RS1032.severity = none
+dotnet_diagnostic.RS2008.severity = none
