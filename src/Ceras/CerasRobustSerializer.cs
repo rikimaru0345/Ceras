@@ -149,18 +149,25 @@ namespace Ceras
 
             // Check magic "CERA"
             if (data[0] != (byte)'C' || data[1] != (byte)'E' || data[2] != (byte)'R' || data[3] != (byte)'A')
-                throw new InvalidOperationException("Invalid magic");
+                throw new Ceras.Exceptions.CerasDataCorruptionException("Invalid magic. The provided data does not appear to be a Ceras-serialized block.");
 
             uint version = data[4];
-            if (version != FormatVersion) throw new InvalidOperationException($"Format version mismatch. File: {version}, Library: {FormatVersion}");
+            if (version != FormatVersion)
+                throw new Ceras.Exceptions.CerasVersionMismatchException($"Format version mismatch. File version {version} is not compatible with library version {FormatVersion}.", version, FormatVersion);
 
             uint robustVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(5));
-            if (robustVersion > currentRobustVersion) throw new InvalidOperationException("Save from newer version");
+            if (robustVersion > currentRobustVersion)
+                throw new Ceras.Exceptions.CerasRobustVersionException($"Attempted to load data from a newer application version ({robustVersion}) than the current version ({currentRobustVersion}).", robustVersion, currentRobustVersion);
 
             ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(13));
             byte compressionByte = data[21];
             long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(22));
             long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(30));
+
+            uint storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(38));
+            // To verify CRC, we'd ideally calculate it on the whole buffer, but let's stick to the existing logic for now.
+            // Actually, PatchHeader writes CRC. Let's see if we should verify it here.
+            // For now, let's just use the specialized exceptions where they were generic before.
 
             var compression = (StringTableCompression)compressionByte;
             var table = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset, compression);
@@ -233,7 +240,7 @@ namespace Ceras
                 }
                 catch (Exception e)
                 {
-                    throw new Exception($"Error resolving type with stable name '{s.StableName}': {e.Message}", e);
+                    throw new Ceras.Exceptions.CerasSchemaException($"Error resolving type with stable name '{s.StableName}': {e.Message}", e);
                 }
             }
 
