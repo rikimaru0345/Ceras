@@ -38,8 +38,7 @@ namespace Ceras.Test
     // -----------------------------------------------------------------------
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.PublicFields)]
-    public class RobustData
+        public class RobustData
     {
         public Player    Player;
         public string    Version;   // game version string, e.g. "1.0"
@@ -47,8 +46,7 @@ namespace Ceras.Test
     }
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.PublicFields)]
-    public class Player
+        public class Player
     {
         public string         Name;
         public int            Level;
@@ -59,8 +57,7 @@ namespace Ceras.Test
     }
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.PublicFields)]
-    public class PlayerStats
+        public class PlayerStats
     {
         public int Strength;
         public int Dexterity;
@@ -68,16 +65,14 @@ namespace Ceras.Test
     }
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.PublicFields)]
-    public class Inventory
+        public class Inventory
     {
         public List<Item> Items;
         public int        MaxCapacity;
     }
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.PublicFields)]
-    public class Item
+        public class Item
     {
         public string     Name;
         public int        Quantity;
@@ -88,8 +83,7 @@ namespace Ceras.Test
     public enum ItemRarity { Common = 0, Uncommon = 1, Rare = 2, Epic = 3, Legendary = 4 }
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.PublicFields)]
-    public class Quest
+        public class Quest
     {
         public string Name;
         public bool   IsComplete;
@@ -229,7 +223,7 @@ namespace Ceras.Test
             var data = ceras.Save(container, 1);
 
             // 2. Load with schema change to force SchemaTraversalEngine
-            data[CerasRobustSerializer.OffsetFingerprint] ^= 0xFF;
+            data[13] ^= 0xFF;
             var clone = ceras.Load<RobustContainer>(data, 1);
 
             Assert.NotNull(clone);
@@ -257,7 +251,7 @@ namespace Ceras.Test
             var data = ceras.Save(container, 1);
 
             // 2. Load with schema change to force SchemaTraversalEngine
-            data[CerasRobustSerializer.OffsetFingerprint] ^= 0xFF;
+            data[13] ^= 0xFF;
             var clone = ceras.Load<GenericStructContainer>(data, 1);
 
             Assert.Equal(1, clone.Pair.Key);

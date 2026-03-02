@@ -24,10 +24,10 @@ namespace Ceras.Test.Tests {
 			MyCustomStructFormatter.WasSerializedCalled = false;
 			MyCustomStructFormatter.WasDeserializedCalled = false;
 
-			var data = robust.Serialize(original);
+			var data = robust.Save(original, 1);
 
 			// It should be properly deserialized using the custom formatter
-			var loaded = robust.Deserialize<ClassWithCustomStruct>(data);
+			var loaded = robust.Load<ClassWithCustomStruct>(data, 1);
 
 			Assert.Equal(42, loaded.Id);
 			Assert.Equal("CustomSerialized", loaded.MyStruct.MagicValue);

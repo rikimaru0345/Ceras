@@ -85,17 +85,14 @@ namespace Ceras.SourceGenerator
 
             var includeAttr = compilation.GetTypeByMetadataName(IncludeFqn);
             var excludeAttr = compilation.GetTypeByMetadataName(ExcludeFqn);
-            var memberConfigAttr = compilation.GetTypeByMetadataName(MemberConfigFqn);
             var previousNameAttr = compilation.GetTypeByMetadataName(PreviousNameFqn);
             var previousTypeAttr = compilation.GetTypeByMetadataName(PreviousTypeNameFqn);
             var serializedAsAttr = compilation.GetTypeByMetadataName(SerializedAsFqn);
-            var monomorphicAttr = compilation.GetTypeByMetadataName(MonomorphicFqn);
-            var polymorphicAttr = compilation.GetTypeByMetadataName(PolymorphicFqn);
             var cerasConstructorAttr = compilation.GetTypeByMetadataName(CerasConstructorFqn);
 
-            var attrBag = new AttributeBag(includeAttr, excludeAttr, memberConfigAttr,
-                previousNameAttr, previousTypeAttr, serializedAsAttr, monomorphicAttr,
-                polymorphicAttr, cerasSerializableAttr, cerasConstructorAttr);
+            var attrBag = new AttributeBag(includeAttr, excludeAttr, 
+                previousNameAttr, previousTypeAttr, serializedAsAttr,
+                cerasSerializableAttr, cerasConstructorAttr);
 
             var blacklistPatterns = new List<string>();
             foreach (var attr in compilation.Assembly.GetAttributes())

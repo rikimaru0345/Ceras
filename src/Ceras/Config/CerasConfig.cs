@@ -18,14 +18,21 @@ namespace Ceras
 	/// </summary>
 	public class SizeLimits
 	{
-		/// <summary>Maximum allowed string length. Default: unlimited.</summary>
-		public uint MaxStringLength { get; set; } = uint.MaxValue;
-		/// <summary>Maximum allowed byte[] size. Default: unlimited.</summary>
-		public uint MaxByteArraySize { get; set; } = uint.MaxValue;
-		/// <summary>Maximum allowed array size (non-byte arrays). Default: unlimited.</summary>
-		public uint MaxArraySize { get; set; } = uint.MaxValue;
-		/// <summary>Maximum allowed collection element count. Default: unlimited.</summary>
-		public uint MaxCollectionSize { get; set; } = uint.MaxValue;
+		bool _isSealed;
+		internal void Seal() => _isSealed = true;
+		void ThrowIfSealed() { if (_isSealed) throw new InvalidOperationException("Sealed"); }
+
+		uint _maxStringLength = uint.MaxValue;
+		public uint MaxStringLength { get => _maxStringLength; set { ThrowIfSealed(); _maxStringLength = value; } }
+
+		uint _maxByteArraySize = uint.MaxValue;
+		public uint MaxByteArraySize { get => _maxByteArraySize; set { ThrowIfSealed(); _maxByteArraySize = value; } }
+
+		uint _maxArraySize = uint.MaxValue;
+		public uint MaxArraySize { get => _maxArraySize; set { ThrowIfSealed(); _maxArraySize = value; } }
+
+		uint _maxCollectionSize = uint.MaxValue;
+		public uint MaxCollectionSize { get => _maxCollectionSize; set { ThrowIfSealed(); _maxCollectionSize = value; } }
 	}
 
 	/// <summary>
@@ -40,8 +47,10 @@ namespace Ceras
 
 		bool _isSealed;
 		internal bool IsSealed => _isSealed;
+		internal void ThrowIfSealed() { if (_isSealed) throw new InvalidOperationException("CerasConfig is already sealed and cannot be modified."); }
 		internal virtual void Seal() {
 			_isSealed = true;
+			SizeLimits.Seal();
 			_advanced.Seal();
 		}
 
@@ -149,32 +158,25 @@ namespace Ceras
 		internal List<FormatterResolverCallback> OnResolveFormatter { get; } = new List<FormatterResolverCallback>();
 
 		/// <summary>
-		/// Controls which members are serialized by default. Individual types can override this via
-		/// <see cref="MemberConfigAttribute"/> or <see cref="ConfigType{T}"/>.
-		/// <para>Default: AllFields (public and private)</para>
-		/// </summary>
-		public TargetMember DefaultTargets { get; set; } = TargetMember.AllFields;
-
-		/// <summary>
 		/// Converts between Type and string for type names embedded in serialized data.
 		/// Override this to abbreviate type names, remap types between assemblies, etc.
 		/// <para>Default: <see cref="SimpleTypeBinder"/></para>
 		/// </summary>
-		public ITypeBinder TypeBinder { get; set; } = new SimpleTypeBinder();
-
-		/// <summary>
-		/// When true, Ceras embeds a protocol checksum at the start of every serialized buffer.
-		/// Useful for detecting version mismatches when reading from files or databases.
-		/// Do not use for networking (would prefix every message with the checksum).
-		/// <para>Default: false</para>
-		/// </summary>
-		public bool EmbedChecksum { get; set; } = false;
+		ITypeBinder _typeBinder = new SimpleTypeBinder();
+		public ITypeBinder TypeBinder { 
+			get => _typeBinder; 
+			set { ThrowIfSealed(); _typeBinder = value; } 
+		}
 
 		/// <summary>
 		/// When true, fields marked with [System.NonSerialized] are excluded from serialization.
 		/// <para>Default: true</para>
 		/// </summary>
-		public bool RespectNonSerializedAttribute { get; set; } = true;
+		bool _respectNonSerializedAttribute = true;
+		public bool RespectNonSerializedAttribute { 
+			get => _respectNonSerializedAttribute; 
+			set { ThrowIfSealed(); _respectNonSerializedAttribute = value; } 
+		}
 
 		/// <summary>
 		/// Size limits to protect against malicious or corrupt input during deserialization.
@@ -187,21 +189,33 @@ namespace Ceras
 		/// Only needed if your types override object equality in unusual ways.
 		/// <para>Default: null (uses default reference equality)</para>
 		/// </summary>
-		public IEqualityComparer<object> ObjectCacheComparer { get; set; }
+		IEqualityComparer<object> _objectCacheComparer;
+		public IEqualityComparer<object> ObjectCacheComparer { 
+			get => _objectCacheComparer; 
+			set { ThrowIfSealed(); _objectCacheComparer = value; } 
+		}
 
 		/// <summary>
 		/// When false, Ceras throws if it would fall back to the reflection-based formatter.
 		/// Useful to ensure source-generated formatters are always used in performance-critical paths.
 		/// <para>Default: true</para>
 		/// </summary>
-		public bool AllowReflectionFallback { get; set; } = true;
+		bool _allowReflectionFallback = true;
+		public bool AllowReflectionFallback { 
+			get => _allowReflectionFallback; 
+			set { ThrowIfSealed(); _allowReflectionFallback = value; } 
+		}
 
 		/// <summary>
 		/// When true, Ceras throws an exception if a struct contains only auto-properties and no
 		/// explicit fields (which would result in an unexpectedly empty serialized representation).
 		/// <para>Default: true</para>
 		/// </summary>
-		public bool WarnOnStructWithAutoProperties { get; set; } = true;
+		bool _warnOnStructWithAutoProperties = true;
+		public bool WarnOnStructWithAutoProperties { 
+			get => _warnOnStructWithAutoProperties; 
+			set { ThrowIfSealed(); _warnOnStructWithAutoProperties = value; } 
+		}
 
 		protected readonly AdvancedConfig _advanced;
 		public AdvancedConfig Advanced => _advanced;

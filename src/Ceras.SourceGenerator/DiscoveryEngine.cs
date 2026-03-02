@@ -66,13 +66,11 @@ namespace Ceras.SourceGenerator
 
                 // SUBTYPE DISCOVERY
                 // If it's something we should find subtypes for (interfaces, abstract classes, or polymorphic classes)
-                if (HasDiscoverSubtypes(currentType, attrs.CerasSerializable))
+                // We only care about subtypes if it's not sealed and not a primitive/well-known
+                if (!currentType.IsSealed && currentType.TypeKind != TypeKind.Enum && !IsWellKnownType(currentType))
                 {
-                    // We only care about subtypes if it's not sealed and not a primitive/well-known
-                    if (!currentType.IsSealed && currentType.TypeKind != TypeKind.Enum && !IsWellKnownType(currentType))
+                    foreach (var candidate in allTypes)
                     {
-                        foreach (var candidate in allTypes)
-                        {
                             if (candidate.IsAbstract || candidate.TypeKind == TypeKind.Interface) continue;
                             if (candidate.DeclaredAccessibility == Accessibility.Private || candidate.DeclaredAccessibility == Accessibility.Protected) continue;
                             if (results.ContainsKey(candidate)) continue;
@@ -91,7 +89,6 @@ namespace Ceras.SourceGenerator
                                 queue.Enqueue(candidate);
                             }
                         }
-                    }
                 }
             }
 

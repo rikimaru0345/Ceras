@@ -12,14 +12,6 @@ namespace Ceras.SourceGenerator
             defaultSeverity: DiagnosticSeverity.Warning,
             isEnabledByDefault: true);
 
-        public static readonly DiagnosticDescriptor InterfaceOrAbstractWithoutDiscoverSubtypes = new(
-            id: "CERAS002",
-            title: "Interface or abstract class without DiscoverSubtypes",
-            messageFormat: "The {1} '{0}' is marked with [CerasSerializable] but 'DiscoverSubtypes' is set to false. Since interfaces/abstract classes cannot be instantiated directly, this attribute has no effect.",
-            category: "Ceras.SourceGenerator",
-            defaultSeverity: DiagnosticSeverity.Warning,
-            isEnabledByDefault: true);
-
         public static readonly DiagnosticDescriptor NotConstructable = new(
             id: "CERAS003",
             title: "Type not constructable by Ceras",

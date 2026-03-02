@@ -31,13 +31,8 @@ namespace Ceras.Helpers
             MemberType = member is FieldInfo f ? f.FieldType : ((PropertyInfo)member).PropertyType;
             
             // Match generator's monomorphic detection:
-            // Auto-set for value-type and sealed-class element types; overridable via [Monomorphic] / [Polymorphic].
-            if (Member.GetCustomAttribute<MonomorphicAttribute>() != null)
-                IsMonomorphic = true;
-            else if (Member.GetCustomAttribute<PolymorphicAttribute>() != null)
-                IsMonomorphic = false;
-            else
-                IsMonomorphic = MemberType.IsValueType || MemberType.IsSealed;
+            // Auto-set for value-type and sealed-class element types
+            IsMonomorphic = MemberType.IsValueType || MemberType.IsSealed;
         }
     }
 }

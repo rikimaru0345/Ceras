@@ -13,8 +13,7 @@ namespace Ceras.Test
 {
     // A root type explicitly marked for serialization
     [CerasSerializable]
-    [MemberConfig(TargetMember.PublicFields)]
-    public partial class DiscoveryRoot
+        public partial class DiscoveryRoot
     {
         public DiscoveryChild Child;
         public List<DiscoveryNestedChild> NestedChildren;
@@ -53,8 +52,7 @@ namespace Ceras.Test
 
     // Discovery through getter-only members (Reference types)
     [CerasSerializable]
-    [MemberConfig(TargetMember.AllFields)]
-    public partial class GetterOnlyRoot
+        public partial class GetterOnlyRoot
     {
         // Reference type field initialized in-place
         public readonly DiscoveryChild ChildField = new DiscoveryChild { Name = "FieldInit" };

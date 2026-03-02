@@ -125,8 +125,7 @@ namespace Ceras.Test
     }
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.AllFields)]
-    public class PropertyModel
+        public class PropertyModel
     {
         public float X { get; set; }
         public float Y { get; set; }

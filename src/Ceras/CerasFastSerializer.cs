@@ -11,6 +11,8 @@ namespace Ceras
     {
         readonly CerasSerializer _serializer;
         public CerasRawConfig Config { get; }
+        
+        public ProtocolChecksum ProtocolChecksum => _serializer.ProtocolChecksum;
 
         public CerasFastSerializer(Action<CerasRawConfig> configure = null)
         {

@@ -428,7 +428,7 @@ namespace LiveTesting
             _netSerializer = new NetSerializer.Serializer(rootTypes: new Type[] { typeof(Person), typeof(Person[]) });
 
             CerasRawConfig config = new CerasRawConfig();
-            config.DefaultTargets = TargetMember.AllPublic;
+
             var knownTypes = new[] { typeof(Person), typeof(List<>), typeof(Person[]) };
             _ceras = new CerasSerializer(config);
 
@@ -1013,13 +1013,13 @@ namespace LiveTesting
             };
 
             CerasRawConfig config = new CerasRawConfig();
-            config.DefaultTargets = TargetMember.AllPublic;
+
 
             _cerasNormal = new CerasSerializer(config);
 
 
             config = new CerasRawConfig();
-            config.DefaultTargets = TargetMember.AllPublic;
+
 
             _cerasNoRefs = new CerasSerializer(config);
 

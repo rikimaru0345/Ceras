@@ -174,7 +174,6 @@ namespace Ceras
 			EnterRecursive(RecursionMode.Serialization);
 			try
 			{
-				if (Config.EmbedChecksum) SerializerBinary.WriteInt32Fixed(writer, ProtocolChecksum.Checksum);
 				GetFormatter<T>().Serialize(writer, obj);
 				InstanceData.TypeCache.ResetSerializationCache();
 				InstanceData.ObjectCache.ClearSerializationCache();
@@ -199,7 +198,6 @@ namespace Ceras
 			EnterRecursive(RecursionMode.Deserialization);
 			try
 			{
-				if (Config.EmbedChecksum && SerializerBinary.ReadInt32Fixed(ref reader) != ProtocolChecksum.Checksum) throw new InvalidOperationException("Checksum mismatch");
 				GetFormatter<T>().Deserialize(ref reader, ref value);
 				InstanceData.TypeCache.ResetDeserializationCache();
 				InstanceData.ObjectCache.ClearDeserializationCache();

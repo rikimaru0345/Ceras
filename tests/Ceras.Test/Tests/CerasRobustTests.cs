@@ -11,8 +11,7 @@ namespace Ceras.Test
     // ── Additional save-test models ───────────────────────────────────────────
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.PublicFields)]
-    public class SaveHero
+        public class SaveHero
     {
         [CerasStableName("Name")]
         public string Name;
@@ -28,8 +27,7 @@ namespace Ceras.Test
     }
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.PublicFields)]
-    public class RobustInventory
+        public class RobustInventory
     {
         [CerasStableName("Gold")]
         public int Gold;
@@ -128,7 +126,7 @@ namespace Ceras.Test
         public void Load_Throws_On_Magic_Mismatch()
         {
             var ceras = CreateSerializer();
-            byte[] data = new byte[CerasRobustSerializer.HeaderSize];
+            byte[] data = new byte[Ceras.RobustHeader.Size];
             data[0] = (byte)'X'; // invalid magic
 
             Assert.ThrowsAny<Exception>(() => ceras.Load<SaveHero>(data, 1));
@@ -142,7 +140,7 @@ namespace Ceras.Test
             byte[] data = ceras.Save(hero, 1);
 
             // Manually set format version to something impossible
-            data[CerasRobustSerializer.OffsetFormatVersion] = 99;
+            data[4] = 99;
 
             Assert.ThrowsAny<Exception>(() => ceras.Load<SaveHero>(data, 1));
         }

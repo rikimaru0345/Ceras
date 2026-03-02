@@ -42,7 +42,7 @@ namespace Ceras.Test
             p.Friends.Add(new Adult { Name = "2" });
 
             var config = new CerasRawConfig();
-            config.DefaultTargets = TargetMember.PublicFields;
+
             var ceras = new CerasSerializer(config);
 
             var data = ceras.Serialize<object>(p);

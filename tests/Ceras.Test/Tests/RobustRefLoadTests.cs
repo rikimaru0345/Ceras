@@ -33,7 +33,7 @@ namespace Ceras.Test
             var data = robust.Save(original, 1);
 
             // Force slow path by changing fingerprint
-            data[CerasRobustSerializer.OffsetFingerprint] ^= 0xFF;
+            data[13] ^= 0xFF;
 
             var existing = new RefLoadData { Name = "Existing", Value = 0 };
             robust.Load(ref existing, data, 1);
@@ -51,7 +51,7 @@ namespace Ceras.Test
             var data = robust.Save(original, 1);
 
             // Force slow path by changing fingerprint
-            data[CerasRobustSerializer.OffsetFingerprint] ^= 0xFF;
+            data[13] ^= 0xFF;
 
             var existing = new List<int> { 9, 8, 7, 6 };
             robust.Load(ref existing, data, 1);

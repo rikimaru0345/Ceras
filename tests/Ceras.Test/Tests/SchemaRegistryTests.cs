@@ -11,8 +11,7 @@ namespace Ceras.Test
 
     [CerasSerializable]
     [PreviousTypeName("Ceras.Test.OldWeapon")]
-    [MemberConfig(TargetMember.PublicFields)]
-    public class Weapon
+        public class Weapon
     {
         [CerasStableName("Damage")]
         public int AttackPower;
@@ -20,7 +19,6 @@ namespace Ceras.Test
         [PreviousName("OldName")]
         public string Name;
 
-        [Monomorphic]
         public float Weight;
 
         [Exclude]

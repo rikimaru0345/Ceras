@@ -17,7 +17,8 @@ namespace Ceras.SourceGenerator
             // Used to silently skip the base-class version when a property is shadowed via 'new'.
             var claimedBackingFieldNames = new HashSet<string>(StringComparer.Ordinal);
 
-            TargetMemberKind currentTargetKind = ResolveEffectiveTargetMemberKind(context, type, attrs.MemberConfig);
+            // TargetMemberKind logic removed
+            // TargetMemberKind currentTargetKind = ResolveEffectiveTargetMemberKind(context, type, attrs.MemberConfig);
 
             var typeChain = new List<INamedTypeSymbol>();
             INamedTypeSymbol? cur = type;
@@ -85,19 +86,15 @@ namespace Ceras.SourceGenerator
                         bool isFieldPublic = field.DeclaredAccessibility == Accessibility.Public;
                         bool isPropPublic = associatedProp != null && associatedProp.DeclaredAccessibility == Accessibility.Public;
 
-                        // Backing fields are compiler-generated; TargetMember.PrivateFields explicitly
-                        // excludes them (see doc comment on TargetMember.PrivateFields). Treat them as
-                        // properties for the purpose of config inclusion — only include if the associated
-                        // property itself would be in scope.
+                        // Only fields are included by default. All properties are ignored.
                         bool isIncludedByConfig;
                         if (isBackingField && associatedProp != null)
                         {
-                            isIncludedByConfig = ((currentTargetKind & TargetMemberKind.PublicProperties) != 0 && isPropPublic)
-                                             || ((currentTargetKind & TargetMemberKind.PrivateProperties) != 0 && !isPropPublic);
+                            isIncludedByConfig = true; // All fields are included by default
                         }
                         else
                         {
-                            isIncludedByConfig = IsFieldIncluded(field, currentTargetKind);
+                            isIncludedByConfig = true; // All fields are included by default
                         }
 
                         if (!hasInclude && !isFieldPublic && !isBackingField && !isIncludedByConfig)
@@ -162,10 +159,7 @@ namespace Ceras.SourceGenerator
                                 }
                             }
 
-                            if (attrs.Monomorphic != null && HasAttribute(associatedProp, attrs.Monomorphic))
-                                m = new SerializedMember(m.Name, m.StableName, m.Type, m.DeclaringType, m.IsField, m.PreviousNames, true, m.IsAccessible, m.IsReadOnly, m.IsGetterOnly, m.IsCtorParam, m.CtorParamName, m.IsReadAccessible, m.IsWriteAccessible);
-                            if (attrs.Polymorphic != null && HasAttribute(associatedProp, attrs.Polymorphic))
-                                m = new SerializedMember(m.Name, m.StableName, m.Type, m.DeclaringType, m.IsField, m.PreviousNames, false, m.IsAccessible, m.IsReadOnly, m.IsGetterOnly, m.IsCtorParam, m.CtorParamName, m.IsReadAccessible, m.IsWriteAccessible);
+                            // Removed Monomorphic/Polymorphic attribute checks as they are no longer supported.
                         }
 
                         members.Add(m);
@@ -354,10 +348,6 @@ namespace Ceras.SourceGenerator
             }
 
             bool isMonomorphic = IsMonomorphicByDefault(type);
-            if (attrs.Monomorphic != null && HasAttribute(symbol, attrs.Monomorphic))
-                isMonomorphic = true;
-            if (attrs.Polymorphic != null && HasAttribute(symbol, attrs.Polymorphic))
-                isMonomorphic = false;
 
             bool isAccessible = symbol.DeclaredAccessibility == Accessibility.Public ||
                                 symbol.DeclaredAccessibility == Accessibility.Internal;
@@ -411,86 +401,6 @@ namespace Ceras.SourceGenerator
             }
 
             return type.IsSealed;
-        }
-
-        static bool IsFieldIncluded(IFieldSymbol field, TargetMemberKind kind)
-        {
-            if (field.DeclaredAccessibility == Accessibility.Public)
-                return (kind & TargetMemberKind.PublicFields) != 0;
-            return (kind & TargetMemberKind.PrivateFields) != 0;
-        }
-
-        static bool IsPropertyIncluded(IPropertySymbol prop, TargetMemberKind kind)
-        {
-            if (prop.DeclaredAccessibility == Accessibility.Public)
-                return (kind & TargetMemberKind.PublicProperties) != 0;
-            return (kind & TargetMemberKind.PrivateProperties) != 0;
-        }
-
-        static TargetMemberKind ResolveEffectiveTargetMemberKind(SourceProductionContext context, INamedTypeSymbol type, INamedTypeSymbol? memberConfigAttr)
-        {
-            // 1. Check class hierarchy
-            var cur = type;
-            while (cur != null)
-            {
-                foreach (var attr in cur.GetAttributes())
-                {
-                    if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, memberConfigAttr))
-                    {
-                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMembers", out var val))
-                            return (TargetMemberKind)val;
-                        // Some users might accidentally use singular
-                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMember", out var val2))
-                            return (TargetMemberKind)val2;
-                    }
-                }
-                cur = cur.BaseType;
-            }
-
-            // 2. Check all implemented interfaces (recursively)
-            var allInterfaces = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
-            void AddInterfaces(INamedTypeSymbol i)
-            {
-                if (!allInterfaces.Add(i)) return;
-                foreach (var sub in i.AllInterfaces) AddInterfaces(sub);
-            }
-            foreach (var i in type.AllInterfaces) AddInterfaces(i);
-
-            foreach (var iface in allInterfaces)
-            {
-                foreach (var attr in iface.GetAttributes())
-                {
-                    if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, memberConfigAttr))
-                    {
-                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMembers", out var val))
-                            return (TargetMemberKind)val;
-                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMember", out var val2))
-                            return (TargetMemberKind)val2;
-                    }
-                }
-            }
-
-            // 3. Check containing assembly for a global default
-            if (type.ContainingAssembly != null)
-            {
-                foreach (var attr in type.ContainingAssembly.GetAttributes())
-                {
-                    if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, memberConfigAttr))
-                    {
-                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMembers", out var val))
-                            return (TargetMemberKind)val;
-                        if (TypeHelpers.TryGetAttributeArgument<int>(attr, "TargetMember", out var val2))
-                            return (TargetMemberKind)val2;
-                    }
-                }
-            }
-
-            if (type.IsValueType)
-            {
-                return TargetMemberKind.AllFields | TargetMemberKind.PublicProperties;
-            }
-
-            return TargetMemberKind.AllPublic;
         }
 
         public static void ValidateIncludeExcludeConflicts(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs)

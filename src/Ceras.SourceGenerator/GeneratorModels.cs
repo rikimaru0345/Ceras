@@ -7,29 +7,23 @@ namespace Ceras.SourceGenerator
     {
         public readonly INamedTypeSymbol? Include;
         public readonly INamedTypeSymbol? Exclude;
-        public readonly INamedTypeSymbol? MemberConfig;
         public readonly INamedTypeSymbol? PreviousName;
         public readonly INamedTypeSymbol? PreviousTypeName;
         public readonly INamedTypeSymbol? SerializedAs;
-        public readonly INamedTypeSymbol? Monomorphic;
-        public readonly INamedTypeSymbol? Polymorphic;
         public readonly INamedTypeSymbol? CerasSerializable;
         public readonly INamedTypeSymbol? CerasConstructor;
 
         public AttributeBag(
-            INamedTypeSymbol? include, INamedTypeSymbol? exclude, INamedTypeSymbol? memberConfig,
-            INamedTypeSymbol? previousName, INamedTypeSymbol? previousType, INamedTypeSymbol? serializedAs,
-            INamedTypeSymbol? monomorphic, INamedTypeSymbol? polymorphic, INamedTypeSymbol? cerasSerializable,
+            INamedTypeSymbol? include, INamedTypeSymbol? exclude, 
+            INamedTypeSymbol? previousName, INamedTypeSymbol? previousTypeName, INamedTypeSymbol? serializedAs,
+            INamedTypeSymbol? cerasSerializable,
             INamedTypeSymbol? cerasConstructor)
         {
             Include = include;
             Exclude = exclude;
-            MemberConfig = memberConfig;
             PreviousName = previousName;
-            PreviousTypeName = previousType;
+            PreviousTypeName = previousTypeName;
             SerializedAs = serializedAs;
-            Monomorphic = monomorphic;
-            Polymorphic = polymorphic;
             CerasSerializable = cerasSerializable;
             CerasConstructor = cerasConstructor;
         }

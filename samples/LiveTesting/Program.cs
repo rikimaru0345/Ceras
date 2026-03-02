@@ -840,8 +840,7 @@ namespace LiveTesting
             {
                 CerasRawConfig config = new CerasRawConfig();
                 config.ConfigType<ReadonlyTestClass>()
-                      .ConstructByUninitialized()
-                      .SetTargetMembers(TargetMember.PrivateFields);
+                      .ConstructByUninitialized();
 
                 var ceras = new CerasSerializer(config);
 
@@ -1527,7 +1526,7 @@ namespace LiveTesting
 			//
 
 			CerasRawConfig config = new CerasRawConfig();
-            config.DefaultTargets = TargetMember.AllPublic;
+
             var ceras = new CerasSerializer(config);
 
             var vt = ValueTuple.Create(5, "b", DateTime.Now);
@@ -1625,7 +1624,7 @@ namespace LiveTesting
             p.Other.PropertyClasses.Add(p);
 
             var config = new CerasRawConfig();
-            config.DefaultTargets = TargetMember.All;
+
 
             var ceras = new CerasSerializer(config);
             var data = ceras.Serialize(p);
@@ -1927,7 +1926,6 @@ namespace LiveTesting
         }
     }
 
-    [MemberConfig(TargetMembers = TargetMember.All)]
     class OtherPropertyClass
     {
         public PropertyClass Other { get; set; }

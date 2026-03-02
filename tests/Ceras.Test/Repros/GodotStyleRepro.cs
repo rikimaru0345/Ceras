@@ -6,7 +6,7 @@ using Xunit;
 
 // Simulate the game's assembly-level configuration
 [assembly: CerasGeneratorBlacklist("ReproGodot.*")]
-[assembly: MemberConfig(TargetMember.AllFields)]
+
 
 // Minimal stub so the source generator sees global::Godot.GodotObject in this compilation
 // and applies the GodotObject ban — exactly as it would in the real Godot game project.
@@ -109,9 +109,9 @@ namespace ReproGame
             var robust = MakeSerializer();
             var rail = new RailSegment { Curve = new Curve3D { Points = new[] { 1f, 2f, 3f } } };
 
-            // Standard Serialize/Deserialize (raw path through robust serializer)
-            var data = robust.Serialize(rail);
-            var clone = robust.Deserialize<RailSegment>(data);
+            // Standard Save/Load (raw path through robust serializer)
+            var data = robust.Save(rail, 1);
+            var clone = robust.Load<RailSegment>(data, 1);
 
             Assert.NotNull(clone.Curve);
             Assert.Equal(3, clone.Curve.Points.Length);

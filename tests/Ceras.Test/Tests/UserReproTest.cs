@@ -14,8 +14,7 @@ namespace Ceras.Test {
 	}
 
 	[CerasSerializable]
-	[MemberConfig(TargetMember.AllFields)]
-	public class ClassWithBannedFieldRepro {
+		public class ClassWithBannedFieldRepro {
 		public BannedClassRepro Banned = new BannedClassRepro();
 	}
 

@@ -26,12 +26,6 @@ namespace Ceras
 
             //
             // Set default values from attributes
-            var memberConfigAttrib = type.GetCustomAttribute<MemberConfigAttribute>();
-            if (memberConfigAttrib != null)
-            {
-                typeConfig.TargetMembers = memberConfigAttrib.TargetMembers;
-            }
-
             //
             // Constructor
             ApplyConstructorDefaults(typeConfig);
@@ -217,7 +211,6 @@ namespace Ceras
                 if(typeConfig.TypeConstruction == null)
                     typeConfig.TypeConstruction = ConstructNull.Instance;
 
-                typeConfig.TargetMembers = TargetMember.AllFields;
                 return;
             }
 
@@ -256,7 +249,6 @@ namespace Ceras
         static void ForceSerialization(TypeConfig typeConfig)
         {
             typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
-            typeConfig.TargetMembers = TargetMember.PrivateFields;
             typeConfig.CustomResolver = ForceDynamicResolver;
         }
 

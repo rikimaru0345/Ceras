@@ -12,8 +12,7 @@ namespace Ceras.Test
 
     [CerasSerializable]
     [PreviousTypeName("Ceras.Test.OldPotion")]
-    [MemberConfig(TargetMember.PublicFields)]
-    public class Potion
+        public class Potion
     {
         [CerasStableName("Heal")]
         public int HealAmount;

@@ -24,7 +24,7 @@ namespace Ceras.Test
                 config.AllowReflectionFallback = true;
                 // Must disable compression for this obviously
                 config.StringTableCompression = StringTableCompression.Disabled;
-                config.ConfigType<InterningTestPotion>().TargetMembers = TargetMember.AllFields;
+
 
                 // Force schema generation and registration
                 var info = new SchemaTypeInfo(

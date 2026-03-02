@@ -199,8 +199,6 @@ namespace Ceras.Format
                 string fieldTypeName = f.FieldType.FullName ?? f.FieldType.Name;
 
 				bool isMonomorphic = f.FieldType.IsValueType || f.FieldType.IsSealed;
-                if (f.GetCustomAttribute<MonomorphicAttribute>() != null) isMonomorphic = true;
-                if (f.GetCustomAttribute<PolymorphicAttribute>() != null) isMonomorphic = false;
 
                 fields.Add((f, new SchemaFieldInfo(stableName, new string[0], fieldTypeName, isMonomorphic)));
             }
@@ -252,8 +250,6 @@ namespace Ceras.Format
                 string fieldTypeName = f.FieldType.FullName ?? f.FieldType.Name;
 
                 bool isMonomorphic = f.FieldType.IsValueType || f.FieldType.IsSealed;
-                if (f.GetCustomAttribute<MonomorphicAttribute>() != null) isMonomorphic = true;
-                if (f.GetCustomAttribute<PolymorphicAttribute>() != null) isMonomorphic = false;
 
                 fields.Add((f, new SchemaFieldInfo(stableName, new string[0], fieldTypeName, isMonomorphic)));
             }

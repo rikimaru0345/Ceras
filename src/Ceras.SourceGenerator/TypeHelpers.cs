@@ -7,12 +7,9 @@ namespace Ceras.SourceGenerator {
 		// --- Attributes ---
 		public const string IncludeFqn = "Ceras.IncludeAttribute";
 		public const string ExcludeFqn = "Ceras.ExcludeAttribute";
-		public const string MemberConfigFqn = "Ceras.MemberConfigAttribute";
 		public const string PreviousNameFqn = "Ceras.PreviousNameAttribute";
 		public const string PreviousTypeNameFqn = "Ceras.PreviousTypeNameAttribute";
 		public const string SerializedAsFqn = "Ceras.CerasStableNameAttribute";
-		public const string MonomorphicFqn = "Ceras.MonomorphicAttribute";
-		public const string PolymorphicFqn = "Ceras.PolymorphicAttribute";
 		public const string CerasSerializableFqn = "Ceras.CerasSerializableAttribute";
 		public const string ExcludeFromDiscoveryFqn = "Ceras.ExcludeAttribute";
 		public const string BlacklistFqn = "Ceras.CerasGeneratorBlacklistAttribute";

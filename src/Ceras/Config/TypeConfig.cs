@@ -83,18 +83,6 @@
 		void ThrowCantSetResolverAndFormatter() => throw new InvalidOperationException("You can only set a custom resolver or a custom formatter instance, not both.");
 
 
-		protected TargetMember? _targetMembers;
-		public TargetMember? TargetMembers
-		{
-			set
-			{
-				ThrowIfSealed();
-				_targetMembers = value;
-			}
-
-			get => _targetMembers;
-		}
-
 		internal readonly List<MemberConfig> _allMembers;
 		public IEnumerable<MemberConfig> Members => _allMembers.Where(m => !m.IsCompilerGenerated);
 
@@ -362,19 +350,6 @@
 
 		#endregion
 
-		#region Type Settings
-
-		/// <summary>
-		/// Configure what fields and properties are included by default
-		/// </summary>
-		public TypeConfig<T> SetTargetMembers(TargetMember targets)
-		{
-			_targetMembers = targets;
-			return this;
-		}
-
-		#endregion
-
 		#region Member Config
 
 		public MemberConfig<T> ConfigMember<TMember>(Expression<Func<T, TMember>> selectMemberExpression)
@@ -452,7 +427,11 @@
 		/// Members are set in ascending order.
 		/// <para>Default: Value from [DataMember.Order] or 0 if the member has no attribute</para>
 		/// </summary>
-		public int WriteBackOrder { get; set; }
+		int _writeBackOrder;
+		public int WriteBackOrder { 
+			get => _writeBackOrder; 
+			set { TypeConfig.ThrowIfSealed(); _writeBackOrder = value; } 
+		}
 
 
 		string _explicitInclusionReason = "Error: no inclusion/exclusion override is set for this member";
@@ -546,58 +525,7 @@
 			if (HasNonSerializedAttribute && TypeConfig.Config.RespectNonSerializedAttribute)
 				return new InclusionExclusionResult(false, $"Member has [NonSerializedAttribute] and 'RespectNonSerializedAttribute' is set in the config.");
 
-			// Calculate inclusion by "TargetMember" mask
-			var requiredMask = ComputeMemberTargetMask(memberInfo);
-
-			// Type [MemberConfig]
-			if (TypeConfig.TargetMembers.HasValue)
-			{
-				if ((TypeConfig.TargetMembers.Value & requiredMask) != 0)
-					return new InclusionExclusionResult(true, needReason
-																? $"Member is '{requiredMask.Singular()}', which is included through the configuration '{TypeConfig.TargetMembers.Value}' of the declared Type '{DeclaringType.Name}'"
-																: null);
-				else
-					return new InclusionExclusionResult(false, needReason
-																? $"Member is '{requiredMask.Singular()}', which is excluded through the configuration '{TypeConfig.TargetMembers.Value}' of the declared Type '{DeclaringType.Name}'"
-																: null);
-			}
-
-			// Global config
-			var defaultTargets = TypeConfig.Config.DefaultTargets;
-
-			if ((defaultTargets & requiredMask) != 0)
-				return new InclusionExclusionResult(true, needReason
-															? $"Member is '{requiredMask.Singular()}', which is included by the 'DefaultTargets' configuration in the CerasConfig"
-															: null);
-			else
-				return new InclusionExclusionResult(false, needReason
-					? $"Member is '{requiredMask.Singular()}', which is excluded by the 'DefaultTargets' configuration in the CerasConfig"
-					: null);
-
-		}
-
-		static TargetMember ComputeMemberTargetMask(MemberInfo member)
-		{
-			if (member is FieldInfo f)
-			{
-				if (f.Name.EndsWith("k__BackingField"))
-				{
-					var match = System.Text.RegularExpressions.Regex.Match(f.Name, @"^<(.*)>k__BackingField$");
-					if (match.Success)
-					{
-						string propName = match.Groups[1].Value;
-						var prop = f.DeclaringType.GetProperty(propName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
-						if (prop != null)
-							return prop.GetGetMethod(true).IsPublic ? TargetMember.PublicFields : TargetMember.PrivateFields;
-					}
-				}
-
-				return f.IsPublic ? TargetMember.PublicFields : TargetMember.PrivateFields;
-			}
-			else if (member is PropertyInfo p)
-				return p.GetGetMethod(true).IsPublic ? TargetMember.PublicFields : TargetMember.PrivateFields;
-			else
-				throw new ArgumentOutOfRangeException();
+			return new InclusionExclusionResult(true, needReason ? "Member is a field and included by default." : null);
 		}
 
 		public override string ToString() => $"{TypeConfig.Type.FriendlyName()}.{Member.Name} ({(ComputeFinalInclusionFast() ? "Included" : "Excluded")})";

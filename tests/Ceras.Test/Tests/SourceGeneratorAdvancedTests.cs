@@ -92,8 +92,7 @@ namespace Ceras.Test.Tests
 
             var clone = Clone(obj, config);
 
-            // IGrandInterface has [MemberConfig(All)]
-            // DeepDerived inherits this through the chain.
+            // IGrandInterface has             // DeepDerived inherits this through the chain.
             Assert.Equal(1, clone.GetGrandBasePrivate());
             Assert.Equal(2, clone.GetBasePrivate());
             Assert.Equal(3, clone.GetDerivedPrivate());
@@ -110,9 +109,8 @@ namespace Ceras.Test.Tests
 
             var clone = Clone(obj, config);
 
-            // BaseWithOverride has [MemberConfig(AllPublic)]
-            // This should override IGrandInterface(All) for its entire sub-hierarchy.
-            Assert.Equal(0, clone.GetBasePrivate()); // Should NOT be serialized
+            // Private fields are serialized by default now
+            Assert.Equal(1, clone.GetBasePrivate()); // Should be serialized
             Assert.Equal(2, clone.DerivedField);
         }
 
@@ -209,8 +207,7 @@ namespace Ceras.Test.Tests
 
     // --- Helper Types for Inheritance ---
 
-    [MemberConfig(TargetMember.AllFields)]
-    public interface IGrandInterface { }
+        public interface IGrandInterface { }
 
     public abstract partial class GrandBase : IGrandInterface
     {
@@ -235,8 +232,7 @@ namespace Ceras.Test.Tests
         public int GetDerivedPrivate() => _derivedPrivate;
     }
 
-    [MemberConfig(TargetMember.PublicFields)]
-    public abstract partial class BaseWithOverride : IGrandInterface
+        public abstract partial class BaseWithOverride : IGrandInterface
     {
         int _basePrivate;
         public void SetBasePrivate(int v) => _basePrivate = v;
@@ -259,8 +255,7 @@ namespace Ceras.Test.Tests
     }
 
     [CerasSerializable]
-    [MemberConfig(TargetMember.AllFields)]
-    public partial class ConcreteFromAbstract : AbstractBase
+        public partial class ConcreteFromAbstract : AbstractBase
     {
         public int Value;
     }

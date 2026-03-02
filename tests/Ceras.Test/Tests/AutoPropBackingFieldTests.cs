@@ -38,7 +38,7 @@ namespace Ceras.Test {
 		public int x, y;
 	}
 
-	[CerasSerializable, MemberConfig(TargetMembers = TargetMember.AllFields)]
+	[CerasSerializable]
 	partial class ThingWithBackingFields {
 		public bool SomeBool { get; set; }
 		public int SomeInteger { get; set; }
@@ -46,7 +46,7 @@ namespace Ceras.Test {
 		public string Str { get; set; }
 	}
 
-	[CerasSerializable, MemberConfig(TargetMembers = TargetMember.AllFields)]
+	[CerasSerializable]
 	partial class ThingWithSerializedAs {
 		[CerasStableName("NewName")]
 		public int OldName { get; set; }

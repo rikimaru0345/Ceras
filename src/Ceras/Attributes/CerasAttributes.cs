@@ -43,46 +43,6 @@ namespace Ceras
         ForceSkip,
     }
 
-
-	/// <summary>
-	/// Configure what members to include by default in this type. You can also add [Exclude] and [Include]
-	/// to individual members to override the per-type setting.
-	/// </summary>
-	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Interface | AttributeTargets.Assembly)]
-	public sealed class MemberConfigAttribute : Attribute
-	{
-		public TargetMember TargetMembers { get; set; }
-
-		public MemberConfigAttribute(TargetMember targetMembers = TargetMember.AllFields)
-		{
-			TargetMembers = targetMembers;
-		}
-	}
-
-	/// <summary>
-	/// What members should be serialized and deserialized.
-	/// Ceras serializes fields only — never properties directly (auto-property backing fields are included).
-	/// </summary>
-	[Flags]
-	public enum TargetMember
-	{
-		None = 0,
-
-		/// <summary>Fields declared with the <c>public</c> keyword.</summary>
-		PublicFields = 1 << 0,
-		/// <summary>Fields declared with any non-public visibility (private, internal, protected).</summary>
-		PrivateFields = 1 << 1,
-
-		/// <summary>All fields, both public and private. This is the default.</summary>
-		AllFields = PublicFields | PrivateFields,
-
-		/// <summary>Alias for AllFields</summary>
-		All = AllFields,
-
-		/// <summary>Compatibility alias for PublicFields</summary>
-		AllPublic = PublicFields,
-	}
-
     /// <summary>
     /// Add this to a member if you have changed the name.
     /// Ceras will use this to map old field names to the new one in the Robust format migration engine.
@@ -195,7 +155,7 @@ namespace Ceras
     /// <c>Ceras.Generated.RobustFormatters.UseRobustFormatters(config)</c>.
     /// This replaces the old AotGenerator tool and is required for IL2CPP / AOT platforms.
     ///
-    /// When placed on an interface or abstract class with <see cref="DiscoverSubtypes"/> = true,
+    /// When placed on an interface or abstract class,
     /// the source generator automatically discovers every non-abstract type in the compilation
     /// that implements or inherits from it and generates formatters for all of them.
     /// </summary>
@@ -204,13 +164,6 @@ namespace Ceras
     {
         /// <summary>The stable name used in the binary schema. Defaults to the simple class name.</summary>
         public string StableName { get; }
-
-        /// <summary>
-        /// When true (and placed on an interface or abstract/base class), the source generator
-        /// scans the entire compilation and automatically generates formatters for every
-        /// non-abstract concrete type that implements or extends the marked type.
-        /// </summary>
-        public bool DiscoverSubtypes { get; set; } = true;
 
         public CerasSerializableAttribute(string stableName = null)
         {
@@ -263,23 +216,4 @@ namespace Ceras
 		public string Name { get; }
 		public CerasStableNameAttribute(string name) { Name = name; }
 	}
-
-	// TODO: exposing those is probably not a good idea; too big a footgun...
-	// maybe we can just improve the heuristic or so? Or tell people to seal their types?
-
-	/// <summary>
-	/// Forces a collection field to be treated as monomorphic: all elements are guaranteed to be
-	/// exactly the declared element type, so no per-element type ID is written.
-	/// Auto-detected for value types and sealed classes; use this to override for non-sealed types
-	/// you know will never be subclassed in saves.
-	/// </summary>
-	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-	internal class MonomorphicAttribute : Attribute { }
-
-	/// <summary>
-	/// Forces a collection field to be treated as polymorphic even when auto-detection would
-	/// mark it as monomorphic (e.g. a sealed class that you plan to extend later).
-	/// </summary>
-	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-	internal class PolymorphicAttribute : Attribute { }
 }

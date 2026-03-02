@@ -37,7 +37,7 @@ namespace Ceras.Test
 
             var robust = new CerasRobustSerializer(config =>
             {
-                config.DefaultTargets = TargetMember.AllFields;
+
                 // Manual registration for robust mode in tests
                 config.SchemaRegistry.Register(typeof(GameRoot), CreateSchema(typeof(GameRoot)));
                 config.SchemaRegistry.Register(typeof(ParentEntity), CreateSchema(typeof(ParentEntity)));
@@ -90,7 +90,7 @@ namespace Ceras.Test
         {
             var robust = new CerasRobustSerializer(config =>
             {
-                config.DefaultTargets = TargetMember.AllFields;
+
                 config.AllowReflectionFallback = false;
                 config.UseGeneratedFormatters();
                 // Manual registration for robust mode in tests

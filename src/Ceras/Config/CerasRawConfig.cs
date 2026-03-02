@@ -18,6 +18,10 @@ namespace Ceras
 		/// endianness and does not support version tolerance.
 		/// <para>Default: true</para>
 		/// </summary>
-		public bool UseReinterpretFormatter { get; set; } = true;
+		bool _useReinterpretFormatter = true;
+		public bool UseReinterpretFormatter { 
+			get => _useReinterpretFormatter; 
+			set { ThrowIfSealed(); _useReinterpretFormatter = value; } 
+		}
 	}
 }

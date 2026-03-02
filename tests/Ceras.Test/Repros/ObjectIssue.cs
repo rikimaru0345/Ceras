@@ -40,8 +40,7 @@ public class ObjectIssueTest : TestBase {
 }
 namespace ReproTest {
 	[CerasSerializable]
-	[MemberConfig(TargetMembers = TargetMember.AllFields)]
-	partial class Game {
+		partial class Game {
 		private object _obj;
 
 		private string _str;
@@ -69,8 +68,7 @@ namespace ReproTest {
 	}
 
 	[CerasSerializable]
-	[MemberConfig(TargetMembers = TargetMember.AllFields)]
-	interface IEntity {
+		interface IEntity {
 		int GetId();
 	}
 
@@ -78,8 +76,7 @@ namespace ReproTest {
 		public object Source; // IOutput, BeltSegment, or IPowerNode
 	}
 
-	[MemberConfig(TargetMembers = TargetMember.AllFields)]
-	partial class LogisticsManager {
+		partial class LogisticsManager {
 		// making this public fixes the issue, but why?
 		private readonly Dictionary<object, List<Connection>> _entityConnections = new();
 

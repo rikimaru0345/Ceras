@@ -10,18 +10,6 @@ namespace Tutorial
     {
         static void Main(string[] args)
         {
-            var t = new Tutorial();
-            
-            t.Step1_SimpleUsage();
-            t.Step2_Attributes();
-            t.Step3_Recycling();
-            t.Step4_KnownTypes();
-            t.Step5_CustomFormatters();
-            t.Step6_NetworkExample();
-            t.Step7_GameDatabase();
-            t.Step8_DataUpgrade();
-            t.Step10_ReadonlyHandling();
-
 
             Console.WriteLine("End of tutorial program.");
             Console.ReadLine();

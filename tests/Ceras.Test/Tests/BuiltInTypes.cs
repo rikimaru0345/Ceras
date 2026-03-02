@@ -387,7 +387,7 @@ namespace Ceras.Test
         public void BasicUsage()
         {
             var config = new CerasRawConfig();
-            config.DefaultTargets = TargetMember.AllFields;
+
             
             config.RespectNonSerializedAttribute = false;
 
