@@ -84,8 +84,10 @@ namespace Ceras
 
 		protected internal readonly CerasConfig Config;
 
+#pragma warning disable CS0618
 		readonly ReflectionFallbackResolver _dynamicResolver;
 		readonly FormatterResolverCallback[] _userResolvers;
+#pragma warning restore CS0618
 		internal readonly ITypeBinder TypeBinder;
 		readonly List<IFormatterResolver> _resolvers = new List<IFormatterResolver>();
 		readonly TypeDictionary<TypeMetaData> _metaData = new TypeDictionary<TypeMetaData>();
@@ -140,8 +142,10 @@ namespace Ceras
 			SetFormatters(typeof(Type), typeFormatter, typeFormatter);
 			SetFormatters(runtimeType, typeFormatter, typeFormatter);
 			_resolvers.Add(new ReflectionFormatterResolver(this));
+#pragma warning disable CS0618
 			_dynamicResolver = new ReflectionFallbackResolver(this);
 
+#pragma warning restore CS0618
 			ProtocolChecksum.Finish();
 
 			_instanceDataPool = new NoLockFactoryPool<InstanceData>(() => new InstanceData { ObjectCache = new ObjectCache(Config.ObjectCacheComparer), TypeCache = new TypeCache(Array.Empty<Type>()), EncounteredSchemaTypes = new HashSet<Type>() });

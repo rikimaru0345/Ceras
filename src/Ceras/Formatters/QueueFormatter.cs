@@ -6,8 +6,8 @@ namespace Ceras.Formatters
 {
     public sealed class QueueFormatter<TItem> : FormatterBase<Queue<TItem>>
     {
-        IFormatter<int> _intFormatter;
-        IFormatter<TItem> _itemFormatter;
+        IFormatter<int> _intFormatter = default!;
+        IFormatter<TItem> _itemFormatter = default!;
 
         public QueueFormatter()
         {

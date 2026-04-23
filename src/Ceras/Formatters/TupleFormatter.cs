@@ -5,7 +5,7 @@ namespace Ceras.Formatters
 {
     public sealed class TupleFormatter<T1> : FormatterBase<Tuple<T1>>
     {
-        IFormatter<T1> _item1Formatter;
+        IFormatter<T1> _item1Formatter = default!;
         public override void Serialize(IBufferWriter<byte> writer, Tuple<T1> value) => _item1Formatter.Serialize(writer, value.Item1);
         public override void Deserialize(ref SequenceReader<byte> reader, ref Tuple<T1> value)
         {
@@ -16,8 +16,8 @@ namespace Ceras.Formatters
 
     public sealed class TupleFormatter<T1, T2> : FormatterBase<Tuple<T1, T2>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
         public override void Serialize(IBufferWriter<byte> writer, Tuple<T1, T2> value)
         {
             _item1Formatter.Serialize(writer, value.Item1);
@@ -34,9 +34,9 @@ namespace Ceras.Formatters
 
     public sealed class TupleFormatter<T1, T2, T3> : FormatterBase<Tuple<T1, T2, T3>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
-        IFormatter<T3> _item3Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
+        IFormatter<T3> _item3Formatter = default!;
         public override void Serialize(IBufferWriter<byte> writer, Tuple<T1, T2, T3> value)
         {
             _item1Formatter.Serialize(writer, value.Item1);
@@ -55,10 +55,10 @@ namespace Ceras.Formatters
 
     public sealed class TupleFormatter<T1, T2, T3, T4> : FormatterBase<Tuple<T1, T2, T3, T4>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
-        IFormatter<T3> _item3Formatter;
-        IFormatter<T4> _item4Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
+        IFormatter<T3> _item3Formatter = default!;
+        IFormatter<T4> _item4Formatter = default!;
         public override void Serialize(IBufferWriter<byte> writer, Tuple<T1, T2, T3, T4> value)
         {
             _item1Formatter.Serialize(writer, value.Item1);
@@ -79,11 +79,11 @@ namespace Ceras.Formatters
 
     public sealed class TupleFormatter<T1, T2, T3, T4, T5> : FormatterBase<Tuple<T1, T2, T3, T4, T5>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
-        IFormatter<T3> _item3Formatter;
-        IFormatter<T4> _item4Formatter;
-        IFormatter<T5> _item5Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
+        IFormatter<T3> _item3Formatter = default!;
+        IFormatter<T4> _item4Formatter = default!;
+        IFormatter<T5> _item5Formatter = default!;
         public override void Serialize(IBufferWriter<byte> writer, Tuple<T1, T2, T3, T4, T5> value)
         {
             _item1Formatter.Serialize(writer, value.Item1);
@@ -106,12 +106,12 @@ namespace Ceras.Formatters
 
     public sealed class TupleFormatter<T1, T2, T3, T4, T5, T6> : FormatterBase<Tuple<T1, T2, T3, T4, T5, T6>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
-        IFormatter<T3> _item3Formatter;
-        IFormatter<T4> _item4Formatter;
-        IFormatter<T5> _item5Formatter;
-        IFormatter<T6> _item6Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
+        IFormatter<T3> _item3Formatter = default!;
+        IFormatter<T4> _item4Formatter = default!;
+        IFormatter<T5> _item5Formatter = default!;
+        IFormatter<T6> _item6Formatter = default!;
         public override void Serialize(IBufferWriter<byte> writer, Tuple<T1, T2, T3, T4, T5, T6> value)
         {
             _item1Formatter.Serialize(writer, value.Item1);
@@ -136,13 +136,13 @@ namespace Ceras.Formatters
 
     public sealed class TupleFormatter<T1, T2, T3, T4, T5, T6, T7> : FormatterBase<Tuple<T1, T2, T3, T4, T5, T6, T7>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
-        IFormatter<T3> _item3Formatter;
-        IFormatter<T4> _item4Formatter;
-        IFormatter<T5> _item5Formatter;
-        IFormatter<T6> _item6Formatter;
-        IFormatter<T7> _item7Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
+        IFormatter<T3> _item3Formatter = default!;
+        IFormatter<T4> _item4Formatter = default!;
+        IFormatter<T5> _item5Formatter = default!;
+        IFormatter<T6> _item6Formatter = default!;
+        IFormatter<T7> _item7Formatter = default!;
         public override void Serialize(IBufferWriter<byte> writer, Tuple<T1, T2, T3, T4, T5, T6, T7> value)
         {
             _item1Formatter.Serialize(writer, value.Item1);

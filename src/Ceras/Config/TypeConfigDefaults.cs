@@ -255,8 +255,10 @@ namespace Ceras
 
         static IFormatter ForceDynamicResolver(CerasSerializer ceras, Type type)
         {
+#pragma warning disable CS0618
             var r = ceras.GetFormatterResolver<ReflectionFallbackResolver>();
             return r.GetFormatter(type);
+#pragma warning restore CS0618
         }
     }
 }

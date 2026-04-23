@@ -9,7 +9,7 @@ namespace Ceras.Resolvers
     /// </summary>
     public sealed class EnumAsStringFormatter<T> : FormatterBase<T> where T : System.Enum
     {
-        SizeLimits _sizeLimits;
+        SizeLimits _sizeLimits = default!;
 
         public override void Serialize(IBufferWriter<byte> writer, T value)
         {

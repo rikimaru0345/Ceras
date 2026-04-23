@@ -14,7 +14,9 @@
         static readonly Dictionary<Type, int> _typeToBlittableSize = new Dictionary<Type, int>();
         static readonly Dictionary<Type, int> _typeToUnsafeSize = new Dictionary<Type, int>();
 
+#pragma warning disable CS8632
         public static object Invoke(this MethodBase method, object target, object[]? arguments = null)
+#pragma warning restore CS8632
         {
             try
             {

@@ -115,7 +115,7 @@
                                 return t;
                             }
                         }
-                        catch (Exception e)
+                        catch (Exception)
                         {
                             // Some assemblies might throw when GetType is called (e.g. dynamic assemblies or invalid names)
                             // We log this but keep searching.
