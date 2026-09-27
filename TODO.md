@@ -70,15 +70,6 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   `ReadOnlyCollection<T>` subclass is also admitted structurally but the dedicated
   formatter constructs the base wrapper, and `ReferenceFormatter` fails with a bare
   `ArgumentNullException("method")` on Save; reject or support this variant too.
-- **Polymorphic built-in generic values disappear on migration.** A closed built-in
-  collection held in an `object` slot is written as a `Type` value (definition id +
-  generic arguments), but `ReadPolymorphicValue` treats the first tag as a schema
-  type id and can return null without consuming the collection. Reproduced for
-  `List<int>` and `Queue<int>`; test with a trailing field and matching-layout
-  control, then align the interpreter with the writer's real type-value grammar.
-  The tag space already distinguishes well-known Type values from manifest ids, so
-  no format change is required. **Decision:** decode recursive nested Type values
-  (`List<List<int>>`, jagged arrays, etc.) now, not a temporary reject.
 - **Polymorphic multidimensional arrays are rank-blind.** `object` containing
   `int[,]` can decode as `int[]` and corrupt a following field even on the same
   build: the Type-value tag records only the element type. **Decision:** reject
