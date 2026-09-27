@@ -25,7 +25,7 @@
             Assert.Equal(new byte[1] { 0 }, data); // Strings do not use the reference formatter (maybe adding that later as an option if any good use cases are presented). The string formatter uses its own bias-encoding for even more efficient packing, so 0 = null, 1 = string of length 0, 2 = string of length 1, ...
 
             data = _ceras.Serialize(0);
-            Assert.Equal(new byte[1] { 0 }, data); // VarInt encoding should not use a bias
+            Assert.Equal(new byte[] { 0, 0, 0, 0 }, data); // Fixed 4-byte little-endian; no bias
         }
 
         [Fact]
@@ -34,16 +34,16 @@
             byte[] data;
 
             data = _ceras.Serialize(2147483647);
-            Assert.Equal(5, data.Length);
+            Assert.Equal(4, data.Length);            // fixed 4-byte LE
 
             data = _ceras.Serialize(12);
-            Assert.Single(data);
+            Assert.Equal(4, data.Length);
 
             data = _ceras.Serialize(-50);
-            Assert.Single(data);
+            Assert.Equal(4, data.Length);
 
             data = _ceras.Serialize(600);
-            Assert.Equal(2, data.Length);
+            Assert.Equal(4, data.Length);
 
 
             data = _ceras.Serialize<short>(1);

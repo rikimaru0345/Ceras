@@ -14,6 +14,65 @@ namespace Ceras.Format
         SingleToDouble,
     }
 
+    /// <summary>
+    /// How a type's <c>[CerasConstructor]</c> is supplied while migrating: the constructor, and which
+    /// serialized member feeds each of its parameters (a parameter with no member is transient
+    /// construction input and receives its own declared default, exactly like the generated reader
+    /// passes <c>default(T)</c>).
+    /// </summary>
+    sealed class CtorArgumentPlan
+    {
+        readonly Dictionary<FieldInfo, int> _slotByField;
+        readonly bool[] _mapped;
+
+        public ConstructorInfo Constructor { get; }
+        public ParameterInfo[] Parameters { get; }
+
+        public CtorArgumentPlan(ConstructorInfo constructor, ParameterInfo[] parameters,
+            Dictionary<FieldInfo, int> slotByField, bool[] mapped)
+        {
+            Constructor = constructor;
+            Parameters = parameters;
+            _slotByField = slotByField;
+            _mapped = mapped;
+        }
+
+        /// <summary>The parameter index a member feeds, or -1 when the member is not a constructor argument.</summary>
+        public int SlotForField(FieldInfo field)
+            => field != null && _slotByField.TryGetValue(field, out int slot) ? slot : -1;
+
+        public bool IsMapped(int slot) => _mapped[slot];
+
+        /// <summary>
+        /// The value for a parameter that no serialized member feeds: its declared default, or
+        /// <c>default(T)</c> when it has none. Mirrors <c>RobustCodeEmitter.FormatDefaultArgument</c>.
+        /// </summary>
+        public object DefaultFor(int slot)
+        {
+            var parameter = Parameters[slot];
+            var parameterType = parameter.ParameterType;
+
+            if (parameter.HasDefaultValue)
+            {
+                object declared = parameter.DefaultValue;
+                if (declared == null) return parameterType.IsValueType ? Activator.CreateInstance(parameterType) : null;
+                if (parameterType.IsEnum) return Enum.ToObject(parameterType, declared);
+                try
+                {
+                    if (declared.GetType() == parameterType) return declared;
+                    return Convert.ChangeType(declared, parameterType, System.Globalization.CultureInfo.InvariantCulture);
+                }
+                catch (Exception e) when (e is InvalidCastException or FormatException or OverflowException)
+                {
+                    throw new Ceras.Exceptions.CerasSchemaException(
+                        $"Cannot migrate a [CerasConstructor] parameter '{parameter.Name}' of '{parameter.Member.DeclaringType?.FullName}': " +
+                        $"its declared default '{declared}' is not a valid '{parameterType.Name}'.", e);
+                }
+            }
+
+            return parameterType.IsValueType ? Activator.CreateInstance(parameterType) : null;
+        }
+    }
     struct FieldMapping
     {
         public OldFieldSchema OldField;
@@ -43,7 +102,14 @@ namespace Ceras.Format
         // traversal engine once per plan (the migration context is identical for every instance).
         public Action<CerasSerializer, object> BeforeInvoker;
         public Action<CerasSerializer, object> AfterInvoker;
-        public Dictionary<long, long> EnumValueMap;
+        /// <summary>Old raw bits -> current raw bits, matched by enum member name. See <see cref="EnumBits"/>.</summary>
+        public Dictionary<ulong, ulong> EnumValueMap;
+
+        // How this type's [CerasConstructor] gets its values while migrating, resolved once per load
+        // (the same resolution the generator does at compile time). Null when the type needs no
+        // constructor arguments.
+        public CtorArgumentPlan CtorArgs;
+        public bool CtorArgsResolved;
     }
 
     static class MigrationPlanBuilder
@@ -106,7 +172,20 @@ namespace Ceras.Format
                         || TypeIdsCompatible(oldField.TypeId, newField.FieldType, oldById, registry);
                     
                     if (!compatible)
-                        newField = null;
+                    {
+                        // The field still exists by name but its type changed in a way Ceras cannot convert
+                        // (double -> decimal, long -> DateTimeOffset, int -> short, ...). Treating that as a
+                        // *removed* field silently dropped the stored value and left the declared default —
+                        // data loss on a perfectly valid save, visible only through
+                        // MigrationContext.SkippedFields. Refuse the load instead, naming the field and both
+                        // types. Performing the conversions (with their overflow/rounding rules) is the
+                        // "defined lossless conversions" milestone; until then, never lose a value quietly.
+                        throw new Ceras.Exceptions.CerasSchemaException(
+                            $"Cannot migrate the field '{oldField.StableName}' of '{old.StableName}': the save file stores it as " +
+                            $"'{DescribeTypeId(oldField.TypeId, oldById)}' but the current type declares '{newField.FieldType.FullName}', " +
+                            "and Ceras has no defined conversion between them. Keep the original type, rename one of them, or " +
+                            $"mark the field [Exclude]. (Widening conversions Ceras does perform: {string.Join(", ", KnownCoercions)}.)");
+                    }
                     else
                     {
                         var sa = newField.GetCustomAttribute<CerasStableNameAttribute>();
@@ -212,6 +291,22 @@ namespace Ceras.Format
             return CoercionKind.None;
         }
 
+        /// <summary>The widening conversions Ceras performs today, for the error message.</summary>
+        static readonly string[] KnownCoercions =
+        {
+            "Int16 -> Int32", "Int32 -> Int64", "Int32 -> Single", "Int32 -> Double", "Single -> Double",
+        };
+
+        /// <summary>Names the type a field's stored type id refers to, for an actionable error message.</summary>
+        static string DescribeTypeId(int typeId, Dictionary<int, OldTypeSchema> oldById)
+        {
+            if (WellKnownTypes.TryGetType(typeId, out var wellKnown))
+                return TypeIdentity.GetCanonicalName(wellKnown);
+            if (oldById != null && oldById.TryGetValue(typeId, out var old))
+                return old.StableName;
+            return $"type id {typeId}";
+        }
+
         static bool TypeIdsCompatible(int oldTypeId, Type newFieldType, Dictionary<int, OldTypeSchema> oldById, SchemaRegistry registry)
         {
             // 1. Well-known ID match
@@ -312,20 +407,21 @@ namespace Ceras.Format
             return null;
         }
 
-        static Dictionary<long, long> BuildEnumMap(OldTypeSchema old, Type currentType)
+        static Dictionary<ulong, ulong> BuildEnumMap(OldTypeSchema old, Type currentType)
         {
-            var map = new Dictionary<long, long>();
-            var nameToCurrentValue = new Dictionary<string, long>(StringComparer.Ordinal);
-            
+            var map = new Dictionary<ulong, ulong>();
+            var nameToCurrentValue = new Dictionary<string, ulong>(StringComparer.Ordinal);
+
             foreach (var f in currentType.GetFields(BindingFlags.Public | BindingFlags.Static))
             {
                 if (!f.IsLiteral) continue;
-                
-                long currentVal = Convert.ToInt64(f.GetValue(null));
-                
+
+                // Raw bits: a ulong enum member above long.MaxValue must not overflow here.
+                ulong currentVal = EnumBits.ToRawBits(f.GetValue(null), currentType);
+
                 var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
                 nameToCurrentValue[sa?.Name ?? f.Name] = currentVal;
-                
+
                 foreach (var pn in f.GetCustomAttributes<PreviousNameAttribute>())
                 {
                     if (pn.Name != null) nameToCurrentValue[pn.Name] = currentVal;
@@ -336,7 +432,7 @@ namespace Ceras.Format
 
             foreach (var oldEv in old.EnumValues)
             {
-                if (nameToCurrentValue.TryGetValue(oldEv.Name, out long currentVal))
+                if (nameToCurrentValue.TryGetValue(oldEv.Name, out ulong currentVal))
                     map[oldEv.Value] = currentVal;
             }
             return map;

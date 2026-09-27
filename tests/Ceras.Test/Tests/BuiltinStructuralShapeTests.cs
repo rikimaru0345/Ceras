@@ -55,14 +55,6 @@ namespace Ceras.Test.BuiltinShapes
 
         static CerasRobustSerializer New() => new CerasRobustSerializer(c => c.UseGeneratedFormatters(Ctx));
 
-        static byte[] SlowPath(byte[] bytes)
-        {
-            var copy = (byte[])bytes.Clone();
-            copy[RobustHeader.FingerprintOffset] ^= 0xFF;
-            FixRobustChecksum(copy);
-            return copy;
-        }
-
         static void AssertAllMembers(BsStructuralHolder clone)
         {
             Assert.NotNull(clone);
@@ -154,9 +146,9 @@ namespace Ceras.Test.BuiltinShapes
                 ("Legacy.Nullable`1<System.Int32>", WellKnownTypes.Nullable, new[] { WellKnownTypes.Int32 }),
             }, payload: w =>
             {
-                SerializerBinary.WriteByte(w, 1);          // presence
-                SerializerBinary.WriteInt32(w, 77);        // int element
-                SerializerBinary.WriteInt32(w, 4242);      // After
+                SerializerBinary.WriteByte(w, 1);                 // presence
+                SerializerBinary.WriteInt32Fixed(w, 77);          // int element (fixed 4-byte LE)
+                SerializerBinary.WriteInt32Fixed(w, 4242);        // After
             });
 
             var loaded = New().Load<BsNullableOnlyHolder>(bytes, 1);

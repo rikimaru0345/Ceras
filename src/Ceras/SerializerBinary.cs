@@ -351,7 +351,7 @@ namespace Ceras
         /// <summary>
         /// Fixed 10-byte <see cref="DateTimeOffset"/> encoding: 8-byte ticks (<c>value.Ticks</c>, the
         /// local wall-clock ticks), then 2-byte offset in minutes. Matches <c>DateTimeOffsetFormatter</c>
-        /// and the migration interpreter (TODO 0.5 item 6). The offset is limited to ±13:59 (a valid
+        /// and the migration interpreter. The offset is limited to ±13:59 (a valid
         /// <see cref="TimeSpan"/> offset), so it fits in the signed 16-bit range.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -369,7 +369,19 @@ namespace Ceras
         {
             long ticks = ReadInt64Fixed(ref reader);
             short minutes = ReadInt16Fixed(ref reader);
-            return new DateTimeOffset(ticks, TimeSpan.FromMinutes(minutes));
+            try
+            {
+                return new DateTimeOffset(ticks, TimeSpan.FromMinutes(minutes));
+            }
+            catch (ArgumentException e)
+            {
+                // The bytes decoded fine but describe a value no CLR instance can hold (ticks past
+                // DateTime.MaxValue, or an offset outside the ±14h the BCL allows). That is corruption,
+                // not a decoder bug, and must be reported like every other invalid payload.
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt DateTimeOffset payload: ticks {ticks} with offset {minutes} minutes cannot be represented " +
+                    $"(a DateTimeOffset needs ticks within [0, {DateTime.MaxValue.Ticks}] and an offset within ±14 hours).", e);
+            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -391,7 +403,7 @@ namespace Ceras
         /// Fixed 16-byte decimal encoding: the four <see cref="decimal.GetBits(decimal)"/> words in
         /// order (lo, mid, hi, flags), each little-endian. This is the layout described by
         /// <see cref="Ceras.Format.WellKnownTypes.Decimal"/> and read by the migration interpreter, so
-        /// the writer, the generated reader and the interpreter all agree (TODO 0.5 item 5).
+        /// the writer, the generated reader and the interpreter all agree.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteDecimal<TWriter>(TWriter writer, decimal value) where TWriter : IBufferWriter<byte>
@@ -431,7 +443,27 @@ namespace Ceras
                 bits[2] = BinaryPrimitives.ReadInt32LittleEndian(temp.Slice(8));
                 bits[3] = BinaryPrimitives.ReadInt32LittleEndian(temp.Slice(12));
             }
-            return new decimal(bits);
+            return ToDecimal(bits);
+        }
+
+        /// <summary>
+        /// Builds a CLR <see cref="decimal"/> from four decoded words, reporting an impossible
+        /// scale/sign/reserved-bit combination as data corruption instead of letting the BCL
+        /// constructor's <see cref="ArgumentException"/> escape the decoder.
+        /// </summary>
+        static decimal ToDecimal(ReadOnlySpan<int> bits)
+        {
+            try
+            {
+                return new decimal(bits);
+            }
+            catch (ArgumentException e)
+            {
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt decimal payload: the four words [{bits[0]}, {bits[1]}, {bits[2]}, {bits[3]}] " +
+                    "(lo, mid, hi, flags) describe a value no decimal can hold (the scale in flags bits 16-23 must be " +
+                    "0-28, and bits 6-30 are reserved and must be zero).", e);
+            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

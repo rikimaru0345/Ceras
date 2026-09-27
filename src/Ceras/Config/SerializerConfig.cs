@@ -1,5 +1,6 @@
 namespace Ceras
 {
+	using System;
 	using Ceras.Format;
 
 	/// <summary>
@@ -26,6 +27,37 @@ namespace Ceras
 		internal readonly RobustConfig _robustConfig = new RobustConfig();
 
 		/// <summary>
+		/// Declares a root shape this context may serialize, for the shapes no generated manifest can
+		/// describe: a one-dimensional array, a built-in closed collection (<c>List&lt;T&gt;</c>,
+		/// <c>Dictionary&lt;K,V&gt;</c>, <c>HashSet&lt;T&gt;</c>, <c>Queue&lt;T&gt;</c>, <c>Stack&lt;T&gt;</c>),
+		/// a <c>KeyValuePair</c>, a tuple, or an enum. Call it before the first <c>Save</c>/<c>Load</c>:
+		/// a context has one finite manifest, so nothing may join it afterwards.
+		/// <para>
+		/// The equivalent compile-time declaration is a context-scoped
+		/// <c>[assembly: CerasKnownType(typeof(T), "context")]</c>, which the generator turns into the
+		/// same registration. Both are order-independent: the shapes are folded in at the first seal in
+		/// canonical-name order, so two serializers that declare the same roots in different order produce
+		/// the same ids, fingerprint and bytes.
+		/// </para>
+		/// </summary>
+		public CerasRobustConfig DeclareRoot(Type rootType)
+		{
+			SchemaRegistry.DeclareRoot(rootType);
+			return this;
+		}
+
+		/// <summary>Declares several allowed root shapes (see <see cref="DeclareRoot(Type)"/>).</summary>
+		public CerasRobustConfig DeclareRoots(params Type[] rootTypes)
+		{
+			if (rootTypes == null) return this;
+			foreach (var type in rootTypes) DeclareRoot(type);
+			return this;
+		}
+
+		/// <summary>Declares an allowed root shape (see <see cref="DeclareRoot(Type)"/>).</summary>
+		public CerasRobustConfig DeclareRoot<T>() => DeclareRoot(typeof(T));
+
+		/// <summary>
 		/// The schema registry that tracks type field layouts for version tolerance and migration.
 		/// Populated automatically as types are serialized; used during deserialization to detect schema changes.
 		/// </summary>
@@ -37,9 +69,17 @@ namespace Ceras
 
 		/// <summary>
 		/// The assembly whose <see cref="CerasBuildTimestampAttribute"/> supplies the default producer
-		/// build timestamp (the assembly that created the serializer). Set by the serializer constructor.
+		/// build timestamp (the assembly that constructed the serializer). Every constructor hands the
+		/// assembly here, so no construction path can silently degrade to the unknown-build mode, and the
+		/// timestamp is resolved once instead of on every read.
 		/// </summary>
-		internal void SetOwningAssembly(System.Reflection.Assembly assembly) => _owningAssembly = assembly;
+		internal void SetOwningAssembly(System.Reflection.Assembly assembly)
+		{
+			_owningAssembly = assembly;
+			if (_buildTimestampSet) return;
+			_buildTimestamp = BuildInfo.GetProducerBuildTimestamp(assembly);
+			_buildTimestampSet = true;
+		}
 
 		/// <summary>
 		/// Producer build timestamp (UTC ticks) embedded once per owning build/context in every robust
@@ -56,11 +96,7 @@ namespace Ceras
 		/// </summary>
 		public long BuildTimestamp
 		{
-			get
-			{
-				if (_buildTimestampSet) return _buildTimestamp;
-				return BuildInfo.GetProducerBuildTimestamp(_owningAssembly);
-			}
+			get => _buildTimestamp;
 			set { ThrowIfSealed(); _buildTimestamp = value; _buildTimestampSet = true; }
 		}
 

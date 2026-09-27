@@ -67,17 +67,17 @@ namespace ReproGame
         {
             if (value == null)
             {
-                SerializerBinary.WriteInt32(writer, -1);
+                SerializerBinary.WriteInt32Fixed(writer, -1);
                 return;
             }
-            SerializerBinary.WriteInt32(writer, value.Points.Length);
+            SerializerBinary.WriteInt32Fixed(writer, value.Points.Length);
             for (int i = 0; i < value.Points.Length; i++)
                 SerializerBinary.WriteFloat32Fixed(writer, value.Points[i]);
         }
 
         public void Deserialize(ref SequenceReader<byte> reader, ref Curve3D value)
         {
-            int count = SerializerBinary.ReadInt32(ref reader);
+            int count = SerializerBinary.ReadInt32Fixed(ref reader);
             if (count == -1)
             {
                 value = null;

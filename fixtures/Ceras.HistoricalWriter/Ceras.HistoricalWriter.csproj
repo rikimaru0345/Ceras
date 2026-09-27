@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The historical writer: it produces the checked-in golden fixtures that the cross-version tests in
+    tests/Ceras.Test load. It is intentionally NOT referenced by the test project — the v1 CLR types
+    must be absent from the reader build, so a reader test can only see the bytes and the current model.
+
+    Regenerate the fixtures only when intentionally updating them: run this project in Release with the
+    single argument "out tests/Ceras.Test/Fixtures/HistoricalV1". See README.md for the exact command.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <RootNamespace>Ceras.HistoricalWriter</RootNamespace>
+    <AssemblyName>Ceras.HistoricalWriter</AssemblyName>
+    <!-- Fixtures are golden bytes: a clean build must not warn about them. -->
+    <NoWarn>$(NoWarn);CS0162;CS0649</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Ceras/Ceras.csproj" />
+    <!-- The generator has to run here too: the v1 model is a real generated manifest, so the
+         fixtures are written exactly as an old build of the game would have written them. -->
+    <ProjectReference Include="../../src/Ceras.SourceGenerator/Ceras.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="true" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
+  </ItemGroup>
+
+</Project>

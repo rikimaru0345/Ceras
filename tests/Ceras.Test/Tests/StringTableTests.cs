@@ -75,32 +75,31 @@ namespace Ceras.Test
             Assert.Equal(1, emptyIdx);
         }
 
-        // ── WriteIndex (Manual VarInt Index) ─────────────────────────────────
+        // ── WriteIndex (Manual Fixed-Width Index) ─────────────────────────────
 
-        static void WriteVarIntIndex(IBufferWriter<byte> writer, StringInternTable table, string s)
+        static void WriteFixedIndex(IBufferWriter<byte> writer, StringInternTable table, string s)
         {
             int index = table.GetIndex(s);
-            SerializerBinary.WriteUInt32(writer, (uint)index);
+            SerializerBinary.WriteUInt32Fixed(writer, (uint)index);
         }
 
         [Fact]
-        public void WriteIndex_Null_WritesOneZeroByte()
+        public void WriteIndex_Null_WritesFourZeroBytes()
         {
             var table  = new StringInternTable();
             var writer = new System.Buffers.ArrayBufferWriter<byte>();
-            WriteVarIntIndex(writer, table, null);
+            WriteFixedIndex(writer, table, null);
             var buf = writer.WrittenSpan;
-            Assert.Equal(1, buf.Length);
-            Assert.Equal(0, buf[0]);
+            Assert.Equal(new byte[] { 0, 0, 0, 0 }, buf.ToArray());
         }
 
         [Fact]
-        public void WriteIndex_AdvancesOffsetByVarIntSize()
+        public void WriteIndex_AdvancesOffsetByFourBytes()
         {
             var table  = new StringInternTable();
             var writer = new System.Buffers.ArrayBufferWriter<byte>();
-            WriteVarIntIndex(writer, table, "test");
-            Assert.Equal(1, writer.WrittenCount); // Index 1 is 1 byte
+            WriteFixedIndex(writer, table, "test");
+            Assert.Equal(4, writer.WrittenCount); // a string-table index is a fixed 4-byte field
         }
 
         // ── Flush / Load round-trip ───────────────────────────────────────────
@@ -224,10 +223,10 @@ namespace Ceras.Test
 
             // Simulate writing some string values inline
             var writer = new System.Buffers.ArrayBufferWriter<byte>();
-            WriteVarIntIndex(writer, intern, null);
-            WriteVarIntIndex(writer, intern, "Excalibur");
-            WriteVarIntIndex(writer, intern, "Mjolnir");
-            WriteVarIntIndex(writer, intern, "Excalibur"); // duplicate
+            WriteFixedIndex(writer, intern, null);
+            WriteFixedIndex(writer, intern, "Excalibur");
+            WriteFixedIndex(writer, intern, "Mjolnir");
+            WriteFixedIndex(writer, intern, "Excalibur"); // duplicate
 
             // Flush string table into a separate buffer
             var tableBuf    = new byte[256];
@@ -241,7 +240,7 @@ namespace Ceras.Test
             Assert.Equal("Excalibur", StringTable.ReadString(ref reader, table));
             Assert.Equal("Mjolnir",   StringTable.ReadString(ref reader, table));
             Assert.Equal("Excalibur", StringTable.ReadString(ref reader, table));
-            Assert.Equal(4, reader.Consumed); // 4 indices × 1 byte each (indices 0, 1, 2, 1)
+            Assert.Equal(16, reader.Consumed); // 4 indices × 4 bytes each (indices 0, 1, 2, 1)
         }
 
         // ── ReadString — bounds checking ──────────────────────────────────────
@@ -251,7 +250,7 @@ namespace Ceras.Test
         {
             var table = new string[] { null, "only" }; // index 0=null, 1="only"
             var writer = new System.Buffers.ArrayBufferWriter<byte>();
-            SerializerBinary.WriteUInt32(writer, 99); // out of range
+            SerializerBinary.WriteUInt32Fixed(writer, 99); // out of range
             var reader = new System.Buffers.SequenceReader<byte>(new System.Buffers.ReadOnlySequence<byte>(writer.WrittenMemory));
             
             try
@@ -272,8 +271,8 @@ namespace Ceras.Test
         {
             var intern = new StringInternTable();
             var writer = new System.Buffers.ArrayBufferWriter<byte>(1); // tiny
-            WriteVarIntIndex(writer, intern, "grow me");
-            Assert.Equal(1, writer.WrittenCount);
+            WriteFixedIndex(writer, intern, "grow me");
+            Assert.Equal(4, writer.WrittenCount);
         }
 
         [Fact]

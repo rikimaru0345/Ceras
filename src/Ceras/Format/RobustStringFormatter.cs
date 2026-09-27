@@ -10,7 +10,7 @@ namespace Ceras.Format
         {
             if (value == null)
             {
-                SerializerBinary.WriteUInt32(writer, 0);
+                SerializerBinary.WriteUInt32Fixed(writer, 0);
                 return;
             }
 
@@ -18,12 +18,12 @@ namespace Ceras.Format
             if (table == null) throw new InvalidOperationException("RobustContext not active");
 
             int index = table.GetIndex(value);
-            SerializerBinary.WriteUInt32(writer, (uint)index);
+            SerializerBinary.WriteUInt32Fixed(writer, (uint)index);
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref string value)
         {
-            uint index = SerializerBinary.ReadUInt32(ref reader);
+            uint index = SerializerBinary.ReadUInt32Fixed(ref reader);
             if (index == 0)
             {
                 value = null;

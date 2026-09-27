@@ -84,27 +84,30 @@ namespace Ceras.Formatters
 
     public sealed class Int32Formatter : FormatterBase<int>
     {
+        // Fixed 4-byte little-endian, exactly like the generated writers (which emit WriteInt32Fixed
+        // unconditionally because a schema's fixedByteSize claim cannot depend on the config).
         public override void Serialize(IBufferWriter<byte> writer, int value)
         {
-            SerializerBinary.WriteInt32(writer, value);
+            SerializerBinary.WriteInt32Fixed(writer, value);
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref int value)
         {
-            value = SerializerBinary.ReadInt32(ref reader);
+            value = SerializerBinary.ReadInt32Fixed(ref reader);
         }
     }
 
     public sealed class UInt32Formatter : FormatterBase<uint>
     {
+        // Fixed 4-byte little-endian; see Int32Formatter.
         public override void Serialize(IBufferWriter<byte> writer, uint value)
         {
-            SerializerBinary.WriteUInt32(writer, value);
+            SerializerBinary.WriteUInt32Fixed(writer, value);
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref uint value)
         {
-            value = SerializerBinary.ReadUInt32(ref reader);
+            value = SerializerBinary.ReadUInt32Fixed(ref reader);
         }
     }
 
@@ -137,7 +140,9 @@ namespace Ceras.Formatters
     /// <summary>
     /// Fixed 16-byte decimal formatter. Both the robust generated reader and the migration interpreter
     /// encode a decimal as its four <see cref="decimal.GetBits(decimal)"/> words (lo, mid, hi, flags)
-    /// little-endian, matching <see cref="Ceras.Format.WellKnownTypes.Decimal"/> (TODO 0.5 item 5).
+    /// little-endian, matching <see cref="Ceras.Format.WellKnownTypes.Decimal"/>. This is the only
+    /// decimal encoding in the library: decimal is excluded from the reinterpret fast path, so a
+    /// decimal[], a KeyValuePair<decimal,_> and any struct containing a decimal write it too.
     /// </summary>
     public sealed class DecimalFormatter : FormatterBase<decimal>
     {

@@ -25,14 +25,12 @@ namespace Ceras.Test
 
             typeof(float),
             typeof(double),
-            typeof(decimal),
 
             typeof(int[]),
             typeof(bool[]),
             typeof(float[]),
             typeof(double[]),
-            typeof(decimal[]),
-            
+
             typeof(Vector3),
             typeof(Half2),
             typeof(BigStruct),
@@ -52,7 +50,14 @@ namespace Ceras.Test
             typeof(UIntPtr),
             typeof(IntPtr[]),
             typeof(UIntPtr[]),
-            
+
+            // decimal.IsPrimitive is true, but its CLR memory order is not the documented payload order
+            // (decimal.GetBits: lo, mid, hi, flags), so it must never be reinterpreted — neither alone
+            // nor inside a decimal[], a KeyValuePair<decimal,_> or any struct that contains one.
+            typeof(decimal),
+            typeof(decimal[]),
+            typeof(KeyValuePair<decimal, int>),
+
             // Reference types
             typeof(TestBase),
             typeof(List<int>),

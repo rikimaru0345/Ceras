@@ -254,14 +254,6 @@ namespace Ceras.Test.DeserializationCallbacks
     {
         static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
-        static byte[] ForceSlowPath(byte[] data)
-        {
-            var clone = (byte[])data.Clone();
-            clone[RobustHeader.FingerprintOffset] ^= 0xFF;
-            FixRobustChecksum(clone);
-            return clone;
-        }
-
         [Fact]
         public void Generated_BeforeAndAfter_FireExactlyOnce_InOrder()
         {
@@ -389,7 +381,7 @@ namespace Ceras.Test.DeserializationCallbacks
 
             CbContextCounters.SawNone = false;
             CbContextCounters.SawMigrated = false;
-            var slow = Generated().Load<CbMigrationContextModel>(ForceSlowPath(bytes), 1);
+            var slow = Generated().Load<CbMigrationContextModel>(SlowPath(bytes), 1);
             Assert.Equal(1, slow.Value);
             Assert.True(CbContextCounters.SawMigrated);
             Assert.False(CbContextCounters.SawNone);
@@ -420,7 +412,7 @@ namespace Ceras.Test.DeserializationCallbacks
             var parent = new CbParent { Name = "parent", First = child, Second = child };
             parent.Children.Add(child);
             child.Parent = parent;
-            var bytes = ForceSlowPath(Generated().Save(parent, 1));
+            var bytes = SlowPath(Generated().Save(parent, 1));
 
             CbGraphCounters.ChildCallbacks = 0;
             var loaded = Generated().Load<CbParent>(bytes, 1);

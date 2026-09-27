@@ -69,7 +69,9 @@ namespace Ceras.Format
     {
         public static string ReadString(ref SequenceReader<byte> reader, string[] table)
         {
-            uint index = SerializerBinary.ReadUInt32(ref reader);
+            // A string-table index is a fixed 4-byte field in both regions (payload: written by
+            // RobustStringFormatter; schema: written by SchemaSection.WriteInternedString).
+            uint index = SerializerBinary.ReadUInt32Fixed(ref reader);
             if (index >= (uint)table.Length) throw new InvalidOperationException("String index out of range");
             return table[index];
         }
@@ -84,12 +86,23 @@ namespace Ceras.Format
 
             if (compression == StringTableCompression.Deflate)
             {
-                using var ms = new MemoryStream(data, offset, length);
-                using var deflate = new DeflateStream(ms, CompressionMode.Decompress);
-                using var decompressedMs = new MemoryStream();
-                deflate.CopyTo(decompressedMs);
-                var decompressed = decompressedMs.ToArray();
-                sequence = new ReadOnlySequence<byte>(decompressed);
+                try
+                {
+                    using var ms = new MemoryStream(data, offset, length);
+                    using var deflate = new DeflateStream(ms, CompressionMode.Decompress);
+                    using var decompressedMs = new MemoryStream();
+                    deflate.CopyTo(decompressedMs);
+                    var decompressed = decompressedMs.ToArray();
+                    sequence = new ReadOnlySequence<byte>(decompressed);
+                }
+                catch (Exception e) when (e is InvalidDataException or IOException or ArgumentException)
+                {
+                    // The region does not hold a decompressible stream — a corrupt or mis-offset table.
+                    // That is corruption, not a decoder bug, and it must not escape as a raw BCL exception.
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        $"Corrupt string table: the region at [{offset}, {offset + length}) could not be decompressed " +
+                        $"({e.GetType().Name}: {e.Message}).", e);
+                }
             }
             else
             {

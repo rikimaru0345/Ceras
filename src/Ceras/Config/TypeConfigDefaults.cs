@@ -41,13 +41,13 @@ namespace Ceras
             // 1. Arrays, statics, and manually handled types
             if (CerasSerializer.IsFormatterConstructed(type) || type.IsStatic() || type.IsArray || (typeof(System.Collections.IEnumerable).IsAssignableFrom(type) && type != typeof(string)))
             {
-                // Collections are "formatter constructed" in the sense that their formatter builds the
-                // instance, so no CLR constructor is run for a fresh object. But a reference type still
-                // needs *some* non-null allocation before its members/elements are read: the built-in
-                // collection formatter constructs the actual instance, and the reference wrapper only
-                // needs a placeholder for object-cache registration. ConstructNull returns null, which
-                // breaks that, so a concrete collection subclass (e.g. MyList<T> : List<T>) is allocated
-                // uninitialized instead (TODO 0.5).
+                // Every concrete IEnumerable reference type (not just collection subclasses such as
+                // MyList<T> : List<T>) is "formatter constructed" in the sense that its formatter builds
+                // the instance, so no CLR constructor is run for a fresh object. But a reference type
+                // still needs *some* non-null allocation before its members/elements are read: the
+                // built-in collection formatter constructs the actual instance, and the reference
+                // wrapper only needs a placeholder for object-cache registration. ConstructNull returns
+                // null, which breaks that, so such a type is allocated uninitialized instead.
                 typeConfig.TypeConstruction = type.IsValueType || type.IsAbstract || type.IsInterface || type.IsArray
                     ? TypeConstruction.Null()
                     : TypeConstruction.ByUninitialized();
@@ -246,13 +246,12 @@ namespace Ceras
                 }
             }
 
-            // ReadOnlyCollection
-            if (type.Assembly == typeof(ReadOnlyCollection<>).Assembly)
-                if (type.FullName.StartsWith("System.Collections.ObjectModel.ReadOnlyCollection"))
-                {
-                    ForceSerialization(typeConfig);
-                    return;
-                }
+            // ReadOnlyCollection<T> is deliberately NOT handled here: it has no public parameterless
+            // constructor and no Add, so it used to be dumped field-by-field through the reflection
+            // fallback. That payload is not the List<T> payload the robust schema records for a collection
+            // shape, so such a file could not be read back by the migration interpreter. It now has a
+            // dedicated formatter (ReadOnlyCollectionFormatter) that writes the schema-described payload
+            // and rebuilds the instance by wrapping a List<T>.
         }
 
         static void ForceSerialization(TypeConfig typeConfig)

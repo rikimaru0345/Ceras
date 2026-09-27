@@ -139,13 +139,13 @@ namespace Ceras.Test.Contexts
         public void RootOnlyInOtherContext_Save_FailsWithUndeclaredTypeMessage()
         {
             // SaveOnlyType belongs to SaveGame, not Network.
-            var saveEx = Assert.Throws<Ceras.Exceptions.CerasException>(
+            var saveEx = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(
                 () => Network().Save(new SaveOnlyType { Value = 1 }, 1));
             Assert.Contains("not declared", saveEx.Message);
             Assert.Contains("CerasContext", saveEx.Message);
 
             // NetworkOnlyType belongs to Network, not SaveGame.
-            var netEx = Assert.Throws<Ceras.Exceptions.CerasException>(
+            var netEx = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(
                 () => SaveGame().Save(new NetworkOnlyType { Value = 1 }, 1));
             Assert.Contains("not declared", netEx.Message);
             Assert.Contains("CerasContext", netEx.Message);
@@ -191,7 +191,7 @@ namespace Ceras.Test.Contexts
             }, 1);
 
             // SaveRoot is not part of the Network manifest.
-            var ex = Assert.Throws<Ceras.Exceptions.CerasException>(
+            var ex = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(
                 () => Network().Load<SaveRoot>(bytes, 1));
             Assert.Contains("not declared", ex.Message);
             Assert.Contains("CerasContext", ex.Message);

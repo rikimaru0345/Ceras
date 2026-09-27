@@ -211,7 +211,7 @@ namespace Ceras.Formatters
                 // TItem came from an ICollection<>/IDictionary<> interface, but the concrete collection's
                 // own enumeration element differs (e.g. MySet : HashSet<long> : IEnumerable<long> with an
                 // explicit IEnumerable<object>). Fall back to the non-generic enumerator and coerce
-                // (TODO 0.5).
+                // as the built-in collection formatter does.
                 var e = (System.Collections.IEnumerable)value;
                 if (typeof(TItem).IsAssignableFrom(typeof(object)))
                 {

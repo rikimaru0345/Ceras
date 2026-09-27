@@ -265,12 +265,20 @@
             if (!type.IsValueType)
                 return false;
 
-
             if (type.IsEnum)
                 return true; // enums are auto-layout, but they're always blittable
 
             if (type.IsPointer || type == typeof(IntPtr) || type == typeof(UIntPtr))
                 return false; // pointers are primitive, but we can never blit them (because they can be a different size)
+
+            if (type == typeof(decimal))
+            {
+                // decimal.IsPrimitive is true, but the CLR field order (_flags, _hi, _lo, _mid) is not the
+                // order the format documents (decimal.GetBits order: lo, mid, hi, flags). Blitting it would
+                // make a decimal[] element, a KeyValuePair<decimal,_> and any struct containing a decimal
+                // use a different encoding than a standalone decimal — and an endian-dependent one.
+                return false;
+            }
 
             if (type.IsPrimitive)
                 return true; // any other primitive can definitely be blitted

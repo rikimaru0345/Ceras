@@ -75,8 +75,8 @@ namespace Ceras.Test.Fingerprint
             return registry.ComputeFingerprint();
         }
 
-        /// <summary>Fingerprint of a single enum entry with a long value.</summary>
-        static ulong EnumFingerprint(string name, long value) =>
+        /// <summary>Fingerprint of a single enum entry given as raw bits (the schema's representation).</summary>
+        static ulong EnumFingerprint(string name, ulong value) =>
             Fingerprint(MakeInfo(false, kind: SchemaTypeKind.Enum, underlyingTypeName: "System.Int64",
                 enumValues: new[] { new SchemaEnumValueInfo(name, value) }));
 
@@ -272,11 +272,19 @@ namespace Ceras.Test.Fingerprint
         [Fact]
         public void Fingerprint_Hashes_All_Enum_Value_Bits()
         {
+            // The schema stores raw bits, so a signed value and the same bits as an unsigned one are the
+            // same entry; every *distinct* bit pattern must still hash differently.
+            static ulong Bits(long signed) => unchecked((ulong)signed);
+
             // (uint)1 == (uint)4294967297; the old truncation made these collide.
-            Assert.NotEqual(EnumFingerprint("X", 1), EnumFingerprint("X", 4294967297L));
-            Assert.NotEqual(EnumFingerprint("X", 1), EnumFingerprint("X", -4294967295L));
-            Assert.NotEqual(EnumFingerprint("X", 0xFFFFFFFFL), EnumFingerprint("X", long.MaxValue));
-            Assert.NotEqual(EnumFingerprint("X", long.MinValue), EnumFingerprint("X", 0));
+            Assert.NotEqual(EnumFingerprint("X", 1), EnumFingerprint("X", 4294967297UL));
+            Assert.NotEqual(EnumFingerprint("X", 1), EnumFingerprint("X", Bits(-4294967295L)));
+            Assert.NotEqual(EnumFingerprint("X", 0xFFFFFFFFUL), EnumFingerprint("X", Bits(long.MaxValue)));
+            Assert.NotEqual(EnumFingerprint("X", Bits(long.MinValue)), EnumFingerprint("X", 0));
+
+            // The unsigned half of the range is representable at all now.
+            Assert.NotEqual(EnumFingerprint("X", ulong.MaxValue), EnumFingerprint("X", Bits(long.MaxValue)));
+            Assert.NotEqual(EnumFingerprint("X", 0x8000000000000000UL), EnumFingerprint("X", 0));
         }
 
         [Fact]
@@ -322,7 +330,7 @@ namespace Ceras.Test.Fingerprint
             registry.Register(typeof(ProbeType), MakeInfo(false, stableName: "Ceras.Test.Fingerprint.A"));
             registry.Seal();
 
-            Assert.Throws<InvalidOperationException>(() =>
+            Assert.Throws<Ceras.Exceptions.CerasSchemaException>(() =>
                 registry.Register(typeof(ProbeType2), MakeInfo(false, stableName: "Ceras.Test.Fingerprint.B")));
 
             // The baked schema/fingerprint are untouched by the rejected registration.

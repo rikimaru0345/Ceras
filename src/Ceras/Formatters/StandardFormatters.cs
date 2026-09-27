@@ -21,7 +21,9 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref DateTimeOffset value)
         {
-            value = new DateTimeOffset(SerializerBinary.ReadInt64Fixed(ref reader), TimeSpan.FromMinutes(SerializerBinary.ReadInt16Fixed(ref reader)));
+            // Same decoder as the robust path, so an impossible ticks/offset combination is reported as
+            // data corruption here too instead of escaping as ArgumentOutOfRangeException.
+            value = SerializerBinary.ReadDateTimeOffset(ref reader);
         }
     }
 

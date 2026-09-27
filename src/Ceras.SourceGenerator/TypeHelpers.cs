@@ -119,7 +119,7 @@ namespace Ceras.SourceGenerator {
 		/// structural shapes, but a C# tuple type displays as <c>(int, string)</c> rather than
 		/// <c>global::System.ValueTuple&lt;int, string&gt;</c>, so the namespace check alone would
 		/// mistake them for user types and emit a bogus field-based Struct schema for them
-		/// (TODO 0.5 item 3).
+		/// (see the Tuple/ValueTuple/KeyValuePair/Nullable structural shapes).
 		/// </summary>
 		static bool IsSystemTupleType(ITypeSymbol type) {
 			if (type is not INamedTypeSymbol named || !named.IsGenericType) return false;

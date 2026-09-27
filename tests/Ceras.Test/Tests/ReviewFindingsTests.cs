@@ -18,9 +18,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using Xunit;
 using Ceras;
 using Ceras.Exceptions;
@@ -77,6 +79,16 @@ namespace Ceras.Test.ReviewFindings
         public int Value;
     }
 
+    public class RfPre05List : List<int> { }
+
+    [CerasContext("RfHeader")]
+    [CerasSerializable]
+    public class RfPre05Holder
+    {
+        public RfPre05List Items;
+        public int After;
+    }
+
     // ── Context: strict version of the finite-context rule for closed user generics ────
 
     [CerasSerializable]
@@ -91,6 +103,39 @@ namespace Ceras.Test.ReviewFindings
     public class RfPairRoot
     {
         public RfPair<int, string> Declared;
+    }
+
+    // ── Context: a retyped scalar field, and the raw-path decimal containers ─────────────
+
+    /// <summary>
+    /// The current build declares <see cref="Value"/> as <c>decimal</c> with a field initializer, so a
+    /// value that is silently dropped is distinguishable from one that was migrated.
+    /// </summary>
+    [CerasSerializable]
+    public class RfRetypedScalar
+    {
+        public decimal Value = 7m;
+        public int After;
+    }
+
+    [CerasSerializable]
+    public class RfInt64Model
+    {
+        public long Value;
+        public int After;
+    }
+
+    [CerasContext("RfRetype")]
+    [CerasSerializable]
+    public class RfRetypeRoots
+    {
+        public RfRetypedScalar Retyped;
+        public RfInt64Model Widening;
+    }
+
+    public struct RfDecimalBox
+    {
+        public decimal Amount;
     }
 
     /// <summary>
@@ -119,7 +164,7 @@ namespace Ceras.Test.ReviewFindings
             Assert.Equal(7, fast.After);
 
             // The migration interpreter must preserve it too.
-            var slow = s.Load<RfSharedTupleHolder>(MigrationPath(bytes), 1);
+            var slow = s.Load<RfSharedTupleHolder>(SlowPath(bytes), 1);
             Assert.NotNull(slow.Second);
             Assert.Same(slow.First, slow.Second);
             Assert.Equal(42, slow.Second.Item1);
@@ -139,7 +184,7 @@ namespace Ceras.Test.ReviewFindings
 
             Assert.Equal(shared, s.Load<RfSharedValueTupleHolder>(bytes, 1).First);
 
-            var slow = s.Load<RfSharedValueTupleHolder>(MigrationPath(bytes), 1);
+            var slow = s.Load<RfSharedValueTupleHolder>(SlowPath(bytes), 1);
             Assert.Equal(shared, slow.First);
             Assert.Equal(shared, slow.Second);
             Assert.Equal(7, slow.After);
@@ -171,14 +216,14 @@ namespace Ceras.Test.ReviewFindings
             Assert.Equal(5, fast.After);
             Assert.Equal(new[] { 1, 7 }, fast.Items);
 
-            var ex = Record.Exception(() => s.Load<RfReadOnlyCollectionHolder>(MigrationPath(bytes), 1));
+            var ex = Record.Exception(() => s.Load<RfReadOnlyCollectionHolder>(SlowPath(bytes), 1));
             if (ex != null)
             {
                 Assert.IsAssignableFrom<CerasException>(ex);
             }
             else
             {
-                var slow = s.Load<RfReadOnlyCollectionHolder>(MigrationPath(bytes), 1);
+                var slow = s.Load<RfReadOnlyCollectionHolder>(SlowPath(bytes), 1);
                 Assert.Equal(5, slow.After);
                 Assert.Equal(new[] { 1, 7 }, slow.Items);
             }
@@ -199,14 +244,14 @@ namespace Ceras.Test.ReviewFindings
             Assert.Equal(6, fast.After);
             Assert.Equal(2, fast.Items.Count);
 
-            var ex = Record.Exception(() => s.Load<RfReadOnlyDictionaryHolder>(MigrationPath(bytes), 1));
+            var ex = Record.Exception(() => s.Load<RfReadOnlyDictionaryHolder>(SlowPath(bytes), 1));
             if (ex != null)
             {
                 Assert.IsAssignableFrom<CerasException>(ex);
             }
             else
             {
-                var slow = s.Load<RfReadOnlyDictionaryHolder>(MigrationPath(bytes), 1);
+                var slow = s.Load<RfReadOnlyDictionaryHolder>(SlowPath(bytes), 1);
                 Assert.Equal(6, slow.After);
                 Assert.Equal(2, slow.Items.Count);
             }
@@ -275,6 +320,153 @@ namespace Ceras.Test.ReviewFindings
             FixRobustChecksum(bytes);
 
             AssertRejectedOnBothPaths(s, bytes, () => s.Load<decimal>(bytes, 1));
+        }
+
+        // ── Finding: a retyped scalar field was classified as *removed* and lost its value ──────
+        //
+        // On the migration path DetectCoercion only knows five widening conversions, so everything else
+        // fell through to TypeIdsCompatible, which accepts a matching well-known id (or object) only. A
+        // double -> decimal (or long -> DateTimeOffset, int -> short, ...) retyping was therefore
+        // classified as a *removed* field: the value was skipped and the new field kept its declared
+        // default, observable only through MigrationContext.SkippedFields — silent data loss on a valid
+        // save. The load must now refuse the file and name the field and both types.
+        [Fact]
+        public void Retyped_Scalar_Field_Is_Rejected_Not_Silently_Dropped()
+        {
+            // A hand-built legacy file: 'Value' was stored as System.Double (42.5), while the current CLR
+            // type declares it as a decimal initialized to 7. No historical CLR type is needed.
+            var bytes = BuildLegacyFile(
+                typeof(RfRetypedScalar),
+                "Ceras.Test.ReviewFindings.RfRetypedScalar",
+                new[]
+                {
+                    new SchemaFieldInfo("Value", Array.Empty<string>(), "System.Double", true),
+                    new SchemaFieldInfo("After", Array.Empty<string>(), "System.Int32", true),
+                },
+                payload =>
+                {
+                    SerializerBinary.WriteDouble64Fixed(payload, 42.5);
+                    SerializerBinary.WriteInt32Fixed(payload, 3);
+                });
+
+            var s = New("RfRetype");
+
+            var ex = Assert.Throws<CerasSchemaException>(() => s.Load<RfRetypedScalar>(bytes, 1));
+            Assert.Contains("Value", ex.Message, StringComparison.Ordinal);      // the field
+            Assert.Contains("System.Double", ex.Message, StringComparison.Ordinal); // what the file stores
+            Assert.Contains("System.Decimal", ex.Message, StringComparison.Ordinal); // what the code declares
+
+            // A retype Ceras *can* widen still migrates (and the following field proves alignment).
+            var widening = BuildLegacyFile(
+                typeof(RfInt64Model),
+                "Ceras.Test.ReviewFindings.RfInt64Model",
+                new[]
+                {
+                    new SchemaFieldInfo("Value", Array.Empty<string>(), "System.Int32", true),
+                    new SchemaFieldInfo("After", Array.Empty<string>(), "System.Int32", true),
+                },
+                payload =>
+                {
+                    SerializerBinary.WriteInt32Fixed(payload, 42);
+                    SerializerBinary.WriteInt32Fixed(payload, 3);
+                });
+
+            var migrated = s.Load<RfInt64Model>(widening, 1);
+            Assert.Equal(42L, migrated.Value);
+            Assert.Equal(3, migrated.After);
+        }
+
+        // ── Finding: a pre-0.5 file described a collection member as an empty class schema ─────
+        //
+        // Before the format learned to describe collection shapes structurally, such a member was
+        // recorded as a class schema with no fields while the payload was a count plus elements. Reading
+        // it as a field-less class consumes nothing, so the interpreter desynchronized silently: a
+        // following `int` member decoded as 1027 instead of 9, with no error at all. Such saves are not
+        // migratable, and the interpreter has to say so instead of returning garbage.
+        [Fact]
+        public void Pre05_Empty_Class_Schema_For_A_Collection_Is_Rejected()
+        {
+            var bytes = BuildPre05CollectionFile();
+
+            var ex = Assert.Throws<CerasSchemaException>(() => New("RfHeader").Load<RfPre05Holder>(bytes, 1));
+            Assert.Contains("RfPre05List", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("desynchronize", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // The two shapes whose schema says "a List<>/Dictionary<,> payload" but whose writers did not
+        // write one: ReadOnlyCollection<T> was dumped field-by-field through the reflection fallback
+        // (its private items/count fields) and ReadOnlyDictionary<K,V> wrote an unbiased count plus whole
+        // KeyValuePair values. Both now write the payload their schema describes, which is what makes the
+        // migration path able to read them at all; these pins fix those bytes.
+        [Fact]
+        public void ReadOnlyCollection_Writes_The_List_Payload_Its_Schema_Describes()
+        {
+            var s = New("RfNoCtorCollection");
+            var bytes = s.Save(new RfReadOnlyCollectionHolder
+            {
+                Items = new ReadOnlyCollection<int>(new List<int> { 1, 7 }),
+                After = 5,
+            }, 1);
+
+            var payload = PayloadOf(bytes);
+            int offset = SkipRootIdAndMarker(payload);
+
+            // reference marker (bias 5 + RefNewValueSameType) then the element count with bias 1
+            Assert.Equal(5 + Protocol.RefNewValueSameType, payload[offset++]);
+            Assert.Equal(3, payload[offset++]);                 // varint(count + bias) for 2 elements
+            Assert.Equal(1, BitConverter.ToInt32(payload, offset));
+            Assert.Equal(7, BitConverter.ToInt32(payload, offset + 4));
+            Assert.Equal(5, BitConverter.ToInt32(payload, offset + 8)); // the following member
+            Assert.Equal(17, payload.Length);
+
+            // The instance itself is still rebuilt as a real ReadOnlyCollection wrapping a List<int>.
+            var loaded = s.Load<RfReadOnlyCollectionHolder>(SlowPath(bytes), 1);
+            Assert.IsType<ReadOnlyCollection<int>>(loaded.Items);
+            Assert.Equal(new[] { 1, 7 }, loaded.Items);
+            Assert.Equal(5, loaded.After);
+        }
+
+        [Fact]
+        public void ReadOnlyDictionary_Writes_The_Dictionary_Payload_Its_Schema_Describes()
+        {
+            var s = New("RfNoCtorCollection");
+            var bytes = s.Save(new RfReadOnlyDictionaryHolder
+            {
+                Items = new ReadOnlyDictionary<string, int>(new Dictionary<string, int> { ["a"] = 1, ["b"] = 2 }),
+                After = 6,
+            }, 1);
+
+            var payload = PayloadOf(bytes);
+            int offset = SkipRootIdAndMarker(payload);
+            Assert.Equal(5 + Protocol.RefNewValueSameType, payload[offset++]);
+            Assert.Equal(3, payload[offset++]); // varint(count + bias) for 2 entries
+
+            // Two entries, each a 4-byte string-table index then the int value, then the following member.
+            Assert.Equal(1, BitConverter.ToInt32(payload, offset + 4));
+            Assert.Equal(2, BitConverter.ToInt32(payload, offset + 12));
+            Assert.Equal(6, BitConverter.ToInt32(payload, offset + 16));
+
+            var loaded = s.Load<RfReadOnlyDictionaryHolder>(SlowPath(bytes), 1);
+            Assert.IsType<ReadOnlyDictionary<string, int>>(loaded.Items);
+            Assert.Equal(2, loaded.Items.Count);
+            Assert.Equal(1, loaded.Items["a"]);
+            Assert.Equal(2, loaded.Items["b"]);
+            Assert.Equal(6, loaded.After);
+        }
+
+        static byte[] PayloadOf(byte[] bytes)
+        {
+            RobustHeader.Read(bytes, out _, out _, out _, out long dataSectionOffset,
+                out long stringTableOffset, out _);
+            return new ReadOnlySpan<byte>(bytes, (int)dataSectionOffset, (int)(stringTableOffset - dataSectionOffset)).ToArray();
+        }
+
+        /// <summary>Skips the root type id and the root's reference marker, returning the offset after them.</summary>
+        static int SkipRootIdAndMarker(byte[] payload)
+        {
+            int offset = 0;
+            SchemaSection.ReadLeb128(payload, ref offset);
+            return offset + 1;
         }
 
         // ── Finding: a serializer built from a config does not learn its owning assembly ──
@@ -365,18 +557,6 @@ namespace Ceras.Test.ReviewFindings
 
         static CerasRobustSerializer New(string context) => new CerasRobustSerializer(c => c.UseGeneratedFormatters(context));
 
-        /// <summary>
-        /// Forces the migration interpreter (mismatching layout fingerprint) while keeping the
-        /// file's CRC valid, so only the interpreter's behaviour is under test.
-        /// </summary>
-        static byte[] MigrationPath(byte[] bytes)
-        {
-            var copy = (byte[])bytes.Clone();
-            copy[RobustHeader.FingerprintOffset] ^= 0xFF;
-            FixRobustChecksum(copy);
-            return copy;
-        }
-
         /// <summary>Byte offset of the root value (just past the leading root type id).</summary>
         static int PayloadStart(byte[] bytes)
         {
@@ -401,9 +581,95 @@ namespace Ceras.Test.ReviewFindings
             var fastEx = Record.Exception(() => fastLoad());
             Assert.IsType<CerasDataCorruptionException>(fastEx);
 
-            var slowBytes = MigrationPath(corrupt);
+            var slowBytes = SlowPath(corrupt);
             var slowEx = Record.Exception(() => s.Load<T>(slowBytes, 1));
             Assert.IsType<CerasDataCorruptionException>(slowEx);
+        }
+
+        /// <summary>
+        /// A file shaped like a pre-0.5 save: the collection member is described by an empty class schema
+        /// while its payload holds what the built-in collection formatter writes.
+        /// </summary>
+        static byte[] BuildPre05CollectionFile()
+        {
+            var oldRegistry = new CerasRobustConfig().SchemaRegistry;
+            oldRegistry.Register(typeof(RfPre05Holder), new SchemaTypeInfo(
+                "Ceras.Test.ReviewFindings.RfPre05Holder", Array.Empty<string>(), SchemaTypeKind.Class,
+                new[]
+                {
+                    new SchemaFieldInfo("Items", Array.Empty<string>(), "Ceras.Test.ReviewFindings.RfPre05List", false),
+                    new SchemaFieldInfo("After", Array.Empty<string>(), "System.Int32", true),
+                }, 0));
+            oldRegistry.Register(typeof(RfPre05List), new SchemaTypeInfo(
+                "Ceras.Test.ReviewFindings.RfPre05List", Array.Empty<string>(),
+                SchemaTypeKind.Class, Array.Empty<SchemaFieldInfo>(), 0));
+            oldRegistry.TryGetId(typeof(RfPre05Holder), out int holderId);
+
+            var buffer = new byte[1024];
+            int offset = 0;
+            RobustHeader.WritePlaceholder(ref buffer, ref offset, CerasRobustSerializer.FormatVersion, 1, 0);
+            var intern = new StringInternTable();
+            SchemaSection.Write(ref buffer, ref offset, oldRegistry, intern);
+            int schemaStringOffset = offset;
+            intern.Flush(ref buffer, ref offset);
+            int dataStart = offset;
+
+            var payload = new ArrayBufferWriter<byte>();
+            SchemaSection.WriteLeb128(payload, (uint)holderId);
+            SerializerBinary.WriteUInt32Bias(payload, Protocol.RefNewValueSameType, Protocol.RefBias);
+            SerializerBinary.WriteUInt32Bias(payload, Protocol.RefNewValueSameType, Protocol.RefBias);
+            SerializerBinary.WriteUInt32Bias(payload, 2, 1);      // the collection payload the old file holds
+            SerializerBinary.WriteInt32Fixed(payload, 4);
+            SerializerBinary.WriteInt32Fixed(payload, 5);
+            SerializerBinary.WriteInt32Fixed(payload, 9);         // After
+
+            var data = payload.WrittenSpan;
+            SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
+            data.CopyTo(buffer.AsSpan(offset));
+            offset += data.Length;
+            int stringTableStart = offset;
+            new StringInternTable().Flush(ref buffer, ref offset, StringTableCompression.Disabled);
+            RobustHeader.FinalizeHeader(buffer, offset, 0, schemaStringOffset, dataStart, stringTableStart, 0UL);
+            return buffer[..offset];
+        }
+
+        /// <summary>
+        /// Encodes a complete robust file (header + schema + one class payload) for a schema that
+        /// differs from the current generated manifest: the deliberately wrong fingerprint forces the
+        /// migration interpreter, and the stable name resolves the old schema to the current CLR type.
+        /// </summary>
+        static byte[] BuildLegacyFile(Type clrType, string stableName, SchemaFieldInfo[] oldFields,
+            Action<ArrayBufferWriter<byte>> writePayload)
+        {
+            var oldRegistry = new CerasRobustConfig().SchemaRegistry;
+            oldRegistry.Register(clrType, new SchemaTypeInfo(stableName, Array.Empty<string>(),
+                SchemaTypeKind.Class, oldFields, 0));
+            oldRegistry.TryGetId(clrType, out int oldTypeId);
+
+            var buffer = new byte[1024];
+            int offset = 0;
+            RobustHeader.WritePlaceholder(ref buffer, ref offset, CerasRobustSerializer.FormatVersion, 1, 0);
+
+            var intern = new StringInternTable();
+            SchemaSection.Write(ref buffer, ref offset, oldRegistry, intern);
+            int schemaStringOffset = offset;
+            intern.Flush(ref buffer, ref offset);
+            int dataStart = offset;
+
+            var payload = new ArrayBufferWriter<byte>();
+            SchemaSection.WriteLeb128(payload, (uint)oldTypeId);
+            SerializerBinary.WriteUInt32Bias(payload, Protocol.RefNewValueSameType, Protocol.RefBias);
+            writePayload(payload);
+
+            var data = payload.WrittenSpan;
+            SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
+            data.CopyTo(buffer.AsSpan(offset));
+            offset += data.Length;
+
+            int stringTableStart = offset;
+            new StringInternTable().Flush(ref buffer, ref offset, StringTableCompression.Disabled);
+            RobustHeader.FinalizeHeader(buffer, offset, 0, schemaStringOffset, dataStart, stringTableStart, 0UL);
+            return buffer[..offset];
         }
     }
 
@@ -414,20 +680,45 @@ namespace Ceras.Test.ReviewFindings
     public class ReviewFindingsPins : TestBase
     {
         // The raw (non-robust) serializer switched decimal from ReinterpretFormatter<decimal>
-        // (raw CLR memory: flags word first) to DecimalFormatter (decimal.GetBits order). The
-        // new layout is the one Format/LAYOUT.md and the migration interpreter already
-        // specified, but nothing pinned the raw path, so the change was silent.
+        // (raw CLR memory: _flags, _hi, _lo, _mid) to DecimalFormatter (decimal.GetBits order).
+        // The new layout is the one Format/LAYOUT.md and the migration interpreter already
+        // specified, but nothing pinned the raw path, so the change was silent. Worse, the reinterpret
+        // fast path stayed enabled for decimal itself (decimal.IsPrimitive is true), so a decimal[]
+        // element, a KeyValuePair<decimal,_> and any struct containing a decimal were still blitted
+        // from CLR memory — the same value written two different ways depending on whether the user
+        // wrote [] or List<>, and endian-dependent besides. decimal is now excluded from
+        // IsBlittableType, so every shape below writes the documented GetBits layout.
         [Fact]
         public void Raw_Decimal_Uses_The_Documented_GetBits_Layout()
         {
             var raw = new CerasFastSerializer();
+            var expected = GetBitsBytes(42.5m);
 
-            var value = 42.5m;
-            var bytes = raw.Serialize(value);
+            // The scalar, and the array that used to be blitted element-wise.
+            Assert.Equal(expected, raw.Serialize(42.5m));
+            Assert.Equal(42.5m, raw.Deserialize<decimal>(expected));
 
-            Assert.Equal(16, bytes.Length);
-            Assert.Equal(GetBitsBytes(value), bytes);
-            Assert.Equal(value, raw.Deserialize<decimal>(bytes));
+            var array = raw.Serialize(new[] { 42.5m });
+            Assert.Equal(16 + 2, array.Length);                // root reference marker + count (varint) + 16 payload bytes
+            Assert.Equal(expected, array.Skip(2).ToArray()); // the element itself
+            Assert.Equal(42.5m, raw.Deserialize<decimal[]>(array)[0]);
+
+            // A struct containing a decimal, and a KeyValuePair<decimal,_> (a dictionary key used to be
+            // blitted together with 4 bytes of trailing padding), must not be reinterpreted either.
+            var rawWithFallback = new CerasFastSerializer(c => c.AllowReflectionFallback = true);
+
+            var box = rawWithFallback.Serialize(new RfDecimalBox { Amount = 42.5m });
+            Assert.Equal(expected, box);
+            Assert.Equal(new RfDecimalBox { Amount = 42.5m }, rawWithFallback.Deserialize<RfDecimalBox>(box));
+
+            var pair = rawWithFallback.Serialize(new KeyValuePair<decimal, int>(42.5m, 3));
+            Assert.Equal(20, pair.Length);
+            Assert.Equal(expected, pair.Take(16).ToArray());  // the key
+            Assert.Equal(new KeyValuePair<decimal, int>(42.5m, 3), rawWithFallback.Deserialize<KeyValuePair<decimal, int>>(pair));
+
+            // The shapes that already agreed must keep agreeing.
+            Assert.Equal(expected, raw.Serialize(new List<decimal> { 42.5m }).Skip(2).ToArray());
+            Assert.Equal(expected, raw.Serialize(new Dictionary<decimal, int> { { 42.5m, 3 } }).Skip(2).Take(16).ToArray());
         }
 
         [Fact]

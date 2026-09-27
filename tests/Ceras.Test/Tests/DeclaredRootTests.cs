@@ -19,7 +19,12 @@ namespace Ceras.Test.Declared
     /// </summary>
     public class DeclaredRootTests
     {
-        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
+        // The allowed structural root shapes, declared up front for the finite manifest.
+        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c =>
+        {
+            c.UseGeneratedFormatters("Tests");
+            c.DeclareRoots(typeof(List<int>), typeof(Dictionary<string, int>), typeof(int[]));
+        });
 
         [Fact]
         public void CollectionRoot_RoundTrips()
@@ -56,7 +61,9 @@ namespace Ceras.Test.Declared
         public void UndeclaredUserType_Save_ThrowsActionableError()
         {
             var robust = Generated();
-            var ex = Assert.Throws<Ceras.Exceptions.CerasException>(() => robust.Save(new UndeclaredThing { X = 1 }, 1));
+            // An undeclared type is a declaration/schema bug, so it is reported as a CerasSchemaException (which is
+            // still a CerasException) and can be caught without matching on message text.
+            var ex = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(() => robust.Save(new UndeclaredThing { X = 1 }, 1));
 
             Assert.Contains("not declared", ex.Message);
             Assert.Contains("CerasKnownType", ex.Message);
@@ -67,7 +74,7 @@ namespace Ceras.Test.Declared
         {
             // Produce bytes for a declared type, then attempt to load them as an undeclared type.
             var bytes = Generated().Save(new List<int> { 1 }, 1);
-            var ex = Assert.Throws<Ceras.Exceptions.CerasException>(() => Generated().Load<UndeclaredThing>(bytes, 1));
+            var ex = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(() => Generated().Load<UndeclaredThing>(bytes, 1));
             Assert.Contains("not declared", ex.Message);
         }
     }

@@ -147,14 +147,6 @@ namespace Ceras.Test.ConstructionContract
     {
         static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
-        static byte[] ForceSlowPath(byte[] data)
-        {
-            var clone = (byte[])data.Clone();
-            clone[RobustHeader.FingerprintOffset] ^= 0xFF;
-            FixRobustChecksum(clone);
-            return clone;
-        }
-
         /// <summary>Runs the same assertion against a fresh instance on both readers.</summary>
         static void LoadBoth<T>(byte[] bytes, Func<T> makeExisting, Action<T> assert) where T : class
         {
@@ -163,7 +155,7 @@ namespace Ceras.Test.ConstructionContract
             assert(generated);
 
             var interpreter = makeExisting();
-            Generated().Load(ref interpreter, ForceSlowPath(bytes), 1);
+            Generated().Load(ref interpreter, SlowPath(bytes), 1);
             assert(interpreter);
         }
 
@@ -246,7 +238,7 @@ namespace Ceras.Test.ConstructionContract
 
             var interpArray = new[] { 9, 9, 9 };
             var interp = new ContractRoot { Numbers = interpArray };
-            Generated().Load(ref interp, ForceSlowPath(bytes), 1);
+            Generated().Load(ref interp, SlowPath(bytes), 1);
             Assert.Same(interpArray, interp.Numbers);
         }
 
@@ -266,7 +258,7 @@ namespace Ceras.Test.ConstructionContract
             Assert.Same(fast.First, fast.Second);
             Assert.Equal(1, ((ContractChild)fast.First).Id);
 
-            var slow = Generated().Load<ArrayBeforeRefRoot>(ForceSlowPath(bytes), 1);
+            var slow = Generated().Load<ArrayBeforeRefRoot>(SlowPath(bytes), 1);
             Assert.Equal(new[] { 1, 2, 3 }, slow.Numbers);
             Assert.Same(slow.First, slow.Second);
             Assert.Equal(1, ((ContractChild)slow.First).Id);
@@ -290,7 +282,7 @@ namespace Ceras.Test.ConstructionContract
             Assert.Equal(2, ((ContractChild)fast.First).Id);
             Assert.Same(fast.First, fast.Second);
 
-            var slow = Generated().Load<KvpBeforeRefRoot>(ForceSlowPath(bytes), 1);
+            var slow = Generated().Load<KvpBeforeRefRoot>(SlowPath(bytes), 1);
             Assert.Equal(5, slow.Pair.Key);
             Assert.Equal(1, slow.Pair.Value.Id);
             Assert.Equal(2, ((ContractChild)slow.First).Id);
@@ -329,7 +321,7 @@ namespace Ceras.Test.ConstructionContract
 
             var interp = new ContractCtorNode(0);
             ContractCtorCounter.Calls = 0;
-            Generated().Load(ref interp, ForceSlowPath(bytes), 1);
+            Generated().Load(ref interp, SlowPath(bytes), 1);
             Assert.Equal(11, interp.Value);
             Assert.Equal(0, ContractCtorCounter.Calls);
         }
@@ -345,8 +337,8 @@ namespace Ceras.Test.ConstructionContract
 
             var writer = new ArrayBufferWriter<byte>();
             SerializerBinary.WriteUInt32Bias(writer, 2, 1);
-            SerializerBinary.WriteInt32(writer, 1);
-            SerializerBinary.WriteInt32(writer, 2);
+            SerializerBinary.WriteInt32Fixed(writer, 1);
+            SerializerBinary.WriteInt32Fixed(writer, 2);
 
             var reader = new SequenceReader<byte>(new ReadOnlySequence<byte>(writer.WrittenMemory));
             formatter.Deserialize(ref reader, ref existing);
@@ -366,7 +358,7 @@ namespace Ceras.Test.ConstructionContract
                 {
                     new SchemaFieldInfo("Kept", Array.Empty<string>(), "System.Int32", true),
                 },
-                payload => SerializerBinary.WriteInt32(payload, 7));
+                payload => SerializerBinary.WriteInt32Fixed(payload, 7));
 
             var loaded = Generated().Load<AddedFieldModel>(bytes, 1);
 

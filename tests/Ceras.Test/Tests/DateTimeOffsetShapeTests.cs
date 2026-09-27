@@ -27,14 +27,6 @@ namespace Ceras.Test.BuiltinShapes
 
         static CerasRobustSerializer New() => new CerasRobustSerializer(c => c.UseGeneratedFormatters(Ctx));
 
-        static byte[] SlowPath(byte[] bytes)
-        {
-            var copy = (byte[])bytes.Clone();
-            copy[RobustHeader.FingerprintOffset] ^= 0xFF;
-            FixRobustChecksum(copy);
-            return copy;
-        }
-
         static byte[] Payload<T>(T value)
         {
             var s = New();

@@ -353,7 +353,8 @@ namespace Ceras.SourceGenerator
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) { noFormatterReason[type] = "it is an interface or abstract type"; continue; }
                 if (IsOpenType(type)) { noFormatterReason[type] = "it is an open generic definition"; continue; }
                 if (IsWellKnownType(type)) { noFormatterReason[type] = "it uses a built-in formatter"; continue; }
-                if (MemberExplorer.IsCollectionFormatterType(type)) { noFormatterReason[type] = "it is handled by the built-in collection formatter"; continue; }
+                // IsCollectionFormatterType is a strict subset of this check (it calls IsCollectionType
+                // as its first condition), so one branch covers both cases.
                 if (MemberExplorer.IsCollectionType(type)) { noFormatterReason[type] = "it is handled by the built-in collection formatter"; continue; }
 
                 var members = DiscoverCached(type);
@@ -474,6 +475,18 @@ namespace Ceras.SourceGenerator
                 }
             }
 
+            // Structural shapes declared as roots of a context (an assembly-level [CerasKnownType<...>]
+            // or [CerasSerializable<...>] that targets one). They get a schema, not a formatter.
+            var declaredStructuralRoots = new SortedDictionary<string, List<INamedTypeSymbol>>(StringComparer.Ordinal);
+            foreach (var kv in contextRoots)
+            {
+                var roots = new List<INamedTypeSymbol>();
+                foreach (var root in kv.Value)
+                    if (IsStructuralRootShape(root) && !roots.Contains(root, SymbolEqualityComparer.Default))
+                        roots.Add(root);
+                declaredStructuralRoots[kv.Key] = roots;
+            }
+
             var contextMinimalTypes = new SortedDictionary<string, List<INamedTypeSymbol>>(StringComparer.Ordinal);
             foreach (var kv in contextTypes)
             {
@@ -541,7 +554,7 @@ namespace Ceras.SourceGenerator
             {
                 sbUse.AppendLine($"                case {QuoteLiteral(contextName)}:");
                 sbUse.AppendLine("                {");
-                sbUse.Append(BuildContextRegistrationBody(contextTypes[contextName], contextMinimalTypes[contextName], generatedFormatterTypes));
+                sbUse.Append(BuildContextRegistrationBody(contextTypes[contextName], contextMinimalTypes[contextName], generatedFormatterTypes, declaredStructuralRoots[contextName]));
                 sbUse.AppendLine("                    break;");
                 sbUse.AppendLine("                }");
             }
@@ -691,7 +704,8 @@ namespace Ceras.SourceGenerator
         static string BuildContextRegistrationBody(
             List<INamedTypeSymbol> contextTypes,
             List<INamedTypeSymbol> minimalTypes,
-            HashSet<INamedTypeSymbol> generatedFormatterTypes)
+            HashSet<INamedTypeSymbol> generatedFormatterTypes,
+            List<INamedTypeSymbol> declaredStructuralRoots)
         {
             var ordered = contextTypes
                 .OrderBy(GetRobustName, StringComparer.Ordinal)
@@ -699,6 +713,23 @@ namespace Ceras.SourceGenerator
 
             var body = new StringBuilder();
             bool usesRobustConfig = false;
+
+            // Root shapes the context declares but no generated formatter can describe: a built-in
+            // closed collection, KeyValuePair, a tuple, or an enum. A context has one finite manifest,
+            // so these are registered here, up front and in canonical-name order, instead of being
+            // discovered during the bake (which would make the assigned ids depend on member order).
+            // Declaring such a shape as a root is what makes it serializable at all: a Save/Load whose
+            // root is not part of the manifest is rejected.
+            foreach (var type in declaredStructuralRoots
+                .Where(t => !generatedFormatterTypes.Contains(t))
+                .GroupBy(t => t, SymbolEqualityComparer.Default)
+                .Select(g => g.First())
+                .OrderBy(t => GetRobustName(t), StringComparer.Ordinal))
+            {
+                string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                body.AppendLine($"                    if (robustConfig != null) robustConfig.SchemaRegistry.DeclareRoot(typeof({typeFqn}));");
+                usesRobustConfig = true;
+            }
 
             foreach (var type in ordered)
             {
@@ -747,6 +778,29 @@ namespace Ceras.SourceGenerator
                 body.Insert(0, "                    var robustConfig = config as global::Ceras.CerasRobustConfig;\n");
 
             return body.ToString();
+        }
+
+        /// <summary>
+        /// True for the root shapes that no generated formatter can describe and that
+        /// <c>SchemaRegistry.TryBuildStructuralSchema</c> derives at runtime: a built-in closed
+        /// collection (or a collection subclass), <c>KeyValuePair</c>, a tuple, and an enum. Arrays
+        /// cannot appear here because an assembly-level declaration can only name a type.
+        /// </summary>
+        static bool IsStructuralRootShape(INamedTypeSymbol type)
+        {
+            if (type.TypeKind == TypeKind.Enum) return true;
+            if (type.SpecialType != SpecialType.None) return false;   // int, string, decimal, …
+            if (type.TypeKind == TypeKind.Interface || type.IsAbstract) return false;
+            if (MemberExplorer.IsCollectionFormatterType(type)) return true;
+            if (type.IsUnboundGenericType || !type.IsGenericType) return false;
+
+            var def = type.OriginalDefinition;
+            var metadataName = def.MetadataName;   // "KeyValuePair`2", "ValueTuple`2", "Tuple`2"
+            if (!metadataName.StartsWith("KeyValuePair`") &&
+                !metadataName.StartsWith("ValueTuple`") &&
+                !metadataName.StartsWith("Tuple`")) return false;
+
+            return def.ContainingNamespace?.ToDisplayString() == "System";
         }
 
         /// <summary>

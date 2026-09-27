@@ -106,13 +106,18 @@ namespace Ceras.Format
         }
     }
 
-    /// <summary>One name→value entry from an enum definition.</summary>
+    /// <summary>
+    /// One name→value entry from an enum definition. <see cref="Value"/> holds the enum value's
+    /// <b>raw bits</b>, so a <c>ulong</c> value above <see cref="long.MaxValue"/> survives. Whether
+    /// those bits read as a signed or an unsigned number is decided by the enum's underlying type id
+    /// (<see cref="SchemaTypeInfo.UnderlyingTypeName"/>), so this needs no extra flag or second word.
+    /// </summary>
     public sealed class SchemaEnumValueInfo
     {
-        public string Name  { get; }
-        public long   Value { get; }
+        public string Name { get; }
+        public ulong Value { get; }
 
-        public SchemaEnumValueInfo(string name, long value)
+        public SchemaEnumValueInfo(string name, ulong value)
         {
             Name  = name  ?? throw new ArgumentNullException(nameof(name));
             Value = value;

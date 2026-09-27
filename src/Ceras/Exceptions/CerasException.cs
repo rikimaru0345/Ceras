@@ -76,6 +76,7 @@ namespace Ceras.Exceptions
     public class CerasDataCorruptionException : CerasException
     {
         public CerasDataCorruptionException(string message) : base(message) { }
+        public CerasDataCorruptionException(string message, Exception inner) : base(message, inner) { }
     }
 
     /// <summary>

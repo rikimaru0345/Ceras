@@ -54,15 +54,15 @@ namespace Ceras.Test.BuiltinShapes
     {
         const string Ctx = "BuiltinShapes";
 
-        static CerasRobustSerializer New() => new CerasRobustSerializer(c => c.UseGeneratedFormatters(Ctx));
+        // A context has one finite manifest, so the allowed structural root shapes are declared up
+        // front (an undeclared root is rejected with exactly this kind of message).
+        static CerasRobustSerializer New() => New(typeof(List<string>), typeof(List<int>));
 
-        static byte[] SlowPath(byte[] bytes)
+        static CerasRobustSerializer New(params Type[] roots) => new CerasRobustSerializer(c =>
         {
-            var copy = (byte[])bytes.Clone();
-            copy[RobustHeader.FingerprintOffset] ^= 0xFF;
-            FixRobustChecksum(copy);
-            return copy;
-        }
+            c.UseGeneratedFormatters(Ctx);
+            c.DeclareRoots(roots);
+        });
 
         [Fact]
         public void Declared_Closed_Collection_Root_RoundTrips_Both_Paths()
@@ -84,8 +84,13 @@ namespace Ceras.Test.BuiltinShapes
             var listBytes = s.Save(new List<string> { "x" }, 1);
             Assert.Equal(new[] { "x" }, s.Load<List<string>>(listBytes, 1));
 
-            var ex = Assert.ThrowsAny<Exception>(() => s.Save(new BsPair<int, int> { Key = 1, Value = 2 }, 1));
-            Assert.Contains("context", ex.ToString(), StringComparison.OrdinalIgnoreCase);
+            // An undeclared closed user generic is a declaration bug, so it is an actionable
+            // CerasSchemaException (the strong form of this assertion lives in ReviewFindingsTests as
+            // Undeclared_Closed_User_Generic_Throws_An_Actionable_Schema_Error).
+            var ex = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(
+                () => s.Save(new BsPair<int, int> { Key = 1, Value = 2 }, 1));
+            Assert.Contains("BsPair", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("context", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -110,7 +115,7 @@ namespace Ceras.Test.BuiltinShapes
             s.Save(new BsListRoot { Items = new List<int> { 1 } }, 1);
             var registry = s.Config.SchemaRegistry;
             Assert.True(registry.IsSealed);
-            var ex = Assert.Throws<InvalidOperationException>(
+            var ex = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(
                 () => registry.Register(typeof(BsPair<int, int>), new SchemaTypeInfo(
                     "Ceras.Test.BuiltinShapes.BsPair`2<System.Int32,System.Int32>", Array.Empty<string>(),
                     SchemaTypeKind.Class, Array.Empty<SchemaFieldInfo>(), 0)));

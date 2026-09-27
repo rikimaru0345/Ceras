@@ -62,15 +62,14 @@ namespace Ceras.Test.BuiltinShapes
     {
         const string Ctx = "BuiltinShapes";
 
-        static CerasRobustSerializer New() => new CerasRobustSerializer(c => c.UseGeneratedFormatters(Ctx));
-
-        static byte[] SlowPath(byte[] bytes)
+        // The allowed structural root shapes, declared up front for the finite manifest.
+        static CerasRobustSerializer New() => new CerasRobustSerializer(c =>
         {
-            var copy = (byte[])bytes.Clone();
-            copy[RobustHeader.FingerprintOffset] ^= 0xFF;
-            FixRobustChecksum(copy);
-            return copy;
-        }
+            c.UseGeneratedFormatters(Ctx);
+            c.DeclareRoots(typeof(int[]), typeof(int[][]), typeof(List<int>),
+                typeof(BsAnnotatedList<int>), typeof(BsPlainList<int>), typeof(BsPlainList<string>),
+                typeof(BsPlainDict), typeof(BsPlainSet));
+        });
 
         [Fact]
         public void CollectionSubclasses_Schema_Describes_Collection_Payload()

@@ -93,6 +93,26 @@ namespace Ceras.Test
                 data.AsSpan(Ceras.RobustHeader.ChecksumOffset), crc);
         }
 
+        /// <summary>
+        /// Returns a copy of a save whose layout fingerprint no longer matches, with the CRC recomputed.
+        /// Loading it takes the migration interpreter instead of the generated fast path, which is how a
+        /// test pins the two readers against each other. Shared here because a dozen test files
+        /// otherwise carry the same copy.
+        /// <para>
+        /// This is a <b>same-layout cross-check</b>, not a cross-version test: the bytes describe exactly
+        /// the current schema, and only the fingerprint (which selects the reader) differs. A test that
+        /// needs real schema evolution loads a checked-in golden file instead — see
+        /// <c>fixtures/Ceras.HistoricalWriter</c> and <c>HistoricalFixtureTests</c>.
+        /// </para>
+        /// </summary>
+        protected static byte[] SlowPath(byte[] bytes)
+        {
+            var copy = (byte[])bytes.Clone();
+            copy[Ceras.RobustHeader.FingerprintOffset] ^= 0xFF;
+            FixRobustChecksum(copy);
+            return copy;
+        }
+
 
 
 

@@ -26,4 +26,13 @@
     </PackageReference>
   </ItemGroup>
 
+  <!--
+    The checked-in golden fixtures for the cross-version tests. They are bytes written by
+    fixtures/Ceras.HistoricalWriter, which is deliberately NOT referenced from here: the v1 CLR types
+    must be absent from the reader build. Copied to the output so the tests read the real files.
+  -->
+  <ItemGroup>
+    <None Include="Fixtures\**\*.bin" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

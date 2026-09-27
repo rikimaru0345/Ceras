@@ -28,6 +28,16 @@ namespace Ceras.Format
         readonly Dictionary<string, Entry>  _byStableName = new();
 		int _nextId = WellKnownTypes.UserTypeBase;
 		int _sealedWatermark = -1;
+
+		// True only while baking: baking walks field/element type names and registers the structural
+		// types it discovers, which must be allowed even though the registry is already sealed.
+		bool _baking;
+
+		// Root shapes declared through DeclareRoot, kept until the next Seal so their ids do not depend
+		// on the order the declarations arrived in. A context has one finite manifest: every allowed root
+		// is declared before the first Save/Load, and nothing can join the manifest afterwards.
+		readonly SortedDictionary<string, Type> _declaredRoots = new(StringComparer.Ordinal);
+
 		ulong? _fingerprint = null;
 		readonly object _lock = new();
 
@@ -39,7 +49,7 @@ namespace Ceras.Format
 		Dictionary<Type, int> _bakedTypeToId;
 		Dictionary<int, Type> _bakedIdToType;
 
-		/// <summary>True once the schema has been baked and frozen.</summary>
+		/// <summary>True once the schema has been baked and frozen. A frozen bake never goes stale.</summary>
 		public bool HasBakedSchema => _bakedSchemaBytes != null;
 
 		/// <summary>
@@ -70,6 +80,8 @@ namespace Ceras.Format
                 _byStableName.Clear();
                 _nextId = WellKnownTypes.UserTypeBase;
 				_sealedWatermark = -1;
+				_declaredRoots.Clear();
+				_baking = false;
 				_fingerprint = null;
 				_bakedSchemaBytes = null;
 				_bakedSchemaStringsBytes = null;
@@ -80,23 +92,100 @@ namespace Ceras.Format
         }
 
 		/// <summary>
-		/// Freezes the current set of registered types as the "declared" schema and bakes the schema
-		/// bytes. Registrations after this point are rejected, so there is no save-time registry growth
-		/// or discovery-graph walk.
+		/// Freezes the current set of registered types as the context's manifest and bakes the schema
+		/// bytes. Nothing can be added afterwards, so a context has exactly one id map and one layout
+		/// fingerprint for its whole lifetime, and a previously matching save never falls into the
+		/// interpreter merely because another root shape was used.
+		/// <para>
+		/// Root shapes that no manifest can describe — arrays, built-in closed collections,
+		/// <c>KeyValuePair</c>, tuples, enums — are declared up front with <see cref="DeclareRoot"/>
+		/// (or a context-scoped <c>[CerasKnownType(typeof(T), "context")]</c>, which the generator turns
+		/// into the same declaration). They are folded in here in canonical-name order, so the assigned
+		/// ids do not depend on the order the declarations were made in.
+		/// </para>
 		/// </summary>
 		public void Seal() {
 			lock (_lock) {
 				if (IsSealed) return;
 
-				// Bake the schema (this may add structural field-type entries such as arrays and
-				// built-in collections), then freeze the declared set.
-				BakeLocked();
+				_baking = true;
+				try
+				{
+					// Declared root shapes first, in canonical order, so the id space is deterministic.
+					foreach (var declared in _declaredRoots.Values)
+					{
+						if (_byType.ContainsKey(declared)) continue;
+						Register(declared, null);
+					}
+					_declaredRoots.Clear();
+
+					// Baking walks field/element type names and may register the structural types it
+					// discovers, which is why registrations are allowed for its duration.
+					BakeLocked();
+				}
+				finally
+				{
+					_baking = false;
+				}
 
 				_sealedWatermark = _nextId;
 				_fingerprint = null; // force recompute
 				_bakedFingerprint = ComputeFingerprintLocked();
 			}
 		}
+
+		/// <summary>
+		/// True when the type is part of the context's manifest: already registered, or a root shape
+		/// declared with <see cref="DeclareRoot"/> that the next <see cref="Seal"/> will fold in. Pending
+		/// declarations count, because a declaration is made at context setup, before the first seal.
+		/// </summary>
+		public bool IsDeclared(Type type)
+		{
+			if (type == null) return false;
+			lock (_lock)
+			{
+				if (_byType.ContainsKey(type)) return true;
+				foreach (var declared in _declaredRoots.Values)
+					if (declared == type) return true;
+				return false;
+			}
+		}
+
+		/// <summary>
+		/// Declares a root shape the context is allowed to serialize, for shapes no generated manifest
+		/// describes: a one-dimensional array, a built-in closed collection, a <c>KeyValuePair</c>, a
+		/// tuple, or an enum. Must be called before the first <c>Save</c>/<c>Load</c> seals the registry.
+		/// Idempotent, and order-independent: the shapes are folded in at the next <see cref="Seal"/> in
+		/// canonical-name order, so two serializers that declare the same roots in different orders get the
+		/// same ids, the same fingerprint and the same bytes.
+		/// </summary>
+		public void DeclareRoot(Type rootType)
+		{
+			if (rootType == null) throw new ArgumentNullException(nameof(rootType));
+			if (IsWellKnownType(rootType)) return; // int, string, List<T> definitions, … need no declaration
+
+			lock (_lock)
+			{
+				if (_byType.ContainsKey(rootType)) return; // already in the manifest
+				if (IsSealed)
+					throw new Ceras.Exceptions.CerasSchemaException(
+                        $"Cannot declare the root shape '{TypeIdentity.GetCanonicalName(rootType)}' now: the context's manifest was already " +
+                        "sealed by an earlier Save/Load. A context has one finite manifest, so every allowed root shape has to be declared up " +
+                        "front (config.DeclareRoot<T>(), or [assembly: CerasKnownType(typeof(T), \"context\")]).");
+
+				if (!TryBuildStructuralSchema(rootType, out _) && !rootType.IsEnum)
+					throw new Ceras.Exceptions.CerasSchemaException(
+						$"Cannot declare '{TypeIdentity.GetCanonicalName(rootType)}' as a root shape: only one-dimensional arrays, built-in closed " +
+						"collections, KeyValuePair, tuples and enums are declared this way. Any other type must be a [CerasContext] root of the " +
+						"context (or reachable from one), or a member of one.");
+
+				_declaredRoots[TypeIdentity.GetCanonicalName(rootType)] = rootType;
+			}
+		}
+
+		static bool IsWellKnownType(Type type)
+			=> WellKnownTypes.IsWellKnown(type)
+			|| (type.IsGenericType && type.IsGenericTypeDefinition && WellKnownTypes.TryGetId(type, out _));
 
 		void BakeLocked()
 		{
@@ -146,11 +235,18 @@ namespace Ceras.Format
                 if (_byType.ContainsKey(type))
                     return; // idempotent
 
-                if (IsSealed)
-                    throw new InvalidOperationException(
-                        $"Cannot register type '{type.FullName}' after the schema has been sealed. " +
-                        $"Declare it with [CerasContext(\"name\")] (or [CerasKnownType]) so it is part of the " +
-                        $"selected context's generated manifest.");
+                if (IsSealed && !_baking)
+                {
+                    // A context has one finite manifest: nothing may join it after the seal, which keeps
+                    // the id map and the layout fingerprint stable for the context's whole lifetime.
+                    throw new Ceras.Exceptions.CerasSchemaException(
+                        $"Cannot register type '{TypeIdentity.GetCanonicalName(type)}' after the schema has been sealed by an earlier Save/Load. " +
+                        (TryBuildStructuralSchema(type, out _) || type.IsEnum
+                            ? $"Declare it as an allowed root shape before the first Save/Load: config.DeclareRoot<{TypeIdentity.GetCanonicalName(type)}>(), " +
+                              $"or [assembly: CerasKnownType(typeof({TypeIdentity.GetCanonicalName(type)}), \"context\")], and rebuild."
+                            : $"Every other type must be part of the selected context's generated manifest: declare '{TypeIdentity.GetCanonicalName(type)}' " +
+                              "with [CerasContext(\"name\")] (or make it reachable from one) and rebuild."));
+                }
 
                 if (info == null)
                 {
@@ -190,13 +286,19 @@ namespace Ceras.Format
                 var enumValues = new SchemaEnumValueInfo[names.Length];
                 for (int i = 0; i < names.Length; i++)
                 {
-                    long longVal = Convert.ToInt64(values.GetValue(i));
-                    enumValues[i] = new SchemaEnumValueInfo(names[i], longVal);
+                    // Raw bits, so a ulong value above long.MaxValue is representable.
+                    enumValues[i] = new SchemaEnumValueInfo(names[i], EnumBits.ToRawBits(values.GetValue(i), type));
                 }
+
+                // An enum is a named schema entry, so it carries its rename aliases like any other type:
+                // without them a renamed enum cannot be resolved from an old save.
+                var previousNames = new List<string>();
+                foreach (var prev in type.GetCustomAttributes<PreviousTypeNameAttribute>(inherit: false))
+                    if (prev.Name != null) previousNames.Add(prev.Name);
 
                 return new SchemaTypeInfo(
                     stableName: typeName,
-                    previousTypeNames: Array.Empty<string>(),
+                    previousTypeNames: previousNames.ToArray(),
                     kind: SchemaTypeKind.Enum,
                     fields: null,
                     fixedByteSize: 0,
@@ -226,7 +328,7 @@ namespace Ceras.Format
                     // Multidimensional arrays are written by MultiDimensionalArrayFormatter as
                     // rank + per-dimension lengths + flattened elements, which this structural
                     // (definition=Array, one element arg) description cannot express. Rejected loudly
-                    // rather than described with a payload the interpreter cannot decode (TODO 0.5).
+                    // rather than described with a payload the interpreter cannot decode.
                     throw UnsupportedMultidimensionalArray(type, "schema");
                 }
 
@@ -289,7 +391,7 @@ namespace Ceras.Format
 
         /// <summary>
         /// The actionable error for a multidimensional array, which the robust format cannot currently
-        /// represent (TODO 0.5). </summary>
+        /// represent. </summary>
         internal static Exception UnsupportedMultidimensionalArray(Type type, string context)
             => new Ceras.Exceptions.CerasSchemaException(
                 $"The multidimensional array type '{TypeIdentity.GetCanonicalName(type)}' (rank {type.GetArrayRank()}) cannot be used with {context}: " +

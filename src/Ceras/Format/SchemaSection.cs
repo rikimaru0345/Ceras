@@ -53,11 +53,12 @@ namespace Ceras.Format
         }
     }
 
+    /// <summary>One name→value entry read back from a file's schema. <see cref="Value"/> is raw bits.</summary>
     public sealed class OldEnumValue
     {
-        public string Name  { get; }
-        public long   Value { get; }
-        internal OldEnumValue(string name, long value) { Name = name ?? ""; Value = value; }
+        public string Name { get; }
+        public ulong Value { get; }
+        internal OldEnumValue(string name, ulong value) { Name = name ?? ""; Value = value; }
     }
 
     public static class SchemaSection
@@ -162,7 +163,8 @@ namespace Ceras.Format
                             foreach (var ev in info.EnumValues)
                             {
                                 WriteInternedString(entryWriter, ev.Name, internTable);
-                                BinaryPrimitives.WriteInt64LittleEndian(entryWriter.GetSpan(8), ev.Value);
+                                // Raw bits, eight bytes little-endian: the enum's underlying type id says how to read them.
+                                BinaryPrimitives.WriteUInt64LittleEndian(entryWriter.GetSpan(8), ev.Value);
                                 entryWriter.Advance(8);
                             }
                         }
@@ -400,12 +402,15 @@ namespace Ceras.Format
                         int underlyingId = (int)ReadLeb128(ref reader);
                         uint valCount = ReadBoundedCount(ref reader, nameof(valCount));
                         var vals = new OldEnumValue[valCount];
+                        Span<byte> rawEnumValue = stackalloc byte[8];
                         for (uint j = 0; j < valCount; j++)
                         {
                             string name = ReadInternedString(ref reader, stringTable);
-                            if (!reader.TryReadLittleEndian(out long val))
+                            // Eight raw bytes, little-endian: the underlying type id says how to read them.
+                            if (!reader.TryCopyTo(rawEnumValue))
                                 throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt schema section: unexpected end while reading an enum value.");
-                            vals[j] = new OldEnumValue(name, val);
+                            reader.Advance(8);
+                            vals[j] = new OldEnumValue(name, BinaryPrimitives.ReadUInt64LittleEndian(rawEnumValue));
                         }
                         schema = new OldTypeSchema(typeId, stableName, prevNames, kind, null, 0, underlyingId, null, vals);
                         break;
@@ -514,7 +519,7 @@ namespace Ceras.Format
         internal static void WriteInternedString(IBufferWriter<byte> writer, string s, StringInternTable internTable)
         {
             int index = internTable.GetIndex(s);
-            SerializerBinary.WriteUInt32(writer, (uint)index);
+            SerializerBinary.WriteUInt32Fixed(writer, (uint)index);
         }
 
         internal static string ReadInternedString(ref SequenceReader<byte> reader, string[] stringTable)

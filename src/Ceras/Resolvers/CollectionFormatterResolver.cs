@@ -5,6 +5,7 @@
     using System;
     using System.Collections;
     using System.Collections.Generic;
+    using System.Collections.ObjectModel;
     using System.Linq;
 
     /// <summary>
@@ -73,11 +74,11 @@
 
 
             //
-            // Special collection? (Stack, Queue, ReadOnlyDictionary)
+            // Special collection? (Stack, Queue, ReadOnlyCollection, ReadOnlyDictionary)
             //
             // The dedicated Queue/Stack formatters construct the built-in type directly, so they are only
             // valid for the exact built-in type. A subclass (e.g. MyQueue : Queue<T>) is handled by the
-            // general CollectionFormatter below, which constructs the subclass (TODO 0.5).
+            // general CollectionFormatter below, which constructs the subclass.
             //
             var closedStack = ReflectionHelper.FindClosedType(type, typeof(Stack<>));
             if (closedStack != null && type == closedStack)
@@ -97,6 +98,20 @@
                 return formatter;
             }
 
+            // ReadOnlyCollection<T> has no public parameterless constructor and no Add, so the general
+            // CollectionFormatter cannot construct or refill it. Its dedicated formatter writes the same
+            // List<T> payload (count + elements) through a proxy List<T>, which is what the robust schema
+            // records for a collection shape.
+            var closedROC = ReflectionHelper.FindClosedType(type, typeof(ReadOnlyCollection<>));
+            if (closedROC != null)
+            {
+                var formatterType = typeof(ReadOnlyCollectionFormatter<>).MakeGenericType(closedROC.GetGenericArguments());
+                formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType);
+                _formatterInstances[type] = formatter;
+                return formatter;
+            }
+
+            // Same for ReadOnlyDictionary<K,V>: written as a Dictionary<K,V> payload, rebuilt by wrapping.
             var closedRD = ReflectionHelper.FindClosedType(type, typeof(System.Collections.ObjectModel.ReadOnlyDictionary<,>));
             if (closedRD != null)
             {

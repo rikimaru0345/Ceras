@@ -128,7 +128,9 @@ namespace Ceras.Format
             FixedSizes[Int16]    = 2;
             FixedSizes[UInt16]   = 2;
             FixedSizes[Single]   = 4;
-            FixedSizes[String]   = 4;  // string-table index
+            FixedSizes[Int32]    = 4;  // robust writes fixed-width little-endian, never the standard zigzag varint
+            FixedSizes[UInt32]   = 4;
+            FixedSizes[String]   = 4;  // string-table index, also a fixed 4-byte payload field
             FixedSizes[Int64]    = 8;
             FixedSizes[UInt64]   = 8;
             FixedSizes[Double]   = 8;
@@ -137,7 +139,8 @@ namespace Ceras.Format
             FixedSizes[DateTimeOffset] = 10; // 8-byte ticks + 2-byte offset minutes
             FixedSizes[Decimal]  = 16;
             FixedSizes[Guid]     = 16;
-            // Bool, Int32, UInt32, Object, Collections, Tuples: 0 (variable)
+            // Bool, Object, Collections, Tuples: 0 (variable). Bool is one byte but is skipped by the
+            // switch in SchemaTraversalEngine.SkipValue, which covers every variable shape as well.
 
             foreach (var kv in TypeToId) IdToTypeMap[kv.Value] = kv.Key;
             foreach (var kv in GenericDefToId) IdToTypeMap[kv.Value] = kv.Key;
@@ -193,7 +196,7 @@ namespace Ceras.Format
         /// presence byte, then the value when present), and the <c>Tuple</c>/<c>ValueTuple</c> families
         /// (each item in order). Their reserved definition IDs do not by themselves describe an
         /// instance's representation; the ordered argument types are what make the payload describable
-        /// (TODO 0.5 item 3).
+        /// (they are described as definition + ordered argument ids).
         /// </summary>
         public static bool IsWellKnownStructuralValueType(Type type)
         {
@@ -211,26 +214,12 @@ namespace Ceras.Format
             => definitionId >= Tuple1 && definitionId <= VTuple7;
 
         /// <summary>
-        /// Returns the reserved well-known definition ID used to describe a closed generic's payload
-        /// (<c>List`1</c> -&gt; <see cref="List"/>, and so on). This covers the built-in collections and
-        /// the structural value types whose encoding is definition + ordered arguments. Returns -1 for
-        /// every other type.
-        /// </summary>
-        public static int GetStructuralDefinitionId(Type type)
-        {
-            if (type == null || !type.IsGenericType) return -1;
-            var def = type.IsGenericTypeDefinition ? type : type.GetGenericTypeDefinition();
-            if (GenericDefToId.TryGetValue(def, out int id)) return id;
-            return -1;
-        }
-
-        /// <summary>
         /// The built-in <c>CollectionFormatter&lt;TCollection, TItem&gt;</c> is selected for any concrete
         /// type that implements <c>ICollection&lt;TItem&gt;</c> / <c>IDictionary&lt;K,V&gt;</c>, plus the
         /// <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> special-cases. Such a type is written as an explicit
         /// element count followed by the elements, never as reflected CLR fields, so it must be described
         /// structurally (definition + ordered argument IDs) rather than by enumerating its members
-        /// (TODO 0.5). This is exactly the predicate the generated manifest already uses to skip a type
+        /// This is exactly the predicate the generated manifest already uses to skip a type
         /// (mirrors <c>MemberExplorer.IsCollectionType</c>).
         /// <para>
         /// A collection subclass whose element/key/value types cannot be inferred cannot be described and
@@ -311,7 +300,7 @@ namespace Ceras.Format
             // Queue<>/Stack<> subclasses are NOT supported: the built-in QueueFormatter/StackFormatter
             // construct the exact built-in type (losing the subclass) and CollectionFormatter needs an
             // 'Add' method that Queue/Stack do not have. Reject them loudly instead of admitting a shape
-            // that cannot round-trip (TODO 0.5).
+            // that cannot round-trip.
             if (FindBase(type, typeof(Queue<>)) != null || FindBase(type, typeof(Stack<>)) != null)
                 throw new Ceras.Exceptions.CerasSchemaException(
                     $"The collection type '{TypeIdentity.GetCanonicalName(type)}' derives from Queue<>/Stack<> and is not supported by Ceras. " +

@@ -69,10 +69,10 @@ namespace Ceras.SourceGenerator {
 				var underlying = type.EnumUnderlyingType!;
 				string underlyingFqn = underlying.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-				string writeMethod;
-				if (underlying.SpecialType == SpecialType.System_Int32) writeMethod = "WriteInt32";
-				else if (underlying.SpecialType == SpecialType.System_UInt32) writeMethod = "WriteUInt32";
-				else writeMethod = GetPrimitiveWriteMethod(underlying);
+				// Always through the shared table (no special-cased int32/uint32 branches): an enum
+				// must be encoded exactly like a plain value of its underlying type, otherwise the
+				// generated reader and the interpreter disagree about its width.
+				string writeMethod = GetPrimitiveWriteMethod(underlying);
 
 				sb.AppendLine($"            global::Ceras.SerializerBinary.{writeMethod}(writer, ({underlyingFqn})value);");
 			}
@@ -110,10 +110,7 @@ namespace Ceras.SourceGenerator {
 
 			if (type.TypeKind == TypeKind.Enum) {
 				var underlying = type.EnumUnderlyingType!;
-				string readExpr;
-				if (underlying.SpecialType == SpecialType.System_Int32) readExpr = "global::Ceras.SerializerBinary.ReadInt32(ref reader)";
-				else if (underlying.SpecialType == SpecialType.System_UInt32) readExpr = "global::Ceras.SerializerBinary.ReadUInt32(ref reader)";
-				else readExpr = GetPrimitiveReadExpression(underlying, "reader");
+				string readExpr = GetPrimitiveReadExpression(underlying, "reader");
 
 				sb.AppendLine($"            value = ({typeFqn}){readExpr};");
 				sb.AppendLine("        }");
@@ -283,6 +280,13 @@ namespace Ceras.SourceGenerator {
 			_ => "null",
 		};
 
+		/// <summary>True for the unsigned enum underlying types (values are stored as raw bits either way).</summary>
+		static bool IsUnsignedEnumUnderlying(SpecialType underlying) => underlying
+			is SpecialType.System_Byte
+			 or SpecialType.System_UInt16
+			 or SpecialType.System_UInt32
+			 or SpecialType.System_UInt64;
+
 		static string FormatLiteral(object value) {
 			switch (value) {
 				case bool b: return b ? "true" : "false";
@@ -314,8 +318,11 @@ namespace Ceras.SourceGenerator {
 				case SpecialType.System_Char: return "WriteInt16Fixed";
 				case SpecialType.System_Int16: return "WriteInt16Fixed";
 				case SpecialType.System_UInt16: return "WriteUInt16Fixed";
-				case SpecialType.System_Int32: return "WriteInt32";
-				case SpecialType.System_UInt32: return "WriteUInt32";
+				// The robust format is fixed-width for int32/uint32 (LAYOUT.md, "Primitive encodings"),
+				// so it always uses the *Fixed overloads — never the zigzag/LEB128 varint ones, whose
+				// width depends on the value and would contradict the schema's fixedByteSize.
+				case SpecialType.System_Int32: return "WriteInt32Fixed";
+				case SpecialType.System_UInt32: return "WriteUInt32Fixed";
 				case SpecialType.System_Single: return "WriteFloat32Fixed";
 				case SpecialType.System_Int64: return "WriteInt64Fixed";
 				case SpecialType.System_UInt64: return "WriteUInt64Fixed";
@@ -342,8 +349,8 @@ namespace Ceras.SourceGenerator {
 				case SpecialType.System_Char: readMethod = "ReadInt16Fixed"; prefix = "(char)"; break;
 				case SpecialType.System_Int16: readMethod = "ReadInt16Fixed"; break;
 				case SpecialType.System_UInt16: readMethod = "ReadUInt16Fixed"; break;
-				case SpecialType.System_Int32: readMethod = "ReadInt32"; break;
-				case SpecialType.System_UInt32: readMethod = "ReadUInt32"; break;
+				case SpecialType.System_Int32: readMethod = "ReadInt32Fixed"; break;
+				case SpecialType.System_UInt32: readMethod = "ReadUInt32Fixed"; break;
 				case SpecialType.System_Single: readMethod = "ReadFloat32Fixed"; break;
 				case SpecialType.System_Int64: readMethod = "ReadInt64Fixed"; break;
 				case SpecialType.System_UInt64: readMethod = "ReadUInt64Fixed"; break;
@@ -369,6 +376,12 @@ namespace Ceras.SourceGenerator {
 		/// Ceras cannot construct it, or because it is handled as a collection). Instead of emitting the
 		/// broken reference, we report the member/declaring type/referenced type and fall back to
 		/// <c>IFormatter&lt;T&gt;</c> so the rest of the generated file still compiles cleanly.
+		/// <para>
+		/// Reached only from the formatter-field loop, which already skipped every
+		/// <see cref="TypeHelpers.IsFastPrimitive"/> member. So the primitive cases inside
+		/// <see cref="GetConcreteFormatterType"/> (bool through <c>decimal</c>, <c>DateTimeOffset</c>, ...)
+		/// are defensive: unreachable today, and kept correct in case that loop ever stops filtering them.
+		/// </para>
 		/// </summary>
 		static string ResolveConcreteFormatterType(
 			SourceProductionContext context,
@@ -465,7 +478,7 @@ namespace Ceras.SourceGenerator {
 
 			// Collection shape emitted by the built-in CollectionFormatter: a collection subclass such as
 			// MyList<T> : List<T> (or a Queue/Stack subclass). This must be resolved before the generic
-			// ReferenceFormatter fallback so the field type matches what the runtime injects (TODO 0.5).
+			// ReferenceFormatter fallback so the field type matches what the runtime injects.
 			if (IsCollectionFormatterType(type)) {
 				string concrete = GetCollectionConcreteFormatterType(type);
 				if (concrete != null)
@@ -492,7 +505,7 @@ namespace Ceras.SourceGenerator {
 		/// The concrete <c>CollectionFormatter&lt;TCollection, TItem&gt;</c> field type for a collection
 		/// symbol, or null when the element/key/value type cannot be determined. Shared by the
 		/// built-in-collection and collection-subclass branches so both resolve identically to the
-		/// runtime's <c>CollectionFormatterResolver</c> (TODO 0.5).
+		/// runtime's <c>CollectionFormatterResolver</c>.
 		/// </summary>
 		static string? GetCollectionConcreteFormatterType(ITypeSymbol type) {
 			if (type is not INamedTypeSymbol namedColl) return null;
@@ -533,7 +546,7 @@ namespace Ceras.SourceGenerator {
 			}
 
 			// A Queue<>/Stack<> subclass does not implement ICollection<T>; take the element from the
-			// built-in base type, which is what the runtime CollectionFormatterResolver uses (TODO 0.5).
+			// built-in base type, which is what the runtime CollectionFormatterResolver uses.
 			if (elemType == null) {
 				for (var t = namedColl.BaseType; t != null; t = t.BaseType) {
 					var baseFqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -576,7 +589,7 @@ namespace Ceras.SourceGenerator {
 			}
 			string kind = type.TypeKind == TypeKind.Enum ? "global::Ceras.Format.SchemaTypeKind.Enum" : (type.IsValueType ? "global::Ceras.Format.SchemaTypeKind.Struct" : "global::Ceras.Format.SchemaTypeKind.Class");
 			string? underlyingTypeName = type.TypeKind == TypeKind.Enum && type.EnumUnderlyingType != null ? GetRobustName(type.EnumUnderlyingType) : null;
-			int fixedSize = ComputeFixedByteSize(type);
+			int fixedSize = ComputeFixedByteSize(type, members);
 
 			var sb = new StringBuilder();
 			sb.AppendLine();
@@ -604,9 +617,20 @@ namespace Ceras.SourceGenerator {
 			if (type.TypeKind == TypeKind.Enum) {
 				sb.AppendLine($"                enumValues: new global::Ceras.Format.SchemaEnumValueInfo[]");
 				sb.AppendLine($"                {{");
+				// Values are stored as raw 64-bit bits, so the literal has to compile for either
+				// signedness: a negative signed constant does not implicitly convert to ulong, and a
+				// constant above long.MaxValue must not be written through a long. Widening through the
+				// enum's own underlying type and casting to ulong covers both.
+				bool unsignedUnderlying = IsUnsignedEnumUnderlying(type.EnumUnderlyingType?.SpecialType ?? SpecialType.System_Int32);
 				foreach (var member in type.GetMembers())
 					if (member is IFieldSymbol field && field.HasConstantValue)
-						sb.AppendLine($"                    new global::Ceras.Format.SchemaEnumValueInfo({QuoteString(field.Name)}, {field.ConstantValue}),");
+					{
+						string literal = FormatLiteral(field.ConstantValue);
+						string bits = unsignedUnderlying
+							? $"unchecked((ulong)({literal}))"
+							: $"unchecked((ulong)(long)({literal}))";
+						sb.AppendLine($"                    new global::Ceras.Format.SchemaEnumValueInfo({QuoteString(field.Name)}, {bits}),");
+					}
 				sb.AppendLine($"                }},");
 				sb.AppendLine($"                underlyingTypeName: {QuoteString(underlyingTypeName ?? "System.Int32")}");
 			}
@@ -654,7 +678,21 @@ namespace Ceras.SourceGenerator {
 			sb.Append(" }");
 		}
 
-		static int ComputeFixedByteSize(ITypeSymbol type) {
+		/// <summary>
+		/// The exact number of bytes the generated writer emits for <paramref name="type"/>, or 0 when
+		/// that width cannot be proven here. 0 is always safe — the interpreter then skips the value
+		/// member by member — while a wrong non-zero value makes it Advance() over the wrong number of
+		/// bytes, so everything not provably fixed is 0.
+		/// <para>
+		/// The table below must mirror the encoder exactly: <c>WriteInt32Fixed</c>/<c>WriteUInt32Fixed</c>
+		/// and the fixed 4-byte string-table index are 4 bytes, and every other primitive uses its
+		/// fixed-width overload. <paramref name="members"/> is the *serialized* member list of the
+		/// declaring type (what the writer actually emits); pass null when recursing, which makes a
+		/// nested struct variable — it carries its own fixed width in its own schema entry, so it is
+		/// still skipped with a single Advance() there.
+		/// </para>
+		/// </summary>
+		static int ComputeFixedByteSize(ITypeSymbol type, List<SerializedMember> members) {
 			switch (type.SpecialType) {
 				case SpecialType.System_Boolean: return 1;
 				case SpecialType.System_Byte: return 1;
@@ -672,28 +710,29 @@ namespace Ceras.SourceGenerator {
 				case SpecialType.System_String: return 4;
 			}
 			if (type is INamedTypeSymbol named) {
-				if (named.TypeKind == TypeKind.Enum && named.EnumUnderlyingType != null) return ComputeFixedByteSize(named.EnumUnderlyingType);
+				if (named.TypeKind == TypeKind.Enum && named.EnumUnderlyingType != null) return ComputeFixedByteSize(named.EnumUnderlyingType, null);
 				string clrName = named.ToDisplayString(SortKeyFormat);
 				if (clrName == "System.DateTime") return 8;
 				if (clrName == "System.DateTimeOffset") return 10;
 				if (clrName == "System.TimeSpan") return 8;
 				if (clrName == "System.Guid") return 16;
-				// A user struct is only "fixed size" if every one of its own fields is a fixed-width
-				// scalar. Generic value types (Nullable<>, ValueTuple<>, KeyValuePair<,>) and structs
-				// containing any variable-width or nested-struct field are variable: their payload is
-				// element-driven, so claiming a fixed size would make the schema/interpreter skip the
-				// wrong number of bytes (TODO 0.5 item 3).
+				// A user struct is only "fixed size" if every one of its *serialized* members is a
+				// fixed-width scalar. Generic value types (Nullable<>, ValueTuple<>, KeyValuePair<,>),
+				// nested structs and anything with a variable-width or formatter-owned member are
+				// variable: claiming a fixed size for them would make the schema/interpreter skip the
+				// wrong number of bytes for a generic/struct value type.
 				if (named.IsValueType && named.TypeKind == TypeKind.Struct && !named.IsGenericType) {
+					if (members == null) return 0; // nested: use this type's own schema entry instead
 					int total = 0;
-					bool anyField = false;
-					foreach (var member in named.GetMembers()) {
-						if (member is not IFieldSymbol field || field.IsStatic || field.IsConst) continue;
-						anyField = true;
-						int fieldSize = ComputeFixedByteSize(field.Type);
-						if (fieldSize == 0) return 0;
-						total += fieldSize;
+					bool anyMember = false;
+					foreach (var member in members) {
+						if (member.Type == null) continue;
+						anyMember = true;
+						int memberSize = ComputeFixedByteSize(member.Type, null);
+						if (memberSize == 0) return 0;
+						total += memberSize;
 					}
-					return anyField ? total : 0;
+					return anyMember ? total : 0;
 				}
 			}
 			return 0;

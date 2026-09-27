@@ -35,14 +35,6 @@ namespace Ceras.Test.BuiltinShapes
             return s.Save(new BsProtocolHolder { Value = 1, Items = new List<int> { 2, 3 }, Name = "n" }, 1);
         }
 
-        static byte[] SlowPath(byte[] bytes)
-        {
-            var copy = (byte[])bytes.Clone();
-            copy[RobustHeader.FingerprintOffset] ^= 0xFF;
-            FixRobustChecksum(copy);
-            return copy;
-        }
-
         static byte[] WithHeaderField(byte[] bytes, int offset, long value)
         {
             var copy = (byte[])bytes.Clone();

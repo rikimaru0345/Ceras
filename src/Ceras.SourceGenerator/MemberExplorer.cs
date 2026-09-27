@@ -59,7 +59,7 @@ namespace Ceras.SourceGenerator
 
                         // The robust format describes only one-dimensional arrays. A multidimensional
                         // array member would otherwise emit an ArrayFormatter<T[]> that does not compile
-                        // (CS1503). Report it as a hard diagnostic instead (TODO 0.5).
+                        // (CS1503). Report it as a hard diagnostic instead.
                         if (IsUnsupportedMultidimensionalArray(field.Type))
                         {
                             string memberName = associatedProp?.Name ?? field.Name;
@@ -238,7 +238,7 @@ namespace Ceras.SourceGenerator
         /// <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> special-case). Such a type is written as an explicit
         /// element count plus elements, so the generator must not emit an empty ordinary-object formatter
         /// for it (a field-based formatter would override the built-in collection one). The structural
-        /// schema is derived at bake time from the same predicate (TODO 0.5).
+        /// schema is derived at bake time from the same predicate.
         /// </summary>
         public static bool IsCollectionFormatterType(ITypeSymbol type)
         {
@@ -270,7 +270,7 @@ namespace Ceras.SourceGenerator
         /// <summary>
         /// A multidimensional array member (rank &gt; 1). The robust format describes only one-dimensional
         /// arrays, so this is reported as a hard diagnostic instead of emitting an <c>ArrayFormatter</c>
-        /// that does not compile for a <c>T[,]</c> member (TODO 0.5).
+        /// that does not compile for a <c>T[,]</c> member.
         /// </summary>
         public static bool IsUnsupportedMultidimensionalArray(ITypeSymbol type)
             => type is IArrayTypeSymbol { Rank: > 1 };

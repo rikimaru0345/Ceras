@@ -155,12 +155,20 @@ namespace Ceras
         internal CerasRobustSerializer(CerasRobustConfig config) : base(config)
         {
             _config = config;
+            // The owning assembly has to be captured here, in the constructor itself:
+            // Assembly.GetCallingAssembly() reports the assembly of the method that called the *current*
+            // method, and the runtime skips a constructor's own frame, so evaluating it inside the
+            // constructor yields the assembly that constructed the serializer. Moving it into a helper
+            // (even a [MethodImpl(NoInlining)] one) would report Ceras' own assembly instead, so it stays
+            // here on purpose. Both constructors hand it to the same place, so no construction path can
+            // silently end up in the unknown-build mode.
+            _config.SetOwningAssembly(Assembly.GetCallingAssembly());
         }
 
-        static CerasRobustConfig MakeConfig(Action<CerasRobustConfig> configure, Assembly callingAssembly)
+        static CerasRobustConfig MakeConfig(Action<CerasRobustConfig> configure, Assembly owningAssembly)
         {
             var config = new CerasRobustConfig();
-            config.SetOwningAssembly(callingAssembly);
+            config.SetOwningAssembly(owningAssembly);
             InitializeRobustFormatters(config);
             configure?.Invoke(config);
             return config;
@@ -184,9 +192,11 @@ namespace Ceras
         {
             var registry = _config.SchemaRegistry;
 
-            // Declare the root (normally via the generated manifest) and seal. After sealing the
-            // registry never grows and the schema bytes are the frozen baked schema (TODO 2.6/3.3).
-            EnsureRootRegistered(registry, typeof(T));
+            // Declare the root (normally via the generated manifest) and seal. The declared set is
+            // frozen here — except for structural roots (arrays, built-in collections) that no
+            // manifest can declare: those are added on first use and make Seal() re-bake the schema
+            // bytes and fingerprint (TODO 2.6/3.3).
+            EnsureRootDeclared(registry, typeof(T));
             registry.Seal();
 
             if (!registry.TryGetBakedSchema(out var schemaBytes, out var schemaStrings, out var typeToId, out _, out var schemaFingerprint))
@@ -264,35 +274,40 @@ namespace Ceras
             if (robustVersion > currentRobustVersion)
                 throw new Ceras.Exceptions.CerasRobustVersionException($"Attempted to load data from a newer application version ({robustVersion}) than the current version ({currentRobustVersion}).", robustVersion, currentRobustVersion);
 
-            RobustHeader.Read(data, out long buildTimestamp, out byte compressionByte,
-                out long schemaStringOffsetL, out long dataSectionOffset, out long stringTableOffset, out ulong schemaFingerprint);
-
-            // Reject saves from a newer build before decoding the payload, even when layouts match.
-            // The check is active only in a known-build configuration; an explicitly unknown build
-            // timestamp records 0 and cannot detect a newer save (TODO 0.6 item 7).
-            if (_config.BuildTimestampKnown && buildTimestamp > _config.BuildTimestamp)
-                throw new Ceras.Exceptions.CerasException(
-                    $"The save was produced by a newer build (timestamp {buildTimestamp}) than the current build " +
-                    $"({_config.BuildTimestamp}). Update the application before loading this save.");
-
-            if (!RobustHeader.IsValidCompressionFlag(compressionByte))
-                throw new Ceras.Exceptions.CerasDataCorruptionException(
-                    $"Corrupt robust header: unknown string-table compression flag {compressionByte}.");
-
-            int schemaStringOffset = (int)schemaStringOffsetL;
-
+            // Integrity first. The CRC covers the whole block, so it has to be verified before any field it
+            // protects is interpreted: a corrupted build-timestamp byte must be reported as corruption
+            // rather than as "produced by a newer build", and a corrupted flags byte as corruption rather
+            // than as "unknown compression flag".
             uint storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(RobustHeader.ChecksumOffset));
             uint computedCrc = Ceras.Helpers.HashHelpers.CalculateCrc32WithZeroedRange(
                 data, RobustHeader.ChecksumOffset, RobustHeader.ChecksumSize);
             if (storedCrc != computedCrc)
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
-                    $"CRC mismatch: the saved data is corrupted or truncated (stored 0x{storedCrc:X8}, computed 0x{computedCrc:X8}).");
+                    $"CRC mismatch: the saved data is corrupted or truncated (stored 0x{storedCrc:X8}, computed 0x{computedCrc:X8}). " +
+                    "The header fields cannot be trusted until the checksum matches.");
+
+            RobustHeader.Read(data, out long buildTimestamp, out byte compressionByte,
+                out long schemaStringOffsetL, out long dataSectionOffset, out long stringTableOffset, out ulong schemaFingerprint);
+
+            if (!RobustHeader.IsValidCompressionFlag(compressionByte))
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt robust header: unknown string-table compression flag {compressionByte}.");
+
+            // Reject saves from a newer build before decoding the payload, even when layouts match.
+            // The check is active only in a known-build configuration; an explicitly unknown build
+            // timestamp records 0 and cannot detect a newer save.
+            if (_config.BuildTimestampKnown && buildTimestamp > _config.BuildTimestamp)
+                throw new Ceras.Exceptions.CerasException(
+                    $"The save was produced by a newer build (timestamp {buildTimestamp}) than the current build " +
+                    $"({_config.BuildTimestamp}). Update the application before loading this save.");
+
+            int schemaStringOffset = (int)schemaStringOffsetL;
 
             var compression = (StringTableCompression)compressionByte;
             var payloadTable = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset, compression);
 
-            // Pin the declared set; no post-seal growth.
-            EnsureRootRegistered(registry, typeof(T));
+            // Pin the declared set: the manifest is finite, so this can only verify.
+            EnsureRootDeclared(registry, typeof(T));
             registry.Seal();
             ulong currentFingerprint = registry.ComputeFingerprint();
 
@@ -313,7 +328,7 @@ namespace Ceras
                     throw new InvalidOperationException("Schema was sealed but not baked.");
 
                 int storedRootId = (int)SchemaSection.ReadLeb128(ref reader); // root type id
-                ValidateStoredRootType(storedRootId, typeof(T), idToType, registry);
+                ValidateStoredRootType(storedRootId, typeof(T), idToType, registry, fingerprintMatched: true);
 
                 RobustContext.BeginRead(payloadTable, idToType);
                 try
@@ -341,7 +356,7 @@ namespace Ceras
             var slowIdToType = BuildIdToType(fileSchemas, registry, Config.TypeBinder);
 
             int storedSlowRootId = (int)SchemaSection.ReadLeb128(ref reader); // root type id
-            ValidateStoredRootType(storedSlowRootId, typeof(T), slowIdToType, registry);
+            ValidateStoredRootType(storedSlowRootId, typeof(T), slowIdToType, registry, fingerprintMatched: false);
 
             RobustContext.BeginRead(payloadTable, slowIdToType);
             try
@@ -445,48 +460,83 @@ namespace Ceras
         /// layout is the one written for that declared type, and only the declared type (or its rename
         /// alias) can be read back safely. Base/derived loads cannot be validated from the id alone
         /// (a same-runtime-type root writes no type tag), so they are rejected rather than risking a
-        /// silent misparse. Accepted: an exact id match, or a resolved stored type identical to the
-        /// requested type (the rename/migration case, where the alias id can differ from the current id).
+        /// silent misparse.
+        /// <para>
+        /// A numeric id is only meaningful within the id space that produced it, so
+        /// <paramref name="fingerprintMatched"/> decides how much it proves. With a matching layout
+        /// fingerprint the id space is this context's own, so numeric equality is authoritative. With a
+        /// mismatching fingerprint the file may come from a different context whose ids collide — two
+        /// one-root contexts hand both their roots the same id — so the stored identity has to be
+        /// resolved from the <em>file</em> schema and matched by type (including a
+        /// <c>[PreviousTypeName]</c> rename). Trusting the number there made a wrong-root load return
+        /// <c>null</c> instead of failing.
+        /// </para>
         /// </summary>
-        static void ValidateStoredRootType(int storedRootId, Type requestedType, Dictionary<int, Type> idToType, SchemaRegistry registry)
+        static void ValidateStoredRootType(int storedRootId, Type requestedType, Dictionary<int, Type> idToType,
+            SchemaRegistry registry, bool fingerprintMatched)
         {
-            // 1. Exact context match: the stored id is this context's id for typeof(T).
-            if (storedRootId == GetTypeId(requestedType, registry))
+            // 1. Same id space (the layout fingerprint matches): the stored id IS this context's id for
+            //    typeof(T), so numeric equality is the whole answer.
+            if (fingerprintMatched && storedRootId == GetTypeId(requestedType, registry))
                 return;
 
             Type storedType = null;
             idToType?.TryGetValue(storedRootId, out storedType);
 
-            // 2. Rename/migration: the interpreter resolves a [PreviousTypeName]-renamed root to the
-            //    current CLR type. Its id may differ from the old stored id, but the layout is the same.
+            // 2. Identity: the file's stored root resolves to exactly the requested CLR type. This also
+            //    covers the rename/migration case, where a [PreviousTypeName]-renamed root resolves to the
+            //    current type and the old stored id differs from the current one.
             if (storedType != null && storedType == requestedType)
                 return;
 
             string storedDescription = storedType != null
-                ? $"'{storedType.FullName}'"
+                ? $"'{TypeIdentity.GetCanonicalName(storedType)}'"
                 : $"type id {storedRootId} (which is not declared in this context)";
+
+            string because = fingerprintMatched
+                ? "the layout fingerprint matched but the root type is not the declared one"
+                : "the save was written by a context whose type-id space can collide with this one's, so the root identity was resolved by name";
 
             throw new Ceras.Exceptions.CerasSchemaException(
                 $"The saved data's root type {storedDescription} does not match the requested load type " +
-                $"'{requestedType.FullName}'. Load the save with its declared root type; loading it as a " +
-                $"base, derived, or unrelated type would silently misread the payload.");
+                $"'{TypeIdentity.GetCanonicalName(requestedType)}' ({because}). Load the save with its declared root type; " +
+                "loading it as a base, derived, or unrelated type would silently misread the payload.");
         }
 
         /// <summary>
-        /// Declares the root type before sealing. Generated types are already registered by the
-        /// manifest; arrays and built-in collections (which the generator skips) are registered
-        /// structurally. Undeclared user types are left unregistered and rejected by the caller.
+        /// Checks that the root type belongs to the context's manifest. A context has one finite
+        /// manifest, so nothing is registered here: generated types are already in it, and a structural
+        /// root shape (an array, a built-in closed collection, a tuple, an enum) has to have been declared
+        /// up front with <c>DeclareRoot&lt;T&gt;()</c> or a context-scoped
+        /// <c>[CerasKnownType(typeof(T), "context")]</c>. Anything else is an undeclared type and fails with
+        /// the declaration message.
         /// </summary>
-        static void EnsureRootRegistered(SchemaRegistry registry, Type type)
+        static void EnsureRootDeclared(SchemaRegistry registry, Type type)
         {
-            if (registry.TryGetId(type, out _)) return;
+            if (registry.IsDeclared(type)) return;   // in the manifest, or a declared root shape
             if (WellKnownTypes.IsWellKnown(type)) return;
-            if (SchemaRegistry.TryBuildStructuralSchema(type, out var info))
-                registry.Register(type, info);
+
+            if (SchemaRegistry.TryBuildStructuralSchema(type, out _) || type.IsEnum)
+            {
+                string canonical = TypeIdentity.GetCanonicalName(type);
+                throw new Ceras.Exceptions.CerasSchemaException(
+                    $"The root shape '{canonical}' is not part of the context's manifest. A context has one finite manifest, so every " +
+                    $"allowed root shape has to be declared before the first Save/Load: call config.DeclareRoot<{canonical}>() " +
+                    $"(or config.DeclareRoots(typeof({canonical}), …)), or declare it at compile time with " +
+                    $"[assembly: CerasKnownType(typeof({canonical}), \"yourContext\")].");
+            }
+
+            // Left to the caller's UndeclaredType check, which carries the general message.
         }
 
-        static Ceras.Exceptions.CerasException UndeclaredType(Type type) =>
-            new Ceras.Exceptions.CerasException(
+        /// <summary>
+        /// A root that is not part of the selected context's manifest. This is a declaration bug, exactly
+        /// like the bake-time errors in <see cref="SchemaSection"/> and <see cref="WellKnownTypes"/>, so
+        /// it is reported as a <see cref="Ceras.Exceptions.CerasSchemaException"/> and a caller can catch
+        /// "you forgot to declare a type / the layout is wrong" without matching on message text.
+        /// </summary>
+        static Ceras.Exceptions.CerasSchemaException UndeclaredType(Type type) =>
+            new Ceras.Exceptions.CerasSchemaException(
                 $"Type '{type.FullName}' is not declared in the selected serialization context. " +
                 $"Make it a [CerasContext(\"name\")] root of the context you are using (or reachable from one), " +
                 $"or declare it with [assembly: CerasKnownType<...>], so it is part of that context's generated " +
@@ -498,7 +548,7 @@ namespace Ceras
             public string StableName;
             public string[] PreviousNames;
             public SchemaTypeKind Kind;
-            public (string Name, long Value)[] EnumValues;
+            public (string Name, ulong Value)[] EnumValues;
             public (string StableName, string TypeName, bool IsMono)[] Fields;
             public string DefinitionName;
             public string[] ArgTypeNames;
@@ -535,8 +585,12 @@ namespace Ceras
                 case SchemaTypeKind.Enum:
                     sb.AppendLine($"ENUM  [{s.TypeId}]  {s.StableName}");
                     if (s.EnumValues != null)
+                    {
+                        // Values are raw bits; show them signed only when the underlying type is signed.
+                        bool isUnsigned = EnumBits.IsUnsignedUnderlyingName(s.DefinitionName);
                         foreach (var ev in s.EnumValues)
-                            sb.AppendLine($"      {ev.Name} = {ev.Value}");
+                            sb.AppendLine($"      {ev.Name} = {EnumBits.Format(ev.Value, isUnsigned)}");
+                    }
                     break;
 
                 case SchemaTypeKind.GenericInstantiation:

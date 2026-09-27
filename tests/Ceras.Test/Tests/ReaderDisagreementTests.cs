@@ -1,6 +1,8 @@
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 using Ceras;
 using Ceras.Format;
@@ -32,6 +34,8 @@ namespace Ceras.Test.ReaderDisagreement
         public DateTime When;
         public TimeSpan Span;
         public Guid G;
+        public decimal Dec;
+        public DateTimeOffset Dto;
     }
 
     [CerasContext("ReaderDisagreement")]
@@ -61,19 +65,82 @@ namespace Ceras.Test.ReaderDisagreement
     /// and the scalar-layout tests pin the exact payload bytes so a shared writer/reader mistake
     /// cannot hide behind a passing roundtrip.
     /// </summary>
+
+    // ── The shapes the 0.5 coverage never reached ─────────────────────────────────────────
+    //
+    // decimal and DateTimeOffset are admitted fixed-width scalars, so every place another admitted
+    // scalar is exercised must work for them too: the structural Nullable path, collection element-id
+    // plumbing, a user struct that contains one, a polymorphic slot, a *removed* field (which exercises
+    // SkipValue against the 16- and 10-byte claims), and a payload too short to hold the value.
+
+    [CerasSerializable]
+    public struct RdMoney
+    {
+        public decimal Amount;
+        public DateTimeOffset When;
+        public int Tail;
+    }
+
+    [CerasContext("ReaderDisagreement")]
+    [CerasSerializable]
+    public class RdScalarShapes
+    {
+        public decimal? MaybeDec;
+        public decimal? NullDec;
+        public DateTimeOffset? MaybeDto;
+        public DateTimeOffset? NullDto;
+        public decimal[] DecArray;
+        public List<decimal> DecList;
+        public Dictionary<decimal, int> DecDict;
+        public RdMoney Money;
+        public object Poly;
+        public int After;
+    }
+
+    [CerasSerializable]
+    public class RdOnlyAfter
+    {
+        public int After;
+    }
+
+    [CerasContext("ReaderDisagreement")]
+    [CerasSerializable]
+    public class RdOnlyMaybeDec { public decimal? Maybe; }
+
+    [CerasContext("ReaderDisagreement")]
+    [CerasSerializable]
+    public class RdOnlyMaybeDto { public DateTimeOffset? Maybe; }
+
+    [CerasContext("ReaderDisagreement")]
+    [CerasSerializable]
+    public class RdRemovedFieldRoot
+    {
+        public RdOnlyAfter Kept;
+    }
+
     public class ReaderDisagreementTests : TestBase
     {
         const string Ctx = "ReaderDisagreement";
 
-        static CerasRobustSerializer New() => new CerasRobustSerializer(c => c.UseGeneratedFormatters(Ctx));
-
-        static byte[] SlowPath(byte[] bytes)
+        // The allowed structural root shapes, declared up front for the finite manifest.
+        static CerasRobustSerializer New() => new CerasRobustSerializer(c =>
         {
-            var copy = (byte[])bytes.Clone();
-            copy[RobustHeader.FingerprintOffset] ^= 0xFF;
-            FixRobustChecksum(copy);
-            return copy;
-        }
+            c.UseGeneratedFormatters(Ctx);
+            foreach (var root in StructuralRoots)
+                c.DeclareRoot(root);
+        });
+
+        /// <summary>Every root shape this context may serialize, in one place.</summary>
+        static readonly Type[] StructuralRoots =
+        {
+            typeof(int?), typeof(int[]), typeof(string), typeof(List<string>), typeof(List<int>),
+            typeof(Guid), typeof(bool), typeof(byte), typeof(sbyte), typeof(char), typeof(short),
+            typeof(ushort), typeof(int), typeof(uint), typeof(long), typeof(ulong), typeof(float),
+            typeof(double), typeof(decimal), typeof(string), typeof(TimeSpan), typeof(DateTime),
+            typeof(DateTimeOffset), typeof(RdEnum), typeof(decimal?), typeof(DateTimeOffset?),
+            typeof(decimal[]), typeof(decimal?[]), typeof(List<decimal>),
+            typeof(Dictionary<decimal, int>), typeof(Type),
+        };
 
         static void AssertRoot<T>(T value)
         {
@@ -264,6 +331,7 @@ namespace Ceras.Test.ReaderDisagreement
         {
             var g = new Guid("00112233-4455-6677-8899-aabbccddeeff");
             var when = new DateTime(2021, 5, 6, 7, 8, 9, DateTimeKind.Utc);
+            var dto = new DateTimeOffset(2021, 5, 6, 7, 8, 9, TimeSpan.FromMinutes(330));
             var value = new RdAllKindsHolder
             {
                 B = true,
@@ -284,6 +352,8 @@ namespace Ceras.Test.ReaderDisagreement
                 When = when,
                 Span = TimeSpan.FromTicks(-123456789),
                 G = g,
+                Dec = 42.5m,
+                Dto = dto,
             };
 
             var s = New();
@@ -312,17 +382,20 @@ namespace Ceras.Test.ReaderDisagreement
                 Assert.Equal(when, clone.When);
                 Assert.Equal(DateTimeKind.Utc, clone.When.Kind);
                 Assert.Equal(TimeSpan.FromTicks(-123456789), clone.Span);
+                Assert.Equal(42.5m, clone.Dec);
+                Assert.Equal(dto, clone.Dto);
+                Assert.Equal(TimeSpan.FromMinutes(330), clone.Dto.Offset);
                 Assert.Equal(g, clone.G);
             }
         }
 
-        // ── Expected payload bytes (little-endian, fixed-width unless it is a compact int) ──
+        // ── Expected payload bytes (little-endian, every primitive fixed-width) ──
 
         [Fact]
         public void Scalar_Root_Payload_Bytes_Are_Pinned()
         {
-            Assert.Equal(new byte[] { 0x54 }, Payload(42));                             // zigzag(42) == 84
-            Assert.Equal(new byte[] { 0x01 }, Payload(-1));                             // zigzag(-1) == 1
+            Assert.Equal(new byte[] { 0x2A, 0, 0, 0 }, Payload(42));                    // fixed 4-byte LE
+            Assert.Equal(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF }, Payload(-1));            // fixed 4-byte LE
             Assert.Equal(new byte[] { 0x01 }, Payload(true));
             Assert.Equal(new byte[] { 0x00 }, Payload(false));
             Assert.Equal(new byte[] { 0xAB }, Payload((byte)0xAB));
@@ -330,15 +403,32 @@ namespace Ceras.Test.ReaderDisagreement
             Assert.Equal(new byte[] { 0x41, 0x00 }, Payload('A'));
             Assert.Equal(new byte[] { 0xFE, 0xFF }, Payload((short)-2));
             Assert.Equal(new byte[] { 0x34, 0x12 }, Payload((ushort)0x1234));
-            Assert.Equal(new byte[] { 0xAC, 0x02 }, Payload(300u));                     // varint(300)
+            Assert.Equal(new byte[] { 0x2C, 0x01, 0, 0 }, Payload(300u));               // fixed 4-byte LE
             Assert.Equal(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }, Payload(-1L));
             Assert.Equal(new byte[] { 0x01, 0, 0, 0, 0, 0, 0, 0 }, Payload(1UL));
             Assert.Equal(new byte[] { 0x00, 0x00, 0x80, 0x3F }, Payload(1.0f));         // IEEE-754 1.0f
             Assert.Equal(new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F }, Payload(1.0d));
             Assert.Equal(new byte[] { 0x01, 0, 0, 0, 0, 0, 0, 0 }, Payload(TimeSpan.FromTicks(1)));
             Assert.Equal(new byte[16], Payload(Guid.Empty));
-            Assert.Equal(new byte[] { 0x01 }, Payload("first"));                        // payload string-table index 1
-            Assert.Equal(new byte[] { 0x00 }, Payload<string>(null));
+            Assert.Equal(new byte[] { 0x01, 0, 0, 0 }, Payload("first"));               // string-table index 1, fixed 4-byte
+            Assert.Equal(new byte[] { 0x00, 0, 0, 0 }, Payload<string>(null));          // index 0 marks null
+
+            // decimal: the four decimal.GetBits words (lo, mid, hi, flags), each little-endian —
+            // deliberately NOT the CLR memory order (_flags, _hi, _lo, _mid).
+            Assert.Equal(new byte[]
+            {
+                0xA9, 0x01, 0x00, 0x00,   // lo    = 425
+                0x00, 0x00, 0x00, 0x00,   // mid   = 0
+                0x00, 0x00, 0x00, 0x00,   // hi    = 0
+                0x00, 0x00, 0x01, 0x00,   // flags = 0x00010000 (scale 1)
+            }, Payload(42.5m));
+
+            // DateTimeOffset: 8-byte wall-clock ticks, then the offset in minutes.
+            var dto = new DateTimeOffset(2021, 5, 6, 7, 8, 9, TimeSpan.FromMinutes(330));
+            var expectedDto = new byte[10];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(expectedDto, dto.Ticks);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(expectedDto.AsSpan(8), 330);
+            Assert.Equal(expectedDto, Payload(dto));
         }
 
         [Fact]
@@ -424,5 +514,159 @@ namespace Ceras.Test.ReaderDisagreement
             Assert.ThrowsAny<Exception>(() => s.Load<string>(bytes, 1));
             Assert.ThrowsAny<Exception>(() => s.Load<string>(SlowPath(bytes), 1));
         }
+
+        // ── decimal / DateTimeOffset: the shapes the admitted-scalar coverage never reached ───
+
+        [Fact]
+        public void Scalar_Shapes_RoundTrip_On_Both_Paths()
+        {
+            var dto = new DateTimeOffset(2021, 5, 6, 7, 8, 9, TimeSpan.FromMinutes(330));
+            var value = new RdScalarShapes
+            {
+                MaybeDec = 42.5m,
+                NullDec = null,
+                MaybeDto = dto,
+                NullDto = null,
+                DecArray = new[] { 1.25m, -3m },
+                DecList = new List<decimal> { 7m, 8m },
+                DecDict = new Dictionary<decimal, int> { { 9m, 1 } },
+                Money = new RdMoney { Amount = 11.5m, When = dto, Tail = 3 },
+                Poly = 13.75m,
+                After = 77,
+            };
+
+            var s = New();
+            var bytes = s.Save(value, 1);
+
+            foreach (var clone in new[] { s.Load<RdScalarShapes>(bytes, 1), s.Load<RdScalarShapes>(SlowPath(bytes), 1) })
+            {
+                Assert.Equal(42.5m, clone.MaybeDec);          // the structural Nullable path, present
+                Assert.Null(clone.NullDec);
+                Assert.Equal(dto, clone.MaybeDto);
+                Assert.Null(clone.NullDto);
+                Assert.Equal(new[] { 1.25m, -3m }, clone.DecArray);
+                Assert.Equal(new List<decimal> { 7m, 8m }, clone.DecList);
+                Assert.Equal(1, clone.DecDict[9m]);
+                Assert.Equal(11.5m, clone.Money.Amount);       // a user struct containing both
+                Assert.Equal(dto, clone.Money.When);
+                Assert.Equal(3, clone.Money.Tail);
+                Assert.Equal(13.75m, clone.Poly);              // a polymorphic slot
+                Assert.Equal(77, clone.After);                // the stream stayed aligned
+            }
+        }
+
+        [Fact]
+        public void Scalar_Shape_Payload_Bytes_Are_Pinned()
+        {
+            var s = New();
+            var dto = new DateTimeOffset(2021, 5, 6, 7, 8, 9, TimeSpan.FromMinutes(330));
+
+            // A nullable decimal: one presence byte, then the 16 GetBits bytes.
+            var maybePayload = PayloadOf(s.Save(new RdOnlyMaybeDec { Maybe = 42.5m }, 1));
+            // A monomorphic value-type member is written with no reference marker: the payload is the
+            // root id, the root's own marker, the presence byte, then the 16 GetBits bytes.
+            int offset = SkipRootIdAndMarker(maybePayload);
+            Assert.Equal(1, maybePayload[offset++]);           // presence
+            Assert.Equal(new byte[] { 0xA9, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0 },
+                maybePayload.Skip(offset).Take(16).ToArray());
+            Assert.Equal(20, maybePayload.Length);
+
+            // A nullable DateTimeOffset: presence byte, then 8 ticks + 2 offset minutes.
+            var dtoPayload = PayloadOf(s.Save(new RdOnlyMaybeDto { Maybe = dto }, 1));
+            offset = SkipRootIdAndMarker(dtoPayload);
+            Assert.Equal(1, dtoPayload[offset++]);
+            var expectedDto = new byte[10];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(expectedDto, dto.Ticks);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(expectedDto.AsSpan(8), 330);
+            Assert.Equal(expectedDto, dtoPayload.Skip(offset).Take(10).ToArray());
+        }
+
+        /// <summary>
+        /// A removed field is skipped by its declared fixed size, so a removed <c>decimal</c> (16 bytes)
+        /// and a removed <c>DateTimeOffset</c> (10 bytes) must be consumed exactly — the following
+        /// member is the only thing that can prove it.
+        /// </summary>
+        [Fact]
+        public void Removed_Decimal_And_DateTimeOffset_Fields_Are_Skipped_By_Their_Fixed_Sizes()
+        {
+            var oldRegistry = new CerasRobustConfig().SchemaRegistry;
+            oldRegistry.Register(typeof(RdRemovedFieldRoot), new SchemaTypeInfo(
+                "Ceras.Test.ReaderDisagreement.RdRemovedFieldRoot", Array.Empty<string>(), SchemaTypeKind.Class,
+                new[]
+                {
+                    new SchemaFieldInfo("GoneDec", Array.Empty<string>(), "System.Decimal", true),
+                    new SchemaFieldInfo("GoneDto", Array.Empty<string>(), "System.DateTimeOffset", true),
+                    new SchemaFieldInfo("Kept", Array.Empty<string>(), "Ceras.Test.ReaderDisagreement.RdOnlyAfter", true),
+                }, 0));
+            oldRegistry.Register(typeof(RdOnlyAfter), new SchemaTypeInfo(
+                "Ceras.Test.ReaderDisagreement.RdOnlyAfter", Array.Empty<string>(), SchemaTypeKind.Class,
+                new[] { new SchemaFieldInfo("After", Array.Empty<string>(), "System.Int32", true) }, 0));
+            oldRegistry.TryGetId(typeof(RdRemovedFieldRoot), out int rootId);
+
+            var buffer = new byte[1024];
+            int offset = 0;
+            RobustHeader.WritePlaceholder(ref buffer, ref offset, CerasRobustSerializer.FormatVersion, 1, 0);
+            var intern = new StringInternTable();
+            SchemaSection.Write(ref buffer, ref offset, oldRegistry, intern);
+            int schemaStringOffset = offset;
+            intern.Flush(ref buffer, ref offset);
+            int dataStart = offset;
+
+            var payload = new ArrayBufferWriter<byte>();
+            SchemaSection.WriteLeb128(payload, (uint)rootId);
+            SerializerBinary.WriteUInt32Bias(payload, Protocol.RefNewValueSameType, Protocol.RefBias);
+            SerializerBinary.WriteDecimal(payload, 42.5m);                                    // 16 bytes
+            SerializerBinary.WriteDateTimeOffset(payload, new DateTimeOffset(2021, 5, 6, 7, 8, 9, TimeSpan.Zero)); // 10
+            SerializerBinary.WriteUInt32Bias(payload, Protocol.RefNewValueSameType, Protocol.RefBias);
+            SerializerBinary.WriteInt32Fixed(payload, 5);                                   // RdOnlyAfter.After
+
+            var data = payload.WrittenSpan;
+            SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
+            data.CopyTo(buffer.AsSpan(offset));
+            offset += data.Length;
+            int stringTableStart = offset;
+            new StringInternTable().Flush(ref buffer, ref offset, StringTableCompression.Disabled);
+            RobustHeader.FinalizeHeader(buffer, offset, 0, schemaStringOffset, dataStart, stringTableStart, 0UL);
+
+            var loaded = New().Load<RdRemovedFieldRoot>(buffer[..offset], 1);
+            Assert.Equal(5, loaded.Kept.After);
+        }
+
+        /// <summary>
+        /// A payload that ends before a fixed-width scalar holds is corruption, not a default value.
+        /// The header offsets stay consistent here, so only the reader can notice.
+        /// </summary>
+        [Fact]
+        public void Scalar_That_Does_Not_Fit_The_Payload_Is_Rejected()
+        {
+            var s = New();
+            var bytes = s.Save(42.5m, 1);
+            RobustHeader.Read(bytes, out _, out _, out _, out long dataStart, out long stringTable, out _);
+
+            foreach (var keep in new[] { 2, 8 })
+            {
+                var truncated = (byte[])bytes.Clone();
+                System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(
+                    truncated.AsSpan(RobustHeader.StringTableOffsetOffset), (int)dataStart + keep);
+                FixRobustChecksum(truncated);
+
+                var ex = Record.Exception(() => s.Load<decimal>(truncated, 1));
+                Assert.IsAssignableFrom<Ceras.Exceptions.CerasDataCorruptionException>(ex);
+            }
+        }
+
+        static byte[] PayloadOf(byte[] bytes)
+        {
+            RobustHeader.Read(bytes, out _, out _, out _, out long dataStart, out long stringTable, out _);
+            return bytes.Skip((int)dataStart).Take((int)(stringTable - dataStart)).ToArray();
+        }
+
+        static int SkipRootIdAndMarker(byte[] payload)
+        {
+            int offset = 0;
+            SchemaSection.ReadLeb128(payload, ref offset);
+            return offset + 1;
+        }
+
     }
 }

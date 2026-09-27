@@ -10,7 +10,12 @@ namespace Ceras.Test
 {
     public class RobustRefLoadTests : TestBase
     {
-        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
+        // A context has one finite manifest, so the allowed structural root shapes are declared up front.
+        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c =>
+        {
+            c.UseGeneratedFormatters("Tests");
+            c.DeclareRoot<List<int>>();
+        });
 
         [Fact]
         public void LoadRef_FastPath()
