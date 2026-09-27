@@ -43,7 +43,8 @@ namespace Ceras.SourceGenerator
                         // CerasSerializableAttribute<T> (and any constructed form of it) is matched too.
                         var attrDef = attrType.OriginalDefinition.ToDisplayString();
 						if (attrDef == "Ceras.CerasSerializableAttribute" ||
-							attrDef == "Ceras.CerasSerializableAttribute<T>")
+							attrDef == "Ceras.CerasSerializableAttribute<T>" ||
+							attrDef == "Ceras.CerasContextAttribute")
                         {
                             return ctx.SemanticModel.GetDeclaredSymbol(typeDecl);
                         }
@@ -58,39 +59,17 @@ namespace Ceras.SourceGenerator
             Compilation compilation,
             ImmutableArray<INamedTypeSymbol> types)
         {
-            var initialRoots = new HashSet<INamedTypeSymbol>(types, SymbolEqualityComparer.Default);
-
             var cerasSerializableAttr = compilation.GetTypeByMetadataName(CerasSerializableFqn);
             var cerasSerializableGenericAttr = compilation.GetTypeByMetadataName(CerasSerializableFqn + "`1");
             var excludeFromDiscoveryAttr = compilation.GetTypeByMetadataName(ExcludeFromDiscoveryFqn);
             var blacklistAttr = compilation.GetTypeByMetadataName(BlacklistFqn);
+            var cerasContextAttr = compilation.GetTypeByMetadataName("Ceras.CerasContextAttribute");
 
             // Also include assembly-level [CerasSerializable] and [CerasKnownType] targets as roots.
             // CerasKnownType explicitly authorizes closed instantiations (and their transitive
             // closure) that are hidden behind object/interface members (TODO Phase 2.1).
             var knownTypeAttr = compilation.GetTypeByMetadataName("Ceras.CerasKnownTypeAttribute");
             var knownTypeGenericAttr = compilation.GetTypeByMetadataName("Ceras.CerasKnownTypeAttribute`1");
-
-            foreach (var attr in compilation.Assembly.GetAttributes())
-            {
-                if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr) ||
-                    SymbolEqualityComparer.Default.Equals(attr.AttributeClass?.OriginalDefinition, cerasSerializableGenericAttr) ||
-                    SymbolEqualityComparer.Default.Equals(attr.AttributeClass, knownTypeAttr) ||
-                    SymbolEqualityComparer.Default.Equals(attr.AttributeClass?.OriginalDefinition, knownTypeGenericAttr))
-                {
-                    if (attr.AttributeClass!.IsGenericType)
-                    {
-                        var target = attr.AttributeClass.TypeArguments[0] as INamedTypeSymbol;
-                        if (target != null) initialRoots.Add(target);
-                    }
-                    else if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is INamedTypeSymbol target)
-                    {
-                        initialRoots.Add(target);
-                    }
-                }
-            }
-
-            var finalRoots = initialRoots.ToImmutableArray();
 
             var includeAttr = compilation.GetTypeByMetadataName(IncludeFqn);
             var excludeAttr = compilation.GetTypeByMetadataName(ExcludeFqn);
@@ -114,8 +93,123 @@ namespace Ceras.SourceGenerator
                 }
             }
 
-            var results = DiscoveryEngine.DiscoverAllTypes(
-                context, compilation, finalRoots, attrBag, excludeFromDiscoveryAttr, blacklistPatterns);
+            // ------------------------------------------------------------------------------------
+            // Serialization contexts.
+            //
+            // A context is a named, finite set of serializable types that share one generated
+            // manifest, one deterministic type-ID space, and one layout fingerprint. Contexts are
+            // declared by [CerasContext("name")] on root types. Each context is discovered
+            // independently from its own roots; the union of all contexts' discovered types is what
+            // gets a generated formatter (a formatter is context-independent). Registration is
+            // emitted per context, so selecting a context only ever registers that context's
+            // manifest (TODO Phase 2 "Contexts").
+            // ------------------------------------------------------------------------------------
+            var contextRoots = new SortedDictionary<string, HashSet<INamedTypeSymbol>>(StringComparer.Ordinal);
+
+            void AddRoot(string contextName, INamedTypeSymbol type)
+            {
+                if (!contextRoots.TryGetValue(contextName, out var roots))
+                    contextRoots[contextName] = roots = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+                roots.Add(type);
+            }
+
+            // 1. Declared contexts and their roots: every [CerasContext] on an annotated type.
+            foreach (var type in types)
+            {
+                foreach (var attr in type.GetAttributes())
+                {
+                    if (cerasContextAttr == null || !SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasContextAttr))
+                        continue;
+
+                    string? name = attr.ConstructorArguments.Length > 0 ? attr.ConstructorArguments[0].Value as string : null;
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(
+                            Diag.InvalidContextName,
+                            type.Locations.FirstOrDefault(),
+                            type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
+                        continue;
+                    }
+
+                    AddRoot(name!, type);
+                }
+            }
+
+            // 2. Assembly-level [CerasSerializable<T>] / [CerasKnownType...] targets. These are roots
+            //    of every declared context by default. [CerasKnownType...] additionally accepts an
+            //    explicit context name; if it names a context that no type declares, that is an error.
+            foreach (var attr in compilation.Assembly.GetAttributes())
+            {
+                bool isSerializable = SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr) ||
+                                      SymbolEqualityComparer.Default.Equals(attr.AttributeClass?.OriginalDefinition, cerasSerializableGenericAttr);
+                bool isKnownType = SymbolEqualityComparer.Default.Equals(attr.AttributeClass, knownTypeAttr) ||
+                                   SymbolEqualityComparer.Default.Equals(attr.AttributeClass?.OriginalDefinition, knownTypeGenericAttr);
+                if (!isSerializable && !isKnownType) continue;
+
+                INamedTypeSymbol? target = null;
+                string? contextName = null;
+
+                if (attr.AttributeClass != null && attr.AttributeClass.IsGenericType)
+                {
+                    target = attr.AttributeClass.TypeArguments[0] as INamedTypeSymbol;
+
+                    // The generic CerasKnownTypeAttribute<T> carries an optional context;
+                    // the generic CerasSerializableAttribute<T> carries a stable name instead.
+                    if (isKnownType && attr.ConstructorArguments.Length > 0)
+                        contextName = attr.ConstructorArguments[0].Value as string;
+                }
+                else if (attr.ConstructorArguments.Length > 0)
+                {
+                    target = attr.ConstructorArguments[0].Value as INamedTypeSymbol;
+
+                    // The non-generic CerasKnownTypeAttribute(Type, string) carries an optional context.
+                    if (isKnownType && attr.ConstructorArguments.Length > 1)
+                        contextName = attr.ConstructorArguments[1].Value as string;
+                }
+
+                if (target == null) continue;
+
+                if (string.IsNullOrWhiteSpace(contextName))
+                {
+                    // No context given: apply to every declared context.
+                    foreach (var declared in contextRoots.Keys.ToList())
+                        AddRoot(declared, target);
+                }
+                else if (contextRoots.ContainsKey(contextName!))
+                {
+                    AddRoot(contextName!, target);
+                }
+                else
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        Diag.UnknownContext,
+                        target.Locations.FirstOrDefault(),
+                        target.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                        contextName!,
+                        contextRoots.Count == 0 ? "(none)" : string.Join(", ", contextRoots.Keys)));
+                }
+            }
+
+            // 3. Discover each context independently; keep the first discovery path per type for the
+            //    (context-independent) discovery diagnostics.
+            var results = new Dictionary<INamedTypeSymbol, TypeDiscoveryResult>(SymbolEqualityComparer.Default);
+            var contextTypes = new SortedDictionary<string, List<INamedTypeSymbol>>(StringComparer.Ordinal);
+
+            foreach (var kv in contextRoots)
+            {
+                var discovered = DiscoveryEngine.DiscoverAllTypes(
+                    context, compilation, kv.Value.ToImmutableArray(), attrBag, excludeFromDiscoveryAttr, blacklistPatterns);
+
+                var contextMembers = new List<INamedTypeSymbol>(discovered.Count);
+                foreach (var discoveredType in discovered)
+                {
+                    contextMembers.Add(discoveredType.Key);
+                    if (!results.ContainsKey(discoveredType.Key))
+                        results[discoveredType.Key] = discoveredType.Value;
+                }
+
+                contextTypes[kv.Key] = contextMembers;
+            }
 
             var finalTypes = results.Keys.ToImmutableArray();
             var finalTypesSet = new HashSet<INamedTypeSymbol>(finalTypes, SymbolEqualityComparer.Default);
@@ -254,7 +348,7 @@ namespace Ceras.SourceGenerator
                 generatedFormatterTypes.Add(type);
             }
 
-            // 1. Generate the 'UseRobustFormatters' file
+            // 1. Generate the 'UseRobustFormatters' file: one registration entry point per context.
             var sbUse = new StringBuilder();
             sbUse.AppendLine("// <auto-generated/>");
             sbUse.AppendLine("#nullable disable");
@@ -270,52 +364,46 @@ namespace Ceras.SourceGenerator
             sbUse.AppendLine("{");
             sbUse.AppendLine("    public static class RobustFormatters");
             sbUse.AppendLine("    {");
-            sbUse.AppendLine("        public static void UseRobustFormatters(global::Ceras.CerasConfig config)");
-            sbUse.AppendLine("        {");
-            sbUse.AppendLine("            var robustConfig = config as global::Ceras.CerasRobustConfig;");
+            sbUse.AppendLine("        /// <summary>");
+            sbUse.AppendLine("        /// The serialization contexts declared in this compilation, in ordinal order.");
+            sbUse.AppendLine("        /// Pass one of these names to <see cref=\"UseRobustFormatters\"/> (or to the");
+            sbUse.AppendLine("        /// <c>UseGeneratedFormatters</c> extension) to register that context's manifest.");
+            sbUse.AppendLine("        /// </summary>");
+            if (contextTypes.Count == 0)
+            {
+                sbUse.AppendLine("        public static readonly string[] ContextNames = global::System.Array.Empty<string>();");
+            }
+            else
+            {
+                sbUse.Append("        public static readonly string[] ContextNames = new string[] { ");
+                sbUse.Append(string.Join(", ", contextTypes.Keys.Select(QuoteLiteral)));
+                sbUse.AppendLine(" };");
+            }
             sbUse.AppendLine();
-
-            foreach (var type in finalTypes)
+            sbUse.AppendLine("        /// <summary>");
+            sbUse.AppendLine("        /// Registers the generated formatters and schemas of the named serialization context into");
+            sbUse.AppendLine("        /// <paramref name=\"config\"/>. Exactly one context is registered per config; an unknown");
+            sbUse.AppendLine("        /// context name throws with the list of available contexts.");
+            sbUse.AppendLine("        /// </summary>");
+            sbUse.AppendLine("        public static void UseRobustFormatters(global::Ceras.CerasConfig config, string context)");
+            sbUse.AppendLine("        {");
+            sbUse.AppendLine("            switch (context)");
+            sbUse.AppendLine("            {");
+            foreach (var contextName in contextTypes.Keys)
             {
-                // generatedFormatterTypes already encodes the interface/abstract/open/well-known/
-                // collection/constructability and generated-name-collision filters.
-                if (!generatedFormatterTypes.Contains(type)) continue;
-
-                string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                string formatterName = MakeFormatterClassName(type);
-
-                string varName = "tc_" + SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal));
-                sbUse.AppendLine($"            var {varName} = config.ConfigType<{typeFqn}>();");
-                sbUse.AppendLine($"            if ({varName}.CustomFormatter == null) {varName}.CustomFormatter = new {formatterName}();");
-
-                sbUse.AppendLine($"            if (robustConfig != null) robustConfig.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
+                sbUse.AppendLine($"                case {QuoteLiteral(contextName)}:");
+                sbUse.AppendLine("                {");
+                sbUse.Append(BuildContextRegistrationBody(contextTypes[contextName], generatedFormatterTypes));
+                sbUse.AppendLine("                    break;");
+                sbUse.AppendLine("                }");
             }
-            // Register discovered interface and abstract types with minimal schemas.
-            // These types have no formatters but may appear as generic type arguments in
-            // serialized collections (e.g. List<ILogicalEntity>). Without pre-registration
-            // they get dynamically assigned IDs during serialization AFTER SchemaSection.Write
-            // has already run, so their IDs are never written to the schema section.
-            // On load, RobustContext.IdToType cannot resolve those IDs → null type →
-            // "Failed to deserialize generic argument 0 for type 'List`1'".
-            foreach (var type in finalTypes)
-            {
-                if (type.TypeKind != TypeKind.Interface && !type.IsAbstract) continue;
-                if (type.IsSealed) continue; // static classes (abstract+sealed) have no instances
-                if (IsWellKnownType(type)) continue;
-                if (type.TypeParameters.Length > 0) continue; // open generics: closed instantiations are handled at runtime
-
-                string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                string stableName = GetRobustName(type);
-                sbUse.AppendLine($"            if (robustConfig != null)");
-                sbUse.AppendLine($"                robustConfig.SchemaRegistry.Register(typeof({typeFqn}),");
-                sbUse.AppendLine($"                    new global::Ceras.Format.SchemaTypeInfo(");
-                sbUse.AppendLine($"                        stableName: {QuoteString(stableName)},");
-                sbUse.AppendLine($"                        previousTypeNames: global::System.Array.Empty<string>(),");
-                sbUse.AppendLine($"                        kind: global::Ceras.Format.SchemaTypeKind.Class,");
-                sbUse.AppendLine($"                        fields: global::System.Array.Empty<global::Ceras.Format.SchemaFieldInfo>(),");
-                sbUse.AppendLine($"                        fixedByteSize: 0));");
-            }
-
+            sbUse.AppendLine("                default:");
+            sbUse.AppendLine("                    throw new global::System.ArgumentException(");
+            sbUse.AppendLine("                        \"Unknown Ceras serialization context '\" + context + \"'. Available contexts: \" +");
+            sbUse.AppendLine("                        (ContextNames.Length == 0 ? \"(none declared)\" : global::System.String.Join(\", \", ContextNames)) +");
+            sbUse.AppendLine("                        \". Declare a context with [CerasContext(name)] on a root type, then call UseGeneratedFormatters(name).\",");
+            sbUse.AppendLine("                        nameof(context));");
+            sbUse.AppendLine("            }");
             sbUse.AppendLine("        }");
             sbUse.AppendLine("    }");
             sbUse.AppendLine();
@@ -324,9 +412,12 @@ namespace Ceras.SourceGenerator
             sbUse.AppendLine("    /// </summary>");
             sbUse.AppendLine("    public static class CerasConfigExtensions");
             sbUse.AppendLine("    {");
-            sbUse.AppendLine("        /// <summary>Registers all generated formatters and schemas into the config.</summary>");
-            sbUse.AppendLine("        public static void UseGeneratedFormatters(this global::Ceras.CerasConfig config)");
-            sbUse.AppendLine("            => RobustFormatters.UseRobustFormatters(config);");
+            sbUse.AppendLine("        /// <summary>");
+            sbUse.AppendLine("        /// Registers the generated formatters and schemas of the named serialization context into the config.");
+            sbUse.AppendLine("        /// Use <c>RobustFormatters.ContextNames</c> to discover the available names.");
+            sbUse.AppendLine("        /// </summary>");
+            sbUse.AppendLine("        public static void UseGeneratedFormatters(this global::Ceras.CerasConfig config, string context)");
+            sbUse.AppendLine("            => RobustFormatters.UseRobustFormatters(config, context);");
             sbUse.AppendLine("    }");
             sbUse.AppendLine("}");
 
@@ -441,6 +532,73 @@ namespace Ceras.SourceGenerator
                 string typeName = SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal));
                 context.AddSource($"{typeName}.Ceras.g.cs", SourceText.From(sbFmt.ToString(), Encoding.UTF8));
             }
+        }
+
+        /// <summary>
+        /// Emits the registration calls for one context into a <c>switch</c> case block. The types are
+        /// ordered by canonical stable name so the assigned type IDs are deterministic for a given
+        /// compilation. Only this context's discovered types are registered, so the registry contents
+        /// (and therefore the layout fingerprint) are per context.
+        /// </summary>
+        static string BuildContextRegistrationBody(
+            List<INamedTypeSymbol> contextTypes,
+            HashSet<INamedTypeSymbol> generatedFormatterTypes)
+        {
+            var ordered = contextTypes
+                .OrderBy(GetRobustName, StringComparer.Ordinal)
+                .ToList();
+
+            var body = new StringBuilder();
+            bool usesRobustConfig = false;
+
+            foreach (var type in ordered)
+            {
+                // generatedFormatterTypes already encodes the interface/abstract/open/well-known/
+                // collection/constructability and generated-name-collision filters.
+                if (!generatedFormatterTypes.Contains(type)) continue;
+
+                string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                string formatterName = MakeFormatterClassName(type);
+
+                string varName = "tc_" + SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal));
+                body.AppendLine($"                    var {varName} = config.ConfigType<{typeFqn}>();");
+                body.AppendLine($"                    if ({varName}.CustomFormatter == null) {varName}.CustomFormatter = new {formatterName}();");
+
+                body.AppendLine($"                    if (robustConfig != null) robustConfig.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
+                usesRobustConfig = true;
+            }
+
+            // Register discovered interface and abstract types with minimal schemas.
+            // These types have no formatters but may appear as generic type arguments in
+            // serialized collections (e.g. List<ILogicalEntity>). Without pre-registration
+            // they get dynamically assigned IDs during serialization AFTER SchemaSection.Write
+            // has already run, so their IDs are never written to the schema section.
+            // On load, RobustContext.IdToType cannot resolve those IDs → null type →
+            // "Failed to deserialize generic argument 0 for type 'List`1'".
+            foreach (var type in ordered)
+            {
+                if (type.TypeKind != TypeKind.Interface && !type.IsAbstract) continue;
+                if (type.IsSealed) continue; // static classes (abstract+sealed) have no instances
+                if (IsWellKnownType(type)) continue;
+                if (type.TypeParameters.Length > 0) continue; // open generics: closed instantiations are handled at runtime
+
+                string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                string stableName = GetRobustName(type);
+                body.AppendLine($"                    if (robustConfig != null)");
+                body.AppendLine($"                        robustConfig.SchemaRegistry.Register(typeof({typeFqn}),");
+                body.AppendLine($"                            new global::Ceras.Format.SchemaTypeInfo(");
+                body.AppendLine($"                                stableName: {QuoteString(stableName)},");
+                body.AppendLine($"                                previousTypeNames: global::System.Array.Empty<string>(),");
+                body.AppendLine($"                                kind: global::Ceras.Format.SchemaTypeKind.Class,");
+                body.AppendLine($"                                fields: global::System.Array.Empty<global::Ceras.Format.SchemaFieldInfo>(),");
+                body.AppendLine($"                                fixedByteSize: 0));");
+                usesRobustConfig = true;
+            }
+
+            if (usesRobustConfig)
+                body.Insert(0, "                    var robustConfig = config as global::Ceras.CerasRobustConfig;\n");
+
+            return body.ToString();
         }
 
         static void AppendGeneratedHeader(StringBuilder sb)

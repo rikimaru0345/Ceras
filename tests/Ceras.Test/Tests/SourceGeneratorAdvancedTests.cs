@@ -14,7 +14,7 @@ namespace Ceras.Test.Tests
         CerasConfig CreateSgConfig()
         {
             var config = new CerasRawConfig();
-            Ceras.Generated.RobustFormatters.UseRobustFormatters(config);
+            Ceras.Generated.RobustFormatters.UseRobustFormatters(config, "Tests");
             return config;
         }
 
@@ -149,6 +149,7 @@ namespace Ceras.Test.Tests
 
     // --- Helper Types for In-Place ---
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class AllReadonlyCollections
     {
@@ -199,6 +200,7 @@ namespace Ceras.Test.Tests
         }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class CustomCollectionContainer
     {
@@ -223,6 +225,7 @@ namespace Ceras.Test.Tests
         public int GetBasePrivate() => _basePrivate;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public partial class DeepDerived : MidBase
     {
@@ -239,6 +242,7 @@ namespace Ceras.Test.Tests
         public int GetBasePrivate() => _basePrivate;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public partial class DerivedFromOverride : BaseWithOverride
     {
@@ -254,12 +258,14 @@ namespace Ceras.Test.Tests
         public int GetAbstractPrivate() => _absPrivate;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
         public partial class ConcreteFromAbstract : AbstractBase
     {
         public int Value;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public partial class PrivatePropObj
     {

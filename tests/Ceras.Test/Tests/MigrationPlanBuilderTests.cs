@@ -9,6 +9,7 @@ namespace Ceras.Test
 {
     public class MigrationPlanBuilderTests
     {
+        [CerasContext("Tests")]
         [CerasSerializable]
         public class AutoPropertyClass
         {

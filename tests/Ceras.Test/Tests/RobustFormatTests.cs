@@ -9,12 +9,14 @@ namespace Ceras.Test
 {
     public enum StateEnum { Off, On }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class HeroWithEnum
     {
         public StateEnum State;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class HeroWithList
     {
@@ -23,7 +25,7 @@ namespace Ceras.Test
 
     public class RobustFormatTests : TestBase
     {
-        CerasRobustSerializer CreateSerializer() => new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+        CerasRobustSerializer CreateSerializer() => new CerasRobustSerializer(config => config.UseGeneratedFormatters("Tests"));
 
         [Fact]
         public void Robust_Enum_RoundTrip()
@@ -76,12 +78,14 @@ namespace Ceras.Test
         }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class HeroWithPolymorphic
     {
         public object Extra;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class ExtraInfo
     {

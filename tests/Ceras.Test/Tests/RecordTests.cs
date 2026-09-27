@@ -3,9 +3,11 @@ using Xunit;
 using Ceras;
 
 namespace Ceras.Test.Tests {
+    [CerasContext("Tests")]
     [CerasSerializable]
     public partial record SimpleRecord(int Id, string Name);
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public partial record struct StructRecord(double X, double Y);
 

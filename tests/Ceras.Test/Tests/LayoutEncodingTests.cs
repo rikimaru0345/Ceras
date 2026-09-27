@@ -6,6 +6,7 @@ using Ceras.Generated;
 
 namespace Ceras.Test.Layout
 {
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class CollectionFieldModel
     {
@@ -20,7 +21,7 @@ namespace Ceras.Test.Layout
     /// </summary>
     public class LayoutEncodingTests : TestBase
     {
-        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
         [Fact]
         public void WellKnownCollections_DoNotRegisterReflectedClrInternals()

@@ -37,6 +37,7 @@ namespace Ceras.Test
     // Robust model — all types annotated with [CerasSerializable]
     // -----------------------------------------------------------------------
 
+    [CerasContext("Tests")]
     [CerasSerializable]
         public class RobustData
     {
@@ -45,6 +46,7 @@ namespace Ceras.Test
         public int       PlaytimeSeconds;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
         public class Player
     {
@@ -56,6 +58,7 @@ namespace Ceras.Test
         public List<Quest>    ActiveQuests;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
         public class PlayerStats
     {
@@ -64,6 +67,7 @@ namespace Ceras.Test
         public int Intelligence;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
         public class Inventory
     {
@@ -71,6 +75,7 @@ namespace Ceras.Test
         public int        MaxCapacity;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
         public class Item
     {
@@ -82,6 +87,7 @@ namespace Ceras.Test
 
     public enum ItemRarity { Common = 0, Uncommon = 1, Rare = 2, Epic = 3, Legendary = 4 }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
         public class Quest
     {
@@ -96,7 +102,7 @@ namespace Ceras.Test
 
     public class RobustTests : TestBase
     {
-        Action<CerasRawConfig> GeneratedConfig() => c => RobustFormatters.UseRobustFormatters(c);
+        Action<CerasRawConfig> GeneratedConfig() => c => RobustFormatters.UseRobustFormatters(c, "Tests");
 
         RobustData MakeRobustData() => new RobustData
         {
@@ -209,7 +215,7 @@ namespace Ceras.Test
         public void Robust_CircularReference_Polymorphic()
         {
             var ceras = new CerasRobustSerializer(config => {
-                RobustFormatters.UseRobustFormatters(config);
+                RobustFormatters.UseRobustFormatters(config, "Tests");
             });
 
             var container = new RobustContainer();
@@ -243,7 +249,7 @@ namespace Ceras.Test
         public void Robust_GenericStruct_Monomorphic()
         {
             var ceras = new CerasRobustSerializer(config => {
-                RobustFormatters.UseRobustFormatters(config);
+                RobustFormatters.UseRobustFormatters(config, "Tests");
             });
 
             var container = new GenericStructContainer { Pair = new KeyValuePair<int, int>(1, 2) };
@@ -261,6 +267,7 @@ namespace Ceras.Test
         }
 	}
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class RobustNode
     {
@@ -268,6 +275,7 @@ namespace Ceras.Test
         public object Reference;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class RobustContainer
     {
@@ -275,6 +283,7 @@ namespace Ceras.Test
         public List<object> List = new();
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class GenericStructContainer
     {

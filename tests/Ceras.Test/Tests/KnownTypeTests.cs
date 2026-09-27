@@ -21,7 +21,7 @@ namespace Ceras.Test.Known
 
     public class KnownTypeTests
     {
-        static CerasRobustSerializer Create() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+        static CerasRobustSerializer Create() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
         [Fact]
         public void CerasKnownType_MakesHiddenClosedGenericReachable()

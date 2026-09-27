@@ -39,6 +39,7 @@ namespace ReproGame
 {
     using ReproGodot;
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public abstract class Building
     {
@@ -47,6 +48,7 @@ namespace ReproGame
         public Building() { }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class RailSegment : Building
     {
@@ -102,7 +104,7 @@ namespace ReproGame
         static CerasRobustSerializer MakeSerializer() => new CerasRobustSerializer(config =>
         {
             config.AllowReflectionFallback = true;
-            config.UseGeneratedFormatters();
+            config.UseGeneratedFormatters("Tests");
             config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
         });
 
@@ -137,7 +139,7 @@ namespace ReproGame
             var robust2 = new CerasRobustSerializer(config =>
             {
                 config.AllowReflectionFallback = true;
-                config.UseGeneratedFormatters();
+                config.UseGeneratedFormatters("Tests");
                 config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
             });
 
@@ -176,6 +178,7 @@ namespace ReproGame
         }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class DummyType { public int X; }
 }

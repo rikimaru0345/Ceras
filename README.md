@@ -51,8 +51,9 @@ byte[] packet = fast.Serialize(p);
 var copy = fast.Deserialize<Person>(packet);
 
 // Robust / persistent: savegames and anything that must survive game updates.
-// `UseGeneratedFormatters()` is emitted by the source generator for your assembly.
-var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+// `UseGeneratedFormatters(context)` is emitted by the source generator for your assembly;
+// each named context has its own finite manifest and layout fingerprint (see below).
+var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters("SaveGame"));
 byte[] data = robust.Save(p, gameVersion: 1);
 var p2 = robust.Load<Person>(data, currentGameVersion: 1);
 ```
@@ -92,9 +93,10 @@ still load old data.
 
 ### Quick start (3 steps)
 
-**1. Annotate your save types:**
+**1. Annotate your save types (and declare a context):**
 
 ```csharp
+[CerasContext("SaveGame")]        // declares the "SaveGame" context with Player as a root
 [CerasSerializable]
 [PreviousTypeName("PlayerEntity")] // handle class renames
 public class Player
@@ -107,16 +109,19 @@ public class Player
 }
 ```
 
-Interfaces and abstract base types should be annotated too, so the generator discovers their
-concrete subtypes (needed for polymorphic fields). See [Polymorphic / runtime-only types](#polymorphic--runtime-only-types).
+A type is part of a context when it is a `[CerasContext]` root of it or is reachable from one
+(member types, generic arguments, polymorphic subtypes). Interfaces and abstract base types should
+be annotated too, so the generator discovers their concrete subtypes (needed for polymorphic
+fields). See [Polymorphic / runtime-only types](#polymorphic--runtime-only-types) and
+[Serialization contexts](#serialization-contexts).
 
-**2. Create the serializer and register the generated formatters once:**
+**2. Create the serializer and register the named context once:**
 
 ```csharp
 using Ceras;
 using Ceras.Generated;
 
-var ceras = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+var ceras = new CerasRobustSerializer(config => config.UseGeneratedFormatters("SaveGame"));
 ```
 
 **3. Save and Load:**
@@ -241,12 +246,14 @@ This replaces the old external AotGenerator tool and works automatically — no 
 </ItemGroup>
 ```
 
-**2. Annotate the types you want pre-generated formatters for:**
+**2. Annotate the types you want pre-generated formatters for, and declare their context:**
 
 ```csharp
 using Ceras;
 
-// Standard attribute on the type
+// [CerasContext] makes Player a root of the "SaveGame" context; every type reachable from it
+// (members, generic arguments, polymorphic subtypes) joins the same context.
+[CerasContext("SaveGame")]
 [CerasSerializable]
 public class Player
 {
@@ -254,17 +261,52 @@ public class Player
     public int    Score;
 }
 
-// Or use the generic version anywhere (e.g. at the assembly level) 
-// to generate formatters for external types you don't control:
+// Or use the generic version anywhere (e.g. at the assembly level) to generate formatters
+// for external types you don't control. Assembly-level declarations join every declared
+// context by default; [CerasKnownType] also accepts an explicit context name:
+//   [assembly: CerasKnownType<List<Hidden>>("SaveGame")]
 [assembly: CerasSerializable<ExternalLibrary.UserType>]
+[assembly: CerasKnownType<List<Hidden>>]
 ```
 
-> **Registration**: call the generated `RobustFormatters.UseRobustFormatters(config)` (or the
-> `config.UseGeneratedFormatters()` extension) after constructing the config. Ceras does not scan
-> for generated formatters automatically — a serializer in a library assembly cannot see the
-> formatters emitted for your assembly.
+> **Registration**: call the generated `RobustFormatters.UseRobustFormatters(config, "SaveGame")`
+> (or `config.UseGeneratedFormatters("SaveGame")`) after constructing the config, passing the
+> context name. There is no implicit default context. Ceras does not scan for generated formatters
+> automatically — a serializer in a library assembly cannot see the formatters emitted for your
+> assembly. `RobustFormatters.ContextNames` lists the contexts declared in the current compilation,
+> and passing an unknown name throws an error with that list.
 
 Generated formatters only change *how* values are read and written; the wire format is unchanged.
+
+### Serialization contexts
+
+A **context** is a named, finite set of serializable types that share one generated manifest, one
+deterministic type-ID space, and one layout fingerprint. You select it by name when configuring a
+serializer. The generator discovers each context independently from its own roots, so selecting a
+context registers *only* that context's types; types belonging only to another context are not in
+its manifest (and are rejected as undeclared roots).
+
+Why more than one?
+- A **persistent savegame** context must stay readable across releases, so you want a frozen type
+  set and no accidental coupling to unrelated types. Adding a message type elsewhere must not change
+  the save-game fingerprint and invalidate existing saves.
+- A **transient network** context has no compatibility promise, may change every build, and should
+  not drag the save-game schema (or its version gates) into every packet.
+
+Splitting them gives each independent evolution, smaller manifests, and precise undeclared-type
+errors. A type can belong to several contexts at once: name each context on `[CerasContext]`, or
+make it reachable from roots of each. Each context still gets its own manifest entry, type ID, and
+fingerprint for that type. There is no context composition at runtime: one serializer config uses
+exactly one context.
+
+```csharp
+[CerasContext("SaveGame")] public class Player { public string Name; }
+[CerasContext("Network")]  public class ChatMessage { public string Text; }
+
+var save = new CerasRobustSerializer(c => c.UseGeneratedFormatters("SaveGame"));
+var net  = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Network"));
+// save knows Player (and its closure) but not ChatMessage, and vice versa.
+```
 
 ### Viewing and Debugging Generated Code
 

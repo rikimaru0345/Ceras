@@ -10,6 +10,7 @@ namespace Ceras.Test
 {
     // ── Additional test models ────────────────────────────────────────────────
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     [PreviousTypeName("Ceras.Test.OldPotion")]
         public class Potion
@@ -21,6 +22,7 @@ namespace Ceras.Test
         public string Label;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public struct Point2
     {
@@ -35,7 +37,7 @@ namespace Ceras.Test
         SchemaRegistry CreateRegistry()
         {
             var config = new CerasRobustConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
 
 			// Manual registration for local types to ensure they have the stable names the tests expect
 			var potionInfo = new SchemaTypeInfo("Ceras.Test.Potion", new[] { "Ceras.Test.OldPotion" }, SchemaTypeKind.Class, new[] {

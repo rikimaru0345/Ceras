@@ -10,7 +10,7 @@ namespace Ceras.Test
 {
     public class RobustRefLoadTests : TestBase
     {
-        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
         [Fact]
         public void LoadRef_FastPath()
@@ -67,6 +67,7 @@ namespace Ceras.Test
             Assert.Equal(3, existing[2]);
         }
 
+        [CerasContext("Tests")]
         [CerasSerializable]
         public class RefLoadData
         {

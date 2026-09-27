@@ -9,6 +9,7 @@ namespace Ceras.Test
     /// default value, the generator passes that default when it invokes the constructor, and the
     /// real state is then assigned from the deserialized members.
     /// </summary>
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class TransientCtorModel
     {
@@ -32,7 +33,7 @@ namespace Ceras.Test
         [Fact]
         public void OptionalCtorParam_IsNotSerialized_AndRoundTrips()
         {
-            var ceras = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+            var ceras = new CerasRobustSerializer(config => config.UseGeneratedFormatters("Tests"));
 
             var original = new TransientCtorModel(42, "hello");
             var data = ceras.Save(original, 1);

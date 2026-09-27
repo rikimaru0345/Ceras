@@ -92,7 +92,7 @@ namespace Ceras.Test
             {
 
                 config.AllowReflectionFallback = false;
-                config.UseGeneratedFormatters();
+                config.UseGeneratedFormatters("Tests");
                 // Manual registration for robust mode in tests
                 config.SchemaRegistry.Register(typeof(GameRoot), CreateSchema(typeof(GameRoot)));
                 config.SchemaRegistry.Register(typeof(ParentEntity), CreateSchema(typeof(ParentEntity)));
@@ -147,6 +147,7 @@ namespace Ceras.Test
                 fixedByteSize: 0);
         }
 
+        [CerasContext("Tests")]
         [CerasSerializable]
         public class GameRoot
         {
@@ -155,12 +156,14 @@ namespace Ceras.Test
             public List<object> Parents = new();
         }
 
+        [CerasContext("Tests")]
         [CerasSerializable]
         public class ParentEntity
         {
             public List<object> Children = new();
         }
 
+        [CerasContext("Tests")]
         [CerasSerializable]
         public class ChildEntity
         {

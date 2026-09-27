@@ -38,6 +38,7 @@ namespace Ceras.Test {
 		public int x, y;
 	}
 
+	[CerasContext("Tests")]
 	[CerasSerializable]
 	partial class ThingWithBackingFields {
 		public bool SomeBool { get; set; }
@@ -46,6 +47,7 @@ namespace Ceras.Test {
 		public string Str { get; set; }
 	}
 
+	[CerasContext("Tests")]
 	[CerasSerializable]
 	partial class ThingWithSerializedAs {
 		[CerasStableName("NewName")]
@@ -55,7 +57,7 @@ namespace Ceras.Test {
 	public class AutoPropBackingFieldTests : TestBase {
 		CerasRawConfig GeneratedConfig() {
 			var c = new CerasRawConfig();
-			RobustFormatters.UseRobustFormatters(c);
+			RobustFormatters.UseRobustFormatters(c, "Tests");
 			return c;
 		}
 
@@ -84,7 +86,7 @@ namespace Ceras.Test {
 		[Fact]
 		public void Robust_SchemaNames_UsePropertyName_ForBackingFields() {
 			var config = new CerasRobustConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
             
             Assert.True(((CerasRobustConfig)config).SchemaRegistry.TryGetInfo(typeof(ThingWithBackingFields), out var schema));
             Assert.Contains(schema.Fields, f => f.StableName == "SomeBool");
@@ -96,7 +98,7 @@ namespace Ceras.Test {
 		[Fact]
 		public void Robust_SchemaNames_HonorsSerializedAs_OnProperties() {
 			var config = new CerasRobustConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
             
             Assert.True(((CerasRobustConfig)config).SchemaRegistry.TryGetInfo(typeof(ThingWithSerializedAs), out var schema));
             Assert.Contains(schema.Fields, f => f.StableName == "NewName");

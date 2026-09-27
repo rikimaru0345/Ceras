@@ -6,6 +6,7 @@ using Ceras.Generated;
 
 namespace Ceras.Test
 {
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class CallbackType
     {
@@ -19,6 +20,7 @@ namespace Ceras.Test
         }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class Dummy2 { public int X; }
 
@@ -30,7 +32,7 @@ namespace Ceras.Test
             var robust = new CerasRobustSerializer(config =>
             {
                 config.AllowReflectionFallback = true;
-                config.UseGeneratedFormatters();
+                config.UseGeneratedFormatters("Tests");
             });
 
             var original = new CallbackType { Value = 42 };

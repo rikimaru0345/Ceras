@@ -10,6 +10,7 @@ namespace Ceras.Test
 {
     // ── Additional save-test models ───────────────────────────────────────────
 
+    [CerasContext("Tests")]
     [CerasSerializable]
         public class SaveHero
     {
@@ -26,6 +27,7 @@ namespace Ceras.Test
         public float CachedDps;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
         public class RobustInventory
     {
@@ -47,7 +49,7 @@ namespace Ceras.Test
         CerasRobustSerializer CreateSerializer()
         {
             return new CerasRobustSerializer(config => {
-                RobustFormatters.UseRobustFormatters(config);
+                RobustFormatters.UseRobustFormatters(config, "Tests");
             });
         }
 

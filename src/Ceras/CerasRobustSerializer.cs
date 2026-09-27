@@ -422,9 +422,10 @@ namespace Ceras
 
         static Ceras.Exceptions.CerasException UndeclaredType(Type type) =>
             new Ceras.Exceptions.CerasException(
-                $"Type '{type.FullName}' is not declared in this serialization context. " +
-                $"Add [CerasSerializable] to it, or declare it with [assembly: CerasKnownType<...>], " +
-                $"so it is part of the generated manifest, then call UseGeneratedFormatters() before creating the serializer.");
+                $"Type '{type.FullName}' is not declared in the selected serialization context. " +
+                $"Make it a [CerasContext(\"name\")] root of the context you are using (or reachable from one), " +
+                $"or declare it with [assembly: CerasKnownType<...>], so it is part of that context's generated " +
+                $"manifest; then configure the serializer with UseGeneratedFormatters(name) for that context.");
 
         struct NormalizedTypeSchema
         {

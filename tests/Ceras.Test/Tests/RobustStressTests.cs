@@ -17,6 +17,7 @@ namespace Ceras.Test
 		// OOM attacks from corrupted/malicious saves.
 		// -------------------------------------------------------------------
 
+		[CerasContext("Tests")]
 		[CerasSerializable]
         public class LargeCollectionModel
         {
@@ -28,7 +29,7 @@ namespace Ceras.Test
         {
             var robust = new CerasRobustSerializer(config =>
             {
-                config.UseGeneratedFormatters();
+                config.UseGeneratedFormatters("Tests");
                 config.SizeLimits.MaxCollectionSize = 100; // Small limit
             });
 
@@ -46,6 +47,7 @@ namespace Ceras.Test
         // String Table Placement & Overhead Comparison
         // -------------------------------------------------------------------
 
+        [CerasContext("Tests")]
         [CerasSerializable]
         public class StringModel
         {
@@ -58,13 +60,13 @@ namespace Ceras.Test
         {
             // 1. RAW Path: use a plain CerasSerializer (no robust string table)
             var rawConfig = new CerasRawConfig();
-            rawConfig.UseGeneratedFormatters();
+            rawConfig.UseGeneratedFormatters("Tests");
             var cerasRaw = new CerasFastSerializer(rawConfig);
 
             // 2. ROBUST Path
             var robust = new CerasRobustSerializer(config =>
             {
-                config.UseGeneratedFormatters();
+                config.UseGeneratedFormatters("Tests");
                 // cant test anything string related if compressed
                 config.StringTableCompression = StringTableCompression.Disabled;
             });
@@ -100,7 +102,7 @@ namespace Ceras.Test
         [Fact]
         public void Robust_Interning_PreservesReferences()
         {
-            var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+            var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters("Tests"));
 
             var content = "InternMe";
             var model = new StringModel { A = new string(content), B = new string(content) };

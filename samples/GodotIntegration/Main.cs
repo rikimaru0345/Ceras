@@ -7,6 +7,7 @@ namespace GodotIntegration
 {
     // A type with a private field and a private parameterized constructor. The generated robust
     // formatter must reach both through [UnsafeAccessor], and must invoke the constructor.
+    [CerasContext("SaveGame")]
     [CerasSerializable]
     public class SecretHolder
     {
@@ -27,6 +28,7 @@ namespace GodotIntegration
 
     // A generic type with private members and a parameterized constructor. Closed instantiations
     // are generated with a nested generic accessor helper matching the target's type parameters.
+    [CerasContext("SaveGame")]
     [CerasSerializable]
     public class Box<T>
     {
@@ -43,6 +45,7 @@ namespace GodotIntegration
         public int CtorRuns => _ctorRuns;
     }
 
+    [CerasContext("SaveGame")]
     [CerasSerializable]
     public class SaveModel
     {
@@ -57,7 +60,7 @@ namespace GodotIntegration
         {
             try
             {
-                var serializer = new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+                var serializer = new CerasRobustSerializer(c => c.UseGeneratedFormatters("SaveGame"));
 
                 var model = new SaveModel
                 {
@@ -67,7 +70,7 @@ namespace GodotIntegration
                 };
 
                 var bytes = serializer.Save(model, 1);
-                var clone = new CerasRobustSerializer(c => c.UseGeneratedFormatters()).Load<SaveModel>(bytes, 1);
+                var clone = new CerasRobustSerializer(c => c.UseGeneratedFormatters("SaveGame")).Load<SaveModel>(bytes, 1);
 
                 if (clone.Holder.Secret != 1337) throw new Exception("private field did not round-trip");
                 if (clone.Holder.Label != "constructed") throw new Exception("private ctor did not run");

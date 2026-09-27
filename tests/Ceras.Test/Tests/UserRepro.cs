@@ -68,17 +68,20 @@ namespace Ceras.Test
         }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class ReproGame
     {
         public List<ILogicalRepro> Entities = new();
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable("ILogicalRepro")]
     public interface ILogicalRepro
     {
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class ConcreteRepro : ILogicalRepro
     {
@@ -86,6 +89,7 @@ namespace Ceras.Test
         public object Self;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class ReproContainer : ILogicalRepro
     {

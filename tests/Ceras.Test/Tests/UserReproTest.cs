@@ -13,6 +13,7 @@ namespace Ceras.Test {
 		public int Value = 42;
 	}
 
+	[CerasContext("Tests")]
 	[CerasSerializable]
 		public class ClassWithBannedFieldRepro {
 		public BannedClassRepro Banned = new BannedClassRepro();
@@ -21,7 +22,7 @@ namespace Ceras.Test {
 	public class UserReproTest : TestBase {
 		[Fact]
 		public void ExcludedClass_IsExcluded() {
-			var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+			var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters("Tests"));
 
 			var original = new ClassWithBannedFieldRepro();
 			original.Banned.Value = 2345;
@@ -36,7 +37,7 @@ namespace Ceras.Test {
 
 		[Fact]
 		public void RuntimeDiscoveredType_InRobustMode_IsSerializedAsNull() {
-			var robust1 = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+			var robust1 = new CerasRobustSerializer(config => config.UseGeneratedFormatters("Tests"));
 
 			var root = new ContainerRepro { Entities = new List<IEntityRepro>() };
 			root.Entities.Add(new RealEntityRepro { Value = 123 });
@@ -45,7 +46,7 @@ namespace Ceras.Test {
 			var data = robust1.Save(root, 1);
 
 			// 2. Load with a fresh serializer (simulates game restart)
-			var robust2 = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+			var robust2 = new CerasRobustSerializer(config => config.UseGeneratedFormatters("Tests"));
 			var loaded = robust2.Load<ContainerRepro>(data, 1);
 
 			// This should now succeed thanks to FullNameMarker fallback!
@@ -56,7 +57,7 @@ namespace Ceras.Test {
 
 		[Fact]
 		public void WillReuseExistingObject() {
-			var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+			var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters("Tests"));
 
 			var original = new ReuseTestClass();
 			original.list1.Add(1000);
@@ -84,11 +85,13 @@ namespace Ceras.Test {
 		}
 	}
 
+	[CerasContext("Tests")]
 	[CerasSerializable]
 	public class ContainerRepro {
 		public List<IEntityRepro> Entities = new List<IEntityRepro>();
 	}
 
+	[CerasContext("Tests")]
 	[CerasSerializable]
 	public interface IEntityRepro { }
 
@@ -96,6 +99,7 @@ namespace Ceras.Test {
 		public int Value;
 	}
 
+	[CerasContext("Tests")]
 	[CerasSerializable]
 	public class ReuseTestClass {
 		// field

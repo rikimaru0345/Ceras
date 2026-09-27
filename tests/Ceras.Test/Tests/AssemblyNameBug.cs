@@ -12,6 +12,7 @@ namespace Ceras.Test
 {
     public class AssemblyNameBug : TestBase
     {
+        [CerasContext("Tests")]
         [CerasSerializable]
         public class Container
         {
@@ -26,7 +27,7 @@ namespace Ceras.Test
 
         CerasRobustSerializer CreateSerializer() => new CerasRobustSerializer(config =>
         {
-            config.UseGeneratedFormatters();
+            config.UseGeneratedFormatters("Tests");
             config.AllowReflectionFallback = true;
         });
 

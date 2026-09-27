@@ -171,5 +171,21 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor InvalidContextName = new(
+            id: "CERAS023",
+            title: "Invalid [CerasContext] name",
+            messageFormat: "Type '{0}' has a [CerasContext] attribute with a null/empty/whitespace name. A serialization context needs a non-empty, case-sensitive name",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor UnknownContext = new(
+            id: "CERAS024",
+            title: "Unknown serialization context",
+            messageFormat: "Assembly-level declaration for type '{0}' names the serialization context '{1}', but no type in this compilation declares it with [CerasContext(\"{1}\")]. Declared contexts: {2}",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }

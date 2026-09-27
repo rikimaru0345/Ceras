@@ -9,6 +9,7 @@ namespace Ceras.Test.Fingerprint
 {
     // A monomorphic-by-default model (the int field is monomorphic). The interpreter test below
     // deliberately overrides its schema so only the field's IsMonomorphic flag changes.
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class FingerprintMonoModel
     {
@@ -103,12 +104,12 @@ namespace Ceras.Test.Fingerprint
         public void Monomorphic_Schema_Change_Forces_Interpreter_And_Still_Loads()
         {
             var model = new FingerprintMonoModel { X = 123, S = "value" };
-            var writer = new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+            var writer = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
             byte[] bytes = writer.Save(model, 1);
 
             // Read the normally generated schema for the model so we can build a context that is
             // identical except for the field's monomorphism.
-            var probe = new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+            var probe = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
             Assert.True(probe.Config.SchemaRegistry.TryGetInfo(typeof(FingerprintMonoModel), out var normalInfo));
 
             var reader = new CerasRobustSerializer(config =>
@@ -123,7 +124,7 @@ namespace Ceras.Test.Fingerprint
                     fields, normalInfo.FixedByteSize, normalInfo.EnumValues,
                     normalInfo.UnderlyingTypeName, normalInfo.ArgTypeNames);
                 config.SchemaRegistry.Register(typeof(FingerprintMonoModel), modified);
-                config.UseGeneratedFormatters();
+                config.UseGeneratedFormatters("Tests");
             });
 
             ulong writerFingerprint = writer.Config.SchemaRegistry.ComputeFingerprint();

@@ -44,7 +44,7 @@ namespace Ceras.TestDebugger
         static CerasRawConfig GeneratedConfig()
         {
             var c = new CerasRawConfig();
-            RobustFormatters.UseRobustFormatters(c);
+            RobustFormatters.UseRobustFormatters(c, Ceras.Test.TestBase.Context);
             return c;
         }
     }

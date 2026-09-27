@@ -7,6 +7,7 @@ using Ceras.Generated;
 
 namespace Ceras.Test.RobustV3
 {
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class V3Model
     {
@@ -20,7 +21,7 @@ namespace Ceras.Test.RobustV3
     /// </summary>
     public class RobustFormatV3Tests : TestBase
     {
-        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
         [Fact]
         public void FastPath_SkipsSchemaParsing_OnFingerprintMatch()
@@ -62,20 +63,20 @@ namespace Ceras.Test.RobustV3
         [Fact]
         public void NewerBuildTimestamp_IsRejected_BeforePayloadDecode()
         {
-            var writer = new CerasRobustSerializer(c => { c.UseGeneratedFormatters(); c.BuildTimestamp = 200; });
+            var writer = new CerasRobustSerializer(c => { c.UseGeneratedFormatters("Tests"); c.BuildTimestamp = 200; });
             var bytes = writer.Save(new V3Model { Id = 3, Name = "ts", Values = { 1 } }, 1);
 
-            var older = new CerasRobustSerializer(c => { c.UseGeneratedFormatters(); c.BuildTimestamp = 100; });
+            var older = new CerasRobustSerializer(c => { c.UseGeneratedFormatters("Tests"); c.BuildTimestamp = 100; });
             Assert.Throws<Ceras.Exceptions.CerasException>(() => older.Load<V3Model>(bytes, 1));
 
-            var sameBuild = new CerasRobustSerializer(c => { c.UseGeneratedFormatters(); c.BuildTimestamp = 200; });
+            var sameBuild = new CerasRobustSerializer(c => { c.UseGeneratedFormatters("Tests"); c.BuildTimestamp = 200; });
             Assert.NotNull(sameBuild.Load<V3Model>(bytes, 1));
 
-            var newerBuild = new CerasRobustSerializer(c => { c.UseGeneratedFormatters(); c.BuildTimestamp = 300; });
+            var newerBuild = new CerasRobustSerializer(c => { c.UseGeneratedFormatters("Tests"); c.BuildTimestamp = 300; });
             Assert.NotNull(newerBuild.Load<V3Model>(bytes, 1));
 
             // Unknown current build timestamp -> no gate.
-            var unknown = new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+            var unknown = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
             Assert.NotNull(unknown.Load<V3Model>(bytes, 1));
         }
 

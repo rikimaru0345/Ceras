@@ -13,7 +13,7 @@ namespace Ceras.Test.Tests {
 			var robust = new CerasRobustSerializer(config =>
 			{
 				config.ConfigType<MyCustomStruct>().CustomFormatter = new MyCustomStructFormatter();
-				config.UseGeneratedFormatters();
+				config.UseGeneratedFormatters("Tests");
 			});
 
 			var original = new ClassWithCustomStruct {
@@ -35,6 +35,7 @@ namespace Ceras.Test.Tests {
 			Assert.True(MyCustomStructFormatter.WasDeserializedCalled, "Custom Deserialize was not called");
 		}
 
+		[CerasContext("Tests")]
 		[CerasSerializable]
 		public class ClassWithCustomStruct {
 			public int Id { get; set; }

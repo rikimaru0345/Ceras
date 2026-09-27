@@ -179,6 +179,15 @@ namespace Ceras.SourceGenerator {
 
 		public static string QuoteString(string s) => s == null ? "null" : $"\"{s}\"";
 
+		/// <summary>
+		/// Quotes an arbitrary user-provided string (such as a serialization context name) as a valid
+		/// C# string literal, escaping quotes/backslashes/control characters. Unlike
+		/// <see cref="QuoteString"/>, which is only used for compiler-generated metadata names, this
+		/// is safe for values that come from attribute arguments.
+		/// </summary>
+		public static string QuoteLiteral(string s)
+			=> s == null ? "null" : Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(s, quote: true);
+
 		public static string NormalizeName(string name) {
 			if (string.IsNullOrEmpty(name)) return name;
 			string norm = name.ToLowerInvariant();

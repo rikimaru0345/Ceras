@@ -8,6 +8,7 @@ namespace Ceras.Test.RootIdentity
 {
     // Two declared roots with deliberately different layouts. Both are part of the same generated
     // manifest, so they share one fingerprint/context; only the stored root type id distinguishes them.
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class RootLayoutA
     {
@@ -15,6 +16,7 @@ namespace Ceras.Test.RootIdentity
         public string Text;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class RootLayoutB
     {
@@ -23,12 +25,14 @@ namespace Ceras.Test.RootIdentity
         public List<int> Items = new();
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class PolyRootBase
     {
         public int BaseValue;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class PolyRootDerived : PolyRootBase
     {
@@ -42,7 +46,7 @@ namespace Ceras.Test.RootIdentity
     /// </summary>
     public class RootTypeIdentityTests
     {
-        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
         [Fact]
         public void SameDeclaredRoot_RoundTrips()

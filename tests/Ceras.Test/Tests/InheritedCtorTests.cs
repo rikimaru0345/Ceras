@@ -11,6 +11,7 @@ namespace Ceras.Test.Tests
         public TestVector3(float x, float y, float z) { X = x; Y = y; Z = z; }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public abstract class BaseVehicle
     {
@@ -27,6 +28,7 @@ namespace Ceras.Test.Tests
         }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class DerivedWagon : BaseVehicle
     {
@@ -39,12 +41,14 @@ namespace Ceras.Test.Tests
         }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class RecordBase
     {
         public int Id { get; init; }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class RecordDerived : RecordBase
     {
@@ -58,6 +62,7 @@ namespace Ceras.Test.Tests
         }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class PrivateCtorModel
     {
@@ -78,7 +83,7 @@ namespace Ceras.Test.Tests
         {
             var config = new CerasRawConfig();
             config.AllowReflectionFallback = false;
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
             var ceras = new CerasFastSerializer(config);
 
             var original = PrivateCtorModel.Create();
@@ -94,7 +99,7 @@ namespace Ceras.Test.Tests
         {
             var config = new CerasRawConfig();
             config.AllowReflectionFallback = false;
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
             var ceras = new CerasFastSerializer(config);
 
             var original = new DerivedWagon(new TestVector3(1, 2, 3), "TestWagon");
@@ -113,7 +118,7 @@ namespace Ceras.Test.Tests
         {
             var config = new CerasRawConfig();
             config.AllowReflectionFallback = false;
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
             var ceras = new CerasFastSerializer(config);
 
             var original = new RecordDerived(42, "TestRecord");

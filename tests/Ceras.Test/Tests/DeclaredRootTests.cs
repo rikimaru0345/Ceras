@@ -19,7 +19,7 @@ namespace Ceras.Test.Declared
     /// </summary>
     public class DeclaredRootTests
     {
-        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
         [Fact]
         public void CollectionRoot_RoundTrips()

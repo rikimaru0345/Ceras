@@ -27,7 +27,7 @@ public class ObjectIssueTest : TestBase {
 
 		g.someDict.Add("key", new List<ReproTest.Connection>() { new ReproTest.Connection() { Source = text } });
 
-		var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+		var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters("Tests"));
 		var data = robust.Save(g, 1);
 		var clone = robust.Load<ReproTest.Game>(data, 1);
 
@@ -39,6 +39,7 @@ public class ObjectIssueTest : TestBase {
 	}
 }
 namespace ReproTest {
+	[CerasContext("Tests")]
 	[CerasSerializable]
 		partial class Game {
 		private object _obj;
@@ -67,6 +68,7 @@ namespace ReproTest {
 		public override int GetHashCode() => 0;
 	}
 
+	[CerasContext("Tests")]
 	[CerasSerializable]
 		interface IEntity {
 		int GetId();

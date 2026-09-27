@@ -14,6 +14,13 @@ namespace Ceras.Test
 
     public class TestBase
     {
+        /// <summary>
+        /// The serialization context this test assembly declares for its test types. Every
+        /// <c>[CerasSerializable]</c> type in this project is also a <c>[CerasContext("Tests")]</c>
+        /// root; registration calls pass this name.
+        /// </summary>
+        public const string Context = "Tests";
+
         // ReSharper disable once InconsistentNaming
         protected Random rng = new Random(12345);
 
@@ -127,7 +134,7 @@ namespace Ceras.Test
             {
                 var method = generatedType.GetMethod("UseRobustFormatters", BindingFlags.Static | BindingFlags.Public);
                 if (method != null)
-                    method.Invoke(null, new object[] { config });
+                    method.Invoke(null, new object[] { config, Context });
             }
 
             if (config is CerasRobustConfig robustConfig)

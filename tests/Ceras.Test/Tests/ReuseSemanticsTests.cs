@@ -12,6 +12,7 @@ using Ceras.Generated;
 
 namespace Ceras.Test.Reuse
 {
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class ReuseNode
     {
@@ -26,12 +27,14 @@ namespace Ceras.Test.Reuse
     /// the deserialize local from the existing member must not be gated on the open symbol's
     /// <c>IsReferenceType</c> (always false for a type parameter).
     /// </summary>
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class Box<T>
     {
         public T Value;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class ReuseCollectionModel
     {
@@ -39,6 +42,7 @@ namespace Ceras.Test.Reuse
         public List<int> Other = new();
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class DiffNode
     {
@@ -48,6 +52,7 @@ namespace Ceras.Test.Reuse
         public List<int> Values = new();
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class DiffRoot
     {
@@ -65,7 +70,7 @@ namespace Ceras.Test.Reuse
     /// </summary>
     public class ReuseSemanticsTests : TestBase
     {
-        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
         [Fact]
         public void ReusedCollection_IsClearedAndRefilled_InPlace()

@@ -9,6 +9,7 @@ namespace Ceras.Test.Accessors
     // ------------------------------------------------------------------
     // Non-generic: private fields + private parameterized constructor.
     // ------------------------------------------------------------------
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class PrivateCtorFieldModel
     {
@@ -31,6 +32,7 @@ namespace Ceras.Test.Accessors
     // Generic type with private fields and a parameterized constructor,
     // reached through closed instantiations (generic accessor helper).
     // ------------------------------------------------------------------
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class GenericBox<T>
     {
@@ -50,6 +52,7 @@ namespace Ceras.Test.Accessors
     // ------------------------------------------------------------------
     // Constrained generic (where T : struct).
     // ------------------------------------------------------------------
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class StructBox<T> where T : struct
     {
@@ -70,6 +73,7 @@ namespace Ceras.Test.Accessors
         public T GetHeld() => _held;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class GenericHolderDerived : GenericHolderBase<string>
     {
@@ -79,6 +83,7 @@ namespace Ceras.Test.Accessors
     // ------------------------------------------------------------------
     // [CerasConstructor] with a ref parameter (signature must preserve ref).
     // ------------------------------------------------------------------
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class RefCtorModel
     {
@@ -94,6 +99,7 @@ namespace Ceras.Test.Accessors
     // ------------------------------------------------------------------
     // Root that makes the closed generic instantiations reachable.
     // ------------------------------------------------------------------
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class AccessorRoot
     {
@@ -105,6 +111,7 @@ namespace Ceras.Test.Accessors
     // ------------------------------------------------------------------
     // Value-type receiver with private members.
     // ------------------------------------------------------------------
+    [CerasContext("Tests")]
     [CerasSerializable]
     public struct PrivateStruct
     {
@@ -136,6 +143,7 @@ namespace Ceras.Test.Accessors
         }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class NestedRoot
     {
@@ -145,7 +153,7 @@ namespace Ceras.Test.Accessors
 
     public class AccessorConsolidationTests : TestBase
     {
-        static CerasRobustSerializer Create() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+        static CerasRobustSerializer Create() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
         [Fact]
         public void PrivateFields_And_PrivateCtor_RoundTrip()

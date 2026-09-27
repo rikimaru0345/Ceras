@@ -19,7 +19,7 @@ namespace Ceras.Test
             // Before the fix, SG used CollectionFormatter directly, which bypasses reference tracking.
 
             var ceras = new CerasFastSerializer(config => {
-                RobustFormatters.UseRobustFormatters(config);
+                RobustFormatters.UseRobustFormatters(config, "Tests");
             });
 
             var list = new List<int> { 1, 2, 3 };
@@ -43,7 +43,7 @@ namespace Ceras.Test
             // when encountered in a polymorphic context (e.g. through an interface).
 
             var ceras = new CerasRobustSerializer(config => {
-                RobustFormatters.UseRobustFormatters(config);
+                RobustFormatters.UseRobustFormatters(config, "Tests");
                 
                 // Manual registration for types used in Robust mode
                 var registry = config.SchemaRegistry;
@@ -73,7 +73,7 @@ namespace Ceras.Test
             // If reference tracking is broken for collections in SG, the ID mapping gets desynced.
 
             var ceras = new CerasRobustSerializer(config => {
-                RobustFormatters.UseRobustFormatters(config);
+                RobustFormatters.UseRobustFormatters(config, "Tests");
 
                 var registry = config.SchemaRegistry;
                 registry.Register(typeof(DesyncModel), null);
@@ -101,6 +101,7 @@ namespace Ceras.Test
         }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class CollectionSharingModel
     {
@@ -110,12 +111,14 @@ namespace Ceras.Test
 
     public interface IRobustInterface { }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class RobustChild : IRobustInterface
     {
         public int Value;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class RobustRoot
     {
@@ -124,12 +127,14 @@ namespace Ceras.Test
 
     public interface IDesyncInterface { }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class DesyncChild : IDesyncInterface
     {
         public string Name;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class DesyncModel
     {

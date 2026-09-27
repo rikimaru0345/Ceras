@@ -11,6 +11,7 @@ namespace Ceras.Test
 {
     public class SchemaReproTests : TestBase
     {
+        [CerasContext("Tests")]
         [CerasSerializable]
         public class ReproModel
         {
@@ -22,6 +23,7 @@ namespace Ceras.Test
         // We can't easily make a field of a non-existent type in C#,
         // but we can manually register a schema that claims to have one.
         
+        [CerasContext("Tests")]
         [CerasSerializable]
         public class MockType { }
 

@@ -12,6 +12,7 @@ using Ceras.Generated;
 namespace Ceras.Test
 {
     // A root type explicitly marked for serialization
+    [CerasContext("Tests")]
     [CerasSerializable]
         public partial class DiscoveryRoot
     {
@@ -51,6 +52,7 @@ namespace Ceras.Test
     public record DiscoveryRecord(int Id, string Name);
 
     // Discovery through getter-only members (Reference types)
+    [CerasContext("Tests")]
     [CerasSerializable]
         public partial class GetterOnlyRoot
     {
@@ -76,6 +78,7 @@ namespace Ceras.Test
 
     // A type that has private members but DOES NOT need to be partial
     // because all private members are handled via ctor or populating in-place
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class NoPartialNeeded
     {
@@ -103,7 +106,7 @@ namespace Ceras.Test
         public void NoPartialNeeded_WhenMembersHandledByCtorOrPop()
         {
             var config = new CerasRobustConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
             var ceras = new CerasRobustSerializer(config);
 
             // 1. Verify discovery worked
@@ -125,7 +128,7 @@ namespace Ceras.Test
         public void GetterOnlyDiscovery_WorksForReferenceTypes()
         {
             var config = new CerasRobustConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
             var ceras = new CerasRobustSerializer(config);
 
             // 1. Verify that ChildField, ChildProp, and ChildCtor were all discovered
@@ -157,7 +160,7 @@ namespace Ceras.Test
         {
             var config = new CerasRobustConfig();
             // This registers all formatters that the source generator produced
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
 
             var ceras = new CerasRobustSerializer(config);
 
@@ -205,7 +208,7 @@ namespace Ceras.Test
         public void BannedTypeWorks()
         {
             var config = new CerasRobustConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
 
             var rootType = typeof(DiscoveryRoot);
             var tc = config.ConfigType(rootType);

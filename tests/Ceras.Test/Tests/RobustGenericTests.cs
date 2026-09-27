@@ -10,6 +10,7 @@ using Ceras.Generated;
 namespace Ceras.Test.RobustGenerics
 {
     // 1. Explicitly registered interface
+    [CerasContext("Tests")]
     [CerasSerializable]
     public interface ICombatEntity
     {
@@ -17,12 +18,14 @@ namespace Ceras.Test.RobustGenerics
     }
 
     // 2. Unregistered interface (tests TypeBinder fallback in Load)
+    [CerasContext("Tests")]
     [CerasSerializable]
     public interface IUnregistered
     {
         string Data { get; set; }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class CombatEntity : ICombatEntity, IUnregistered
     {
@@ -31,12 +34,14 @@ namespace Ceras.Test.RobustGenerics
         public string Data { get; set; }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class GenericListModel
     {
         public List<ICombatEntity> Entities { get; set; }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class UnregisteredListModel
     {
@@ -45,6 +50,7 @@ namespace Ceras.Test.RobustGenerics
 
     public enum Status { Idle, Active, Dead }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class StatusModel
     {
@@ -58,6 +64,7 @@ namespace Ceras.Test.RobustGenerics
         public T2 Item2 { get; set; }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class NullableModel
     {
@@ -65,12 +72,14 @@ namespace Ceras.Test.RobustGenerics
         public float? MaybeFloat { get; set; }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class DictionaryModel
     {
         public Dictionary<string, ICombatEntity> Entities { get; set; }
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class ArrayModel
     {
@@ -82,7 +91,7 @@ namespace Ceras.Test.RobustGenerics
 
     public class RobustGenericTests
     {
-        CerasRobustSerializer CreateSerializer() => new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+        CerasRobustSerializer CreateSerializer() => new CerasRobustSerializer(config => config.UseGeneratedFormatters("Tests"));
 
         [Fact]
         public void GenericList_Roundtrip()
@@ -135,7 +144,7 @@ namespace Ceras.Test.RobustGenerics
             // 2. Same serializer, registry cleared and repopulated without DummyForMismatch.
             var serializer = CreateSerializer();
             serializer.Config.SchemaRegistry.InternalClear();
-            serializer.Config.UseGeneratedFormatters();
+            serializer.Config.UseGeneratedFormatters("Tests");
             // No DummyForMismatch here!
             var loaded2 = serializer.Load<UnregisteredListModel>(bytes, version);
             Assert.NotEqual(writerFingerprint, serializer.Config.SchemaRegistry.ComputeFingerprint());
@@ -167,7 +176,7 @@ namespace Ceras.Test.RobustGenerics
             // 2. Same serializer, registry cleared and repopulated without the dummy.
             var serializer = CreateSerializer();
             serializer.Config.SchemaRegistry.InternalClear();
-            serializer.Config.UseGeneratedFormatters();
+            serializer.Config.UseGeneratedFormatters("Tests");
             var loaded2 = serializer.Load<StatusModel>(bytes, version);
             Assert.NotEqual(writerFingerprint, serializer.Config.SchemaRegistry.ComputeFingerprint());
             Assert.Equal(Status.Active, loaded2.CurrentStatus);
@@ -193,7 +202,7 @@ namespace Ceras.Test.RobustGenerics
             // 2. Same serializer, registry cleared and repopulated without the dummy.
             var serializer = CreateSerializer();
             serializer.Config.SchemaRegistry.InternalClear();
-            serializer.Config.UseGeneratedFormatters();
+            serializer.Config.UseGeneratedFormatters("Tests");
             var loaded2 = serializer.Load<GenericPair<int, string>>(bytes, version);
             Assert.NotEqual(writerFingerprint, serializer.Config.SchemaRegistry.ComputeFingerprint());
             Assert.Equal(42, loaded2.Item1);

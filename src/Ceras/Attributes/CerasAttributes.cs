@@ -152,12 +152,22 @@ namespace Ceras
     /// <summary>
     /// Put this attribute on every class/struct you want Ceras to generate a formatter for at compile time.
     /// The source generator will emit an <c>IFormatter&lt;T&gt;</c> implementation and include it in
-    /// <c>Ceras.Generated.RobustFormatters.UseRobustFormatters(config)</c>.
+    /// the generated <c>Ceras.Generated.RobustFormatters.UseRobustFormatters(config, context)</c>
+    /// registration for each <see cref="CerasContextAttribute">context</see> the type belongs to.
     /// This replaces the old AotGenerator tool and is required for IL2CPP / AOT platforms.
     ///
     /// When placed on an interface or abstract class,
     /// the source generator automatically discovers every non-abstract type in the compilation
     /// that implements or inherits from it and generates formatters for all of them.
+    ///
+    /// <para>
+    /// Under the context model this attribute is <b>not</b> what makes a type a root: a type is part of a
+    /// serialization context when it is a <see cref="CerasContextAttribute"/> root of that context or is
+    /// reachable from one. <c>[CerasSerializable]</c> is still useful for its stable-name override and as
+    /// an explicit "this type is meant to be serialized" marker (and for the generator's diagnostics),
+    /// but a type that is neither a context root nor reachable from one is not registered by
+    /// <c>UseGeneratedFormatters</c>.
+    /// </para>
     /// </summary>
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum | AttributeTargets.Interface)]
     public class CerasSerializableAttribute : Attribute
@@ -188,21 +198,117 @@ namespace Ceras
     }
 
     /// <summary>
+    /// Declares that the annotated type is a <b>root</b> of the named serialization
+    /// <b>context</b>, and that the type is serializable within that context.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A context is a named, finite set of serializable types that share one generated manifest, one
+    /// deterministic type-ID space, and one layout fingerprint. You select a context by name when you
+    /// configure a serializer, for example
+    /// <c>new CerasRobustSerializer(c =&gt; c.UseGeneratedFormatters("SaveGame"))</c>. Everything the
+    /// source generator discovers from that context's roots &#8212; member types, generic arguments, and
+    /// polymorphic alternatives (the subtypes of interfaces and abstract base types) &#8212;
+    /// automatically joins the same context. A context does not leak types from another context: its
+    /// manifest, its type IDs, and its fingerprint cover exactly the types reachable from its own roots.
+    /// </para>
+    /// <para>
+    /// Contexts exist because different serialization scenarios have different, sometimes conflicting,
+    /// requirements. A persistent save game must stay readable across many releases, so it wants a
+    /// frozen type set and no accidental coupling to unrelated types. A transient network protocol has
+    /// no such compatibility guarantee: it may use only a handful of message types, may change shape
+    /// every build, and should not drag the save-game schema (or its version gates) into every packet.
+    /// Modelling these as separate contexts gives each one independent evolution: adding, renaming, or
+    /// removing a type in the network context does not change the save-game fingerprint and therefore
+    /// cannot invalidate existing saves, and vice versa. Separate contexts also produce smaller
+    /// manifests and make undeclared-type mistakes fail with a precise "not declared in this context"
+    /// error instead of silently pulling in types from an unrelated area.
+    /// </para>
+    /// <para>
+    /// A type becomes a member of a context in one of two ways:
+    /// <list type="number">
+    /// <item>it is annotated directly with this attribute (possibly more than once), which makes it a
+    /// root of each named context; or</item>
+    /// <item>it is reachable from a root of that context, as a member type, a generic argument, or a
+    /// polymorphic alternative.</item>
+    /// </list>
+    /// A type may therefore belong to several contexts at once, either by naming each context on the
+    /// attribute or by being reachable from roots of each. Membership is always per context: the type
+    /// still gets its own entry, its own type ID, and its own fingerprint in every context it appears
+    /// in. One serializer configuration uses exactly one context; there is no context composition at
+    /// runtime.
+    /// </para>
+    /// <para>
+    /// This attribute is an alternative to relying on <see cref="CerasSerializableAttribute"/> alone.
+    /// A type annotated with <see cref="CerasContextAttribute"/> is serializable even without
+    /// <see cref="CerasSerializableAttribute"/>, while <see cref="CerasSerializableAttribute"/> still
+    /// provides the stable-name override and marks the type as deliberately serializable.
+    /// The generated registration exposes the declared context names as
+    /// <c>Ceras.Generated.RobustFormatters.ContextNames</c>, and passing an unknown name to
+    /// <c>UseGeneratedFormatters</c> fails with an error that lists the available contexts.
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// [CerasContext("SaveGame")]   // persistent, versioned, must stay readable
+    /// [CerasContext("Network")]    // transient, no cross-build compatibility promise
+    /// public class Player { public string Name; }
+    ///
+    /// [CerasContext("Network")]
+    /// public class ChatMessage { public string Text; }
+    ///
+    /// // Registers only the SaveGame manifest (Player, its closure, and the save-game fingerprint):
+    /// var save = new CerasRobustSerializer(c =&gt; c.UseGeneratedFormatters("SaveGame"));
+    ///
+    /// // Registers only the Network manifest (Player + ChatMessage in this example):
+    /// var net = new CerasRobustSerializer(c =&gt; c.UseGeneratedFormatters("Network"));
+    /// </code>
+    /// </example>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Interface | AttributeTargets.Enum, AllowMultiple = true)]
+    public sealed class CerasContextAttribute : Attribute
+    {
+        /// <summary>The case-sensitive name of the serialization context this type is a root of.</summary>
+        public string Name { get; }
+
+        public CerasContextAttribute(string name)
+        {
+            Name = name;
+        }
+    }
+
+    /// <summary>
     /// Declares an additional known type for the generated manifest, beyond the types that are
     /// reachable from the roots. This is primarily useful for closed generic instantiations that
     /// are hidden behind <c>object</c>/interface members and therefore cannot be discovered by
     /// walking member types (e.g. <c>[assembly: CerasKnownType&lt;List&lt;MyItem&gt;&gt;]</c>).
-    /// The declared type and everything reachable from it are added to the generated closed set.
-    /// Applied at the assembly level (the current compilation is the serialization context).
+    /// The declared type and everything reachable from it are added to the generated closed set of
+    /// every serialization context, or only of the context named by <see cref="Context"/>.
+    /// Applied at the assembly level (the current compilation declares the contexts via
+    /// <see cref="CerasContextAttribute"/> on root types).
     /// </summary>
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
     public class CerasKnownTypeAttribute : Attribute
     {
         public Type Type { get; }
 
+        /// <summary>
+        /// Optional context this known type belongs to. When omitted, the known type is added to
+        /// <b>every</b> context declared in the compilation (which is what most users want for a
+        /// globally known type such as a collection instantiation). When set, it is added only to
+        /// that context, and the context must be declared by at least one
+        /// <see cref="CerasContextAttribute"/> root.
+        /// </summary>
+        public string Context { get; }
+
         public CerasKnownTypeAttribute(Type type)
+            : this(type, null)
+        {
+        }
+
+        public CerasKnownTypeAttribute(Type type, string context)
         {
             Type = type;
+            Context = context;
         }
     }
 
@@ -212,6 +318,23 @@ namespace Ceras
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
     public class CerasKnownTypeAttribute<T> : Attribute
     {
+        /// <summary>
+        /// Optional context this known type belongs to. When omitted, the known type is added to
+        /// <b>every</b> context declared in the compilation. When set, it is added only to that
+        /// context, and the context must be declared by at least one
+        /// <see cref="CerasContextAttribute"/> root.
+        /// </summary>
+        public string Context { get; }
+
+        public CerasKnownTypeAttribute()
+            : this(null)
+        {
+        }
+
+        public CerasKnownTypeAttribute(string context)
+        {
+            Context = context;
+        }
     }
 
 	/// <summary>

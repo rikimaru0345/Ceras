@@ -6,6 +6,7 @@ using Xunit;
 
 namespace Ceras.Test
 {
+    [CerasContext("Tests")]
     [CerasSerializable("SharedString")]
     public class InterningTestPotion
     {

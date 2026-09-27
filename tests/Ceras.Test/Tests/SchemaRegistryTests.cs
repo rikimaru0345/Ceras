@@ -9,6 +9,7 @@ namespace Ceras.Test
 {
     // ── Test models ──────────────────────────────────────────────────────────
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     [PreviousTypeName("Ceras.Test.OldWeapon")]
         public class Weapon
@@ -25,6 +26,7 @@ namespace Ceras.Test
         public float CachedStat;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public struct Vec2Struct
     {
@@ -40,7 +42,7 @@ namespace Ceras.Test
         public SchemaRegistryTests()
         {
             var config = new CerasRobustConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
             _registry = ((CerasRobustConfig)config).SchemaRegistry;
         }
 
@@ -172,7 +174,7 @@ namespace Ceras.Test
         {
             // The formatter itself must still produce correct output after the schema changes
             var config = new CerasRobustConfig();
-            RobustFormatters.UseRobustFormatters(config);
+            RobustFormatters.UseRobustFormatters(config, "Tests");
             var ceras = new CerasRobustSerializer(config);
 
             var original = new Weapon { AttackPower = 50, Name = "Excalibur", Weight = 3.2f };

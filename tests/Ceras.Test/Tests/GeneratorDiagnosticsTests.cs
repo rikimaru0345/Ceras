@@ -50,6 +50,7 @@ namespace Ceras.Test.Generator
 using Ceras;
 namespace T
 {
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class Holder
     {
@@ -70,6 +71,7 @@ namespace T
 using Ceras;
 namespace T
 {
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class Holder
     {
@@ -89,9 +91,11 @@ namespace T
 using Ceras;
 namespace T
 {
+    [CerasContext(""Tests"")]
     [CerasSerializable(""Dup"")]
     public class A { public int X; }
 
+    [CerasContext(""Tests"")]
     [CerasSerializable(""Dup"")]
     public class B { public int Y; }
 }";
@@ -115,6 +119,7 @@ namespace T
 using Ceras;
 namespace T
 {
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class Holder
     {
@@ -125,12 +130,15 @@ namespace T
 
 namespace A
 {
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class B_C { public int X; }
 
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class B
     {
+        [CerasContext(""Tests"")]
         [CerasSerializable]
         public class C : System.Collections.Generic.List<int> { }
     }
@@ -151,12 +159,15 @@ namespace A
 using Ceras;
 namespace T
 {
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class First { public int X; }
 
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class Second { public int Y; }
 
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class Holder
     {
@@ -182,12 +193,15 @@ namespace T
 using Ceras;
 namespace A
 {
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class B_C { public int X; }
 
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class B
     {
+        [CerasContext(""Tests"")]
         [CerasSerializable]
         public class C { public int Y; }
     }
@@ -207,12 +221,15 @@ namespace A
 using Ceras;
 namespace A
 {
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class B_C { public int X; }
 
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class B
     {
+        [CerasContext(""Tests"")]
         [CerasSerializable]
         public class D { public int Y; }
     }
@@ -233,6 +250,7 @@ namespace A
 using Ceras;
 namespace T
 {
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class NoCtor
     {
@@ -240,6 +258,7 @@ namespace T
         public NoCtor(int somethingElse) { }
     }
 
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class Holder
     {
@@ -258,9 +277,11 @@ namespace T
 using Ceras;
 namespace T
 {
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class Nested { public int X; }
 
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class Holder
     {
@@ -285,6 +306,7 @@ namespace T
 {
     public class External { public int X; }
 
+    [CerasContext(""Tests"")]
     [CerasSerializable]
     public class Holder
     {

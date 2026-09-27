@@ -17,7 +17,7 @@ namespace Ceras.Test
 			var robust = new CerasRobustSerializer(config =>
 			{
 				config.AllowReflectionFallback = true;
-				config.UseGeneratedFormatters();
+				config.UseGeneratedFormatters("Tests");
 			});
 
 			// 2. Create data with some field
@@ -55,6 +55,7 @@ namespace Ceras.Test
 		}
 	}
 
+	[CerasContext("Tests")]
 	[CerasSerializable]
 	public class CtorTestModel
 	{
@@ -68,6 +69,7 @@ namespace Ceras.Test
 		}
 	}
 
+	[CerasContext("Tests")]
 	[CerasSerializable]
 	public class GetterOnlyModel
 	{

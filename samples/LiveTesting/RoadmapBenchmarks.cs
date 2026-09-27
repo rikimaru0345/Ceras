@@ -14,6 +14,7 @@ namespace LiveTesting
     // Network = CerasFastSerializer (transient, no schema/ref tables).
     // ==================================================================
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class BenchNode
     {
@@ -23,6 +24,7 @@ namespace LiveTesting
         public List<int> Values = new();
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class BenchPayload
     {
@@ -32,6 +34,7 @@ namespace LiveTesting
     }
 
     // Private generic member: exercises generated generic accessors on the hot path.
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class BenchPrivateGeneric<T>
     {
@@ -40,6 +43,7 @@ namespace LiveTesting
         public T Item => _item;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class BenchWorld
     {
@@ -51,6 +55,7 @@ namespace LiveTesting
         public string Label;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public struct BenchMove
     {
@@ -59,6 +64,7 @@ namespace LiveTesting
         public float Y;
     }
 
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class BenchChat
     {
@@ -102,7 +108,7 @@ namespace LiveTesting
         [GlobalSetup]
         public void Setup()
         {
-            _serializer = new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+            _serializer = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
             _world = BenchData.MakeWorld();
             _bytes = _serializer.Save(_world, 1);
         }
@@ -129,7 +135,7 @@ namespace LiveTesting
         [GlobalSetup]
         public void Setup()
         {
-            _serializer = new CerasFastSerializer(c => c.UseGeneratedFormatters());
+            _serializer = new CerasFastSerializer(c => c.UseGeneratedFormatters("Tests"));
             _moveBytes = _serializer.Serialize(_move);
             _chatBytes = _serializer.Serialize(_chat);
         }
@@ -151,10 +157,10 @@ namespace LiveTesting
     public class ColdInitBenchmarks
     {
         [Benchmark]
-        public CerasRobustSerializer ColdStart_Robust() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+        public CerasRobustSerializer ColdStart_Robust() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
         [Benchmark]
-        public CerasFastSerializer ColdStart_Fast() => new CerasFastSerializer(c => c.UseGeneratedFormatters());
+        public CerasFastSerializer ColdStart_Fast() => new CerasFastSerializer(c => c.UseGeneratedFormatters("Tests"));
     }
 
     public static class RoadmapBenchmarks
@@ -168,7 +174,7 @@ namespace LiveTesting
         {
             const int iterations = 2000;
 
-            var robust = new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+            var robust = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
             var world = BenchData.MakeWorld();
             var robustBytes = robust.Save(world, 1);
 
@@ -178,7 +184,7 @@ namespace LiveTesting
             Measure("Robust Save (fresh graph)", iterations, () => robust.Save(BenchData.MakeWorld(), 1));
             Measure("Robust Load (complete)", iterations, () => robust.Load<BenchWorld>(robustBytes, 1));
 
-            var fast = new CerasFastSerializer(c => c.UseGeneratedFormatters());
+            var fast = new CerasFastSerializer(c => c.UseGeneratedFormatters("Tests"));
             var move = new BenchMove { Id = 7, X = 1.5f, Y = -2.5f };
             var chat = new BenchChat { Sender = 3, Text = "hello world" };
             var moveBytes = fast.Serialize(move);
@@ -191,11 +197,11 @@ namespace LiveTesting
             Measure("Network Encode chat string", iterations, () => fast.Serialize(chat));
             Measure("Network Decode chat string", iterations, () => fast.Deserialize<BenchChat>(chatBytes));
 
-            Measure("Cold init robust serializer", 50, () => new CerasRobustSerializer(c => c.UseGeneratedFormatters()));
-            Measure("Cold init fast serializer", 50, () => new CerasFastSerializer(c => c.UseGeneratedFormatters()));
+            Measure("Cold init robust serializer", 50, () => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests")));
+            Measure("Cold init fast serializer", 50, () => new CerasFastSerializer(c => c.UseGeneratedFormatters("Tests")));
 
             // Steady state: reuse one serializer and a pre-built graph over many iterations.
-            var steady = new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+            var steady = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
             var steadyBytes = steady.Save(world, 1);
             Measure("Robust Load steady state", iterations, () => steady.Load<BenchWorld>(steadyBytes, 1));
         }

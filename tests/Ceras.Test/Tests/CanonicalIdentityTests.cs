@@ -8,6 +8,7 @@ using Ceras.Generated;
 
 namespace Ceras.Test.CanonicalIdentity
 {
+    [CerasContext("Tests")]
     [CerasSerializable]
     public class CanonicalCollectionsModel
     {
@@ -23,7 +24,7 @@ namespace Ceras.Test.CanonicalIdentity
     /// </summary>
     public class CanonicalIdentityTests : TestBase
     {
-        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
 
         [Fact]
         public void CanonicalName_MatchesGeneratorShape_AndHasNoRuntimeTokens()

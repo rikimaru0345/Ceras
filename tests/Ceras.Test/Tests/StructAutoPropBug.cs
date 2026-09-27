@@ -7,6 +7,7 @@ using Ceras.Generated;
 
 namespace Ceras.Test
 {
+    [CerasContext("Tests")]
     [CerasSerializable]
     public struct CostItem
     {
@@ -22,6 +23,7 @@ namespace Ceras.Test
 
     public class StructAutoPropBug : TestBase
     {
+        [CerasContext("Tests")]
         [CerasSerializable]
         public class Container
         {
@@ -34,7 +36,7 @@ namespace Ceras.Test
             var robust = new CerasRobustSerializer(config =>
             {
                 config.AllowReflectionFallback = true;
-                config.UseGeneratedFormatters();
+                config.UseGeneratedFormatters("Tests");
             });
 
             var original = new Container

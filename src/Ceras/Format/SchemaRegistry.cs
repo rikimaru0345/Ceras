@@ -8,11 +8,12 @@ using Ceras.Formatters;
 namespace Ceras.Format
 {
     /// <summary>
-    /// Runtime registry of all robust-serializable types.
-    /// Populated during startup by <c>RobustFormatters.UseRobustFormatters(config)</c>. The generated
-    /// manifest is authoritative: the registry does not discover or build schemas for undeclared
-    /// types (TODO Phase 2.5/2.6). Only explicit declarations and structural BCL shapes (arrays and
-    /// built-in collections) are accepted.
+    /// Runtime registry of all robust-serializable types for one serialization context.
+    /// Populated during startup by <c>RobustFormatters.UseRobustFormatters(config, context)</c>, which
+    /// registers exactly one context's manifest. The generated manifest is authoritative: the registry
+    /// does not discover or build schemas for undeclared types (TODO Phase 2.5/2.6). Only explicit
+    /// declarations and structural BCL shapes (arrays and built-in collections) are accepted, and the
+    /// baked schema, deterministic IDs, and layout fingerprint are therefore per context.
     /// </summary>
     public sealed class SchemaRegistry
     {
@@ -131,7 +132,8 @@ namespace Ceras.Format
 
 		/// <summary>
 		/// Called by the generated <c>RobustFormatters.UseRobustFormatters</c> for every
-		/// robust-serializable type. Safe to call multiple times with the same type (idempotent).
+		/// robust-serializable type of the selected context. Safe to call multiple times with the same
+		/// type (idempotent).
 		/// A <c>null</c> <paramref name="info"/> declares the type structurally/minimally; it never
 		/// walks CLR fields.
 		/// </summary>
@@ -147,7 +149,8 @@ namespace Ceras.Format
                 if (IsSealed)
                     throw new InvalidOperationException(
                         $"Cannot register type '{type.FullName}' after the schema has been sealed. " +
-                        $"Declare it with [CerasSerializable] or [CerasKnownType] so it is part of the generated manifest.");
+                        $"Declare it with [CerasContext(\"name\")] (or [CerasKnownType]) so it is part of the " +
+                        $"selected context's generated manifest.");
 
                 if (info == null)
                 {

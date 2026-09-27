@@ -35,6 +35,19 @@ The header is a fixed 56-byte little-endian record written by one explicit codec
   producer build timestamp. Loading rejects a save whose build timestamp is newer than the current
   build (when the current build timestamp is known) before decoding the payload.
 
+## Serialization contexts
+
+The declared set is scoped to a **context**: a named, finite set of serializable types selected when
+a serializer is configured (`config.UseGeneratedFormatters(name)`). Each context has its own
+generated manifest, its own deterministic type-ID space, and its own layout fingerprint. The type
+IDs and the fingerprint cover exactly the types reachable from that context's `[CerasContext]` roots;
+types belonging only to another context are absent from the manifest and are rejected as undeclared
+roots. Consequently the same CLR type may have different IDs and a different surrounding fingerprint
+in two contexts — IDs are context-local, and a fingerprint identifies a context's contract, not an
+individual type. The schema/isolation guarantees below are therefore per context, and a save written
+under one context must be loaded only under that context (a mismatched context falls into the
+interpreter, where a root absent from the current manifest is rejected with an undeclared-root error).
+
 
 ## Type identity
 
