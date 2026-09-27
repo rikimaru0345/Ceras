@@ -94,6 +94,14 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   retained and removed member paths. Decode their existing bytes correctly on all
   interpreter paths and pin real historical fixtures; do not change writer bytes
   without a separately versioned format change.
+- **Polymorphic built-in generic values disappear on migration.** A closed built-in
+  collection held in an `object` slot is written as a `Type` value (definition id +
+  generic arguments), but `ReadPolymorphicValue` treats the first tag as a schema
+  type id and can return null without consuming the collection. Reproduced for
+  `List<int>` and `Queue<int>`; test with a trailing field and matching-layout
+  control, then align the interpreter with the writer's real type-value grammar.
+  Also check `SkipPolymorphicValue` on non-collection generic user classes: its
+  generic branch assumes count + elements where a class payload has members.
 - **Enum stable-name migration.** Confirmed silent wrong value on rename/renumber:
   generated and declared enum schemas record the C# name rather than the wire
   `[CerasStableName]`, while migration matches that attribute. Emit the stable wire
@@ -250,17 +258,14 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
 - Reconcile `CLEANUP_TODO.md` against real APIs, move justified work here and delete
   the stale list. Do not internalize `CerasSerializer` while generated code needs it;
   review raw method exposure on robust serializers and remaining config sealing.
-- Audit `samples/LiveTesting` and `samples/LiveTesting.Benchmarks` as a debugging and
-  feature-exploration sandbox. Promote distinct, currently uncovered behavior checks
-  into focused `Ceras.Test` regressions. **Decision after audit:** relocate the working
-  `RoadmapBenchmarks` to a maintained standalone benchmark project, with its own
-  generated context and correct measurements; delete the broken legacy sample,
-  comparator dependencies, merge-blitting microbenchmark and unadopted ref-proxy
-  experiment once gaps are covered. The public README no longer cites its old
-  comparison numbers. Remove the product assembly's LiveTesting friend declaration
-  when no maintained consumer needs it. Audit identified formatter-injection success,
-  collection custom formatter/comparer, direct formatter API, readonly reuse and
-  banned runtime values in `object`/`Type` as gaps; test or explicitly resolve each.
+- Retire the broken `samples/LiveTesting` sandbox, its comparison dependencies,
+  merge-blitting microbenchmark, unadopted ref-proxy experiment, and friend-assembly
+  declaration. The working benchmark has been relocated to the standalone,
+  self-checking `samples/Ceras.Benchmarks` project with its own generated context;
+  seven previously missing formatter-injection, comparer, direct-formatter and
+  readonly-reuse checks are now proper tests. The README no longer claims legacy
+  comparison numbers. Banned runtime values in `object`/`Type` remain a separate
+  fail-loud P0 above; do not mistake their removal from the sample for a fix.
 - Update README/tutorials/samples/format docs with verified contracts and remove
   obsolete runtime-generation, universal-type, Unity/AOT and diagnostic claims.
 - Review concrete formatter selection and unsupported-type diagnostics against
