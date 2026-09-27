@@ -88,20 +88,12 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   `ReadOnlyCollection<T>` subclass is also admitted structurally but the dedicated
   formatter constructs the base wrapper, and `ReferenceFormatter` fails with a bare
   `ArgumentNullException("method")` on Save; reject or support this variant too.
-- **Queue/Stack migration count mismatch.** Confirmed with separate writer/reader
-  builds: Queue/Stack writers use an un-biased fixed Int32 count, but the migration
-  interpreter reads a biased varint, silently corrupting subsequent fields on both
-  retained and removed member paths. Decode their existing bytes correctly on all
-  interpreter paths and pin real historical fixtures; do not change writer bytes
-  without a separately versioned format change.
 - **Polymorphic built-in generic values disappear on migration.** A closed built-in
   collection held in an `object` slot is written as a `Type` value (definition id +
   generic arguments), but `ReadPolymorphicValue` treats the first tag as a schema
   type id and can return null without consuming the collection. Reproduced for
   `List<int>` and `Queue<int>`; test with a trailing field and matching-layout
   control, then align the interpreter with the writer's real type-value grammar.
-  Also check `SkipPolymorphicValue` on non-collection generic user classes: its
-  generic branch assumes count + elements where a class payload has members.
 - **Enum stable-name migration.** Confirmed silent wrong value on rename/renumber:
   generated and declared enum schemas record the C# name rather than the wire
   `[CerasStableName]`, while migration matches that attribute. Emit the stable wire
