@@ -36,6 +36,23 @@ namespace Ceras.Helpers
             return crc ^ 0xffffffffu;
         }
 
+        /// <summary>
+        /// CRC32 over <paramref name="data"/> where the <paramref name="zeroLength"/> bytes starting at
+        /// <paramref name="zeroStart"/> are fed to the hash as zero. Used by the robust header, whose
+        /// checksum is stored in the middle of the buffer and is therefore zero during computation.
+        /// </summary>
+        internal static uint CalculateCrc32WithZeroedRange(ReadOnlySpan<byte> data, int zeroStart, int zeroLength)
+        {
+            uint crc = 0xffffffffu;
+            for (int i = 0; i < zeroStart; i++)
+                crc = (crc >> 8) ^ Crc32Table[(crc ^ data[i]) & 0xff];
+            for (int i = 0; i < zeroLength; i++)
+                crc = (crc >> 8) ^ Crc32Table[crc & 0xff];
+            for (int i = zeroStart + zeroLength; i < data.Length; i++)
+                crc = (crc >> 8) ^ Crc32Table[(crc ^ data[i]) & 0xff];
+            return crc ^ 0xffffffffu;
+        }
+
         internal static int PowerOf2(int v)
         {
             if ((v & (v - 1)) == 0) return v;

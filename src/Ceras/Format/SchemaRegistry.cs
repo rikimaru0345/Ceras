@@ -8,7 +8,7 @@ using Ceras.Formatters;
 namespace Ceras.Format
 {
     /// <summary>
-    /// Runtime registry of all types registered via <c>[CerasSerializable(VersionTolerant = true)]</c>.
+    /// Runtime registry of all robust-serializable types.
     /// Populated during startup by <c>RobustFormatters.UseRobustFormatters(config)</c>.
     /// </summary>
     public sealed class SchemaRegistry
@@ -62,7 +62,7 @@ namespace Ceras.Format
 
 		/// <summary>
 		/// Called by the generated <c>RobustFormatters.UseRobustFormatters</c> for every
-		/// <c>[CerasSerializable(VersionTolerant = true)]</c> type.
+		/// robust-serializable type.
 		/// Safe to call multiple times with the same type (idempotent).
 		/// </summary>
 		public void Register(Type type, SchemaTypeInfo info)
@@ -130,27 +130,23 @@ namespace Ceras.Format
             }
             else
             {
-                // Non-generic types must be pre-registered by the source-generated UseRobustFormatters()
-                // before SchemaSection.Write runs. If we reach here after Seal(), the type was
-                // never registered at startup — its ID won't be in the schema section, so the
-                // stream would be unreadable. Throw now (at save time) with a clear message
-                // rather than silently writing corrupt data that fails to load.
+                // Non-generic types can be registered dynamically. This is required for types that only
+                // appear as schema field-type metadata (SchemaSection.ResolveId) or as runtime-discovered
+                // values (e.g. a concrete type first seen during a save). Their formatter/schema is derived
+                // reflectively at that point and is therefore self-consistent within the run.
                 //
-                // Exception: open generic type definitions (e.g. IEnumerable<>, IDictionary<,>)
-                // are only referenced for schema field-type metadata by SchemaSection.ResolveId,
-                // never as actual values in the data stream — so dynamic registration is fine.
-                if (IsSealed && !type.IsGenericTypeDefinition)
-                {
-                    // If we're already sealed, we can't add new entries to the "declared" schema (the fingerprint part).
-                    // But we can still register them as "runtime discovered" types.
-                }
-
+                // Exception: open generic type definitions (e.g. IEnumerable<>, IDictionary<,>) are only
+                // referenced for schema field-type metadata by SchemaSection.ResolveId, never as actual
+                // values in the data stream — so dynamic registration is fine.
                 Register(type, null);
             }
         }
 
         static SchemaTypeInfo CreateSchemaForUserType(Type type)
         {
+            // Reflection fallback for types without a generated schema. Names must remain
+            // FullName-based (binder-resolvable); generated user types get canonical names from
+            // the source generator (Phase 2.3). Retired once generated manifests are authoritative (2.5).
             string typeFullName = type.FullName ?? type.Name;
 
             if (type.IsEnum)

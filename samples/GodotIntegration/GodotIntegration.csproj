@@ -1,0 +1,17 @@
+<Project Sdk="Godot.NET.Sdk/4.7.2">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <RootNamespace>GodotIntegration</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ceras\Ceras.csproj" />
+    <ProjectReference Include="..\..\src\Ceras.SourceGenerator\Ceras.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

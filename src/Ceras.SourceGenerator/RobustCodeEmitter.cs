@@ -10,12 +10,15 @@ namespace Ceras.SourceGenerator {
 	internal static class RobustCodeEmitter {
 		public static void WriteFormatterClass(
 			StringBuilder sb,
+			Compilation compilation,
+			SourceProductionContext context,
 			INamedTypeSymbol type,
 			List<SerializedMember> members,
-			AttributeBag attrs,
-			bool vt = false) {
+			AttributeBag attrs) {
 			string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 			string formatterName = MakeFormatterClassName(type);
+			var bestCtor = type.IsReferenceType ? GetBestConstructor(type, attrs.CerasConstructor, members) : null;
+			var accessors = new AccessorEmitter(compilation, context.ReportDiagnostic, type, members, bestCtor);
 
 			sb.AppendLine($"    internal sealed class {formatterName} : global::Ceras.Formatters.FormatterBase<{typeFqn}>");
 			sb.AppendLine("    {");
@@ -43,9 +46,8 @@ namespace Ceras.SourceGenerator {
 			sb.AppendLine("        }");
 			sb.AppendLine();
 
-			// --- Schema descriptor (VersionTolerant only) --------------------------
-			if (vt)
-				WriteSchemaDescriptor(sb, type, members, attrs);
+			// --- Schema descriptor --------------------------------------------------
+			WriteSchemaDescriptor(sb, type, members, attrs);
 			// --- Serialize ---------------------------------------------------------
 			sb.AppendLine($"        public override void Serialize(global::System.Buffers.IBufferWriter<byte> writer, {typeFqn} value)");
 			sb.AppendLine("        {");
@@ -65,7 +67,7 @@ namespace Ceras.SourceGenerator {
 				var serializeMembers = members;
 				foreach (var m in serializeMembers) {
 					string fieldName = MakeFormatterFieldName(m.Type);
-					string getAccess = GetRefAccess(m, typeFqn);
+					string getAccess = accessors.MemberReadExpression(m, "value");
 
 					if (TypeHelpers.IsFastPrimitive(m.Type)) {
 						string writeMethod = GetPrimitiveWriteMethod(m.Type);
@@ -98,38 +100,29 @@ namespace Ceras.SourceGenerator {
 			}
 			else {
 				if (type.IsReferenceType) {
-					var bestCtor = GetBestConstructor(type, attrs.CerasConstructor, members);
-
 					sb.AppendLine("                if (value == null)");
 					sb.AppendLine("                {");
-					sb.AppendLine($"                    value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
+					if (accessors.CtorIsDirectNew) {
+						// Accessible parameterless constructor: ordinary allocation is enough.
+						// Nothing can reference the instance before it is constructed, so we register after.
+						sb.AppendLine($"                    value = new {typeFqn}();");
+					}
+					else {
+						// Allocate uninitialized so the instance can be registered before the constructor runs.
+						// This preserves identity for cyclic graphs whose constructor parameters reference
+						// the object currently being built.
+						sb.AppendLine($"                    value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
+					}
 					sb.AppendLine("                    _ceras.SetCurrentObject(value);");
 
-					if (bestCtor != null && !type.IsGenericType) {
-						if (bestCtor.Parameters.Length == 0) {
-							sb.AppendLine("                    __ceras_ctor(value);");
-						}
-						else {
-							// 1. Read all needed parameters from the current 'reader' state into locals.
-							// We MUST do this because we want to call the constructor as soon as possible,
-							// but we also want to stay compatible with the normal field-by-field deserialization order.
-							// The most robust way is to read everything into locals, then ctor, then assign everything.
-						}
+					if (accessors.CtorNeedsAccessor && bestCtor != null && bestCtor.Parameters.Length == 0) {
+						// Inaccessible parameterless constructor: invoke it through the accessor.
+						sb.AppendLine($"                    {accessors.CtorCallTarget}__ceras_ctor(value);");
 					}
 					sb.AppendLine("                }");
 				}
 
-				// Map constructor parameters to members
-				var bestCtorForMapping = type.IsReferenceType ? GetBestConstructor(type, attrs.CerasConstructor, members) : null;
-				var ctorParams = new Dictionary<string, (IParameterSymbol Param, SerializedMember Member)>(StringComparer.Ordinal);
-				if (bestCtorForMapping != null) {
-					foreach (var p in bestCtorForMapping.Parameters) {
-						string normParam = NormalizeName(p.Name);
-						var match = members.FirstOrDefault(m => NormalizeName(m.Name) == normParam);
-						if (match != null)
-							ctorParams[match.Name] = (p, match);
-					}
-				}
+				var bestCtorForMapping = bestCtor;
 
 				// Read all members into locals first (to support constructors with parameters and arbitrary field order)
 				foreach (var m in members) {
@@ -138,46 +131,55 @@ namespace Ceras.SourceGenerator {
 					string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
 					string localName = "l_" + safeName;
 
-					sb.AppendLine($"                {memberTypeFqn} {localName} = default;");
 					if (TypeHelpers.IsFastPrimitive(m.Type)) {
+						sb.AppendLine($"                {memberTypeFqn} {localName} = default;");
 						string readExpr = GetPrimitiveReadExpression(m.Type, "reader");
 						sb.AppendLine($"                {localName} = {readExpr};");
 					}
 					else {
+						// Seed the local from the existing member value so that Load(ref existing) and
+						// field-initialized containers are populated in place instead of being replaced.
+						// This mirrors ReferenceFormatter.DeserializeUntyped and the confirmed reuse
+						// contract (TODO Phase 3.2): reuse iff non-null and exact stored type; collections
+						// clear+refill; arrays reuse only on exact length; null sets null; aliases resolve
+						// through the object cache. Members that cannot be read start from default.
+						string initial = (m.Type.IsReferenceType && MemberExplorer.CanReadMember(m))
+							? accessors.MemberReadExpression(m, "value")
+							: "default";
+						sb.AppendLine($"                {memberTypeFqn} {localName} = {initial};");
 						sb.AppendLine($"                {fieldName}.Deserialize(ref reader, ref {localName});");
 					}
 				}
 
-				// Call constructor if it has parameters
+				// Invoke the constructor (with parameters) now that all members were read into locals.
 				if (bestCtorForMapping != null && bestCtorForMapping.Parameters.Length > 0) {
-					// If the type is generic, we can't easily use UnsafeAccessor for the constructor due to runtime limitations/bugs (InvalidProgramException: Generic type constraints do not match)
-					if (!type.IsGenericType) {
-						var args = string.Join(", ", bestCtorForMapping.Parameters.Select(p => {
-							string normParam = NormalizeName(p.Name);
-							var match = members.FirstOrDefault(m => {
-								if (NormalizeName(m.Name) == normParam) return true;
+					var args = string.Join(", ", bestCtorForMapping.Parameters.Select(p => {
+						string normParam = NormalizeName(p.Name);
+						var match = members.FirstOrDefault(m => {
+							if (NormalizeName(m.Name) == normParam) return true;
 
-								ISymbol? symbol = null;
-								var curType = type;
-								while (curType != null) {
-									symbol = curType.GetMembers(m.Name).FirstOrDefault();
-									if (symbol != null) break;
-									curType = curType.BaseType;
-								}
+							ISymbol? symbol = null;
+							var curType = type;
+							while (curType != null) {
+								symbol = curType.GetMembers(m.Name).FirstOrDefault();
+								if (symbol != null) break;
+								curType = curType.BaseType;
+							}
 
-								if (symbol is IFieldSymbol field && field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField")) {
-									var mRegex = System.Text.RegularExpressions.Regex.Match(field.Name, @"^<(.*)>k__BackingField$");
-									if (mRegex.Success && NormalizeName(mRegex.Groups[1].Value) == normParam)
-										return true;
-								}
-								if (symbol is IPropertySymbol prop && NormalizeName(prop.Name) == normParam)
+							if (symbol is IFieldSymbol field && field.IsImplicitlyDeclared && field.Name.EndsWith("k__BackingField")) {
+								var mRegex = System.Text.RegularExpressions.Regex.Match(field.Name, @"^<(.*)>k__BackingField$");
+								if (mRegex.Success && NormalizeName(mRegex.Groups[1].Value) == normParam)
 									return true;
-								return false;
-							});
-							return match != null ? "l_" + TypeHelpers.SanitizeIdentifier(match.Name) : "default";
-						}));
-						sb.AppendLine($"                __ceras_ctor(value, {args});");
-					}
+							}
+							if (symbol is IPropertySymbol prop && NormalizeName(prop.Name) == normParam)
+								return true;
+							return false;
+						});
+						return match != null
+							? accessors.CtorParameterModifier(p) + "l_" + TypeHelpers.SanitizeIdentifier(match.Name)
+							: FormatDefaultArgument(p);
+					}));
+					sb.AppendLine($"                {accessors.CtorCallTarget}__ceras_ctor(value, {args});");
 				}
 
 				// Assign locals to members
@@ -187,52 +189,61 @@ namespace Ceras.SourceGenerator {
 
 					// If it was a constructor parameter, it's already set (for classes).
 					// But for consistency and to handle readonly fields (via UnsafeAccessor), we write it anyway.
-					WriteSetStatement(sb, m, typeFqn, localName, 16);
+					accessors.WriteMemberSet(sb, m, "value", localName, 16);
 				}
 				sb.AppendLine("        }");
 			}
 
-			// --- Access Helpers ---
-			var finalBestCtor = type.IsReferenceType ? GetBestConstructor(type, attrs.CerasConstructor, members) : null;
-			if (finalBestCtor != null && type.IsReferenceType && !type.IsGenericType) {
-				string paramList = string.Join(", ", finalBestCtor.Parameters.Select(p => $"{p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)} {p.Name}"));
-				string argList = finalBestCtor.Parameters.Length > 0 ? ", " + paramList : "";
-
-				sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = \".ctor\")]");
-				sb.AppendLine($"        internal static extern void __ceras_ctor({typeFqn} instance{argList});");
-				sb.AppendLine();
-			}
-
-			foreach (var m in members) {
-				var req = MemberExplorer.GetAccessHelperRequirement(m);
-				if (req == AccessHelperRequirement.None) continue;
-
-				string memberTypeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-				string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-				string instanceModifier = m.DeclaringType.IsValueType ? "ref " : "";
-				string instanceParam = $"{instanceModifier}{declaringTypeFqn} instance";
-				string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
-				string safeDeclaringName = TypeHelpers.SanitizeIdentifier(m.DeclaringType.ToDisplayString(TypeHelpers.FullyQualifiedNoGlobal));
-				string helperPrefix = $"__ceras_{safeDeclaringName}_{safeName}";
-
-				if (m.IsField) {
-					sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = \"{m.Name}\")]");
-					sb.AppendLine($"        internal static extern ref {memberTypeFqn} {helperPrefix}_ref({instanceParam});");
-				}
-				else {
-					if ((req & AccessHelperRequirement.Read) != 0) {
-						sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = \"get_{m.Name}\")]");
-						sb.AppendLine($"        internal static extern {memberTypeFqn} {helperPrefix}_get({instanceParam});");
-					}
-					if ((req & AccessHelperRequirement.Write) != 0) {
-						sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = \"set_{m.Name}\")]");
-						sb.AppendLine($"        internal static extern void {helperPrefix}_set({instanceParam}, {memberTypeFqn} value);");
-					}
-				}
-			}
+			// --- Access Helpers (UnsafeAccessor / direct access) ---
+			accessors.EmitDeclarations(sb);
 
 			sb.AppendLine("    }");
 			sb.AppendLine();
+		}
+
+		/// <summary>
+		/// Produces the C# expression used for a <see cref="CerasConstructorAttribute"/> parameter that
+		/// has no matching serializable member. Such a parameter is transient construction input (e.g. an
+		/// "initiallyPaid" flag): the value is not stored in the save, so we pass the parameter's own
+		/// declared default. The constructor body still runs, and all real state is assigned afterwards.
+		/// </summary>
+		static string FormatDefaultArgument(IParameterSymbol p) {
+			string typeFqn = p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+			if (!p.HasExplicitDefaultValue)
+				return $"default({typeFqn})";
+
+			object? value = p.ExplicitDefaultValue;
+			if (value == null)
+				return p.Type.IsValueType ? $"default({typeFqn})" : "null";
+
+			if (p.Type.TypeKind == TypeKind.Enum)
+				return $"({typeFqn})({FormatLiteral(value)})";
+
+			return FormatLiteral(value);
+		}
+
+		static string FormatLiteral(object value) {
+			switch (value) {
+				case bool b: return b ? "true" : "false";
+				case string s: return Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(s, quote: true);
+				case char c: return Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(c, quote: true);
+				case float f:
+					if (float.IsNaN(f)) return "float.NaN";
+					if (float.IsPositiveInfinity(f)) return "float.PositiveInfinity";
+					if (float.IsNegativeInfinity(f)) return "float.NegativeInfinity";
+					return f.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "f";
+				case double d:
+					if (double.IsNaN(d)) return "double.NaN";
+					if (double.IsPositiveInfinity(d)) return "double.PositiveInfinity";
+					if (double.IsNegativeInfinity(d)) return "double.NegativeInfinity";
+					return d.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "d";
+				case decimal m: return m.ToString(System.Globalization.CultureInfo.InvariantCulture) + "m";
+				case long l: return l.ToString(System.Globalization.CultureInfo.InvariantCulture) + "L";
+				case ulong ul: return ul.ToString(System.Globalization.CultureInfo.InvariantCulture) + "UL";
+				case uint ui: return ui.ToString(System.Globalization.CultureInfo.InvariantCulture) + "U";
+				default: return Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
+			}
 		}
 
 		static string GetPrimitiveWriteMethod(ITypeSymbol type) {
@@ -411,7 +422,7 @@ namespace Ceras.SourceGenerator {
 			sb.AppendLine();
 		}
 
-		static string GetStableTypeName(INamedTypeSymbol type, INamedTypeSymbol? cerasSerializableAttr) {
+		public static string GetStableTypeName(INamedTypeSymbol type, INamedTypeSymbol? cerasSerializableAttr) {
 			if (cerasSerializableAttr != null) {
 				foreach (var attr in type.GetAttributes()) {
 					if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr)) continue;
@@ -447,33 +458,6 @@ namespace Ceras.SourceGenerator {
 			sb.Append(" }");
 		}
 
-		static string GetRefAccess(SerializedMember m, string typeFqn) {
-			if (m.IsReadAccessible) return $"value.{m.Name}";
-			string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
-			string safeDeclaringName = TypeHelpers.SanitizeIdentifier(m.DeclaringType.ToDisplayString(TypeHelpers.FullyQualifiedNoGlobal));
-			string helperPrefix = $"__ceras_{safeDeclaringName}_{safeName}";
-			string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-			string arg = m.DeclaringType.IsValueType ? "ref value" : $"(({declaringTypeFqn})value)";
-			if (m.IsField) return $"{helperPrefix}_ref({arg})";
-			return $"{helperPrefix}_get({arg})";
-		}
-
-		static void WriteSetStatement(StringBuilder sb, SerializedMember m, string typeFqn, string valueExpr, int indent) {
-			string prefix = new string(' ', indent);
-			if (m.IsWriteAccessible) { sb.AppendLine($"{prefix}value.{m.Name} = {valueExpr};"); return; }
-
-			// If it's handled by ctor, we don't need to set it (and we might not have a setter helper!)
-			if (m.IsCtorParam) return;
-
-			string safeName = TypeHelpers.SanitizeIdentifier(m.Name);
-			string safeDeclaringName = TypeHelpers.SanitizeIdentifier(m.DeclaringType.ToDisplayString(TypeHelpers.FullyQualifiedNoGlobal));
-			string helperPrefix = $"__ceras_{safeDeclaringName}_{safeName}";
-			string declaringTypeFqn = m.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-			string arg = m.DeclaringType.IsValueType ? "ref value" : $"(({declaringTypeFqn})value)";
-			if (m.IsField) sb.AppendLine($"{prefix}{helperPrefix}_ref({arg}) = {valueExpr};");
-			else sb.AppendLine($"{prefix}{helperPrefix}_set({arg}, {valueExpr});");
-
-		}
 		static int ComputeFixedByteSize(ITypeSymbol type) {
 			switch (type.SpecialType) {
 				case SpecialType.System_Boolean: return 1;

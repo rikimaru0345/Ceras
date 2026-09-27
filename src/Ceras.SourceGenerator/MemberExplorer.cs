@@ -17,9 +17,7 @@ namespace Ceras.SourceGenerator
             // Used to silently skip the base-class version when a property is shadowed via 'new'.
             var claimedBackingFieldNames = new HashSet<string>(StringComparer.Ordinal);
 
-            // TargetMemberKind logic removed
-            // TargetMemberKind currentTargetKind = ResolveEffectiveTargetMemberKind(context, type, attrs.MemberConfig);
-
+            // Auto-properties are handled via their backing fields.
             var typeChain = new List<INamedTypeSymbol>();
             INamedTypeSymbol? cur = type;
             while (cur != null && cur.SpecialType != SpecialType.System_Object)
@@ -114,7 +112,7 @@ namespace Ceras.SourceGenerator
                         if (isBackingField && !claimedBackingFieldNames.Add(stableName))
                             continue;
 
-                        var m = MakeMember(field.Name, field.Type, isField: true, field, attrs, isGetterOnly: false, stableNameOverride: stableName);
+                        var m = MakeMember(field.Name, field.Type, isField: true, field, attrs, stableNameOverride: stableName);
                         
                         // If it's a backing field, also check attributes on the property
                         if (associatedProp != null)
@@ -127,7 +125,7 @@ namespace Ceras.SourceGenerator
                                         attr.ConstructorArguments.Length > 0 &&
                                         attr.ConstructorArguments[0].Value is string sn)
                                     {
-                                        m = new SerializedMember(m.Name, sn, m.Type, m.DeclaringType, m.IsField, m.PreviousNames, m.IsMonomorphic, m.IsAccessible, m.IsReadOnly, m.IsGetterOnly, m.IsCtorParam, m.CtorParamName, m.IsReadAccessible, m.IsWriteAccessible);
+                                        m = new SerializedMember(m.Name, sn, m.Type, m.DeclaringType, m.IsField, m.PreviousNames, m.IsMonomorphic, m.IsAccessible, m.IsReadOnly, m.IsReadAccessible, m.IsWriteAccessible, m.MemberSymbol);
                                         break;
                                     }
                                 }
@@ -155,7 +153,7 @@ namespace Ceras.SourceGenerator
                                 }
                                 if (previousNames.Count > m.PreviousNames.Length)
                                 {
-                                    m = new SerializedMember(m.Name, m.StableName, m.Type, m.DeclaringType, m.IsField, previousNames.ToArray(), m.IsMonomorphic, m.IsAccessible, m.IsReadOnly, m.IsGetterOnly, m.IsCtorParam, m.CtorParamName, m.IsReadAccessible, m.IsWriteAccessible);
+                                    m = new SerializedMember(m.Name, m.StableName, m.Type, m.DeclaringType, m.IsField, previousNames.ToArray(), m.IsMonomorphic, m.IsAccessible, m.IsReadOnly, m.IsReadAccessible, m.IsWriteAccessible, m.MemberSymbol);
                                 }
                             }
 
@@ -181,20 +179,6 @@ namespace Ceras.SourceGenerator
             });
 
             return members;
-        }
-
-        public static bool IsPartial(INamedTypeSymbol type)
-        {
-            foreach (var syntaxRef in type.DeclaringSyntaxReferences)
-            {
-                var syntax = syntaxRef.GetSyntax();
-                if (syntax is TypeDeclarationSyntax typeDecl)
-                {
-                    if (typeDecl.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword)))
-                        return true;
-                }
-            }
-            return false;
         }
 
         public static bool IsCollectionType(ITypeSymbol type)
@@ -308,7 +292,7 @@ namespace Ceras.SourceGenerator
 
         static SerializedMember MakeMember(
             string name, ITypeSymbol type, bool isField,
-            ISymbol symbol, AttributeBag attrs, bool isGetterOnly = false, string? stableNameOverride = null)
+            ISymbol symbol, AttributeBag attrs, string? stableNameOverride = null)
         {
             string stableName = stableNameOverride ?? name;
             if (attrs.SerializedAs != null)
@@ -375,7 +359,7 @@ namespace Ceras.SourceGenerator
                     isWriteAccessible = prop.SetMethod.DeclaredAccessibility == Accessibility.Public ||
                                         prop.SetMethod.DeclaredAccessibility == Accessibility.Internal;
                 }
-                else if (!isGetterOnly)
+                else
                 {
                     isWriteAccessible = false;
                 }
@@ -386,8 +370,8 @@ namespace Ceras.SourceGenerator
             if (isReadOnly) isWriteAccessible = false;
 
             return new SerializedMember(name, stableName, type, symbol.ContainingType, isField,
-                previousNames.ToArray(), isMonomorphic, isAccessible, isReadOnly, isGetterOnly,
-                isReadAccessible: isReadAccessible, isWriteAccessible: isWriteAccessible);
+                previousNames.ToArray(), isMonomorphic, isAccessible, isReadOnly,
+                isReadAccessible: isReadAccessible, isWriteAccessible: isWriteAccessible, memberSymbol: symbol);
         }
 
         public static bool IsMonomorphicByDefault(ITypeSymbol type)
@@ -447,7 +431,7 @@ namespace Ceras.SourceGenerator
                         if (NormalizeName(m.StableName) == normParam) return true;
                         return false;
                     });
-                    if (match == null)
+                    if (match == null && !p.HasExplicitDefaultValue)
                     {
                         context.ReportDiagnostic(Diagnostic.Create(Diag.CerasConstructorParamMismatch, p.Locations.FirstOrDefault(), p.Name, type.Name));
                     }
@@ -484,36 +468,32 @@ namespace Ceras.SourceGenerator
             }
         }
 
-        public static void ValidatePartialRequirement(SourceProductionContext context, Compilation compilation, INamedTypeSymbol type, List<SerializedMember> members)
-        {
-            // No longer needed because we generate UnsafeAccessors directly in the formatter class,
-            // so the target type does not need to be partial.
-        }
-
         public static AccessHelperRequirement GetAccessHelperRequirement(SerializedMember m)
         {
             AccessHelperRequirement req = AccessHelperRequirement.None;
 
-            if (!m.IsReadAccessible)
+            if (!m.IsReadAccessible && CanReadMember(m))
                 req |= AccessHelperRequirement.Read;
 
             if (!m.IsWriteAccessible)
-            {
-                bool handledElsewhere = m.IsCtorParam || m.IsGetterOnly;
-                if (!handledElsewhere)
-                    req |= AccessHelperRequirement.Write;
-            }
+                req |= AccessHelperRequirement.Write;
 
             return req;
         }
 
-        public static bool NeedsAccessHelper(SerializedMember m) => GetAccessHelperRequirement(m) != AccessHelperRequirement.None;
-
-        public static void ValidateReadonlyMembers(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
+        /// <summary>
+        /// True when the generated code can read the member: fields can always be read through their
+        /// <c>_ref</c> accessor; properties require a getter (the accessor may still be needed for
+        /// access).
+        /// </summary>
+        public static bool CanReadMember(SerializedMember m)
         {
-            // No longer needed: we populate in-place and use UnsafeAccessors to write directly
-            // to readonly fields and init-only properties.
+            if (m.IsField) return true;
+            if (m.MemberSymbol is IPropertySymbol p) return p.GetMethod != null;
+            return m.IsReadAccessible;
         }
+
+        public static bool NeedsAccessHelper(SerializedMember m) => GetAccessHelperRequirement(m) != AccessHelperRequirement.None;
 
         /// <summary>
         /// Finds the best constructor to use for serialization.
@@ -571,20 +551,6 @@ namespace Ceras.SourceGenerator
 
             // Robust mode needs to be able to find a suitable constructor
             return GetBestConstructor(type, cerasConstructorAttr, members) != null;
-        }
-        [Flags]
-        public enum TargetMemberKind
-        {
-            None = 0,
-            PublicFields = 1 << 0,
-            PrivateFields = 1 << 1,
-            PublicProperties = 1 << 2,
-            PrivateProperties = 1 << 3,
-            AllPublic = PublicFields | PublicProperties,
-            AllPrivate = PrivateFields | PrivateProperties,
-            AllFields = PublicFields | PrivateFields,
-            AllProperties = PublicProperties | PrivateProperties,
-            All = PublicFields | PrivateFields | PublicProperties | PrivateProperties
         }
     }
 }

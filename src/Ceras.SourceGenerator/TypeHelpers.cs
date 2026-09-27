@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using Microsoft.CodeAnalysis;
 
@@ -75,9 +76,50 @@ namespace Ceras.SourceGenerator {
 			return sb.ToString();
 		}
 
+		/// <summary>
+		/// Canonical stable identity: namespace/nested metadata name plus ordered generic arguments
+		/// (containing type arguments first). This must match the runtime's
+		/// <c>Ceras.Format.TypeIdentity.GetCanonicalName</c> exactly (see TODO Phase 2.3).
+		/// </summary>
 		static void BuildRobustName(StringBuilder sb, ITypeSymbol type) {
+			switch (type) {
+				case IArrayTypeSymbol arr:
+					BuildRobustName(sb, arr.ElementType);
+					sb.Append("[]");
+					return;
+				case IPointerTypeSymbol ptr:
+					BuildRobustName(sb, ptr.PointedAtType);
+					sb.Append('*');
+					return;
+				case ITypeParameterSymbol tp:
+					sb.Append('!').Append(tp.Ordinal);
+					return;
+			}
+
+			if (type is INamedTypeSymbol named) {
+				if (named.IsGenericType && !IsOpenType(named)) {
+					AppendDefinitionName(sb, named.OriginalDefinition);
+					var args = new List<ITypeSymbol>();
+					CollectAllTypeArgs(named, args);
+					sb.Append('<');
+					for (int i = 0; i < args.Count; i++) {
+						if (i > 0) sb.Append(',');
+						BuildRobustName(sb, args[i]);
+					}
+					sb.Append('>');
+					return;
+				}
+
+				AppendDefinitionName(sb, named);
+				return;
+			}
+
+			sb.Append(type.MetadataName);
+		}
+
+		static void AppendDefinitionName(StringBuilder sb, ITypeSymbol type) {
 			if (type.ContainingType != null) {
-				BuildRobustName(sb, type.ContainingType);
+				AppendDefinitionName(sb, type.ContainingType);
 				sb.Append('+');
 			}
 			else if (type.ContainingNamespace != null && !type.ContainingNamespace.IsGlobalNamespace) {
@@ -86,6 +128,11 @@ namespace Ceras.SourceGenerator {
 			}
 
 			sb.Append(type.MetadataName);
+		}
+
+		static void CollectAllTypeArgs(INamedTypeSymbol type, List<ITypeSymbol> args) {
+			if (type.ContainingType != null) CollectAllTypeArgs(type.ContainingType, args);
+			args.AddRange(type.TypeArguments);
 		}
 
 		public static string QuoteString(string s) => s == null ? "null" : $"\"{s}\"";
@@ -242,6 +289,25 @@ namespace Ceras.SourceGenerator {
 			if (type.SpecialType != SpecialType.None) return true; // primitives, string, object, …
 			var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 			return fqn.StartsWith("global::System.");
+		}
+
+		/// <summary>
+		/// True when the type still contains type parameters (an open generic definition such as
+		/// <c>Foo&lt;T&gt;</c>, or a partially constructed nested type). Formatters are only generated for
+		/// closed instantiations; an open definition has no nameable non-generic formatter type.
+		/// </summary>
+		public static bool IsOpenType(ITypeSymbol type) {
+			switch (type) {
+				case ITypeParameterSymbol _: return true;
+				case IArrayTypeSymbol a: return IsOpenType(a.ElementType);
+				case IPointerTypeSymbol p: return IsOpenType(p.PointedAtType);
+				case INamedTypeSymbol n:
+					if (n.ContainingType != null && IsOpenType(n.ContainingType)) return true;
+					foreach (var arg in n.TypeArguments)
+						if (IsOpenType(arg)) return true;
+					return false;
+				default: return false;
+			}
 		}
 	}
 }

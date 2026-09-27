@@ -73,6 +73,19 @@ namespace Ceras.Test
 
         protected void SetSerializerConfigurations(params Func<CerasConfig>[] configs) => _currentTestConfigurations = configs;
 
+        /// <summary>
+        /// Recomputes the robust-format CRC after a test has intentionally mutated header bytes
+        /// (for example to force the slow path by changing the schema fingerprint).
+        /// Real save files never need this; a mismatch means corruption.
+        /// </summary>
+        protected static void FixRobustChecksum(byte[] data)
+        {
+            uint crc = Ceras.Helpers.HashHelpers.CalculateCrc32WithZeroedRange(
+                data, Ceras.RobustHeader.ChecksumOffset, Ceras.RobustHeader.ChecksumSize);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(
+                data.AsSpan(Ceras.RobustHeader.ChecksumOffset), crc);
+        }
+
 
 
 

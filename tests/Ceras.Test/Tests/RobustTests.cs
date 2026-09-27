@@ -224,6 +224,7 @@ namespace Ceras.Test
 
             // 2. Load with schema change to force SchemaTraversalEngine
             data[13] ^= 0xFF;
+            FixRobustChecksum(data);
             var clone = ceras.Load<RobustContainer>(data, 1);
 
             Assert.NotNull(clone);
@@ -252,6 +253,7 @@ namespace Ceras.Test
 
             // 2. Load with schema change to force SchemaTraversalEngine
             data[13] ^= 0xFF;
+            FixRobustChecksum(data);
             var clone = ceras.Load<GenericStructContainer>(data, 1);
 
             Assert.Equal(1, clone.Pair.Key);

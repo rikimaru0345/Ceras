@@ -48,19 +48,21 @@ namespace Ceras.SourceGenerator
         public bool IsField { get; }
         public string[] PreviousNames { get; }
         public bool IsMonomorphic { get; }
-        public bool IsGetterOnly { get; }
-        public bool IsCtorParam { get; }
-        public string? CtorParamName { get; }
         public bool IsAccessible { get; }
         public bool IsReadAccessible { get; }
         public bool IsWriteAccessible { get; }
         public bool IsReadOnly { get; }
+        /// <summary>
+        /// The constructed member symbol (field/property) this member was discovered from.
+        /// Needed to obtain the unsubstituted (open) member type when generating generic accessors.
+        /// </summary>
+        public ISymbol? MemberSymbol { get; }
 
         public SerializedMember(
             string name, string stableName, ITypeSymbol type, INamedTypeSymbol declaringType, bool isField,
             string[] previousNames, bool isMonomorphic, bool isAccessible,
-            bool isReadOnly, bool isGetterOnly, bool isCtorParam = false, string? ctorParamName = null,
-            bool? isReadAccessible = null, bool? isWriteAccessible = null)
+            bool isReadOnly,
+            bool? isReadAccessible = null, bool? isWriteAccessible = null, ISymbol? memberSymbol = null)
         {
             Name = name;
             StableName = stableName;
@@ -73,22 +75,18 @@ namespace Ceras.SourceGenerator
             IsReadAccessible = isReadAccessible ?? isAccessible;
             IsWriteAccessible = isWriteAccessible ?? isAccessible;
             IsReadOnly = isReadOnly;
-            IsGetterOnly = isGetterOnly;
-            IsCtorParam = isCtorParam;
-            CtorParamName = ctorParamName;
+            MemberSymbol = memberSymbol;
         }
     }
 
     internal sealed class TypeDiscoveryResult
     {
         public INamedTypeSymbol Type { get; }
-        public bool IsVersionTolerant { get; }
         public string? DiscoveryPath { get; }
 
-        public TypeDiscoveryResult(INamedTypeSymbol type, bool isVersionTolerant, string? discoveryPath)
+        public TypeDiscoveryResult(INamedTypeSymbol type, string? discoveryPath)
         {
             Type = type;
-            IsVersionTolerant = isVersionTolerant;
             DiscoveryPath = discoveryPath;
         }
     }

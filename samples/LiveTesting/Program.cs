@@ -326,6 +326,12 @@ namespace LiveTesting
 
         static unsafe void Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "--roadmap-quick")
+            {
+                RoadmapBenchmarks.RunQuick();
+                return;
+            }
+
             // InferConstructor();
 
             Repro65();

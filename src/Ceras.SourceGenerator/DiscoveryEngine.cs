@@ -34,7 +34,7 @@ namespace Ceras.SourceGenerator
                 // If the user explicitly asks for Vector3, they should get it,
                 // even if "Godot.*" is blacklisted.
 
-                var result = new TypeDiscoveryResult(t, isVersionTolerant: true, discoveryPath: null);
+                var result = new TypeDiscoveryResult(t, null);
                 results[t] = result;
                 queue.Enqueue(t);
             }
@@ -84,7 +84,7 @@ namespace Ceras.SourceGenerator
                                 var parentPath = currentResult.DiscoveryPath;
                                 var path = (parentPath == null) ? $"Implementation of {currentType.Name}" : $"{parentPath} -> Implementation of {currentType.Name}";
                                 
-                                var result = new TypeDiscoveryResult(candidate, isVersionTolerant: true, discoveryPath: path);
+                                var result = new TypeDiscoveryResult(candidate, path);
                                 results[candidate] = result;
                                 queue.Enqueue(candidate);
                             }
@@ -139,7 +139,7 @@ namespace Ceras.SourceGenerator
 
                         // Add to graph!
                         var newPath = (parentPath == null) ? $"Referenced by {parent.Name}" : $"{parentPath} -> {parent.Name}";
-                        var result = new TypeDiscoveryResult(named, isVersionTolerant: true, discoveryPath: newPath);
+                        var result = new TypeDiscoveryResult(named, newPath);
                         results[named] = result;
                         queue.Enqueue(named);
                     }
@@ -170,30 +170,6 @@ static bool IsFastPrimitive(ITypeSymbol type)
                     return true;
             }
             return false;
-        }
-
-        static bool HasDiscoverSubtypes(INamedTypeSymbol type, INamedTypeSymbol? cerasSerializableAttr)
-        {
-            // If the type has [CerasSerializable], check the 'DiscoverSubtypes' property
-            foreach (var attr in type.GetAttributes())
-            {
-                if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr)) continue;
-                
-                if (TypeHelpers.TryGetAttributeArgument<bool>(attr, "DiscoverSubtypes", out var b))
-                    return b;
-                
-                // Attribute found but no property set, default is true
-                return true;
-            }
-            
-            // If it doesn't have the attribute, we still default to true if it's an interface or abstract class
-            // because if we found it via propagation, we almost certainly want its implementations.
-            if (type.IsAbstract || type.TypeKind == TypeKind.Interface)
-                return true;
-
-            // For concrete classes found via propagation, should we find subtypes?
-            // Usually yes for polymorphism.
-            return true;
         }
 
         static IEnumerable<INamedTypeSymbol> GetAllNamedTypes(INamespaceOrTypeSymbol root)

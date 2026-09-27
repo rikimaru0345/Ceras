@@ -131,5 +131,21 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Warning,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor UnsupportedAccessShape = new(
+            id: "CERAS018",
+            title: "Unsupported access or construction shape",
+            messageFormat: "Cannot generate access for '{0}': {1}. Mark the member [Exclude], make the type/member accessible, or provide a custom formatter",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor DuplicateStableTypeName = new(
+            id: "CERAS019",
+            title: "Duplicate stable type name",
+            messageFormat: "Types '{0}' and '{1}' both use the stable type name '{2}'. Give them distinct stable names with [CerasStableName] or [CerasSerializable(\"name\")]",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }

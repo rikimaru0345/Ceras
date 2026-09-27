@@ -18,7 +18,7 @@ namespace Ceras.SourceGenerator
         {
             var provider = context.SyntaxProvider
                 .CreateSyntaxProvider(
-                    predicate: static (node, _) => node is TypeDeclarationSyntax { AttributeLists.Count: > 0 },
+                    predicate: static (node, _) => node is BaseTypeDeclarationSyntax { AttributeLists.Count: > 0 },
                     transform: static (ctx, _) => GetTypeIfAnnotated(ctx))
                 .Where(static t => t != null)!;
 
@@ -30,7 +30,7 @@ namespace Ceras.SourceGenerator
 
         static INamedTypeSymbol? GetTypeIfAnnotated(GeneratorSyntaxContext ctx)
         {
-            var typeDecl = (TypeDeclarationSyntax)ctx.Node;
+            var typeDecl = (BaseTypeDeclarationSyntax)ctx.Node;
             foreach (var attrList in typeDecl.AttributeLists)
             {
                 foreach (var attr in attrList.Attributes)
@@ -39,9 +39,11 @@ namespace Ceras.SourceGenerator
                     if (symbol is IMethodSymbol method)
                     {
                         var attrType = method.ContainingType;
-                        var attrFqn = attrType.ToDisplayString();
-						if (attrFqn == "Ceras.CerasSerializableAttribute" ||
-							attrFqn == "Ceras.CerasSerializableAttribute<T>")
+                        // Compare against the original definition so that the generic
+                        // CerasSerializableAttribute<T> (and any constructed form of it) is matched too.
+                        var attrDef = attrType.OriginalDefinition.ToDisplayString();
+						if (attrDef == "Ceras.CerasSerializableAttribute" ||
+							attrDef == "Ceras.CerasSerializableAttribute<T>")
                         {
                             return ctx.SemanticModel.GetDeclaredSymbol(typeDecl);
                         }
@@ -111,6 +113,31 @@ namespace Ceras.SourceGenerator
             var finalTypes = results.Keys.ToImmutableArray();
             var finalTypesSet = new HashSet<INamedTypeSymbol>(finalTypes, SymbolEqualityComparer.Default);
 
+            // Canonical identity guard: two distinct types must never share a stable type name,
+            // otherwise schema/migration resolution is ambiguous (TODO Phase 2.3).
+            var stableNameOwners = new Dictionary<string, INamedTypeSymbol>(StringComparer.Ordinal);
+            foreach (var type in finalTypes)
+            {
+                if (IsOpenType(type)) continue;
+                string stable = RobustCodeEmitter.GetStableTypeName(type, cerasSerializableAttr);
+                if (stableNameOwners.TryGetValue(stable, out var prev))
+                {
+                    if (!SymbolEqualityComparer.Default.Equals(prev, type))
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(
+                            Diag.DuplicateStableTypeName,
+                            type.Locations.FirstOrDefault(),
+                            prev.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                            type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                            stable));
+                    }
+                }
+                else
+                {
+                    stableNameOwners[stable] = type;
+                }
+            }
+
             // Report discovery paths for auto-included types
             foreach (var r in results.Values)
             {
@@ -147,6 +174,9 @@ namespace Ceras.SourceGenerator
             foreach (var type in finalTypes)
             {
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
+                // Open generic definitions have no nameable formatter type; closed instantiations that
+                // are reachable are discovered and generated separately. (Generic templates: Phase 2.)
+                if (IsOpenType(type)) continue;
 
                 // Discover members once per type to check constructability and generate the formatter
                 var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns, finalTypesSet);
@@ -157,13 +187,12 @@ namespace Ceras.SourceGenerator
 
                 string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 string formatterName = MakeFormatterClassName(type);
-                bool vt = results[type].IsVersionTolerant;
 
                 string varName = "tc_" + SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal));
                 sbUse.AppendLine($"            var {varName} = config.ConfigType<{typeFqn}>();");
                 sbUse.AppendLine($"            if ({varName}.CustomFormatter == null) {varName}.CustomFormatter = new {formatterName}();");
 
-                if (vt) sbUse.AppendLine($"            if (robustConfig != null) robustConfig.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
+                sbUse.AppendLine($"            if (robustConfig != null) robustConfig.SchemaRegistry.Register(typeof({typeFqn}), {formatterName}.Schema);");
             }
             // Register discovered interface and abstract types with minimal schemas.
             // These types have no formatters but may appear as generic type arguments in
@@ -209,11 +238,10 @@ namespace Ceras.SourceGenerator
 
 
             // 2. Generate per-type formatter files
-            var allPrivateMembersByDeclaringType = new Dictionary<INamedTypeSymbol, List<SerializedMember>>(SymbolEqualityComparer.Default);
-
             foreach (var type in finalTypes)
             {
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
+                if (IsOpenType(type)) continue;
 
                 MemberExplorer.ValidateIncludeExcludeConflicts(context, type, attrBag);
                 var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns, finalTypesSet);
@@ -273,29 +301,7 @@ namespace Ceras.SourceGenerator
                     }
                 }
 
-                foreach (var m in members)
-                {
-                    if (MemberExplorer.NeedsAccessHelper(m))
-                    {
-                        if (!SymbolEqualityComparer.Default.Equals(m.DeclaringType.ContainingAssembly, compilation.Assembly))
-                        {
-                            context.ReportDiagnostic(Diagnostic.Create(Diag.PrivateMemberFromAnotherAssembly, type.Locations.FirstOrDefault(), m.Name, m.DeclaringType.Name));
-                            continue;
-                        }
-                        if (!allPrivateMembersByDeclaringType.TryGetValue(m.DeclaringType, out var list))
-                        {
-                            list = new List<SerializedMember>();
-                            allPrivateMembersByDeclaringType[m.DeclaringType] = list;
-                        }
-                        if (!list.Any(existing => existing.Name == m.Name)) list.Add(m);
-                    }
-                }
-
                 MemberExplorer.ValidateDuplicateWireNames(context, type, members);
-                MemberExplorer.ValidatePartialRequirement(context, compilation, type, members);
-                MemberExplorer.ValidateReadonlyMembers(context, type, members);
-
-                bool typeVt = results[type].IsVersionTolerant;
 
                 var sbFmt = new StringBuilder();
                 sbFmt.AppendLine("// <auto-generated/>");
@@ -313,7 +319,7 @@ namespace Ceras.SourceGenerator
                 sbFmt.AppendLine("namespace Ceras.Generated");
                 sbFmt.AppendLine("{");
 
-                RobustCodeEmitter.WriteFormatterClass(sbFmt, type, members, attrBag, typeVt);
+                RobustCodeEmitter.WriteFormatterClass(sbFmt, compilation, context, type, members, attrBag);
 
                 sbFmt.AppendLine("}");
                 sbFmt.AppendLine("#nullable restore");
@@ -321,11 +327,6 @@ namespace Ceras.SourceGenerator
 
                 string typeName = SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal));
                 context.AddSource($"{typeName}.Ceras.g.cs", SourceText.From(sbFmt.ToString(), Encoding.UTF8));
-            }
-
-            foreach (var kvp in allPrivateMembersByDeclaringType)
-            {
-                AccessHelperGenerator.WritePartialClassHelper(context, kvp.Key, kvp.Value);
             }
         }
     }

@@ -27,6 +27,7 @@ namespace Ceras.Test
 			// A simpler way: Load automatically uses SchemaTraversalEngine IF the fingerprints don't match.
 			// We can fake a fingerprint mismatch by patching the data.
 			data[13] ^= 0xFF; // Flip a byte in the fingerprint
+			FixRobustChecksum(data);
 
 			CtorTestModel.CtorCalled = false;
 			var clone = robust.Load<CtorTestModel>(data, 1);

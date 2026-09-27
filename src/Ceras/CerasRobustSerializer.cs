@@ -34,6 +34,8 @@ namespace Ceras
         public uint Checksum;
 
         public const int Size = 42;
+        public const int ChecksumOffset = 38;
+        public const int ChecksumSize = 4;
     }
 
     public sealed class CerasRobustSerializer : CerasSerializer
@@ -164,10 +166,12 @@ namespace Ceras
             long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(22));
             long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(30));
 
-            uint storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(38));
-            // To verify CRC, we'd ideally calculate it on the whole buffer, but let's stick to the existing logic for now.
-            // Actually, PatchHeader writes CRC. Let's see if we should verify it here.
-            // For now, let's just use the specialized exceptions where they were generic before.
+            uint storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(RobustHeader.ChecksumOffset));
+            uint computedCrc = Ceras.Helpers.HashHelpers.CalculateCrc32WithZeroedRange(
+                data, RobustHeader.ChecksumOffset, RobustHeader.ChecksumSize);
+            if (storedCrc != computedCrc)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"CRC mismatch: the saved data is corrupted or truncated (stored 0x{storedCrc:X8}, computed 0x{computedCrc:X8}).");
 
             var compression = (StringTableCompression)compressionByte;
             var table = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset, compression);
@@ -293,9 +297,10 @@ namespace Ceras
             buffer[21] = flags;
             BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(22), dataSectionOffset);
             BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(30), stringTableOffset);
-            BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(38), 0);
-            uint crc = Ceras.Helpers.HashHelpers.CalculateCrc32(buffer.AsSpan(0, totalLength));
-            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(38), crc);
+            BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(RobustHeader.ChecksumOffset), 0);
+            uint crc = Ceras.Helpers.HashHelpers.CalculateCrc32WithZeroedRange(
+                buffer.AsSpan(0, totalLength), RobustHeader.ChecksumOffset, RobustHeader.ChecksumSize);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(RobustHeader.ChecksumOffset), crc);
         }
 
         static int GetTypeId(Type type, SchemaRegistry registry)
