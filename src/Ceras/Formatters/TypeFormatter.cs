@@ -85,22 +85,34 @@ namespace Ceras.Formatters
 
             if (mode == NewGeneric)
             {
-                Type? baseType = null;
+                // The base type is written as the generic type *definition* of a closed type, so it is
+                // present and named in every payload Serialize produced. The out parameter of the
+                // IFormatter contract is not nullable, hence the seed; a null marker in this slot is
+                // corruption and is reported as such below instead of dereferencing null.
+                Type baseType = null!;
                 Deserialize(ref reader, ref baseType);
                 var argCount = SerializerBinary.ReadByte(ref reader);
                 Type[] genericArgs = new Type[argCount];
                 for (int i = 0; i < argCount; i++)
                     Deserialize(ref reader, ref genericArgs[i]);
 
+                var baseTypeName = baseType?.FullName
+                    ?? throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        "Corrupt data: a generic type reference has no base type definition (a missing or unnamed Type) to rebuild it from.");
+
                 var compositeProxy = typeCache.CreateDeserializationProxy();
-                type = _typeBinder.GetTypeFromBaseAndArguments(baseType.FullName, genericArgs);
+                type = _typeBinder.GetTypeFromBaseAndArguments(baseTypeName, genericArgs);
                 compositeProxy.Type = type;
                 if (_isSealed) ThrowSealed(type, false);
             }
             else
             {
                 var proxy = typeCache.CreateDeserializationProxy();
-                string? baseTypeName = SerializerBinary.ReadString(ref reader);
+                // Serialize writes ITypeBinder.GetBaseName(type), which is never null; a null marker here
+                // would only come from a payload that does not describe a type.
+                var baseTypeName = SerializerBinary.ReadString(ref reader)
+                    ?? throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        "Corrupt data: a type reference has no name to resolve it from.");
                 type = _typeBinder.GetTypeFromBase(baseTypeName);
                 proxy.Type = type;
                 if (_isSealed) ThrowSealed(type, false);

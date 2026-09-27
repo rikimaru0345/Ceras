@@ -12,7 +12,10 @@ namespace Ceras.Formatters
 
         public override void Serialize(IBufferWriter<byte> writer, Uri value)
         {
-            SerializerBinary.WriteString(writer, value?.OriginalString);
+            // A null Uri is a legal payload value: WriteString encodes it as a null string marker, and
+            // Deserialize reads that marker back as a null Uri (see below). So the writer is handed a
+            // null on purpose, which the null-forgiving operator makes explicit.
+            SerializerBinary.WriteString(writer, (value?.OriginalString)!);
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref Uri value)

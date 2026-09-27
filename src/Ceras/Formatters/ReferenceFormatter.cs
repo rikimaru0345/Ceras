@@ -58,7 +58,7 @@ namespace Ceras.Formatters {
 			}
 
 			var entry = GetOrCreateEntry(specificType);
-			if (entry!.IsType) { SerializerBinary.WriteUInt32Bias(writer, InlineType, Bias); _typeFormatter!.Serialize(writer, (Type)(object)value); return; }
+			if (entry.IsType) { SerializerBinary.WriteUInt32Bias(writer, InlineType, Bias); _typeFormatter.Serialize(writer, (Type)(object)value); return; }
 		// ExternalRootObject support removed
 
 			if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id)) {
@@ -75,17 +75,31 @@ namespace Ceras.Formatters {
 		public void Deserialize(ref SequenceReader<byte> reader, ref T value) {
 			var objId = SerializerBinary.ReadUInt32Bias(ref reader, Bias);
 			if (objId == Null) { value = default; return; }
-			if (objId == InlineType) { Type type = null; _typeFormatter.Deserialize(ref reader, ref type); value = (T)(object)type; return; }
+			if (objId == InlineType) {
+				// Serialize only writes the InlineType marker for a non-null Type instance, so the type
+				// read back here is never null. The seed is what the non-nullable IFormatter contract
+				// needs; the value itself is always overwritten by the deserialization.
+				Type type = null!;
+				_typeFormatter.Deserialize(ref reader, ref type);
+				value = (T)(object)type;
+				return;
+			}
 			if (objId >= 0) {
 				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId);
 				return;
 			}
 		// ExternalRootObject support removed
-			var specificType = (objId == NewValue) ? null : typeof(T);
-			if (objId == NewValue) _typeFormatter.Deserialize(ref reader, ref specificType);
+			// A NewValue marker is always written together with the concrete runtime type (Serialize
+			// writes the type right behind the marker), while NewValueSameType means "the declared T".
+			Type specificType;
+			if (objId == NewValue) {
+				specificType = null!;
+				_typeFormatter.Deserialize(ref reader, ref specificType);
+			}
+			else specificType = typeof(T);
 			var entry = GetOrCreateEntry(specificType);
 
-			if (!entry!.IsValueType) {
+			if (!entry.IsValueType) {
 				bool allocated = false;
 				if (value != null) {
 					if (value.GetType() != specificType) {
@@ -124,7 +138,11 @@ namespace Ceras.Formatters {
 			value = objectProxy.Value;
 		}
 
-		DispatcherEntry? GetOrCreateEntry(Type type) {
+		/// <summary>
+		/// The dispatcher for <paramref name="type"/>, creating it on first use. Never returns null: a
+		/// type without a formatter is a configuration error and throws.
+		/// </summary>
+		DispatcherEntry GetOrCreateEntry(Type type) {
 			if (type == null) throw new ArgumentNullException(nameof(type));
 
 			ref var entry = ref _dispatchers.GetOrAddValueRef(type);
@@ -139,7 +157,10 @@ namespace Ceras.Formatters {
 			entry.DeserializeDispatcher = CreateSpecificDeserializerDispatcher(type, formatter);
 			
 			if (_ceras.IsFormatterConstructedInstance(type))
-				entry.Constructor = () => null;
+				// A formatter-constructed type is built by its own formatter, so there is no constructor
+				// to call here: the placeholder hands back null and the dispatcher fills the instance in.
+				// The call sites cast the result to T (a reference type), where null is a legal value.
+				entry.Constructor = () => null!;
 			else
 				entry.Constructor = _ceras.Config.GetTypeConfigForClosedType(type, false).TypeConstruction.GetRefFormatterConstructor();
 			
@@ -154,8 +175,8 @@ namespace Ceras.Formatters {
 
 			// Use a helper class to avoid boxing and object[] allocation
 			var helperType = typeof(ReflectionSerializationHelper<,>).MakeGenericType(typeof(T), type);
-			var helper = (IReflectionSerializer<T>)Activator.CreateInstance(helperType, specificFormatter);
-			return helper!.Serialize;
+			var helper = (IReflectionSerializer<T>)Instantiator.Create(helperType, specificFormatter);
+			return helper.Serialize;
 		}
 		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher(Type type, IFormatter specificFormatter) {
 			var method = specificFormatter.GetType().ResolveDeserializeMethod(type);
@@ -164,16 +185,19 @@ namespace Ceras.Formatters {
 
 			// Use a helper class to avoid boxing ref struct
 			var helperType = typeof(ReflectionDeserializationHelper<,>).MakeGenericType(typeof(T), type);
-			var helper = (IReflectionDeserializer<T>)Activator.CreateInstance(helperType, specificFormatter);
-			return helper!.Deserialize;
+			var helper = (IReflectionDeserializer<T>)Instantiator.Create(helperType, specificFormatter);
+			return helper.Deserialize;
 		}
 
 		class DispatcherEntry {
 			public readonly Type Type;
 			public readonly bool IsType, IsValueType;
-			public SerializeDelegate<T> SerializeDispatcher;
-			public DeserializeDelegate<T> DeserializeDispatcher;
-			public Func<object> Constructor;
+			// GetOrCreateEntry fills these in for every entry it does not leave early. A Type entry is
+			// written and read through the InlineType marker, which returns before any of the three is
+			// reached, so they stay null for that one case instead of being allocated per Type.
+			public SerializeDelegate<T> SerializeDispatcher = default!;
+			public DeserializeDelegate<T> DeserializeDispatcher = default!;
+			public Func<object> Constructor = default!;
 			public DispatcherEntry(Type type) {
 				Type = type;
 				IsType = typeof(Type).IsAssignableFrom(type);
@@ -188,13 +212,15 @@ namespace Ceras.Formatters {
 
 	class ReflectionSerializationHelper<TBase, TSpecific> : IReflectionSerializer<TBase>
 		where TSpecific : TBase {
-		readonly IFormatter<TSpecific> _formatter;
+		// The instance handed to a specific formatter may be null: a reference type that the payload
+		// marks as null, and a formatter-constructed type whose constructor placeholder produced null.
+		readonly IFormatter<TSpecific?> _formatter;
 		public ReflectionSerializationHelper(IFormatter specificFormatter) {
-			_formatter = (IFormatter<TSpecific>)specificFormatter;
+			_formatter = (IFormatter<TSpecific?>)specificFormatter;
 		}
 
 		public void Serialize(IBufferWriter<byte> writer, TBase value) {
-			_formatter.Serialize(writer, (TSpecific)value);
+			_formatter.Serialize(writer, (TSpecific?)value);
 		}
 	}
 
@@ -204,15 +230,21 @@ namespace Ceras.Formatters {
 
 	class ReflectionDeserializationHelper<TBase, TSpecific> : IReflectionDeserializer<TBase>
 		where TSpecific : TBase {
-		readonly IFormatter<TSpecific> _formatter;
+		// Nullable for the same reason as in ReflectionSerializationHelper: null goes in and null can
+		// come out, because a null instance is a legal wire value and because the constructor
+		// placeholder of a formatter-constructed type yields null.
+		readonly IFormatter<TSpecific?> _formatter;
 		public ReflectionDeserializationHelper(IFormatter specificFormatter) {
-			_formatter = (IFormatter<TSpecific>)specificFormatter;
+			_formatter = (IFormatter<TSpecific?>)specificFormatter;
 		}
 
 		public void Deserialize(ref SequenceReader<byte> reader, ref TBase value) {
 			TSpecific? specific = value != null ? (TSpecific)value : default;
 			_formatter.Deserialize(ref reader, ref specific);
-			value = specific;
+			// The ref parameter of the deserialize contract is declared non-nullable, but a null instance
+			// is a legal value here and the caller (ReferenceFormatter.Deserialize) handles it, so the
+			// null-forgiving operator is used rather than pretending the formatter cannot return null.
+			value = specific!;
 		}
 	}
 

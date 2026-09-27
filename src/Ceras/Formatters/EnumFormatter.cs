@@ -21,6 +21,13 @@ namespace Ceras.Resolvers
         {
             var maxStrLen = _sizeLimits.MaxStringLength;
             var str = SerializerBinary.ReadStringLimited(ref reader, maxStrLen);
+            // Serialize always writes value.ToString(), which is never null for an enum, so a null marker
+            // here means the payload does not describe an enum. Enum.Parse would report that as a plain
+            // ArgumentNullException about "value", which says nothing about the file.
+            if (str == null)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt data: an enum value of type '{typeof(T)}' was written with a null name.");
+
             value = (T)System.Enum.Parse(typeof(T), str);
         }
     }
