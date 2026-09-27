@@ -10,7 +10,12 @@
     <IsRoslynComponent>true</IsRoslynComponent>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
-    <LangVersion>latest</LangVersion>
+    <!-- Pinned, not `latest`: the analyzer must never be able to start using a newer C# than the
+         consumers it generates code for. netstandard2.0 would otherwise default to C# 7.3, and
+         `latest` would silently follow a future SDK past the platform's C# 14 that the root
+         Directory.Build.props pins. The emitted C# needs C# 8.0 at most, so pinning the generator
+         here keeps a wide margin for consumers. -->
+    <LangVersion>14.0</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>

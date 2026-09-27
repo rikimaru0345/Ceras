@@ -1,4 +1,12 @@
 <Project>
+  <!--
+    Chain up to the repository root first, so the platform pin in Directory.Build.props
+    (LangVersion 14.0) applies to the samples too instead of the target framework default. MSBuild
+    stops at the nearest Directory.Build.props. Everything below stays after the import so these
+    properties keep overriding the root ones.
+  -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>false</IsTestProject>
