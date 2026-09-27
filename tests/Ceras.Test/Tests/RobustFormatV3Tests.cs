@@ -75,8 +75,9 @@ namespace Ceras.Test.RobustV3
             var newerBuild = new CerasRobustSerializer(c => { c.UseGeneratedFormatters("Tests"); c.BuildTimestamp = 300; });
             Assert.NotNull(newerBuild.Load<V3Model>(bytes, 1));
 
-            // Unknown current build timestamp -> no gate.
-            var unknown = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
+            // Explicitly unknown current build timestamp -> no gate.
+            var unknown = new CerasRobustSerializer(c => { c.UseGeneratedFormatters("Tests"); c.SetUnknownBuildTimestamp(); });
+            Assert.False(unknown.Config.BuildTimestampKnown);
             Assert.NotNull(unknown.Load<V3Model>(bytes, 1));
         }
 

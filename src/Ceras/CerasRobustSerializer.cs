@@ -576,6 +576,9 @@ namespace Ceras
             ulong currentFingerprint = registry.ComputeFingerprint();
             sb.AppendLine($"// Current fingerprint: {currentFingerprint:X16}");
             sb.AppendLine($"// Sealed: {registry.IsSealed}");
+            sb.AppendLine(_config.BuildTimestampKnown
+                ? $"// Producer build timestamp (known): {_config.BuildTimestamp} (UTC ticks)"
+                : "// Producer build timestamp: UNKNOWN (0; no newer-build gate)");
 
             var allEntries = registry.All().OrderBy(e => e.info.StableName, StringComparer.Ordinal).ToList();
             sb.AppendLine($"// Type count: {allEntries.Count}");
