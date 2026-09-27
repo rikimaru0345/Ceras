@@ -62,11 +62,6 @@ claiming migration coverage. The fixtures in `fixtures/Ceras.HistoricalWriter` a
 in; reader tests must not reference the historical writer assembly. Do not infer
 cross-version compatibility from a fingerprint flip or a same-version roundtrip.
 
-- **Member-only renamed types in file ID resolution.** A renamed member type may enter
-  `SchemaRegistry` only when baking the manifest. File ID resolution currently sees its
-  alias because `Load` seals before `BuildIdToType`; make this precondition explicit and
-  guarded at the resolution boundary (or index aliases at declaration time), then test
-  a renamed type reachable only as a member. Preserve fail-loud unknown root behavior.
 - **Serialize callbacks in robust generated format.** `[OnBeforeSerialize]` and
   `[OnAfterSerialize]` are currently ignored there, although raw mode honors them and
   the public attribute promises invocation. Emit them around member writes with the
@@ -78,15 +73,17 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   `CanAutoRegister` throw for unsupported Queue/Stack subclasses. Either use honest
   throwing API names or return a reason; rejection at seal and decode must remain
   actionable and typed as schema/corruption errors, not arbitrary exceptions.
-- **Generated string literals (former 0.8.10).** `TypeHelpers.QuoteString` fails to
-  escape attribute-derived names/aliases before emitting C#. Route hostile strings
-  through a safe literal encoder; compile and run a generated-schema regression.
 - **Banned members must not disappear silently.** A serializable type with an
   `Action`/delegate or other banned member currently saves it as an implicit omission;
   even configuring a custom formatter does not rescue that member. **Decision:** an
   included banned member is a hard, actionable generator/runtime error. Require an
   explicit `[Exclude]` or a supported replacement representation; pin generated and
   reflection paths and avoid turning an existing save into a silent null on load.
+  The LiveTesting audit also found banned *runtime values* through `object` and
+  `Type` slots silently become null (`ReferenceFormatter`/`TypeFormatter`); apply the
+  same fail-loud policy there. A banned generic `Type` argument currently reaches
+  `MakeGenericType` as null and leaks `ArgumentNullException`; diagnose at the
+  original rejected value instead, with a typed serializer error.
 - **Migration construction (former 0.8.11).** Reference objects bypass configured
   `TypeConstruction` when materialized by the interpreter without constructor arguments.
   The generated reader also silently ignores explicitly configured factories for
@@ -98,13 +95,30 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   matching-layout collection formatter still calls `Activator.CreateInstance` without
   arguments. Either support the admitted shape on both paths or reject it at bake time
   with a useful diagnostic; pin the same type through both reader paths.
-- **Verify newly surfaced layout mismatches before release.** Pin regressions for a
-  removed boolean collection element on the migration path (`WellKnownTypes` currently
-  reports bool width 0), enum members with `[CerasStableName]` (generated schema uses
-  `field.Name` while migration honors stable names), and generator discovery of an
-  unsupported `System.*` member (generator treats the namespace as well-known while
-  runtime has a finite list). Correct confirmed cases without changing good payload
-  bytes or silently admitting arbitrary BCL types.
+- **Queue/Stack migration count mismatch.** Confirmed with separate writer/reader
+  builds: Queue/Stack writers use an un-biased fixed Int32 count, but the migration
+  interpreter reads a biased varint, silently corrupting subsequent fields on both
+  retained and removed member paths. Decode their existing bytes correctly on all
+  interpreter paths and pin real historical fixtures; do not change writer bytes
+  without a separately versioned format change.
+- **Enum stable-name migration.** Confirmed silent wrong value on rename/renumber:
+  generated and declared enum schemas record the C# name rather than the wire
+  `[CerasStableName]`, while migration matches that attribute. Emit the stable wire
+  name in both schemas and also recognize the current C# name when reading old files.
+  An older file containing a *previous* C# name still needs an explicit
+  `[PreviousName]` alias; test both generations of files.
+- **System-namespace discovery.** Confirmed: user-defined `System.*` types are
+  wrongly skipped by the generator; framework types such as Uri, Version and
+  BigInteger are admitted at compile time but rejected at the first robust Save
+  with suggestions that cannot work. Distinguish source-defined types and diagnose
+  unsupported BCL members early; do not broadly treat arbitrary BCL types as
+  structural or promise support just because raw serialization handles them.
+- **Bool width and malformed collection schema.** The alleged removed `List<bool>`
+  corruption is a false positive for files written by this version: its normal skip
+  path advances one byte. A hand-registered collection schema lacking element type
+  arguments can still fail or desync in skip/read paths. Validate or reject that
+  malformed shape consistently; setting bool's fixed width to one is safe but not
+  a substitute for schema validation.
 - **Custom formatter/schema mismatch on migration.** Investigate whether overriding a
   generated formatter can leave a structural schema in the file while writing opaque
   bytes. **Reproduced with separate historical writer/reader builds and a valid CRC:**
@@ -125,12 +139,12 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   `MemberExplorer`, the unreachable reflective `CollectionFormatter` branch, and
   stale `WellKnownTypes` width comments where still present; validate behavior before
   deleting. Do not conflate this with a change to default member selection.
-- **Warnings and language compatibility.** Nullable is enabled project-wide, but 205
-  assignment/argument warnings remain (`CS8601`, `CS8604`, `CS8618`, `CS8600`,
-  `CS8603` at the last review). Make per-site contract/check/default decisions; no
-  broad suppression. `Directory.Build.props` pins C# 14 while the generator overrides
-  `LangVersion=latest`: pin the analyzer appropriately and audit generated C# against
-  the C# 14 consumer. Maintain zero dereference warnings.
+- **Warnings.** Nullable is enabled project-wide. The five assignment/argument
+  warning families (`CS8601`, `CS8604`, `CS8618`, `CS8600`, `CS8603`) are now clear
+  under `src/Ceras/Formatters/`, but remain elsewhere. Make per-site
+  contract/check/default decisions; no broad suppression. Maintain zero dereference
+  warnings. The generator and all project props now pin C# 14; the generated-output
+  syntax/binding test enforces that consumer version.
 - **Roadmap and public claim drift.** Remove completed narratives from this file and
   stale `TODO Phase` comments, outdated expected-failure tests and package claims
   (`zero-allocations`, universal types, Unity/IL2CPP). Keep `Format/LAYOUT.md`, README,
@@ -245,10 +259,15 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
   review raw method exposure on robust serializers and remaining config sealing.
 - Audit `samples/LiveTesting` and `samples/LiveTesting.Benchmarks` as a debugging and
   feature-exploration sandbox. Promote distinct, currently uncovered behavior checks
-  into focused `Ceras.Test` regressions; retain only genuinely useful exploratory
-  tools/benchmarks. Delete the sample and its obsolete comparison dependencies if
-  nothing remains worth maintaining. Do not treat its legacy advisories as a library
-  dependency or upgrade old competitors before deciding what survives.
+  into focused `Ceras.Test` regressions. **Decision after audit:** relocate the working
+  `RoadmapBenchmarks` to a maintained standalone benchmark project, with its own
+  generated context and correct measurements; delete the broken legacy sample,
+  comparator dependencies, merge-blitting microbenchmark and unadopted ref-proxy
+  experiment once gaps are covered. The public README no longer cites its old
+  comparison numbers. Remove the product assembly's LiveTesting friend declaration
+  when no maintained consumer needs it. Audit identified formatter-injection success,
+  collection custom formatter/comparer, direct formatter API, readonly reuse and
+  banned runtime values in `object`/`Type` as gaps; test or explicitly resolve each.
 - Update README/tutorials/samples/format docs with verified contracts and remove
   obsolete runtime-generation, universal-type, Unity/AOT and diagnostic claims.
 - Review concrete formatter selection and unsupported-type diagnostics against
