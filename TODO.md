@@ -99,12 +99,6 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   every closed schema report its actual emitted order, with a cross-version test and
   matching-layout control; do not emit per-closure writers or teach the reader to
   reinterpret a lying schema.
-- **System-namespace discovery.** Confirmed: user-defined `System.*` types are
-  wrongly skipped by the generator; framework types such as Uri, Version and
-  BigInteger are admitted at compile time but rejected at the first robust Save
-  with suggestions that cannot work. Distinguish source-defined types and diagnose
-  unsupported BCL members early; do not broadly treat arbitrary BCL types as
-  structural or promise support just because raw serialization handles them.
 - **Bool width and malformed collection schema.** The alleged removed `List<bool>`
   corruption is a false positive for files written by this version: its normal skip
   path advances one byte. A hand-registered collection schema lacking element type
