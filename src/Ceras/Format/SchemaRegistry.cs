@@ -53,6 +53,25 @@ namespace Ceras.Format
 		public bool HasBakedSchema => _bakedSchemaBytes != null;
 
 		/// <summary>
+		/// Precondition for resolving a save file's type ids against this registry: the manifest must be
+		/// baked. Baking is what registers a shape the generated manifest does not contain - a type
+		/// reachable only as a member, a structural shape, a declared root - and with it the
+		/// <c>[PreviousTypeName]</c> aliases a file can refer to. Before the bake a renamed member-only
+		/// type resolves its current name through the loaded-assembly scan but not its old one, so ids
+		/// resolved too early are silently incomplete.
+		/// </summary>
+		internal void RequireBakedManifest()
+		{
+			lock (_lock)
+			{
+				if (_bakedSchemaBytes == null)
+					throw new Ceras.Exceptions.CerasSchemaException(
+						"Cannot resolve a save file's type ids: this context's manifest is not baked yet. Call SchemaRegistry.Seal() first - " +
+						"baking is what registers a shape that is only reachable as a member, together with its [PreviousTypeName] aliases.");
+			}
+		}
+
+		/// <summary>
 		/// Returns the frozen schema region: the schema bytes (containing indices into the schema
 		/// string table) and the schema string table bytes. Deterministic for a given registered set.
 		/// </summary>
@@ -427,6 +446,7 @@ namespace Ceras.Format
         /// Resolves a stable name (or previous type name) to the current registered <see cref="Type"/>.
         /// Used by the migration engine when reading old schema sections. Types absent from the current
         /// build resolve to null and are interpreted without being registered (TODO Phase 2.6).
+        /// A caller mapping a whole file's id space calls <c>RequireBakedManifest()</c> first.
         /// </summary>
         public bool TryResolveType(string stableName, out Type type)
         {
