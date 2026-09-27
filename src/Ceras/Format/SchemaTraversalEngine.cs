@@ -56,6 +56,10 @@ namespace Ceras.Format
         _registry        = ((CerasRobustConfig)serializer!.Config).SchemaRegistry;
             _maxCollectionSize = serializer.Config.SizeLimits.MaxCollectionSize;
 
+            // The plans below map the file's names onto the current model, which needs the complete name
+            // space: a shape only the bake registers answers to its [PreviousTypeName] alias once it is
+            // registered. CerasRobustSerializer builds the file's id map first, and that call fails
+            // unless the manifest is baked - so the ordering is enforced before this ctor runs.
             _plans = MigrationPlanBuilder.BuildAll(_file.ByName, _registry);
 
             // Pre-build the callback invokers. The migration context is identical for every instance

@@ -307,7 +307,8 @@ namespace Ceras
             var payloadTable = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset,
                 compression, _config.SizeLimits.MaxStringLength, _config.SizeLimits.MaxStringTableSize);
 
-            // Pin the declared set: the manifest is finite, so this can only verify.
+            // Pin the declared set: the manifest is finite, so this can only verify. Seal() also bakes the
+            // manifest, which the fast path's baked id map and BuildIdToType's guard both rely on.
             EnsureRootDeclared(registry, typeof(T));
             registry.Seal();
             ulong currentFingerprint = registry.ComputeFingerprint();
@@ -376,9 +377,17 @@ namespace Ceras
         /// <summary>
         /// Resolves every type referenced by a file's schema section to a CLR <see cref="Type"/>
         /// (used only by the migration/interpreter slow path).
+        /// <para>
+        /// Requires a baked manifest: a shape that is only reachable as a member is registered by the
+        /// bake, and its <c>[PreviousTypeName]</c> alias with it, so ids resolved before the bake silently
+        /// miss a renamed member-only type. The registry enforces that here rather than leaving it to the
+        /// caller's ordering.
+        /// </para>
         /// </summary>
-        static Dictionary<int, Type> BuildIdToType(Dictionary<string, OldTypeSchema> fileSchemas, SchemaRegistry registry, ITypeBinder typeBinder)
+        internal static Dictionary<int, Type> BuildIdToType(Dictionary<string, OldTypeSchema> fileSchemas, SchemaRegistry registry, ITypeBinder typeBinder)
         {
+            registry.RequireBakedManifest();
+
             var idToType = new Dictionary<int, Type>();
             for (int i = 0; i < 128; i++) if (WellKnownTypes.TryGetType(i, out var wkType)) idToType[i] = wkType;
 
@@ -429,6 +438,10 @@ namespace Ceras
                     }
                 }
 
+                // A type this build does not have stays unmapped: an old file may describe a type that has
+                // since been removed, and the engine skips such a graph structurally instead of failing
+                // the load. Only the *root* is identity-critical, and ValidateStoredRootType rejects a
+                // stored root that is not the requested one.
                 return null;
             }
 
