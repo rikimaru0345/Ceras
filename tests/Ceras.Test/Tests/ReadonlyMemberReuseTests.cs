@@ -3,7 +3,8 @@ using Xunit;
 
 namespace Ceras.Test
 {
-    // Promoted from samples/LiveTesting/Program.cs :: ReadonlyTest, subcases #2B, #3 and #4.
+    // Promoted from the now-deleted samples/LiveTesting sandbox :: ReadonlyTest, subcases #2B,
+    // #3 and #4.
     //
     // Reusing an existing object (Deserialize(ref existing, data)) on the reflection-based path:
     // readonly members are written through reflection, a readonly reference member of the wrong

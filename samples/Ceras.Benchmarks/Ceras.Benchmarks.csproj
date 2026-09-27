@@ -7,8 +7,10 @@
     This is a standalone, runnable measurement tool. It deliberately references only
     src/Ceras + the source generator, and nothing else in the repository:
 
-      * no dependency on tests/Ceras.Test and no dependency on the legacy samples/LiveTesting
-        sandbox, so the numbers cannot silently change when either of those is deleted;
+      * no dependency on tests/Ceras.Test and none on any debugging sandbox, so changing or
+        deleting the test suite (or a sample) cannot move the numbers. It does build and measure
+        src/Ceras, so a library change is expected to move them: the numbers always describe the
+        library as it currently is, not a pinned historical baseline;
       * its models live in their own generator-enabled compilation, so they get a real generated
         manifest for their own context. Two generator-enabled assemblies referenced from one
         compilation would both emit Ceras.Generated.CerasConfigExtensions and every

@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Ceras.Test
 {
-    // Promoted from samples/LiveTesting/Program.cs :: CustomComparerFormatter.
+    // Promoted from the now-deleted samples/LiveTesting sandbox :: CustomComparerFormatter.
     //
     // A HashSet<T> serialized by the default collection formatter comes back with the default
     // comparer, which silently changes the set's semantics (a content comparer becomes reference

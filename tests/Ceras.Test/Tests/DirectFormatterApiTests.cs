@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Ceras.Test
 {
-    // Promoted from samples/LiveTesting/Program.cs :: InterfaceFormatterTest.
+    // Promoted from the now-deleted samples/LiveTesting sandbox :: InterfaceFormatterTest.
     //
     // A formatter can be asked for directly from the serializer (instead of going through
     // Serialize/Deserialize) and then driven by hand against a caller-owned buffer and

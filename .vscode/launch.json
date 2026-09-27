@@ -6,7 +6,7 @@
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/samples/LiveTesting/bin/Debug/netcoreapp2.1/LiveTesting.dll",
+            "program": "${workspaceFolder}/samples/BinaryDemo/bin/Debug/net10.0/BinaryDemo.dll",
             "cwd": "${workspaceFolder}",
             "console": "internalConsole",
             "stopAtEntry": true
