@@ -408,28 +408,64 @@ namespace Ceras.Format
             return null;
         }
 
+        /// <summary>
+        /// Old raw bits -> current raw bits for one enum, matched by the name the file recorded.
+        /// <para>
+        /// Three names can answer for a current member, in this precedence:
+        /// </para>
+        /// <list type="number">
+        /// <item>its wire name — <c>[CerasStableName]</c>, or the C# member name when it has none. This is
+        /// what a current writer records, so it is the authoritative spelling and never yields to
+        /// anything below it.</item>
+        /// <item>its current C# member name, when that differs from the wire name. Every file written
+        /// before the schema recorded the wire name carries the C# name, so a member that was only
+        /// renumbered — or renamed while keeping its <c>[CerasStableName]</c> — still matches. A member
+        /// whose C# name changed <em>and</em> whose wire name changed is not reachable this way: the old
+        /// name has to be declared as a <c>[PreviousName]</c> alias, because nothing in the file records
+        /// it.</item>
+        /// <item>its <c>[PreviousName]</c> aliases, with the same caveat: an explicit alias is the only
+        /// way to name a spelling this build cannot derive.</item>
+        /// </list>
+        /// <para>
+        /// Two current members can therefore answer to one name — a real member literally called
+        /// <c>B</c> and another pinned to <c>[CerasStableName("B")]</c>, or an alias that collides with
+        /// a member. That is ambiguous by construction and the higher-precedence spelling wins rather
+        /// than the order the members happen to be declared in; rejecting such collisions outright is
+        /// separate work (see TODO.md, "reject duplicate stable names and ambiguous aliases").
+        /// </para>
+        /// </summary>
         static Dictionary<ulong, ulong> BuildEnumMap(OldTypeSchema old, Type currentType)
         {
             var map = new Dictionary<ulong, ulong>();
             var nameToCurrentValue = new Dictionary<string, ulong>(StringComparer.Ordinal);
 
+            var members = new List<(FieldInfo Field, string WireName, ulong Bits)>();
             foreach (var f in currentType.GetFields(BindingFlags.Public | BindingFlags.Static))
             {
                 if (!f.IsLiteral) continue;
 
                 // Raw bits: a ulong enum member above long.MaxValue must not overflow here.
-                ulong currentVal = EnumBits.ToRawBits(f.GetValue(null), currentType);
-
-                var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
-                nameToCurrentValue[sa?.Name ?? f.Name] = currentVal;
-
-                foreach (var pn in f.GetCustomAttributes<PreviousNameAttribute>())
-                {
-                    if (pn.Name != null) nameToCurrentValue[pn.Name] = currentVal;
-                    foreach (var alt in pn.AlternativeNames)
-                        if (alt != null) nameToCurrentValue[alt] = currentVal;
-                }
+                members.Add((f, EnumWireName.Of(f, f.Name), EnumBits.ToRawBits(f.GetValue(null), currentType)));
             }
+
+            // 1. The wire name each member is recorded and read under.
+            foreach (var m in members)
+                nameToCurrentValue[m.WireName] = m.Bits;
+
+            // 2. The current C# member name, for the files that recorded that instead. It only fills a
+            //    name no member claims, so this can never change how a resolvable name resolves.
+            foreach (var m in members)
+                nameToCurrentValue.TryAdd(m.Field.Name, m.Bits);
+
+            // 3. Explicit aliases for a name this build cannot derive.
+            foreach (var m in members)
+                foreach (var pn in m.Field.GetCustomAttributes<PreviousNameAttribute>())
+                {
+                    if (pn.Name != null) nameToCurrentValue.TryAdd(pn.Name, m.Bits);
+                    foreach (var alt in pn.AlternativeNames)
+                        if (alt != null)
+                            nameToCurrentValue.TryAdd(alt, m.Bits);
+                }
 
             foreach (var oldEv in old.EnumValues)
             {

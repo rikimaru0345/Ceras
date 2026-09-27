@@ -107,6 +107,60 @@ namespace T
             Assert.Contains("CERAS019", ids);
         }
 
+        [Fact]
+        public void TwoEnumMembers_WithSameStableName_EmitCERAS009()
+        {
+            // The recorded name is how a member is identified across a migration, so two members under
+            // one name would make the schema ambiguous rather than merely redundant. The runtime-declared
+            // path refuses the same declaration with a CerasSchemaException instead.
+            const string source = @"
+using Ceras;
+namespace T
+{
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class Holder { public Tier Steps; }
+
+    public enum Tier
+    {
+        [CerasStableName(""SameStep"")]
+        Up = 1,
+        [CerasStableName(""SameStep"")]
+        Down = 2,
+    }
+}";
+
+            var ids = RunGeneratorDiagnosticIds(source);
+            Assert.Contains("CERAS009", ids);
+        }
+
+        [Fact]
+        public void DistinctEnumMembers_DoNotEmitCERAS009()
+        {
+            // A wire name that merely *contains* another member's name is not a duplicate: the comparison
+            // is on whole names, so the pinned prefixes below are legal and the enum is usable.
+            const string source = @"
+using Ceras;
+namespace T
+{
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class Holder { public Tier Steps; }
+
+    public enum Tier
+    {
+        Step = 1,
+        [CerasStableName(""WireStep"")]
+        Rung = 2,
+        [CerasStableName(""Other"")]
+        [PreviousName(""Ladder"")]
+        Rung2 = 3,
+    }
+}";
+
+            Assert.DoesNotContain("CERAS009", RunGeneratorDiagnosticIds(source));
+        }
+
         // ----------------------------------------------------------------------------------------
         // CASE A — generated formatter field-name collisions.
         //

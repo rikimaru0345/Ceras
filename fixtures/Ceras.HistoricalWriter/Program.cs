@@ -15,6 +15,7 @@ using System.IO;
 using Ceras;
 using Ceras.Generated;
 using Ceras.HistoricalWriter.V1;
+using Ceras.HistoricalWriter.V1EnumNames;
 using Ceras.HistoricalWriter.V1Pooled;
 
 namespace Ceras.HistoricalWriter
@@ -23,6 +24,7 @@ namespace Ceras.HistoricalWriter
     {
         const string Context = "HistoricalV1";
         const string PooledContext = "HistoricalV1Pooled";
+        const string EnumNamesContext = "HistoricalV1EnumNames";
 
         static int Main(string[] args)
         {
@@ -61,6 +63,7 @@ namespace Ceras.HistoricalWriter
         {
             foreach (var fixture in SaveGameFixtures()) yield return fixture;
             foreach (var fixture in PooledFixtures()) yield return fixture;
+            foreach (var fixture in EnumNameFixtures()) yield return fixture;
         }
 
         static IEnumerable<(string Name, byte[] Bytes)> SaveGameFixtures()
@@ -148,6 +151,28 @@ namespace Ceras.HistoricalWriter
             // The same relic as a root of its own, so its polymorphic Owner slot is where the Charm is
             // *first* met — the reader then has to build a sealed type it only knows through System.Object.
             yield return ("Relic.bin", serializer.Save(kept, 1));
+        }
+
+        /// <summary>
+        /// An enum whose members are renamed and renumbered in the current model. Every stored number is
+        /// one the current enum does not have, so each value proves its member was matched by name
+        /// rather than reinterpreted as whatever the raw number happens to be.
+        /// </summary>
+        static IEnumerable<(string Name, byte[] Bytes)> EnumNameFixtures()
+        {
+            var serializer = NewSerializer(EnumNamesContext);
+
+            var loadout = new Loadout
+            {
+                Bronze = Tier.Bronze,   // the control: unchanged name, unchanged number
+                Silver = Tier.Silver,   // renumbered only
+                Ace = Tier.Ace,         // renumbered, recorded as the pinned wire name WireAce
+                Adept = Tier.Adept,     // renamed in the current model
+                Crown = Tier.Crown,     // renamed in the current model, recorded as WireCrown
+                Tail = 99,
+            };
+
+            yield return ("Loadout.bin", serializer.Save(loadout, 1));
         }
     }
 }

@@ -611,7 +611,7 @@ namespace Ceras.SourceGenerator {
 		/// <para>
 		/// <see cref="stableTypeName"/>, <see cref="prevTypeNames"/>, each member's
 		/// <see cref="SerializedMember.StableName"/>/<see cref="SerializedMember.PreviousNames"/> and each
-		/// enum member's name are all arbitrary text the author wrote in an attribute (or, for the
+		/// enum member's wire name are all arbitrary text the author wrote in an attribute (or, for the
 		/// canonical identities, text derived from a possibly-non-ASCII CLR name). They are emitted as
 		/// C# string literals, so every one of them must go through <see cref="TypeHelpers.QuoteLiteral"/>:
 		/// a <c>"</c>, <c>\</c>, newline or control character in an alias would otherwise produce broken
@@ -668,7 +668,13 @@ namespace Ceras.SourceGenerator {
 						string bits = unsignedUnderlying
 							? $"unchecked((ulong)({literal}))"
 							: $"unchecked((ulong)(long)({literal}))";
-						sb.AppendLine($"                    new global::Ceras.Format.SchemaEnumValueInfo({QuoteLiteral(field.Name)}, {bits}),");
+						// The wire name, not the C# member name: this is the name the value is matched by
+						// when an older file is migrated onto the current enum, so recording anything else
+						// here (and the C# name was recorded before) makes a member pinned with
+						// [CerasStableName] impossible to migrate unless the reader happens to guess the
+						// name the file does not contain.
+						string wireName = MemberExplorer.GetEnumMemberWireName(field, attrs);
+						sb.AppendLine($"                    new global::Ceras.Format.SchemaEnumValueInfo({QuoteLiteral(wireName)}, {bits}),");
 					}
 				sb.AppendLine($"                }},");
 				sb.AppendLine($"                underlyingTypeName: {QuoteLiteral(underlyingTypeName ?? "System.Int32")}");
