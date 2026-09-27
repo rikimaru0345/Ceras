@@ -38,7 +38,7 @@ namespace Ceras.Test.RootIdentity
     /// <summary>
     /// Defect: <c>Load&lt;T&gt;</c> used to read and discard the stored root type id, silently
     /// interpreting the payload with whatever <c>T</c> the caller asked for. The root id must be
-    /// honored, with assignment-compatible (polymorphic) roots still accepted.
+    /// honored with strict identity: only the declared root type (or its rename alias) may be loaded.
     /// </summary>
     public class RootTypeIdentityTests
     {
@@ -66,16 +66,29 @@ namespace Ceras.Test.RootIdentity
         }
 
         [Fact]
-        public void PolymorphicRoot_SavedAsBase_LoadedAsDerived_Works()
+        public void PolymorphicRoot_SavedAsBase_LoadedAsDerived_Throws()
         {
-            // A legitimate polymorphic root: the declared root is the base type, but the actual
-            // instance is derived. Both are assignment-compatible, so the load must be allowed and
-            // the runtime type is recovered from the payload's polymorphism marker.
+            // Saved with the base as the declared root (even though the instance is derived). Loading
+            // as the derived type is not safe from the id alone: the payload may carry no type tag
+            // (RefNewValueSameType) and the derived reader would consume base bytes. Reject strictly.
             var bytes = Generated().Save<PolyRootBase>(new PolyRootDerived { BaseValue = 1, DerivedValue = 2 }, 1);
-            var clone = Generated().Load<PolyRootDerived>(bytes, 1);
 
-            Assert.Equal(1, clone.BaseValue);
-            Assert.Equal(2, clone.DerivedValue);
+            var ex = Assert.Throws<CerasSchemaException>(() => Generated().Load<PolyRootDerived>(bytes, 1));
+            Assert.Contains("PolyRootBase", ex.Message);
+            Assert.Contains("PolyRootDerived", ex.Message);
+        }
+
+        [Fact]
+        public void ExactBaseInstance_SavedAsBase_LoadedAsDerived_Throws()
+        {
+            // The specific silent-misparse case: the saved instance's runtime type equals the declared
+            // root, so the payload begins with RefNewValueSameType and no type tag. Loading as the
+            // derived type must be rejected, not parsed from base bytes.
+            var bytes = Generated().Save<PolyRootBase>(new PolyRootBase { BaseValue = 5 }, 1);
+
+            var ex = Assert.Throws<CerasSchemaException>(() => Generated().Load<PolyRootDerived>(bytes, 1));
+            Assert.Contains("PolyRootBase", ex.Message);
+            Assert.Contains("PolyRootDerived", ex.Message);
         }
 
         [Fact]

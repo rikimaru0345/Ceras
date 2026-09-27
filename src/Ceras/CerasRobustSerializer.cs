@@ -376,23 +376,25 @@ namespace Ceras
         }
 
         /// <summary>
-        /// The data section starts with the declared root type id. Loading must honor it: parsing the
-        /// payload as a different, unrelated declared type would silently misread the layout. Exact
-        /// matches are always accepted; assignment-compatible base/derived roots are accepted so that
-        /// legitimate polymorphic roots keep working. Anything else is rejected with an actionable error.
+        /// The data section starts with the declared root type id. Loading must honor it: the payload
+        /// layout is the one written for that declared type, and only the declared type (or its rename
+        /// alias) can be read back safely. Base/derived loads cannot be validated from the id alone
+        /// (a same-runtime-type root writes no type tag), so they are rejected rather than risking a
+        /// silent misparse. Accepted: an exact id match, or a resolved stored type identical to the
+        /// requested type (the rename/migration case, where the alias id can differ from the current id).
         /// </summary>
         static void ValidateStoredRootType(int storedRootId, Type requestedType, Dictionary<int, Type> idToType, SchemaRegistry registry)
         {
+            // 1. Exact context match: the stored id is this context's id for typeof(T).
             if (storedRootId == GetTypeId(requestedType, registry))
                 return;
 
             Type storedType = null;
             idToType?.TryGetValue(storedRootId, out storedType);
 
-            if (storedType != null &&
-                (storedType == requestedType ||
-                 requestedType.IsAssignableFrom(storedType) ||
-                 storedType.IsAssignableFrom(requestedType)))
+            // 2. Rename/migration: the interpreter resolves a [PreviousTypeName]-renamed root to the
+            //    current CLR type. Its id may differ from the old stored id, but the layout is the same.
+            if (storedType != null && storedType == requestedType)
                 return;
 
             string storedDescription = storedType != null
@@ -401,8 +403,8 @@ namespace Ceras
 
             throw new Ceras.Exceptions.CerasSchemaException(
                 $"The saved data's root type {storedDescription} does not match the requested load type " +
-                $"'{requestedType.FullName}'. Load the save with its declared root type (or an assignment-compatible " +
-                $"base/derived type); loading it as an unrelated type would silently misread the payload.");
+                $"'{requestedType.FullName}'. Load the save with its declared root type; loading it as a " +
+                $"base, derived, or unrelated type would silently misread the payload.");
         }
 
         /// <summary>
