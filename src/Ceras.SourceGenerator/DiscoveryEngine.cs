@@ -76,7 +76,7 @@ namespace Ceras.SourceGenerator
                         }
                         else
                         {
-                            members = DiscoverMembers(context, currentType, attrs, blacklistPatterns, null, diagnosticSink);
+                            members = DiscoverMembers(context, currentType, attrs, blacklistPatterns, diagnosticSink);
                             memberCache?.Add(currentType, members);
                         }
 

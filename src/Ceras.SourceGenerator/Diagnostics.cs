@@ -219,5 +219,16 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        // Id reserved deliberately: CERAS029/CERAS030 belong to the System-namespace diagnostics
+        // (unsupported framework member / known-type declaration), so a banned member sits after
+        // them at CERAS031 rather than taking a number that is already spoken for.
+        public static readonly DiagnosticDescriptor BannedMemberType = new(
+            id: "CERAS031",
+            title: "Member has a banned type",
+            messageFormat: "Member '{0}' in '{1}' has the type '{2}', which Ceras cannot serialize. Leaving it out of the payload would save fine and load it back as null, so this is an error. Add [Exclude] to the member if it is intentionally not serialized, or replace it with a representation Ceras can write (for a delegate: store the target and the method identity yourself and re-attach it in an [OnAfterDeserialize] callback). Note that a custom IFormatter for '{2}' does not help: the member never reaches a formatter, and Ceras cannot tell whether an arbitrary formatter would restore the value",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }

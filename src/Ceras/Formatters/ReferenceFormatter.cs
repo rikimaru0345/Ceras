@@ -51,10 +51,17 @@ namespace Ceras.Formatters {
 			if (ReferenceEquals(value, null)) { SerializerBinary.WriteUInt32Bias(writer, Null, Bias); return; }
 			var specificType = value.GetType();
 
-			if (BannedTypes.IsBanned(specificType)) {
-				// We should only skip it if it is NOT one of the types we actually MUST be able to serialize.
-				SerializerBinary.WriteUInt32Bias(writer, Null, Bias);
-				return;
+			if (BannedTypes.TryGetBanned(specificType, out var banReason)) {
+				// The declared slot says nothing about this value, so a banned runtime type here is
+				// data the user put in a place Ceras cannot write. Writing the null marker instead
+				// used to produce a save that looked fine and came back with a null, so the value is
+				// rejected by name instead. A null value (handled above) is still a legal null.
+				throw new BannedTypeException(
+					$"A value of the banned type '{specificType.FriendlyName(true)}' was written through a slot declared as '{typeof(T).FriendlyName(true)}'. " +
+					"Ceras cannot serialize that value and will not write it as null, because the loaded value would then silently differ from the saved one. " +
+					"Keep the value out of the payload on purpose (mark the member [Exclude], or replace it with a serializable representation " +
+					$"- for a delegate: store the target and the method identity yourself and re-attach it in an [OnAfterDeserialize] callback). " +
+					$"Reason this type is banned: \"{banReason}\".");
 			}
 
 			var entry = GetOrCreateEntry(specificType);

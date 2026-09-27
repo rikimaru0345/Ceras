@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using Ceras.Formatters;
+using Ceras.Helpers;
 
 namespace Ceras.Format
 {
@@ -26,6 +27,19 @@ namespace Ceras.Format
             {
                 SchemaSection.WriteLeb128(writer, (uint)WellKnownTypes.Null);
                 return;
+            }
+
+            // Same policy as the transient TypeFormatter: a reference to a type Ceras cannot
+            // serialize at all (a delegate, an enumerator, reflection metadata, ...) is rejected by
+            // name. Without this the value would fall through to the registry lookup below and be
+            // reported as an undeclared type, which names a fix ("add [CerasSerializable] to it")
+            // that cannot work for a banned shape.
+            if (BannedTypes.TryGetBanned(value, out var banReason))
+            {
+                throw new BannedTypeException(
+                    $"A type reference describes the banned type '{value.FriendlyName(true)}', which Ceras cannot serialize, " +
+                    $"and it will not be written as null: a null here silently changes what the file means. Remove the reference, " +
+                    $"or point it at a type Ceras can serialize. Reason this type is banned: \"{banReason}\".");
             }
 
             if (WellKnownTypes.TryGetId(value, out int wkId))
