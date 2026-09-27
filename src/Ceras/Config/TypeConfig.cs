@@ -185,6 +185,65 @@
 
 			TypeConstruction.VerifyReturnType();
 			TypeConstruction.VerifyParameterMapping();
+			VerifyNoUnsupportedImmutableCycle();
+		}
+
+		/// <summary>
+		/// Runtime counterpart of the generator's CERAS026 diagnosis (TODO Phase 3.2), for types that
+		/// have no generated formatter (reflection fallback / external types). A constructor-dependent
+		/// immutable cycle cannot be constructed: a readonly member participates in a cycle but the
+		/// selected construction mode does not initialize it and there is no parameterless path, so the
+		/// member would silently deserialize as its default value. Fails with an actionable message
+		/// instead of producing a broken graph.
+		/// <para>
+		/// The rule is intentionally conservative and no network/live cycle validation is performed:
+		/// it only looks at direct readonly members whose declared type is the same type (self-cycle),
+		/// which is exactly the case a constructor-based strategy can never satisfy.
+		/// </para>
+		/// </summary>
+		void VerifyNoUnsupportedImmutableCycle()
+		{
+			if (!Type.IsClass) return;
+
+			// A null factory (ConstructNull, e.g. a custom formatter) or a parameterless constructor
+			// that actually runs lets Ceras allocate+register before reading members, so cycles are fine.
+			if (TypeConstruction is ConstructNull) return;
+			if (Type.GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null) != null)
+				return;
+
+			foreach (var member in _allMembers)
+			{
+				if (member.IsCompilerGenerated) continue;
+				if (!member.ComputeFinalInclusionFast()) continue;
+
+				var memberType = member.Member.FieldOrPropType();
+
+				// Only a direct self/mutual reference through a readonly member is provably
+				// unconstructable at this level; anything else is left to the generator/manifest.
+				if (memberType != Type) continue;
+
+				bool isReadOnly = member.Member is FieldInfo f
+					? f.IsInitOnly
+					: member.Member is PropertyInfo p && (p.SetMethod == null || IsInitOnlySetter(p.SetMethod));
+				if (!isReadOnly) continue;
+
+				throw new CerasException(
+					$"Type '{Type.FriendlyName(true)}' has an immutable (readonly/getter-only) member '{member.Member.Name}' " +
+					$"of type '{memberType.FriendlyName()}' that participates in a reference cycle, but the selected construction " +
+					$"strategy ({TypeConstruction.GetType().Name}) does not initialize it and there is no parameterless construction " +
+					$"path. Ceras cannot construct this immutable cycle. Supply an explicit construction strategy: mark a constructor " +
+					$"[CerasConstructor] that takes the cycled member as a parameter, add an accessible parameterless constructor, or " +
+					$"supply a custom IFormatter<{Type.FriendlyName(true)}>.");
+			}
+		}
+
+		/// <summary>True when the setter is an init-only setter (carries the IsExternalInit modreq).</summary>
+		static bool IsInitOnlySetter(MethodInfo setter)
+		{
+			if (setter == null) return false;
+			foreach (var modreq in setter.ReturnParameter.GetRequiredCustomModifiers())
+				if (modreq.FullName == "System.Runtime.CompilerServices.IsExternalInit") return true;
+			return false;
 		}
 
 

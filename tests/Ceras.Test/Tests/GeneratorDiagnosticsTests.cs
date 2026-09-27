@@ -416,5 +416,100 @@ namespace T
             var diagnostics = RunGeneratorDiagnostics(source);
             Assert.Equal(1, diagnostics.Count(d => d.Id == "CERAS001"));
         }
+
+        // ----------------------------------------------------------------------------------------
+        // CERAS026 — unsupported constructor-dependent immutable cycle (TODO Phase 3.2).
+        //
+        // Node has a readonly member that participates in a cycle (Node.Next -> Node), but the
+        // selected constructor does not initialize it and there is no parameterless construction
+        // path, so Ceras cannot construct the cycle.
+        // ----------------------------------------------------------------------------------------
+        [Fact]
+        public void UnsupportedImmutableCycle_EmitsCERAS026()
+        {
+            const string source = @"
+using Ceras;
+namespace T
+{
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class Node
+    {
+        public readonly Node Next;
+        public readonly int Value;
+        public Node(int value) { Value = value; }
+    }
+}";
+
+            var diagnostics = RunGeneratorDiagnostics(source);
+            Assert.Contains("CERAS026", diagnostics.Select(d => d.Id));
+        }
+
+        // A parameterless construction path means Ceras can allocate+register before reading members,
+        // so the same cycle is supported (no false positive).
+        [Fact]
+        public void ImmutableCycle_WithParameterlessCtor_DoesNotEmitCERAS026()
+        {
+            const string source = @"
+using Ceras;
+namespace T
+{
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class Node
+    {
+        public readonly Node Next;
+        public Node() { }
+        public Node(Node next) { Next = next; }
+    }
+}";
+
+            var diagnostics = RunGeneratorDiagnostics(source);
+            Assert.DoesNotContain("CERAS026", diagnostics.Select(d => d.Id));
+        }
+
+        // The readonly member is supplied by the chosen [CerasConstructor], so it is initialized
+        // during construction and the cycle is constructible.
+        [Fact]
+        public void ImmutableCycle_WithConstructorParameter_DoesNotEmitCERAS026()
+        {
+            const string source = @"
+using Ceras;
+namespace T
+{
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class Node
+    {
+        public readonly Node Next;
+        [CerasConstructor]
+        public Node(Node next) { Next = next; }
+    }
+}";
+
+            var diagnostics = RunGeneratorDiagnostics(source);
+            Assert.DoesNotContain("CERAS026", diagnostics.Select(d => d.Id));
+        }
+
+        // A mutable cycle (the member is writable) is fully supported and must not be flagged.
+        [Fact]
+        public void MutableCycle_DoesNotEmitCERAS026()
+        {
+            const string source = @"
+using Ceras;
+namespace T
+{
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class Node
+    {
+        public Node Next;
+        public Node(Node next) { Next = next; }
+    }
+}";
+
+            var diagnostics = RunGeneratorDiagnostics(source);
+            Assert.DoesNotContain("CERAS026", diagnostics.Select(d => d.Id));
+        }
     }
 }

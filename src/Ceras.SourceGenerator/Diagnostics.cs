@@ -195,5 +195,13 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor UnsupportedImmutableCycleConstruction = new(
+            id: "CERAS026",
+            title: "Unsupported constructor-dependent immutable cycle",
+            messageFormat: "Member '{0}' in type '{1}' is immutable (readonly or getter-only) and participates in a reference cycle with type '{2}', but the selected constructor ({3}) does not initialize it and there is no parameterless construction path. Ceras cannot construct this immutable cycle. Supply an explicit construction strategy: mark a constructor [CerasConstructor] that takes the cycled members as parameters, add an accessible parameterless constructor, or supply a custom IFormatter<{1}>.",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }

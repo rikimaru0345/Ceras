@@ -385,6 +385,33 @@ namespace Ceras.SourceGenerator
             }
 
             // ------------------------------------------------------------------------------------
+            // Diagnostic: unsupported constructor-dependent immutable cycles (TODO Phase 3.2).
+            //
+            // Runs over the types that actually get a generated formatter (they are the only ones
+            // whose construction Ceras controls here). The check is a pure compile-time member-graph
+            // walk; it does not add any runtime/network cycle validation.
+            // ------------------------------------------------------------------------------------
+            foreach (var type in generatedFormatterTypes)
+            {
+                if (type.IsValueType) continue;
+
+                var cycleMembers = DiscoverCached(type);
+                var problems = MemberExplorer.FindUnsupportedImmutableCycles(
+                    type, cycleMembers, cerasConstructorAttr, memberCache, finalTypesSet);
+
+                foreach (var problem in problems)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        Diag.UnsupportedImmutableCycleConstruction,
+                        problem.Member.MemberSymbol?.Locations.FirstOrDefault() ?? type.Locations.FirstOrDefault(),
+                        problem.Member.Name,
+                        type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                        problem.CycleTypeDisplay,
+                        problem.ConstructorDisplay));
+                }
+            }
+
+            // ------------------------------------------------------------------------------------
             // Minimal registrations for referenced-but-not-generated types.
             //
             // The generated manifest must be complete enough to bake the schema without runtime

@@ -562,5 +562,172 @@ namespace Ceras.SourceGenerator
             // Robust mode needs to be able to find a suitable constructor
             return GetBestConstructor(type, cerasConstructorAttr, members) != null;
         }
+
+        // --------------------------------------------------------------------------------------------
+        // Unsupported constructor-dependent immutable cycles (TODO Phase 3.2).
+        //
+        // A reference cycle is only constructible when every object on the cycle can be allocated
+        // (uninitialized) and registered before its constructor runs, which is what Ceras does. That
+        // fails for an object whose cycled members must be initialized by its constructor: the
+        // constructor runs after allocation, so it can only set members from already-read locals, and a
+        // member that participates in the cycle cannot satisfy that ordering.
+        //
+        // This is a *diagnosis*, not network/live cycle validation: it does not walk runtime object
+        // graphs. It only inspects the compile-time member graph of the generated closure and fires
+        // when a type cannot possibly be constructed under the selected constructor strategy:
+        //   * the type has a reference-type member that is readonly or getter-only,
+        //   * that member is NOT a parameter of the chosen constructor (so it is never assigned during
+        //     construction), and
+        //   * the member's own type reaches back to the declaring type through declared member types.
+        // In that case Ceras can only leave the member at its default (null) value, producing a broken
+        // immutable cycle. The remedy is an explicit construction strategy: mark a constructor
+        // [CerasConstructor] that takes the member, add a parameterless construction path, or supply a
+        // custom formatter.
+        //
+        // The rule is deliberately conservative (declared-type reachability only). Anything that is
+        // resolved at runtime (interfaces, generics, reflection fallback) is left to the runtime guard.
+        // --------------------------------------------------------------------------------------------
+
+        /// <summary>Result of <see cref="FindUnsupportedImmutableCycles"/>.</summary>
+        public sealed class ImmutableCycleProblem
+        {
+            public SerializedMember Member { get; }
+            public string CycleTypeDisplay { get; }
+            public string ConstructorDisplay { get; }
+
+            public ImmutableCycleProblem(SerializedMember member, string cycleTypeDisplay, string constructorDisplay)
+            {
+                Member = member;
+                CycleTypeDisplay = cycleTypeDisplay;
+                ConstructorDisplay = constructorDisplay;
+            }
+        }
+
+        public static List<ImmutableCycleProblem> FindUnsupportedImmutableCycles(
+            INamedTypeSymbol type,
+            List<SerializedMember> members,
+            INamedTypeSymbol? cerasConstructorAttr,
+            Dictionary<INamedTypeSymbol, List<SerializedMember>> typeMembers,
+            HashSet<INamedTypeSymbol> closureTypes)
+        {
+            var problems = new List<ImmutableCycleProblem>();
+            if (!type.IsReferenceType) return problems;
+
+            // A parameterless construction path lets Ceras allocate+register+construct before reading
+            // members, so a cycle is always constructible; nothing to diagnose.
+            var bestCtor = GetBestConstructor(type, cerasConstructorAttr, members);
+            if (bestCtor == null || bestCtor.Parameters.Length == 0) return problems;
+
+            var ctorParams = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var p in bestCtor.Parameters) ctorParams.Add(NormalizeName(p.Name));
+
+            foreach (var m in members)
+            {
+                if (!m.IsReadOnly) continue;
+                if (!IsCycleMemberType(m.Type)) continue;
+
+                // Is the member initialized by the constructor? (by name or stable name)
+                if (ctorParams.Contains(NormalizeName(m.Name)) || ctorParams.Contains(NormalizeName(m.StableName)))
+                    continue;
+
+                if (ReachesType(m.Type, type, typeMembers, closureTypes, new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default)))
+                {
+                    string memberType = m.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                    problems.Add(new ImmutableCycleProblem(m, memberType, DescribeConstructor(bestCtor)));
+                    break; // one diagnostic per type is enough to prompt a fix
+                }
+            }
+
+            return problems;
+        }
+
+        static bool IsCycleMemberType(ITypeSymbol type)
+        {
+            if (type is IArrayTypeSymbol arr) return !arr.ElementType.IsValueType;
+            if (type is INamedTypeSymbol named)
+            {
+                if (named.TypeKind != TypeKind.Class && named.TypeKind != TypeKind.Interface) return false;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="from"/> can reach <paramref name="target"/> through declared
+        /// member-type edges of the closed set (interfaces/abstract/base types are widened to their
+        /// concrete implementors, conservatively over-approximating but never false-positive at the
+        /// "declared member of a real type" level).
+        /// </summary>
+        static bool ReachesType(
+            ITypeSymbol from,
+            INamedTypeSymbol target,
+            Dictionary<INamedTypeSymbol, List<SerializedMember>> typeMembers,
+            HashSet<INamedTypeSymbol> closureTypes,
+            HashSet<INamedTypeSymbol> visited)
+        {
+            foreach (var next in SuccessorTypes(from))
+            {
+                if (next == null) continue;
+                if (SymbolEqualityComparer.Default.Equals(next, target)) return true;
+                if (!closureTypes.Contains(next)) continue;
+                if (!typeMembers.TryGetValue(next, out var nextMembers)) continue;
+                if (!visited.Add(next)) continue;
+
+                if (CanReachDeclaredTarget(nextMembers, target, typeMembers, closureTypes, visited)) return true;
+            }
+            return false;
+        }
+
+        static bool CanReachDeclaredTarget(
+            List<SerializedMember> members,
+            INamedTypeSymbol target,
+            Dictionary<INamedTypeSymbol, List<SerializedMember>> typeMembers,
+            HashSet<INamedTypeSymbol> closureTypes,
+            HashSet<INamedTypeSymbol> visited)
+        {
+            foreach (var m in members)
+            {
+                foreach (var next in SuccessorTypes(m.Type))
+                {
+                    if (next == null) continue;
+                    if (SymbolEqualityComparer.Default.Equals(next, target)) return true;
+                    if (!closureTypes.Contains(next)) continue;
+                    if (!typeMembers.TryGetValue(next, out var nextMembers)) continue;
+                    if (!visited.Add(next)) continue;
+                    if (CanReachDeclaredTarget(nextMembers, target, typeMembers, closureTypes, visited)) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The set of declared reference types a member type can be an instance of, ignoring value types
+        /// and well-known/system types that have no generated members.
+        /// </summary>
+        static IEnumerable<INamedTypeSymbol?> SuccessorTypes(ITypeSymbol type)
+        {
+            switch (type)
+            {
+                case IArrayTypeSymbol arr:
+                    yield return arr.ElementType as INamedTypeSymbol;
+                    yield break;
+                case ITypeParameterSymbol:
+                    yield break;
+                case INamedTypeSymbol named:
+                    if (named.TypeKind != TypeKind.Class && named.TypeKind != TypeKind.Interface) yield break;
+                    if (named.IsGenericType)
+                        foreach (var arg in named.TypeArguments)
+                            if (arg is INamedTypeSymbol a && !a.IsValueType && a.SpecialType == SpecialType.None)
+                                yield return a;
+                    yield return named;
+                    yield break;
+            }
+        }
+
+        static string DescribeConstructor(IMethodSymbol ctor)
+        {
+            if (ctor.Parameters.Length == 0) return "parameterless";
+            return "(" + string.Join(", ", ctor.Parameters.Select(p => p.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat) + " " + p.Name)) + ")";
+        }
     }
 }
