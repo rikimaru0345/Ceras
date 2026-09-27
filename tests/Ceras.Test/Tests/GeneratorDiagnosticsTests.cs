@@ -511,5 +511,91 @@ namespace T
             var diagnostics = RunGeneratorDiagnostics(source);
             Assert.DoesNotContain("CERAS026", diagnostics.Select(d => d.Id));
         }
+
+        // A recursive declared type is not itself a problem: the readonly member is writable through
+        // its constructor, so an acyclic value round-trips and a cycle is constructible. The rule must
+        // not fire merely because the type is self-referential (TODO 0.4).
+        [Fact]
+        public void RecursiveType_WithConstructorProvidedMember_DoesNotEmitCERAS026()
+        {
+            const string source = @"
+using Ceras;
+namespace T
+{
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class LinkedListNode
+    {
+        public readonly LinkedListNode Next;
+        public readonly int Value;
+        public LinkedListNode(int value) { Value = value; }
+        public LinkedListNode(int value, LinkedListNode next) { Value = value; Next = next; }
+    }
+}";
+
+            var diagnostics = RunGeneratorDiagnostics(source);
+            Assert.DoesNotContain("CERAS026", diagnostics.Select(d => d.Id));
+        }
+
+        // A mutual A->B->A readonly cycle where neither side can be constructed without the other:
+        // both types are separately diagnosed (the member is not constructor-provided).
+        [Fact]
+        public void MutualImmutableCycle_EmitsCERAS026()
+        {
+            const string source = @"
+using Ceras;
+namespace T
+{
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class A
+    {
+        public readonly B Other;
+        public readonly int Value;
+        public A(int value) { Value = value; }
+    }
+
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class B
+    {
+        public readonly A Other;
+        public readonly int Value;
+        public B(int value) { Value = value; }
+    }
+}";
+
+            var diagnostics = RunGeneratorDiagnostics(source);
+            Assert.Equal(2, diagnostics.Count(d => d.Id == "CERAS026"));
+        }
+
+        // A generic self-cycle with a readonly member that the constructor does not provide.
+        [Fact]
+        public void GenericImmutableCycle_EmitsCERAS026()
+        {
+            const string source = @"
+using Ceras;
+namespace T
+{
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class Box<T>
+    {
+        public readonly Box<T> Next;
+        public readonly T Value;
+        public Box(T value) { Value = value; }
+    }
+
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class Root
+    {
+        public Box<int> IntBox;
+    }
+}";
+
+            var diagnostics = RunGeneratorDiagnostics(source);
+            Assert.Contains("CERAS026", diagnostics.Select(d => d.Id));
+        }
     }
 }
