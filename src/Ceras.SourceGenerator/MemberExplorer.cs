@@ -517,8 +517,16 @@ namespace Ceras.SourceGenerator
             }
         }
 
-        public static void ValidateDuplicateWireNames(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members)
+        public static void ValidateDuplicateWireNames(SourceProductionContext context, INamedTypeSymbol type, List<SerializedMember> members, AttributeBag attrs)
         {
+            // An enum member has no serialized member list of its own, but its name is recorded in the
+            // schema exactly the same way, so the same uniqueness rule applies to it.
+            if (type.TypeKind == TypeKind.Enum)
+            {
+                ValidateDuplicateEnumWireNames(context, type, attrs);
+                return;
+            }
+
             var nameToMembers = new Dictionary<string, List<SerializedMember>>(StringComparer.Ordinal);
             foreach (var m in members)
             {
@@ -535,6 +543,53 @@ namespace Ceras.SourceGenerator
                     context.ReportDiagnostic(Diagnostic.Create(Diag.DuplicateWireName, type.Locations.FirstOrDefault(), type.Name, kvp.Key, memberList));
                 }
             }
+        }
+
+        /// <summary>
+        /// Two enum members may not be recorded under one name. The name is how a value is matched
+        /// across a migration (<c>MigrationPlanBuilder.BuildEnumMap</c>), so a duplicate would make the
+        /// file's entry ambiguous rather than merely redundant.
+        /// </summary>
+        static void ValidateDuplicateEnumWireNames(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs)
+        {
+            var nameToMembers = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (var member in type.GetMembers())
+            {
+                if (member is not IFieldSymbol field || !field.HasConstantValue) continue;
+
+                string wireName = GetEnumMemberWireName(field, attrs);
+                if (!nameToMembers.TryGetValue(wireName, out var members))
+                    nameToMembers[wireName] = members = new List<string>();
+                members.Add(field.Name);
+            }
+
+            foreach (var kvp in nameToMembers)
+            {
+                if (kvp.Value.Count <= 1) continue;
+
+                var memberList = string.Join(", ", kvp.Value.Select(n => $"'{n}'"));
+                context.ReportDiagnostic(Diagnostic.Create(Diag.DuplicateWireName, type.Locations.FirstOrDefault(), type.Name, kvp.Key, memberList));
+            }
+        }
+
+        /// <summary>
+        /// The name an enum member is recorded and matched under: <c>[CerasStableName]</c> when it has
+        /// one, otherwise the C# member name. Mirrors <c>Ceras.Format.EnumWireName.Of</c>, which the
+        /// runtime uses for a declared/blacklisted enum and for the migration map.
+        /// </summary>
+        public static string GetEnumMemberWireName(IFieldSymbol field, AttributeBag attrs)
+        {
+            if (attrs?.SerializedAs != null)
+            {
+                foreach (var attr in field.GetAttributes())
+                {
+                    if (!SymbolEqualityComparer.Default.Equals(attr.AttributeClass, attrs.SerializedAs)) continue;
+                    if (TypeHelpers.TryGetAttributeArgument<string>(attr, "Name", out var stableName) && !string.IsNullOrEmpty(stableName))
+                        return stableName;
+                }
+            }
+
+            return field.Name;
         }
 
         public static AccessHelperRequirement GetAccessHelperRequirement(SerializedMember m)

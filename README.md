@@ -76,11 +76,14 @@ still load old data — but a rename has to be *recorded*, or it is not recognis
   declared default.
 - a renamed **class** needs `[PreviousTypeName]` with the old `[CerasSerializable("…")]` name.
   Without it the type does not resolve and the load fails rather than matching by structure.
-- a renamed **enum member** needs `[PreviousName]` (see [Enum Migration](#advanced-migration)).
-  `[CerasStableName]` is not reflected in the generated enum schema (which records the C# member
-  name) even though the migration map reads it, so the two sides disagree and the member falls back
-  to its raw number. A *deleted* enum member needs nothing: the value stays the number it was,
-  and a save that carries it loads as an unnamed value rather than silently defaulting.
+- a renamed **enum member** needs either `[CerasStableName]` (pin the wire name once and the C# member
+  can be renamed freely) or `[PreviousName]` carrying the old spelling — see
+  [Enum Migration](#advanced-migration). Both schema paths record the *wire* name, so the two sides
+  agree. What no attribute can do is recover a spelling the current build cannot derive: a member that
+  was renamed in C# **and** repinned to a new wire name is unreachable from a file written before the
+  schema recorded wire names, so that file's name has to be declared as a `[PreviousName]` too. A
+  *deleted* enum member needs nothing: the value stays the number it was, and a save that carries it
+  loads as an unnamed value rather than silently defaulting.
 
 What is *not* covered: reparenting a type under a different base class, inlining or removing a
 class, and lossy field conversions. Those make the load fail with a `CerasSchemaException` naming the
@@ -161,9 +164,15 @@ the layouts match. That check needs the owning build to declare its timestamp wi
   `MigrationContext.SkippedFields`.
 - **Type Mapping**: Classes and structs are matched by their `StableName` (from `[CerasSerializable]`), then by `[PreviousTypeName]` aliases.
 - **Enum Migration**: Enums are mapped by **name** rather than integer value, so members can be
-  reordered or renumbered safely; a renamed member needs `[PreviousName]`. An old member whose name
-  no longer matches **keeps its numeric value**, reinterpreted in the current enum — it does *not*
-  reset to the default, so a removed member can arrive as an undefined enum value.
+  reordered or renumbered safely. The name is the member's *stable wire name* — its
+  `[CerasStableName]`, or the C# name when the attribute is absent — and it is the name the schema
+  records, so the two always agree. A member renamed in C# while keeping its `[CerasStableName]`
+  therefore migrates on its own; one renamed *without* a pinned name needs `[PreviousName]`. A current
+  C# member name is also accepted, because that is what the schema recorded before wire names were
+  written, so a file from such a build still matches a member that kept its C# name. An old member
+  whose name no longer matches at all **keeps its numeric value**, reinterpreted in the current enum —
+  it does *not* reset to the default, so a removed (or repinned) member can arrive as an undefined
+  enum value.
 - **Numeric Coercion**: Exactly five widening conversions are applied automatically:
   `Int16 -> Int32`, `Int32 -> Int64`, `Int32 -> Single`, `Int32 -> Double`, `Single -> Double`.
   Any other retype (e.g. `double` -> `decimal`) makes the **load fail** with a

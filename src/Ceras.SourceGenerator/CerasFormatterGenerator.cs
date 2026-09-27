@@ -655,7 +655,7 @@ namespace Ceras.SourceGenerator
                     }
                 }
 
-                MemberExplorer.ValidateDuplicateWireNames(context, type, members);
+                MemberExplorer.ValidateDuplicateWireNames(context, type, members, attrBag);
 
                 var sbFmt = new StringBuilder();
                 AppendGeneratedHeader(sbFmt);

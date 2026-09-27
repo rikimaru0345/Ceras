@@ -47,6 +47,11 @@ namespace Ceras
     /// Add this to a member if you have changed the name.
     /// Ceras will use this to map old field names to the new one in the Robust format migration engine.
     /// You can also use this to simply override what name is used to serialize the member, so as long as the attribute is around and does not change you can freely rename the member itself; this can be used to make the resulting serialized data smaller.
+    /// <para>
+    /// On an enum member it is the only way to reach a spelling this build cannot derive: the file
+    /// records the member's stable wire name, and a member renamed in C# *and* repinned to a new wire
+    /// name shares no spelling with a file written before wire names were recorded.
+    /// </para>
     /// </summary>
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
     public class PreviousNameAttribute : Attribute
@@ -389,8 +394,15 @@ namespace Ceras
     }
 
 	/// <summary>
-	/// Sets a stable wire name for this field or property — independent of the C# member name.
-	/// Set this once and the C# member can be freely renamed without needing <see cref="PreviousNameAttribute"/>.
+	/// Sets a stable wire name for this field, property or enum member — independent of the C# member
+	/// name. Set this once and the C# member can be freely renamed without needing
+	/// <see cref="PreviousNameAttribute"/>.
+	/// <para>
+	/// For an enum member the name is what the save's schema records and what a migration matches on, so
+	/// a member pinned here migrates across a rename on its own. It has to be unique within the enum: two
+	/// members under one name are rejected (CERAS009 when generated, a <c>CerasSchemaException</c> at the
+	/// bake for a runtime-derived enum).
+	/// </para>
 	/// </summary>
 	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
 	public class CerasStableNameAttribute : Attribute {

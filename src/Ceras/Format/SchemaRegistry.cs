@@ -303,10 +303,25 @@ namespace Ceras.Format
                 var names = Enum.GetNames(type);
                 var values = Enum.GetValues(type);
                 var enumValues = new SchemaEnumValueInfo[names.Length];
+                var wireNameOwner = new Dictionary<string, string>(StringComparer.Ordinal);
                 for (int i = 0; i < names.Length; i++)
                 {
+                    // The wire name, not the C# member name: an enum member is recorded and matched under
+                    // [CerasStableName] when it has one, and the generated schema says the same thing
+                    // (RobustCodeEmitter.BuildSchemaExpression). Recording the C# name here instead would
+                    // make this path the one that cannot read its own files after a member rename.
+                    string wireName = EnumWireName.Of(type, names[i]);
+
+                    if (wireNameOwner.TryGetValue(wireName, out string other))
+                        throw new Ceras.Exceptions.CerasSchemaException(
+                            $"Cannot describe the enum '{TypeIdentity.GetCanonicalName(type)}': its members '{other}' and " +
+                            $"'{names[i]}' would both be recorded under the name '{wireName}'. An enum member is identified by " +
+                            "that name, so it has to be unique - give one of them a different [CerasStableName].");
+
+                    wireNameOwner[wireName] = names[i];
+
                     // Raw bits, so a ulong value above long.MaxValue is representable.
-                    enumValues[i] = new SchemaEnumValueInfo(names[i], EnumBits.ToRawBits(values.GetValue(i), type));
+                    enumValues[i] = new SchemaEnumValueInfo(wireName, EnumBits.ToRawBits(values.GetValue(i), type));
                 }
 
                 // An enum is a named schema entry, so it carries its rename aliases like any other type:

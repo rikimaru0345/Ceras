@@ -107,7 +107,8 @@ external/legacy unqualified `Type.FullName` names.
 
 - Field order is deterministic: `MemberType + MemberName + DeclaringType + "f"/"p"` (ordinal).
 - Field identity is the stable wire name (`[CerasStableName]` overrides the CLR name; previous names
-  are aliases used only by migration).
+  are aliases used only by migration). An enum member is identified the same way: its entry is recorded
+  under its wire name, so the same attribute renames a member without a rename alias.
 - Members are written in the deterministic order; the schema records the order explicitly.
 
 ## Primitive encodings (fixed-width default)
@@ -214,8 +215,14 @@ lets the interpreter describe value/reference representation without requiring t
 exist. Custom formatters own their bytes and are never described as an ordinary generated member
 schema.
 
-An `Enum` entry records its underlying type id and one name→value entry per declared member. Each
-value is written as **eight raw bits** (little-endian), never as a signed magnitude, so a `ulong`
+An `Enum` entry records its underlying type id and one name→value entry per declared member. The name
+is the member's stable wire name — `[CerasStableName]`, or the C# member name when the attribute is
+absent — and it has to be unique, because it is the member's identity in a migration: two members under
+one name are a compile-time error (CERAS009) in a generated enum and a `CerasSchemaException` at the
+bake in a runtime-derived one. Both schema paths use the same rule
+(`RobustCodeEmitter.BuildSchemaExpression`, `SchemaRegistry.BuildDeclaredSchema`,
+`Ceras.Format.EnumWireName`), which is what keeps a writer's record and the migration map in agreement.
+Each value is written as **eight raw bits** (little-endian), never as a signed magnitude, so a `ulong`
 member above `long.MaxValue` is representable; the recorded underlying type id says how those bits
 read back, which is why the entry needs no separate signedness flag. The raw bits are also what the
 migration map is keyed by, so a renamed member keeps its value across an unsigned range. A dump shows
@@ -239,7 +246,14 @@ the magnitude for an unsigned underlying type and a two's-complement negative va
      `MigrationContext.SkippedFields`; an unmatched new field keeps its declared default and surfaces
      in `AddedFields`. Note that an enum member whose *name* is gone is **not** skipped: the raw value
      is reinterpreted in the current enum, so a deleted member arrives as an unnamed value rather
-     than as `0`;
+     than as `0`. An enum member is matched, in this order, by its wire name, by the *current* C# member
+     name, and then by its `[PreviousName]` aliases (`MigrationPlanBuilder.BuildEnumMap`). The second
+     step is what keeps a file written before the schema recorded wire names — which recorded the C#
+     name — migratable, and it only fills a name no member claims, so it cannot change how a resolvable
+     name resolves. The consequence, which is a limit rather than a fallback: a name the current build
+     cannot derive at all (a member renamed in C# *and* repinned to a new wire name, read from a file
+     that recorded the old C# name) matches nothing and arrives as its raw number. There is no way to
+     infer it — it has to be declared as a `[PreviousName]`;
    - an impossible collection/array count, an un-representable `decimal`/`DateTimeOffset`/enum/`Type`
      payload, or a value no CLR type can hold is reported as `CerasDataCorruptionException`;
    - a polymorphic value whose concrete type is not in the manifest is refused at **write** time,
