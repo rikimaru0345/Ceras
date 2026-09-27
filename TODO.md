@@ -107,8 +107,15 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   bytes or silently admitting arbitrary BCL types.
 - **Custom formatter/schema mismatch on migration.** Investigate whether overriding a
   generated formatter can leave a structural schema in the file while writing opaque
-  bytes. If reproducible, fail actionably when skipping/upgrading an unframed custom
-  payload; custom bytes have no automatic migration guarantee and framing is deferred.
+  bytes. **Reproduced with separate historical writer/reader builds and a valid CRC:**
+  removing such a field can silently corrupt following fields, and the fingerprint
+  does not include formatter selection. **Decision:** temporarily reject user custom
+  formatters in robust contexts with an actionable error; keep them in raw contexts.
+  Do not keep accepting old experimental files whose fingerprint falsely matches:
+  advance the experimental format version and deliberately update golden fixtures if
+  needed. Restore robust custom formatters after Milestone 1 adds truthful opaque
+  schema/formatter-selection metadata; migration must still refuse unframed opaque
+  values it cannot consume. Opaque framing remains deferred.
 - **Dead branches (former 0.8.13).** Remove the always-true include guard in
   `MemberExplorer`, the unreachable reflective `CollectionFormatter` branch, and
   stale `WellKnownTypes` width comments where still present; validate behavior before
@@ -145,7 +152,10 @@ context after seal or parse the schema on a matching-layout load.
   backed by differential bytes tests.
 - Make formatter resolution context-specific, including primitive/member fast paths
   and concrete formatter injection. Test distinct save/network encodings and ID
-  formatters for the same CLR type. Custom payloads have no automatic upgrade promise.
+  formatters for the same CLR type. Restore robust custom formatters behind explicit
+  opaque schema and formatter-selection fingerprint metadata after the P0 temporary
+  rejection. Custom payloads have no automatic upgrade promise; an unframed value
+  that cannot be consumed during migration must fail loudly.
 - Reject duplicate stable names and ambiguous aliases across the entire finite
   manifest, including structural and external declarations.
 - Replace bounded assembly scans in `SchemaRegistry.TryResolveType` and definition
