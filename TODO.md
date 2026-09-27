@@ -69,10 +69,6 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   signatures, but diagnose `MigrationContext` on Save (there is no migration).
   Cover order, private/generic access, serializer argument, nested operations, and
   generated versus raw behavior. Never silently ignore an unsupported signature.
-- **Throwing predicates (former 0.8.9).** `TryResolveCollectionShape` and
-  `CanAutoRegister` throw for unsupported Queue/Stack subclasses. Either use honest
-  throwing API names or return a reason; rejection at seal and decode must remain
-  actionable and typed as schema/corruption errors, not arbitrary exceptions.
 - **Banned members must not disappear silently.** A serializable type with an
   `Action`/delegate or other banned member currently saves it as an implicit omission;
   even configuring a custom formatter does not rescue that member. **Decision:** an
@@ -84,12 +80,6 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   same fail-loud policy there. A banned generic `Type` argument currently reaches
   `MakeGenericType` as null and leaks `ArgumentNullException`; diagnose at the
   original rejected value instead, with a typed serializer error.
-- **Migration construction (former 0.8.11).** Reference objects bypass configured
-  `TypeConstruction` when materialized by the interpreter without constructor arguments.
-  The generated reader also silently ignores explicitly configured factories for
-  non-sealed types and polymorphic slots. **Decision:** honor explicit factories on
-  both paths for fresh generated reference objects; preserve default construction,
-  exact reuse, cycles and callbacks, and retain parameterized-constructor coverage.
 - **Wrap-only user collection construction.** The migration reader can construct a
   `List<T>`/`Dictionary<K,V>` subclass through a wrapping constructor, but the generated
   matching-layout collection formatter still calls `Activator.CreateInstance` without
