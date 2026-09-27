@@ -1,9 +1,10 @@
 namespace Ceras.Format
 {
     /// <summary>
-    /// Shared on-the-wire protocol primitives (TODO Phase 3.1). The reference/polymorphism markers
-    /// and biases are defined once here so the formatters and the migration interpreter cannot drift
-    /// apart. The byte encoding itself is little-endian and fixed-width by default.
+    /// Shared on-the-wire protocol primitives, specified in Format/LAYOUT.md. The
+    /// reference/polymorphism markers and biases are defined once here so the formatters and the
+    /// migration interpreter cannot drift apart. The byte encoding itself is little-endian and
+    /// fixed-width by default.
     /// </summary>
     internal static class Protocol
     {

@@ -46,7 +46,7 @@ namespace Ceras.Test
                 config.SchemaRegistry.Register(typeof(MockType), info);
             });
 
-            // Baking must fail loudly (TODO Phase 3.4) instead of silently writing type id 0.
+            // Baking must fail loudly instead of silently writing type id 0.
             var ex = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(() => robust.Save(new MockType(), 1));
             Assert.Contains("MockType", ex.Message);
             Assert.Contains("UnresolvedField", ex.Message);
@@ -81,7 +81,7 @@ namespace Ceras.Test
         public void Bake_FailsLoudly_ForUndeclaredFieldType()
         {
             // Strict mode: no reflection fallback, so a field type that is not in the generated
-            // manifest and is not a structural/BCL shape is a declaration bug (TODO Phase 3.4).
+            // manifest and is not a structural/BCL shape is a declaration bug.
             var robust = new CerasRobustSerializer(config =>
             {
                 config.AllowReflectionFallback = false;
@@ -105,7 +105,7 @@ namespace Ceras.Test
 
         /// <summary>
         /// A normal model with enum + nested built-in collection fields must still bake and
-        /// round-trip: the fail-loud check only fires for genuinely undeclared types (TODO Phase 3.4).
+        /// round-trip: the fail-loud check only fires for genuinely undeclared types.
         /// </summary>
         [Fact]
         public void EnumAndNestedCollectionModel_StillBakes_AndRoundTrips()

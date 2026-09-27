@@ -1,7 +1,7 @@
 <Project>
   <!-- Global Settings -->
   <PropertyGroup>
-    <!-- Pinned platform: .NET 10 / C# 14 (see TODO.md Phase 1.1). -->
+    <!-- Pinned platform: .NET 10 / C# 14 (see TODO.md, "Settled goals and contracts" -> Platform). -->
     <LangVersion>14.0</LangVersion>
     <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
   </PropertyGroup>

@@ -8,11 +8,23 @@
     <PackageProjectUrl>https://github.com/rikimaru0345/Ceras</PackageProjectUrl>
     <RepositoryUrl>https://github.com/rikimaru0345/Ceras</RepositoryUrl>
     <releaseNotes>https://github.com/rikimaru0345/Ceras/releases</releaseNotes>
+    <!-- Package claims are kept in sync with README.md; each one is checkable against src/ or
+         tests/Ceras.Test. Not claimed, and not to be re-added without a test: allocation-free
+         serialization (it allocates), delegate support (banned in Helpers/BannedTypes.cs), a
+         KnownTypes option (removed), and Unity/IL2CPP/AOT platform support (src/Ceras.UnityAddon
+         is an empty shell and nothing AOT is tested). -->
     <Description>
-      Extremely fast binary serializer with tons of features.
-      Full reference persistence (including circular references), polymorphism, zero-allocations, can handle readonly fields, delegates, 'KnownTypes' list for whitelisting and optimization in network scenarios... checkout the github page for a full feature list!
+      Extremely fast binary serializer.
+      Reference persistence including circular references, polymorphism, and a separate robust,
+      self-describing format for persistent saves: layout fingerprint, a fast generated reader path,
+      and a migration path for older schemas. User-type formatters are emitted at compile time by a
+      Roslyn source generator, so nothing is compiled or emitted at runtime. The robust format only
+      accepts types declared in a named serialization context; delegates, reflection metadata,
+      enumerators and engine-native objects are excluded from the payload. Serialization is not
+      allocation-free, and Unity/IL2CPP and NativeAOT are not verified. Checkout the github page for
+      a full feature list!
     </Description>
-    <PackageTags>utility, ceras, serialization, binary, serializer, formatter, unity, unity3d, network, networking, immutable, il2cpp, aot</PackageTags>
+    <PackageTags>utility, ceras, serialization, binary, serializer, formatter, network, networking, immutable, sourcegenerator</PackageTags>
   </PropertyGroup>
 
   <!-- C# Compiler Settings -->

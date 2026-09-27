@@ -148,7 +148,7 @@ namespace Ceras
 			// SizeLimits/CerasConfig's own, set by base.Seal().)
 			// The schema registry is deliberately NOT sealed here: sealing bakes the schema and must
 			// happen once the declared set (including the root type) is known, at the first use of the
-			// robust serializer. Sealing at construction would bake an empty schema (TODO Phase 3.3).
+			// robust serializer. Sealing at construction would bake an empty schema.
 		}
 	}
 

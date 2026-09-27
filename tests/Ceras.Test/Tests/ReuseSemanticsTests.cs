@@ -63,7 +63,7 @@ namespace Ceras.Test.Reuse
     }
 
     /// <summary>
-    /// Pins the confirmed <c>Load(ref existing)</c> reuse contract (TODO Phase 3.2):
+    /// Pins the confirmed <c>Load(ref existing)</c> reuse contract:
     /// an existing non-null member instance of the exact stored type is reused in place;
     /// collections are cleared and refilled. The generated fast path must match the
     /// reflection/interpreter path for identity and content.

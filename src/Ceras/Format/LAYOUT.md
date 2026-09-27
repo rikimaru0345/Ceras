@@ -1,4 +1,4 @@
-# Ceras robust format — layout model (Phase 3.1)
+# Ceras robust format — layout model
 
 This documents the layout contract that generated writers/readers, the schema encoder, and the
 migration interpreter must share. It is little-endian only; fixed-width primitives are the default.
@@ -112,9 +112,10 @@ the generated writers (`WriteInt32Fixed`) and in the formatters (`Int32Formatter
 `fixedByteSize` and `WellKnownTypes.FixedSizes` claim for them; `string` is a fixed 4-byte table
 index in both the payload and the schema string table. The two remaining compact encodings are not
 primitives and are documented at their use sites: collection counts (`bias +1`) and
-reference/polymorphism markers (bias `+5`), both written with `WriteUInt32Bias`. Recording those
-in the layout fingerprint is still open (TODO, explicit layout model). Raw primitive encoding
-never persists CLR struct padding.
+reference/polymorphism markers (bias `+5`), both written with `WriteUInt32Bias`. Those biases and
+constants are **not** hashed into the fingerprint individually — only `FormatVersion` is. They are
+covered only insofar as a change to them is accompanied by a deliberate `FormatVersion` bump; see
+[Not yet implemented](#not-yet-implemented). Raw primitive encoding never persists CLR struct padding.
 
 `decimal` is the one primitive whose documented order is **not** its CLR memory order: the runtime
 lays the struct out as `_flags, _hi, _lo, _mid`, so blitting a decimal would write the flags word
@@ -178,16 +179,50 @@ the magnitude for an unsigned underlying type and a two's-complement negative va
    - a retyped field with no defined conversion (e.g. `double` → `decimal`) throws
      `CerasSchemaException` naming the field and both types, instead of silently dropping the value
      and leaving the declared default;
+   - a retyped field with a *defined* conversion is coerced; the widening set is exactly
+     `Int16 -> Int32`, `Int32 -> Int64`, `Int32 -> Single`, `Int32 -> Double`, `Single -> Double`
+     (`MigrationPlanBuilder.DetectCoercion`). An unmatched old field is skipped and surfaces in
+     `MigrationContext.SkippedFields`; an unmatched new field keeps its declared default and surfaces
+     in `AddedFields`. Note that an enum member whose *name* is gone is **not** skipped: the raw value
+     is reinterpreted in the current enum, so a deleted member arrives as an unnamed value rather
+     than as `0`;
    - an impossible collection/array count, an un-representable `decimal`/`DateTimeOffset`/enum/`Type`
      payload, or a value no CLR type can hold is reported as `CerasDataCorruptionException`;
+   - a polymorphic value whose concrete type is not in the manifest is refused at **write** time,
+     not silently written by value: `CerasException` wrapping "Type '…' appears as a polymorphic
+     value during serialization but is not registered in the schema registry" (thrown from
+     `RobustTypeFormatter`). This is a declaration gap, not a corrupt file, so it is not part of the
+     migration path;
    - a file written **before** the format could describe collection and tuple shapes structurally
      records such a value as a class with no members while its payload is a count plus elements.
      Reading it would desynchronize the rest of the save silently, so it is rejected with an
-     actionable `CerasSchemaException`. **Such pre-0.5 experimental saves are not migratable**; load
-     them with the build that wrote them, or start the save again.
+     actionable `CerasSchemaException`. **Such saves are not migratable**; load them with the build
+     that wrote them, or start the save again. The structural collection/tuple descriptions landed
+     in the current 4.1.x development line (this repository has never published a `0.5`; the
+     released versions are 1.x, 2.x, 3.0.x and 4.0.x), so there is no release number to name and the
+     exception itself is the only marker.
 
-## Remaining (Phase 3.1)
+Whether a given save is *meant* to stay loadable is a separate question from whether this decoder
+can read it: the compatibility starting format has not been declared yet, so nothing here promises
+that any particular save survives. See `TODO.md` (Milestone 2, "declare the compatibility starting
+format only after fixtures pass").
 
-- Explicit compact-encoding overrides and an explicit protocol-header spec.
-- Deriving generated writers/readers and the schema encoder from a single layout IR.
-- Custom-formatter context isolation guarantees.
+## Not yet implemented
+
+Layout-level gaps. The envelope, the primitive encodings, the reference markers and both load paths
+are implemented and covered by tests in `tests/Ceras.Test`; this list is not a claim that the rest
+of the roadmap is finished (see `TODO.md` for that), only that these specific items are missing from
+the layout.
+
+- A single explicit layout IR that the generated writers/readers, the schema encoder, the
+  fingerprint and the migration decoder are all derived from. Today those are separate
+  implementations kept in agreement by tests.
+- Explicit compact-encoding overrides (for example zigzag varints), and recording the *choices* in
+  the fingerprint rather than relying on a manual `FormatVersion` bump. Today the collection-count
+  and reference-marker biases are fixed constants that the fingerprint does not cover directly.
+- Custom-formatter context isolation guarantees. A custom formatter's bytes are opaque here, so a
+  save containing one has no automatic upgrade guarantee.
+- An inspectable old-data graph. The interpreter still streams: it reads an old value and assigns it
+  to the current member, so application migration code cannot examine the old graph as data.
+  Reparenting a type, inlining/removed types and lossy conversions are consequently refused rather
+  than transformed.

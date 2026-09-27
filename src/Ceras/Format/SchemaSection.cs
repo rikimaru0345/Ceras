@@ -219,8 +219,8 @@ namespace Ceras.Format
         /// <summary>
         /// Resolves a canonical field/argument type name to a schema type id during baking.
         /// <para>
-        /// Fail loud (TODO Phase 3.4): a name that cannot be resolved, or that resolves to a CLR type
-        /// which is neither registered nor a supported structural/built-in shape, is a
+        /// Fail loud: a name that cannot be resolved, or that resolves to a CLR type which is
+        /// neither registered nor a supported structural/built-in shape, is a
         /// declaration/identity bug and must not silently degrade to an empty schema or the null
         /// type. The hard error names the declaring type, the field/position, and the unresolved
         /// identity, and surfaces from <see cref="SchemaRegistry.Seal"/> (bake time), never mid-save.
@@ -281,7 +281,7 @@ namespace Ceras.Format
         /// well-known primitives, one-dimensional arrays, the built-in collections and
         /// <c>KeyValuePair</c> (structural schemas), closed instantiations of the other reserved generic
         /// definitions, collection subclasses served by the built-in collection formatter, and enums.
-        /// Everything else must be declared in the generated manifest (TODO Phase 2.5/3.4).
+        /// Everything else must be declared in the generated manifest.
         /// </summary>
         static bool CanAutoRegister(Type type)
         {
