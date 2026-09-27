@@ -190,6 +190,21 @@ and the interpreter describe a single element type, so a multidimensional array 
 time (`SchemaRegistry.TryBuildStructuralSchema`), by the generator for a member (`CERAS027`), and by
 the interpreter when reading. Use a jagged array or flatten it.
 
+A **polymorphic slot** is the one place none of those applies, so it refuses the value itself
+(`Format/MultidimensionalArrayGuard`). A member declared `object` or `System.Array` — or an `object`
+element of a declared collection — says nothing about the concrete type, so the only record of it is
+the [`Type` value](#the-type-value-a-polymorphic-values-type-tag) behind the reference marker, and the
+`Array` form of that grammar is a single element-type tail with no rank in it. Writing a rank > 1 array
+there produced a save that loaded as a one-dimensional array over the same flattened elements, with no
+error in either direction. It is now a `CerasSchemaException` at write time, raised ahead of the
+reference marker and the object-cache registration (`ReferenceFormatter.Serialize`) and, for a
+`Type`-valued slot, ahead of the type value itself (`RobustTypeFormatter.Serialize`). Carrying the rank
+in the type value — and teaching the structural schema, the generated code and the interpreter about it
+— needs a format change and is Milestone 1 work. The raw serializer is unaffected: its `TypeFormatter`
+names the full CLR type, rank included. A file that already holds such a value (written before this, or
+hand-written) cannot be recognised on read, because the rank is not in the bytes; the exact-consumption
+check usually notices the resulting desync, but that is a detector, not a recovery.
+
 **A `Queue<>`/`Stack<>` *subclass* is not describable at all.** `QueueFormatter`/`StackFormatter`
 construct the exact built-in type, so they lose the subclass, and `CollectionFormatter` needs an `Add`
 method that `Queue`/`Stack` do not have — so no formatter can round-trip the shape. The shape
@@ -333,6 +348,12 @@ the magnitude for an unsigned underlying type and a two's-complement negative va
      value during serialization but is not registered in the schema registry" (thrown from
      `RobustTypeFormatter`). This is a declaration gap, not a corrupt file, so it is not part of the
      migration path;
+   - a rank > 1 array reached through a polymorphic slot or a `Type` value is likewise refused at
+     **write** time, with a `CerasSchemaException` naming the array, its rank and the slot (see
+     [Collections and arrays](#collections-and-arrays)). Nothing of that value reaches the buffer, and
+     because the reference caches are cleared in a `finally` (`CerasSerializer.Serialize`) the refused
+     save also leaves the serializer reusable — a refusal that abandoned its registrations would make
+     the *next* save write a back-reference to an id the reader never sees;
    - a file written **before** the format could describe collection and tuple shapes structurally
      records such a value as a class with no members while its payload is a count plus elements.
      Reading it would desynchronize the rest of the save silently, so it is rejected with an

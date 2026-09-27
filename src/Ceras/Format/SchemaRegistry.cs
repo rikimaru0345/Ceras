@@ -441,12 +441,13 @@ namespace Ceras.Format
 
         /// <summary>
         /// The actionable error for a multidimensional array, which the robust format cannot currently
-        /// represent. </summary>
+        /// represent. Shares its message with the polymorphic-slot refusal (which has a different reason
+        /// to give) through <see cref="MultidimensionalArrayGuard"/>, so the actionable half is one
+        /// sentence at every site.
+        /// </summary>
         internal static Exception UnsupportedMultidimensionalArray(Type type, string context)
-            => new Ceras.Exceptions.CerasSchemaException(
-                $"The multidimensional array type '{TypeIdentity.GetCanonicalName(type)}' (rank {type.GetArrayRank()}) cannot be used with {context}: " +
-                "the robust format currently describes only one-dimensional arrays. Use a jagged array " +
-                "(T[][]) or flatten it into a one-dimensional array plus explicit dimension fields.");
+            => MultidimensionalArrayGuard.Reject(type, context,
+                "the robust format currently describes only one-dimensional arrays");
 
         // ── Lookup ────────────────────────────────────────────────────────────
 

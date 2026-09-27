@@ -51,6 +51,24 @@ namespace Ceras.Formatters {
 			if (ReferenceEquals(value, null)) { SerializerBinary.WriteUInt32Bias(writer, Null, Bias); return; }
 			var specificType = value.GetType();
 
+			// A polymorphic slot is the one position a multidimensional array cannot survive: the slot
+			// declares only a base type, so the concrete type is recorded as the type value written
+			// behind the reference marker below, and that record has no array rank in it (see
+			// RobustTypeFormatter). The save would be accepted and the value read back as a
+			// one-dimensional array over the same flattened elements, so it is refused here instead.
+			// Robust only: the raw serializer's TypeFormatter names the full CLR type, rank included, and
+			// CerasFastSerializer round-trips int[,] through an object slot today (the guard is checked
+			// only while a robust write context is pushed, exactly as RobustTypeFormatter tests it).
+			// The check sits ahead of everything this method does to the operation — the dispatcher entry,
+			// the object-cache registration, the marker byte and the type value — so a refused save leaves
+			// no bytes and no per-save state behind for the next one to trip over. An array is never a
+			// banned shape (the only inheritance ban is IEnumerator, which arrays do not implement), so
+			// this does not overlap the banned-value refusal below.
+			if (RobustContext.InternTable != null && MultidimensionalArrayGuard.IsMultidimensional(specificType))
+				throw MultidimensionalArrayGuard.Reject(specificType,
+					$"a polymorphic member declared as '{TypeIdentity.GetCanonicalName(typeof(T))}'",
+					MultidimensionalArrayGuard.TypeValueReason);
+
 			if (BannedTypes.TryGetBanned(specificType, out var banReason)) {
 				// The declared slot says nothing about this value, so a banned runtime type here is
 				// data the user put in a place Ceras cannot write. Writing the null marker instead
