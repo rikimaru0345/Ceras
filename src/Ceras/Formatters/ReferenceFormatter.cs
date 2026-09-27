@@ -1,5 +1,6 @@
 namespace Ceras.Formatters {
 	using Ceras.Helpers;
+	using Ceras.Format;
 	using Resolvers;
 	using System;
 	using System.Buffers;
@@ -10,11 +11,11 @@ namespace Ceras.Formatters {
 
 	public sealed class ReferenceFormatter<T> : IFormatter<T>
 	where T : class {
-		const int Null = -1;
-		const int NewValue = -2;
-		const int NewValueSameType = -3;
-		const int InlineType = -5;
-		const int Bias = 5;
+		const int Null = Protocol.RefNull;
+		const int NewValue = Protocol.RefNewValue;
+		const int NewValueSameType = Protocol.RefNewValueSameType;
+		const int InlineType = Protocol.RefInlineType;
+		const int Bias = Protocol.RefBias;
 
 		readonly CerasSerializer _ceras;
 		readonly IFormatter<Type> _typeFormatter;
@@ -210,7 +211,7 @@ namespace Ceras.Formatters {
 	}
 
 	public sealed class ReferenceFormatter_KnownSealedType<T> : IFormatter<T> where T : class {
-		const int Null = -1, NewValueSameType = -3, Bias = 5;
+		const int Null = Protocol.RefNull, NewValueSameType = Protocol.RefNewValueSameType, Bias = Protocol.RefBias;
 		readonly CerasSerializer _ceras; readonly IFormatter<T> _formatter; 
 		readonly Func<object> _constructor;
 		internal ReferenceFormatter_KnownSealedType(CerasSerializer ceras) {

@@ -11,11 +11,11 @@ namespace Ceras.Format
 {
     sealed class SchemaTraversalEngine
     {
-        const int RefBias             = 5;
-        const int RefNull             = -1;
-        const int RefNewValue         = -2;
-        const int RefNewValueSameType = -3;
-        const int RefInlineType       = -5;
+        const int RefBias             = Protocol.RefBias;
+        const int RefNull             = Protocol.RefNull;
+        const int RefNewValue         = Protocol.RefNewValue;
+        const int RefNewValueSameType = Protocol.RefNewValueSameType;
+        const int RefInlineType       = Protocol.RefInlineType;
 
         readonly Dictionary<string, OldTypeSchema>     _oldByName;
         readonly Dictionary<int, OldTypeSchema>        _oldById;

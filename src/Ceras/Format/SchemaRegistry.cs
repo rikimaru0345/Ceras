@@ -227,6 +227,21 @@ namespace Ceras.Format
                 argNames[i] = args[i].FullName ?? args[i].Name;
             }
 
+            // Built-in collections have an explicit, structural shape: encode definition + ordered
+            // argument type names and do NOT reflect their CLR internals (TODO Phase 3.1/3.3).
+            if (WellKnownTypes.IsWellKnownCollectionDefinition(type))
+            {
+                return new SchemaTypeInfo(
+                    stableName: typeFullName,
+                    previousTypeNames: Array.Empty<string>(),
+                    kind: SchemaTypeKind.GenericInstantiation,
+                    fields: Array.Empty<SchemaFieldInfo>(),
+                    fixedByteSize: 0,
+                    enumValues: null,
+                    underlyingTypeName: def.FullName ?? def.Name,
+                    argTypeNames: argNames);
+            }
+
             var fields = new List<(FieldInfo field, SchemaFieldInfo info)>();
             foreach (var f in type.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
             {

@@ -165,6 +165,22 @@ namespace Ceras.Format
 
         public static bool IsWellKnown(Type type) => TryGetId(type, out _);
 
+        /// <summary>
+        /// True for the built-in collection generic definitions whose element shape is encoded
+        /// explicitly (definition + ordered arguments) rather than as reflected CLR fields.
+        /// This keeps BCL internals such as <c>Dictionary`2+Entry</c> out of the schema.
+        /// </summary>
+        public static bool IsWellKnownCollectionDefinition(Type type)
+        {
+            if (type == null || !type.IsGenericType) return false;
+            var def = type.IsGenericTypeDefinition ? type : type.GetGenericTypeDefinition();
+            return def == typeof(List<>)
+                || def == typeof(Dictionary<,>)
+                || def == typeof(HashSet<>)
+                || def == typeof(Queue<>)
+                || def == typeof(Stack<>);
+        }
+
         public static bool TryGetType(int id, out Type type)
             => IdToTypeMap.TryGetValue(id, out type);
 
