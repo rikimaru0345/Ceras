@@ -623,16 +623,22 @@ namespace Ceras.SourceGenerator
         }
 
         /// <summary>
-        /// Finds the deserialization callback of the requested kind. The search walks from the most
-        /// derived type up; the first declaring type that has a matching method wins, so a derived
-        /// declaration shadows a base one, while a private base callback is still found (the generated
-        /// reader invokes it through an UnsafeAccessor). Within one declaring type the parameterless
-        /// form is preferred over <c>(MigrationContext)</c> over <c>(CerasSerializer)</c>, matching the
-        /// runtime migration callback selection.
+        /// Finds the callback of the requested kind. The search walks from the most derived type up; the
+        /// first declaring type that has a matching method wins, so a derived declaration shadows a base
+        /// one, while a private base callback is still found (the generated writer/reader invokes it
+        /// through an UnsafeAccessor). Within one declaring type the parameterless form is preferred over
+        /// <c>(MigrationContext)</c> over <c>(CerasSerializer)</c>, matching the runtime callback selection.
+        /// <para>
+        /// <c>(MigrationContext)</c> is only a legal shape for a <see cref="CallbackKind.Deserialize"/>
+        /// callback: while saving there is no migration, so <see cref="ReportUnsupportedCallbacks"/>
+        /// reports it as an error instead of it being dropped here.
+        /// </para>
         /// </summary>
-        public static CallbackInfo FindCallback(INamedTypeSymbol type, AttributeBag attrs, bool isBefore)
+        public static CallbackInfo FindCallback(INamedTypeSymbol type, AttributeBag attrs, CallbackKind kind, bool isBefore)
         {
-            var attrType = isBefore ? attrs.OnBeforeDeserialize : attrs.OnAfterDeserialize;
+            var attrType = kind == CallbackKind.Serialize
+                ? (isBefore ? attrs.OnBeforeSerialize : attrs.OnAfterSerialize)
+                : (isBefore ? attrs.OnBeforeDeserialize : attrs.OnAfterDeserialize);
             if (attrType == null) return null;
 
             for (var t = type; t != null && t.SpecialType != SpecialType.System_Object; t = t.BaseType)
@@ -643,26 +649,14 @@ namespace Ceras.SourceGenerator
                 foreach (var member in t.GetMembers())
                 {
                     if (member is not IMethodSymbol m) continue;
-                    if (m.IsStatic || !m.ReturnsVoid || m.IsGenericMethod) continue;
                     if (!HasAttribute(m, attrType)) continue;
+                    var paramKind = ClassifyCallbackParameter(m, attrs, kind);
+                    if (paramKind == null) continue;
 
-                    var ps = m.Parameters;
-                    CallbackParameterKind kind;
-                    if (ps.Length == 0)
-                        kind = CallbackParameterKind.None;
-                    else if (ps.Length == 1 && attrs.MigrationContextType != null &&
-                             SymbolEqualityComparer.Default.Equals(ps[0].Type, attrs.MigrationContextType))
-                        kind = CallbackParameterKind.MigrationContext;
-                    else if (ps.Length == 1 && attrs.CerasSerializerType != null &&
-                             SymbolEqualityComparer.Default.Equals(ps[0].Type, attrs.CerasSerializerType))
-                        kind = CallbackParameterKind.Serializer;
-                    else
-                        continue;
-
-                    int rank = CallbackRank(kind);
+                    int rank = CallbackRank(paramKind.Value);
                     if (best == null || rank < bestRank)
                     {
-                        best = new CallbackInfo(m, isBefore, kind);
+                        best = new CallbackInfo(m, kind, isBefore, paramKind.Value);
                         bestRank = rank;
                     }
                 }
@@ -671,6 +665,150 @@ namespace Ceras.SourceGenerator
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// The argument shape a callback method's parameter list has, or null when the signature is not one
+        /// Ceras can invoke: wrong arity, wrong parameter type, a parameter that is not passed by value, a
+        /// non-void return, a static, generic or async method, or — for a serialize callback — a
+        /// <c>MigrationContext</c> parameter, which only describes a migration and there is none while
+        /// saving.
+        /// <para>
+        /// The by-value and async rules are not stylistic. The emitted accessor declares a by-value
+        /// parameter, so a <c>ref</c>/<c>out</c>/<c>in</c> target does not bind (and an
+        /// <c>async void</c> callback returns at its first <c>await</c>, so it could not be ordered around
+        /// the member writes it is supposed to bracket even when it does bind). Both would otherwise be
+        /// reported as "supported" and produce a callback that cannot honour its contract.
+        /// </para>
+        /// </summary>
+        static CallbackParameterKind? ClassifyCallbackParameter(IMethodSymbol m, AttributeBag attrs, CallbackKind kind)
+        {
+            if (m.IsStatic || !m.ReturnsVoid || m.IsGenericMethod || m.IsAsync) return null;
+
+            var ps = m.Parameters;
+            if (ps.Length == 0)
+                return CallbackParameterKind.None;
+            if (ps.Length != 1 || ps[0].RefKind != RefKind.None) return null;
+            if (attrs.MigrationContextType != null &&
+                SymbolEqualityComparer.Default.Equals(ps[0].Type, attrs.MigrationContextType))
+                return kind == CallbackKind.Deserialize ? CallbackParameterKind.MigrationContext : null;
+            if (attrs.CerasSerializerType != null &&
+                SymbolEqualityComparer.Default.Equals(ps[0].Type, attrs.CerasSerializerType))
+                return CallbackParameterKind.Serializer;
+            return null;
+        }
+
+        /// <summary>
+        /// A callback whose signature Ceras cannot invoke.
+        /// </summary>
+        public sealed class UnsupportedCallback
+        {
+            public IMethodSymbol Method { get; }
+            public string AttributeName { get; }
+            public string Reason { get; }
+            public string RequiredShape { get; }
+
+            public UnsupportedCallback(IMethodSymbol method, string attributeName, string reason, string requiredShape)
+            {
+                Method = method;
+                AttributeName = attributeName;
+                Reason = reason;
+                RequiredShape = requiredShape;
+            }
+        }
+
+        /// <summary>
+        /// Reports every callback method on <paramref name="type"/> (including inherited ones) whose
+        /// signature <see cref="FindCallback"/> cannot select. Without this a wrong signature would simply
+        /// never run: the generated writer/reader would emit no call for it, so the code the author wrote
+        /// — and the attribute's promise that it is called — would be silently dropped. Failing the build
+        /// with the offending method and the reason is the actionable alternative.
+        /// <para>
+        /// All four attributes are covered, not just the serialize ones: the same rule applies to both
+        /// directions, and a deserialization callback that is skipped here would be silently dropped just
+        /// as silently. The two directions differ only in whether a <c>MigrationContext</c> parameter is
+        /// one of the legal shapes.
+        /// </para>
+        /// <para>
+        /// Every attributed method is reported, not just the ones that would have been selected had they
+        /// been legal: a method whose shape is wrong is wrong wherever it sits in the hierarchy, and the
+        /// fix (correct the signature, or drop the attribute) is the same either way. Methods of a type
+        /// that gets no generated formatter are not reported here — the reflection path reports those at
+        /// runtime instead.
+        /// </para>
+        /// </summary>
+        public static void ReportUnsupportedCallbacks(
+            SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs)
+        {
+            ReportOne(attrs.OnBeforeSerialize, "OnBeforeSerialize", CallbackKind.Serialize);
+            ReportOne(attrs.OnAfterSerialize, "OnAfterSerialize", CallbackKind.Serialize);
+            ReportOne(attrs.OnBeforeDeserialize, "OnBeforeDeserialize", CallbackKind.Deserialize);
+            ReportOne(attrs.OnAfterDeserialize, "OnAfterDeserialize", CallbackKind.Deserialize);
+
+            void ReportOne(INamedTypeSymbol? attrType, string attributeName, CallbackKind kind)
+            {
+                if (attrType == null) return;
+
+                foreach (var problem in FindUnsupportedCallbacks(type, attrs, attrType, attributeName, kind))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        Diag.UnsupportedCallbackSignature,
+                        problem.Method.Locations.FirstOrDefault() ?? type.Locations.FirstOrDefault(),
+                        problem.AttributeName,
+                        problem.Method.Name,
+                        type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                        problem.Method.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                        problem.Reason,
+                        problem.RequiredShape));
+                }
+            }
+        }
+
+        static IEnumerable<UnsupportedCallback> FindUnsupportedCallbacks(
+            INamedTypeSymbol type, AttributeBag attrs, INamedTypeSymbol attrType,
+            string attributeName, CallbackKind kind)
+        {
+            for (var t = type; t != null && t.SpecialType != SpecialType.System_Object; t = t.BaseType)
+            {
+                foreach (var member in t.GetMembers())
+                {
+                    if (member is not IMethodSymbol m) continue;
+                    if (!HasAttribute(m, attrType)) continue;
+                    if (ClassifyCallbackParameter(m, attrs, kind) != null) continue;
+
+                    yield return new UnsupportedCallback(
+                        m, attributeName,
+                        DescribeUnsupportedCallback(m, attrs, kind),
+                        RequiredCallbackShape(kind));
+                }
+            }
+        }
+
+        static string RequiredCallbackShape(CallbackKind kind) => kind == CallbackKind.Serialize
+            ? "A serialize callback must be a non-static, non-generic, non-async instance method that returns void and takes either no parameter or a single CerasSerializer parameter, passed by value. A MigrationContext parameter is not available while saving, because there is no migration"
+            : "A deserialize callback must be a non-static, non-generic, non-async instance method that returns void and takes either no parameter or a single parameter, passed by value, of type CerasSerializer or MigrationContext";
+
+        /// <summary>Why a particular attributed callback method cannot be invoked, in user-facing terms.</summary>
+        static string DescribeUnsupportedCallback(IMethodSymbol m, AttributeBag attrs, CallbackKind kind)
+        {
+            if (m.IsGenericMethod) return "it is a generic method";
+            if (m.IsStatic) return "it is static; a callback must be an instance method";
+            if (m.IsAsync) return "it is async, so it would return at its first await and could not be ordered around the member writes it is supposed to bracket";
+            if (!m.ReturnsVoid) return $"it returns '{m.ReturnType.ToDisplayString()}' instead of void";
+
+            var ps = m.Parameters;
+            if (ps.Length != 1) return $"it takes {ps.Length} parameters; a callback takes none or exactly one";
+            if (ps[0].RefKind != RefKind.None)
+                return $"its parameter is passed by '{ps[0].RefKind.ToString().ToLowerInvariant()}', but a callback parameter is always passed by value";
+
+            var paramType = ps[0].Type;
+            if (kind == CallbackKind.Serialize &&
+                attrs.MigrationContextType != null &&
+                SymbolEqualityComparer.Default.Equals(paramType, attrs.MigrationContextType))
+                return "it takes a MigrationContext parameter, but there is no migration while saving; " +
+                       "a MigrationContext parameter is only supported on [OnBeforeDeserialize]/[OnAfterDeserialize]";
+
+            return $"its parameter has type '{paramType.ToDisplayString()}'";
         }
 
         static int CallbackRank(CallbackParameterKind kind) => kind switch

@@ -211,5 +211,13 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor UnsupportedCallbackSignature = new(
+            id: "CERAS028",
+            title: "Unsupported callback signature",
+            messageFormat: "[{0}] method '{1}' on type '{2}' is declared as '{3}', but Ceras cannot invoke it: {4}. Ceras would silently not call it. {5}",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }
