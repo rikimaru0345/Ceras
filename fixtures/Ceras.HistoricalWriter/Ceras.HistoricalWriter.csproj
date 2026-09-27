@@ -11,7 +11,12 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
+    <!--
+      No LangVersion override: this project has no leaf props, so the root pin (C# 14) already applies
+      and an override could only drift from it. What makes these fixtures historical is the v1 CLR
+      model and the v1 format written above it, not an old language version - the writer is built
+      with the current toolchain and the current generator on purpose, exactly like the reader.
+    -->
     <Nullable>disable</Nullable>
     <RootNamespace>Ceras.HistoricalWriter</RootNamespace>
     <AssemblyName>Ceras.HistoricalWriter</AssemblyName>

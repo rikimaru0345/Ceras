@@ -1,4 +1,12 @@
 <Project>
+  <!--
+    Chain up to the repository root first. MSBuild stops at the nearest Directory.Build.props, so
+    without this import nothing under src/ ever saw the platform pin (LangVersion 14.0) and took the
+    version from the target framework default instead - which for netstandard2.0 is C# 7.3.
+    Everything below stays after the import, so these properties keep overriding the root ones.
+  -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <IsTestProject>false</IsTestProject>
