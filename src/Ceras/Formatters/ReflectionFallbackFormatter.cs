@@ -26,7 +26,9 @@ namespace Ceras.Formatters
         readonly CerasSerializer _ceras;
         readonly bool _isStatic;
         readonly (MemberInfo member, IFormatter formatter, bool isMonomorphic)[] _members;
-        readonly MethodInfo _onBeforeSerialize, _onAfterSerialize, _onBeforeDeserialize, _onAfterDeserialize;
+        // A type that declares none of the four callback attributes has no method to invoke, so all
+        // four stay null; InvokeCallback checks for that before doing anything.
+        readonly MethodInfo? _onBeforeSerialize, _onAfterSerialize, _onBeforeDeserialize, _onAfterDeserialize;
         readonly Func<object> _factory;
 
         internal ReflectionFallbackFormatter(CerasSerializer serializer, bool isStatic)
@@ -89,7 +91,9 @@ namespace Ceras.Formatters
             InvokeCallback(_onAfterSerialize, target);
         }
 
-        void SerializeMembers(IBufferWriter<byte> writer, object target)
+        // target is null for a static type formatter: its members are static, and reading a static
+        // member is exactly what FieldInfo.GetValue(null)/PropertyInfo.GetValue(null) are for.
+        void SerializeMembers(IBufferWriter<byte> writer, object? target)
         {
             for (int i = 0; i < _members.Length; i++)
             {
@@ -103,7 +107,10 @@ namespace Ceras.Formatters
 
                 try
                 {
-                    m.formatter.SerializeUntyped(writer, memberValue);
+                    // A member that holds null is an ordinary value: the member's own formatter writes
+                    // the null marker for it, which is why the untyped contract takes a non-null object
+                    // here even though reflection hands us null.
+                    m.formatter.SerializeUntyped(writer, memberValue!);
                 }
                 catch (Exception e)
                 {
@@ -128,7 +135,10 @@ namespace Ceras.Formatters
 
             if (typeof(T).IsValueType)
             {
-                object? boxed = value;
+                // T is a value type in this branch, so boxing it always produces an instance and the
+                // unbox below can never see null. The compiler cannot see that, hence the
+                // null-forgiving operator on the value.
+                object boxed = value!;
                 InvokeCallback(_onBeforeDeserialize, boxed);
 
                 for (int i = 0; i < _members.Length; i++)
@@ -183,8 +193,12 @@ namespace Ceras.Formatters
             }
         }
 
-        object[] _callbackArgs;
-        void InvokeCallback(MethodInfo method, object target)
+        // Created on first use, hence the null until then.
+        object[]? _callbackArgs;
+
+        // The target is the instance the callback runs against, or null for a static type formatter
+        // (where the only thing InvokeCallback can be called with is the static method itself).
+        void InvokeCallback(MethodInfo? method, object? target)
         {
             if (method == null) return;
 

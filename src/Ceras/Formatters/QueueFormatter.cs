@@ -29,7 +29,7 @@ namespace Ceras.Formatters
             value = new Queue<TItem>(count);
             for (int i = 0; i < count; i++)
             {
-                TItem? item = default;
+                TItem item = default!;
                 _itemFormatter.Deserialize(ref reader, ref item);
                 value.Enqueue(item);
             }

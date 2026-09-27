@@ -7,8 +7,10 @@ namespace Ceras.Formatters
     public abstract class CollectionByProxyFormatter<TCollection, TItem, TProxyCollection> : FormatterBase<TCollection>
             where TCollection : ICollection<TItem>
     {
-        protected IFormatter<TItem> _itemFormatter;
-        protected SizeLimits _sizeLimits;
+        // Injected by CerasSerializer.PrepareFormatter before the formatter is used (it matches both
+        // by field type), which is why the base constructor cannot set them itself.
+        protected IFormatter<TItem> _itemFormatter = default!;
+        protected SizeLimits _sizeLimits = default!;
 
         protected CollectionByProxyFormatter() { CerasSerializer.AddFormatterConstructedType(typeof(TCollection)); }
 
@@ -35,7 +37,9 @@ namespace Ceras.Formatters
             int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (count == -1)
             {
-                value = default;
+                // A null collection is a legal payload value (Serialize writes -1 for it), so the out
+                // parameter is handed null even though the contract declares it non-null.
+                value = default!;
                 return;
             }
 
@@ -47,7 +51,7 @@ namespace Ceras.Formatters
             var builder = CreateProxy(count);
             for (int i = 0; i < count; i++)
             {
-                TItem? item = default;
+                TItem item = default!;
                 _itemFormatter.Deserialize(ref reader, ref item);
                 AddToProxy(builder, item);
             }

@@ -140,7 +140,9 @@ namespace Ceras.Formatters
                 for (int i = 0; i < max; i++)
                 {
                     index[depth] = i;
-                    TItem? val = default;
+                    // Seeded with default! like every other element read in this file: the out parameter
+                    // of the item formatter is not nullable, and a null element is a value it handles.
+                    TItem val = default!;
                     formatter.Deserialize(ref reader, ref val);
                     array.SetValue(val, index);
                 }
@@ -170,9 +172,14 @@ namespace Ceras.Formatters
         readonly uint _maxSize;
         readonly Func<int, TCollection> _capacityConstructor;
         
-        readonly Action<TCollection> _clearMethod;
-        readonly Action<TCollection, TItem> _addMethod;
-        readonly Func<TCollection, int> _getCountMethod;
+        // All three are resolved below and can legitimately be absent: a type that is not an
+        // ICollection<TItem> is asked for a public parameterless Clear, a one-argument Add and a Count
+        // property, and any of the three lookups can come back empty. The call sites below check for
+        // that (a collection without an Add or a Count cannot be serialized at all) or fall back to
+        // constructing a fresh instance when there is no Clear.
+        readonly Action<TCollection>? _clearMethod;
+        readonly Action<TCollection, TItem>? _addMethod;
+        readonly Func<TCollection, int>? _getCountMethod;
 
         internal CollectionFormatter(CerasSerializer serializer)
         {
@@ -194,7 +201,9 @@ namespace Ceras.Formatters
                         _capacityConstructor = n => (TCollection)ctor.Invoke(new object[] { n });
                 }
             }
-            if (_capacityConstructor == null) _capacityConstructor = _ => (TCollection)Activator.CreateInstance(collectionType);
+            // A type without a public parameterless constructor throws MissingMethodException from
+            // Activator instead of returning null, so the cast below is non-null by construction.
+            if (_capacityConstructor == null) _capacityConstructor = _ => (TCollection)Activator.CreateInstance(collectionType)!;
 
             // Resolve access methods
             if (typeof(ICollection<TItem>).IsAssignableFrom(collectionType))
@@ -214,7 +223,10 @@ namespace Ceras.Formatters
 
                 if (clear != null) _clearMethod = (Action<TCollection>)Delegate.CreateDelegate(typeof(Action<TCollection>), clear);
                 if (add != null) _addMethod = (Action<TCollection, TItem>)Delegate.CreateDelegate(typeof(Action<TCollection, TItem>), add);
-                if (count != null) _getCountMethod = (Func<TCollection, int>)Delegate.CreateDelegate(typeof(Func<TCollection, int>), count.GetGetMethod());
+                // A property without a getter cannot answer "how many elements are there", so the
+                // getter - not the property - is what has to be found before a delegate is built.
+                var getCount = count?.GetGetMethod();
+                if (getCount != null) _getCountMethod = (Func<TCollection, int>)Delegate.CreateDelegate(typeof(Func<TCollection, int>), getCount);
             }
         }
 
@@ -226,7 +238,12 @@ namespace Ceras.Formatters
                 return;
             }
 
-            int count = _getCountMethod(value);
+            // The payload starts with the element count, so a collection whose count cannot be read
+            // cannot be serialized at all. That is a configuration problem with the type, so it is
+            // reported as such instead of as a NullReferenceException from the unresolved delegate.
+            var getCount = _getCountMethod ?? throw new Ceras.Exceptions.CerasException(
+                $"The collection type '{typeof(TCollection).FriendlyName()}' is not supported because no 'Count' property was found.");
+            int count = getCount(value);
             SerializerBinary.WriteUInt32Bias(writer, count, 1);
             
             var f = _itemFormatter;
@@ -259,7 +276,9 @@ namespace Ceras.Formatters
             int itemCount = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (itemCount == -1)
             {
-                value = default;
+                // A null collection is a legal payload value (Serialize writes -1 for it), so the
+                // out parameter is handed null even though the contract declares it non-null.
+                value = default!;
                 return;
             }
 
@@ -293,13 +312,13 @@ namespace Ceras.Formatters
             }
 
             var f = _itemFormatter;
-            if (_addMethod == null) throw new Ceras.Exceptions.CerasException($"The collection type '{typeof(TCollection).FriendlyName()}' is not supported because no suitable 'Add' method was found.");
+            var add = _addMethod ?? throw new Ceras.Exceptions.CerasException($"The collection type '{typeof(TCollection).FriendlyName()}' is not supported because no suitable 'Add' method was found.");
 
             for (int i = 0; i < itemCount; i++)
             {
-                TItem? item = default;
+                TItem item = default!;
                 f.Deserialize(ref reader, ref item);
-                _addMethod(value, item);
+                add(value, item);
             }
         }
     }
