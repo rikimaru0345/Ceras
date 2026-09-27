@@ -146,6 +146,17 @@ and the interpreter describe a single element type, so a multidimensional array 
 time (`SchemaRegistry.TryBuildStructuralSchema`), by the generator for a member (`CERAS027`), and by
 the interpreter when reading. Use a jagged array or flatten it.
 
+**A `Queue<>`/`Stack<>` *subclass* is not describable at all.** `QueueFormatter`/`StackFormatter`
+construct the exact built-in type, so they lose the subclass, and `CollectionFormatter` needs an `Add`
+method that `Queue`/`Stack` do not have — so no formatter can round-trip the shape. The shape
+classifier (`WellKnownTypes.TryResolveCollectionShape`) therefore *reports* it as
+`CollectionShapeRejection.UnsupportedQueueOrStack` rather than raising from a `Try*` predicate, and the
+three sites that must not admit it act on that report: the bake refuses it (naming the declaring type
+and the member that reached it), `DeclareRoot` refuses it, and the interpreter refuses it mid-decode
+(naming the name the file used, and as a `CerasSchemaException` — the bytes are irrelevant, it is the
+current model that cannot describe the shape). All three carry the same reason text
+(`WellKnownTypes.DescribeCollectionShapeRejection`).
+
 ## References, null, and polymorphism
 
 Reference/polymorphism markers are defined once in `Format/Protocol.cs`
