@@ -224,6 +224,12 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
 - Reconcile `CLEANUP_TODO.md` against real APIs, move justified work here and delete
   the stale list. Do not internalize `CerasSerializer` while generated code needs it;
   review raw method exposure on robust serializers and remaining config sealing.
+- Audit `samples/LiveTesting` and `samples/LiveTesting.Benchmarks` as a debugging and
+  feature-exploration sandbox. Promote distinct, currently uncovered behavior checks
+  into focused `Ceras.Test` regressions; retain only genuinely useful exploratory
+  tools/benchmarks. Delete the sample and its obsolete comparison dependencies if
+  nothing remains worth maintaining. Do not treat its legacy advisories as a library
+  dependency or upgrade old competitors before deciding what survives.
 - Update README/tutorials/samples/format docs with verified contracts and remove
   obsolete runtime-generation, universal-type, Unity/AOT and diagnostic claims.
 - Review concrete formatter selection and unsupported-type diagnostics against
@@ -240,6 +246,3 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
 Unity-specific integration; borrowed ref-struct packet views; opaque framing for
 custom payloads; lazy old-data graphs; broad speculative specializations, compression
 or interning redesign, and JIT tuning without representative evidence.
-`samples/LiveTesting` (including `LiveTesting.Benchmarks`) and its old comparison
-dependencies are intentionally out of scope per the project owner; do not use
-that sample's solution-build warnings to block library/test work.
