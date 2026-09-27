@@ -81,6 +81,12 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
 - **Generated string literals (former 0.8.10).** `TypeHelpers.QuoteString` fails to
   escape attribute-derived names/aliases before emitting C#. Route hostile strings
   through a safe literal encoder; compile and run a generated-schema regression.
+- **Banned members must not disappear silently.** A serializable type with an
+  `Action`/delegate or other banned member currently saves it as an implicit omission;
+  even configuring a custom formatter does not rescue that member. **Decision:** an
+  included banned member is a hard, actionable generator/runtime error. Require an
+  explicit `[Exclude]` or a supported replacement representation; pin generated and
+  reflection paths and avoid turning an existing save into a silent null on load.
 - **Migration construction (former 0.8.11).** Reference objects bypass configured
   `TypeConstruction` when materialized by the interpreter without constructor arguments.
   The generated reader also silently ignores explicitly configured factories for
