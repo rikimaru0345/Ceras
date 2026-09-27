@@ -105,6 +105,23 @@ namespace Ceras.Test.ConstructionContract
         public string AddedRef = "default";
     }
 
+    /// <summary>
+    /// A collection that has a usable Add but no public Clear, so CollectionFormatter must not
+    /// silently append to an existing instance.
+    /// </summary>
+    public class NoClearCollection : System.Collections.ICollection
+    {
+        public readonly List<int> Items = new List<int>();
+
+        public void Add(int item) => Items.Add(item);
+
+        public int Count => Items.Count;
+        public bool IsSynchronized => false;
+        public object SyncRoot => this;
+        public void CopyTo(Array array, int index) => ((System.Collections.ICollection)Items).CopyTo(array, index);
+        public System.Collections.IEnumerator GetEnumerator() => Items.GetEnumerator();
+    }
+
     public class ConstructionReuseContractTests : TestBase
     {
         static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
@@ -248,6 +265,26 @@ namespace Ceras.Test.ConstructionContract
             Generated().Load(ref interp, ForceSlowPath(bytes), 1);
             Assert.Equal(11, interp.Value);
             Assert.Equal(0, ContractCtorCounter.Calls);
+        }
+
+        [Fact]
+        public void GeneratedCollection_NoClear_FallsBackToFreshConstruction()
+        {
+            var serializer = Generated();
+            var formatter = new Ceras.Formatters.CollectionFormatter<NoClearCollection, int>(serializer);
+
+            var existing = new NoClearCollection();
+            existing.Add(9); // must not survive: no Clear means fresh construction, never append
+
+            var writer = new ArrayBufferWriter<byte>();
+            SerializerBinary.WriteUInt32Bias(writer, 2, 1);
+            SerializerBinary.WriteInt32(writer, 1);
+            SerializerBinary.WriteInt32(writer, 2);
+
+            var reader = new SequenceReader<byte>(new ReadOnlySequence<byte>(writer.WrittenMemory));
+            formatter.Deserialize(ref reader, ref existing);
+
+            Assert.Equal(new[] { 1, 2 }, existing.Items);
         }
 
         [Fact]
