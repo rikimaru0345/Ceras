@@ -116,6 +116,11 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   needed. Restore robust custom formatters after Milestone 1 adds truthful opaque
   schema/formatter-selection metadata; migration must still refuse unframed opaque
   values it cannot consume. Opaque framing remains deferred.
+- **Detect trailing migration payload bytes.** After interpreting a root, assert that
+  the declared data section was consumed exactly. A mismatched schema can otherwise
+  leave bytes silently unread; reject it with a typed, actionable error. This is a
+  detector, not a substitute for truthful custom-payload metadata: a desync that
+  lands exactly at the end can still corrupt values.
 - **Dead branches (former 0.8.13).** Remove the always-true include guard in
   `MemberExplorer`, the unreachable reflective `CollectionFormatter` branch, and
   stale `WellKnownTypes` width comments where still present; validate behavior before
