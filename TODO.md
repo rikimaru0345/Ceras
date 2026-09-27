@@ -217,7 +217,10 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
 
 - Retire obsolete reflection `Schema`/`SchemaMember`/`PrimarySchema`, fallbacks,
   factories, ordering helpers and dead robust `FullNameMarker` write assumptions once
-  consumers are replaced. Keep any required released-format decoder.
+  consumers are replaced. Keep any required released-format decoder. Audit the
+  internal `CerasRobustSerializer(CerasRobustConfig)` constructor: unlike the public
+  path it skips robust formatter initialization, so internal callers can write
+  length-prefixed strings against a schema expecting table indices.
 - Reconcile `CLEANUP_TODO.md` against real APIs, move justified work here and delete
   the stale list. Do not internalize `CerasSerializer` while generated code needs it;
   review raw method exposure on robust serializers and remaining config sealing.
