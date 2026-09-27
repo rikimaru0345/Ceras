@@ -503,17 +503,19 @@ namespace Ceras.Format
                 return structObj;
             }
 
-            return ReadReferenceInstance(oldSchema, plan, currentType, ref reader, cacheIndex, existingObject);
+            return ReadReferenceInstance(oldSchema, plan, targetType, currentType, ref reader, cacheIndex, existingObject);
         }
 
 
         /// <summary>
         /// Reads a reference-typed value, matching the generated reader's construction contract:
         /// <list type="number">
-        /// <item>allocate — uninitialized when a parameterized <c>[CerasConstructor]</c> supplies the
-        /// values, so the instance is registered in the object cache <em>before</em> the constructor
-        /// runs and a cycle through a constructor parameter resolves; otherwise through the configured
-        /// construction, falling back to uninitialized;</item>
+        /// <item>allocate — through the configured construction when one applies (see
+        /// <see cref="CurrentObjectFactory"/>), otherwise uninitialized when a parameterized
+        /// <c>[CerasConstructor]</c> is about to supply the values, and otherwise the allocation the type's
+        /// own formatter performs. In the constructor-argument case the instance is registered in the object
+        /// cache <em>before</em> the constructor runs, so a cycle through a constructor parameter
+        /// resolves;</item>
         /// <item>register the object-cache slot the writer reserved;</item>
         /// <item>run <c>[OnBeforeDeserialize]</c>;</item>
         /// <item>read every member, in payload order, into a local — the generated reader does the same,
@@ -525,17 +527,17 @@ namespace Ceras.Format
         /// <item>defer <c>[OnAfterDeserialize]</c> until the whole graph is populated.</item>
         /// </list>
         /// </summary>
-        object? ReadReferenceInstance(OldTypeSchema oldSchema, TypeMigrationPlan? plan, Type? currentType,
-            ref SequenceReader<byte> reader, int? cacheIndex, object? existingObject)
+        object? ReadReferenceInstance(OldTypeSchema oldSchema, TypeMigrationPlan? plan, Type? declaredType,
+            Type? currentType, ref SequenceReader<byte> reader, int? cacheIndex, object? existingObject)
         {
-            // A reused instance is never re-constructed: no constructor, no field initializers.
+            // A reused instance is never re-constructed: no constructor, no field initializers, no pool.
             var ctorArgs = existingObject == null
                 ? CtorArgumentPlanBuilder.Resolve(currentType, plan)
                 : null;
 
             object? obj = ctorArgs != null
-                ? RuntimeHelpers.GetUninitializedObject(currentType)
-                : existingObject ?? _factory.CreateReference(currentType);
+                ? _factory.CreateWithConstructorArguments(declaredType, currentType)
+                : existingObject ?? _factory.CreateReference(declaredType, currentType);
 
             _identity.Publish(cacheIndex, obj);
 
@@ -659,7 +661,7 @@ namespace Ceras.Format
                 return structObj;
             }
 
-            return ReadReferenceInstance(oldSchema, plan, currentType, ref reader, cacheIndex, existingObject);
+            return ReadReferenceInstance(oldSchema, plan, targetType, currentType, ref reader, cacheIndex, existingObject);
         }
 
         /// <summary>

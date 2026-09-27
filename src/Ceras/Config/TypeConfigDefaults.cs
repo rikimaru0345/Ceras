@@ -48,16 +48,16 @@ namespace Ceras
                 // built-in collection formatter constructs the actual instance, and the reference
                 // wrapper only needs a placeholder for object-cache registration. ConstructNull returns
                 // null, which breaks that, so such a type is allocated uninitialized instead.
-                typeConfig.TypeConstruction = type.IsValueType || type.IsAbstract || type.IsInterface || type.IsArray
+                typeConfig.SetDefaultTypeConstruction(type.IsValueType || type.IsAbstract || type.IsInterface || type.IsArray
                     ? TypeConstruction.Null()
-                    : TypeConstruction.ByUninitialized();
+                    : TypeConstruction.ByUninitialized());
                 return;
             }
 
             // 2. Robust mode: always use uninitialized objects
             if (typeConfig.Config is CerasRobustConfig)
             {
-                typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
+                typeConfig.SetDefaultTypeConstruction(TypeConstruction.ByUninitialized());
                 return;
             }
 
@@ -65,19 +65,19 @@ namespace Ceras
             var ctor = type.GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
             if (ctor != null)
             {
-                typeConfig.TypeConstruction = TypeConstruction.ByConstructor(ctor);
+                typeConfig.SetDefaultTypeConstruction(TypeConstruction.ByConstructor(ctor));
                 return;
             }
 
             // 4. Value types
             if (type.IsValueType)
             {
-                typeConfig.TypeConstruction = TypeConstruction.Null();
+                typeConfig.SetDefaultTypeConstruction(TypeConstruction.Null());
                 return;
             }
 
             // 5. Fallback: uninitialized object
-            typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
+            typeConfig.SetDefaultTypeConstruction(TypeConstruction.ByUninitialized());
         }
 
         internal static void CheckStructWithAutoProps(TypeConfig typeConfig)
@@ -218,7 +218,7 @@ namespace Ceras
             if (!type.IsPrimitive && type.IsValueType)
             {
                 if(typeConfig.TypeConstruction == null)
-                    typeConfig.TypeConstruction = ConstructNull.Instance;
+                    typeConfig.SetDefaultTypeConstruction(ConstructNull.Instance);
 
                 return;
             }
@@ -256,7 +256,7 @@ namespace Ceras
 
         static void ForceSerialization(TypeConfig typeConfig)
         {
-            typeConfig.TypeConstruction = TypeConstruction.ByUninitialized();
+            typeConfig.SetDefaultTypeConstruction(TypeConstruction.ByUninitialized());
             typeConfig.CustomResolver = ForceDynamicResolver;
         }
 

@@ -15,12 +15,14 @@ using System.IO;
 using Ceras;
 using Ceras.Generated;
 using Ceras.HistoricalWriter.V1;
+using Ceras.HistoricalWriter.V1Pooled;
 
 namespace Ceras.HistoricalWriter
 {
     static class Program
     {
         const string Context = "HistoricalV1";
+        const string PooledContext = "HistoricalV1Pooled";
 
         static int Main(string[] args)
         {
@@ -45,19 +47,25 @@ namespace Ceras.HistoricalWriter
         }
 
         /// <summary>
-        /// One serializer, so every fixture shares the same id space and the same fingerprint. The build
-        /// timestamp is pinned to "unknown" so regenerating with unchanged inputs produces identical
-        /// bytes: a fixture diff then always means a real change.
+        /// One serializer per context, so every fixture of a context shares that context's id space and
+        /// fingerprint. The build timestamp is pinned to "unknown" so regenerating with unchanged inputs
+        /// produces identical bytes: a fixture diff then always means a real change.
         /// </summary>
-        static CerasRobustSerializer NewSerializer() => new CerasRobustSerializer(c =>
+        static CerasRobustSerializer NewSerializer(string context) => new CerasRobustSerializer(c =>
         {
-            c.UseGeneratedFormatters(Context);
+            c.UseGeneratedFormatters(context);
             c.SetUnknownBuildTimestamp();
         });
 
         static IEnumerable<(string Name, byte[] Bytes)> Fixtures()
         {
-            var serializer = NewSerializer();
+            foreach (var fixture in SaveGameFixtures()) yield return fixture;
+            foreach (var fixture in PooledFixtures()) yield return fixture;
+        }
+
+        static IEnumerable<(string Name, byte[] Bytes)> SaveGameFixtures()
+        {
+            var serializer = NewSerializer(Context);
 
             // A full save: a shared reference (Main is Players[0]), a two-node cycle (the buddies point
             // at each other), the removed/added/retyped fields, the renamed type and field, an unsigned
@@ -113,6 +121,33 @@ namespace Ceras.HistoricalWriter
 
             // The same player graph as a root of its own, so a load is not coupled to the save root.
             yield return ("PlayerCycle.bin", serializer.Save(main, 1));
+        }
+
+        /// <summary>
+        /// The types a loader obtains through a configured factory or pool, so the construction contract
+        /// can be checked on a real cross-version file instead of only on a same-layout one. It is a
+        /// separate context, so its type ids cannot shift the three fixtures above.
+        /// </summary>
+        static IEnumerable<(string Name, byte[] Bytes)> PooledFixtures()
+        {
+            var serializer = NewSerializer(PooledContext);
+
+            var token = new Charm { Id = 2, Sigil = "sun" };
+            var kept = new Relic { Id = 1, AncientName = "dust", Charge = 7, Owner = token };
+            kept.Twin = kept;                                     // a self-cycle through the pooled type
+
+            var vault = new RelicVault
+            {
+                Version = 4,
+                Kept = kept,
+                Token = token,                                      // the same instance as Kept.Owner
+            };
+
+            yield return ("RelicVault.bin", serializer.Save(vault, 1));
+
+            // The same relic as a root of its own, so its polymorphic Owner slot is where the Charm is
+            // *first* met — the reader then has to build a sealed type it only knows through System.Object.
+            yield return ("Relic.bin", serializer.Save(kept, 1));
         }
     }
 }
