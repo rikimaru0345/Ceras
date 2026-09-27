@@ -58,7 +58,8 @@ namespace Ceras.Format
         public const int Guid     = 39;  // 16 bytes
         public const int Type     = 40;  // System.Type
         public const int KeyValuePair = 41; // System.Collections.Generic.KeyValuePair<K,V>
-        // 42–127 reserved for future well-known types
+        public const int DateTimeOffset = 42; // 10 bytes (ticks + offset minutes)
+        // 43–127 reserved for future well-known types
         public const int UserTypeBase = 128;
 
         // ── Fixed byte sizes (0 = variable or not applicable) ─────────────────
@@ -82,6 +83,7 @@ namespace Ceras.Format
             [typeof(string)]   = String,
             [typeof(object)]   = Object,
             [typeof(DateTime)] = DateTime,
+            [typeof(DateTimeOffset)] = DateTimeOffset,
             [typeof(TimeSpan)] = TimeSpan,
             [typeof(Guid)]     = Guid,
             [typeof(Type)]     = Type,
@@ -132,6 +134,7 @@ namespace Ceras.Format
             FixedSizes[Double]   = 8;
             FixedSizes[DateTime] = 8;
             FixedSizes[TimeSpan] = 8;
+            FixedSizes[DateTimeOffset] = 10; // 8-byte ticks + 2-byte offset minutes
             FixedSizes[Decimal]  = 16;
             FixedSizes[Guid]     = 16;
             // Bool, Int32, UInt32, Object, Collections, Tuples: 0 (variable)

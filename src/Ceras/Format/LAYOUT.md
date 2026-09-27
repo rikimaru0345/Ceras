@@ -89,6 +89,7 @@ external/legacy unqualified `Type.FullName` names.
 | float/double | 4/8 | IEEE-754 little-endian |
 | decimal | 16 | .NET decimal bits |
 | DateTime | 8 | `DateTime.ToBinary()` bits (ticks plus `Kind`); decode with `FromBinary` |
+| DateTimeOffset | 10 | 8-byte `Ticks` (wall-clock) + 2-byte offset in minutes |
 | TimeSpan | 8 | ticks |
 | Guid | 16 | raw |
 | string | 4 + table | 4-byte string-table index |

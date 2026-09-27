@@ -348,6 +348,30 @@ namespace Ceras
             return DateTime.FromBinary(ReadInt64Fixed(ref reader));
         }
 
+        /// <summary>
+        /// Fixed 10-byte <see cref="DateTimeOffset"/> encoding: 8-byte ticks (<c>value.Ticks</c>, the
+        /// local wall-clock ticks), then 2-byte offset in minutes. Matches <c>DateTimeOffsetFormatter</c>
+        /// and the migration interpreter (TODO 0.5 item 6). The offset is limited to ±13:59 (a valid
+        /// <see cref="TimeSpan"/> offset), so it fits in the signed 16-bit range.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteDateTimeOffset<TWriter>(TWriter writer, DateTimeOffset value) where TWriter : IBufferWriter<byte>
+        {
+            WriteInt64Fixed(writer, value.Ticks);
+            WriteInt16Fixed(writer, (short)value.Offset.TotalMinutes);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteDateTimeOffset(IBufferWriter<byte> writer, DateTimeOffset value) => WriteDateTimeOffset<IBufferWriter<byte>>(writer, value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static DateTimeOffset ReadDateTimeOffset(ref SequenceReader<byte> reader)
+        {
+            long ticks = ReadInt64Fixed(ref reader);
+            short minutes = ReadInt16Fixed(ref reader);
+            return new DateTimeOffset(ticks, TimeSpan.FromMinutes(minutes));
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteTimeSpan<TWriter>(TWriter writer, TimeSpan value) where TWriter : IBufferWriter<byte>
         {
@@ -361,6 +385,53 @@ namespace Ceras
         public static TimeSpan ReadTimeSpan(ref SequenceReader<byte> reader)
         {
             return new TimeSpan(ReadInt64Fixed(ref reader));
+        }
+
+        /// <summary>
+        /// Fixed 16-byte decimal encoding: the four <see cref="decimal.GetBits(decimal)"/> words in
+        /// order (lo, mid, hi, flags), each little-endian. This is the layout described by
+        /// <see cref="Ceras.Format.WellKnownTypes.Decimal"/> and read by the migration interpreter, so
+        /// the writer, the generated reader and the interpreter all agree (TODO 0.5 item 5).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteDecimal<TWriter>(TWriter writer, decimal value) where TWriter : IBufferWriter<byte>
+        {
+            Span<int> bits = stackalloc int[4];
+            decimal.GetBits(value, bits);
+            var span = writer.GetSpan(16);
+            BinaryPrimitives.WriteInt32LittleEndian(span, bits[0]);
+            BinaryPrimitives.WriteInt32LittleEndian(span.Slice(4), bits[1]);
+            BinaryPrimitives.WriteInt32LittleEndian(span.Slice(8), bits[2]);
+            BinaryPrimitives.WriteInt32LittleEndian(span.Slice(12), bits[3]);
+            writer.Advance(16);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteDecimal(IBufferWriter<byte> writer, decimal value) => WriteDecimal<IBufferWriter<byte>>(writer, value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static decimal ReadDecimal(ref SequenceReader<byte> reader)
+        {
+            Span<int> bits = stackalloc int[4];
+            Span<byte> temp = stackalloc byte[16];
+            if (reader.UnreadSpan.Length >= 16)
+            {
+                bits[0] = BinaryPrimitives.ReadInt32LittleEndian(reader.UnreadSpan);
+                bits[1] = BinaryPrimitives.ReadInt32LittleEndian(reader.UnreadSpan.Slice(4));
+                bits[2] = BinaryPrimitives.ReadInt32LittleEndian(reader.UnreadSpan.Slice(8));
+                bits[3] = BinaryPrimitives.ReadInt32LittleEndian(reader.UnreadSpan.Slice(12));
+                reader.Advance(16);
+            }
+            else
+            {
+                if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+                reader.Advance(16);
+                bits[0] = BinaryPrimitives.ReadInt32LittleEndian(temp);
+                bits[1] = BinaryPrimitives.ReadInt32LittleEndian(temp.Slice(4));
+                bits[2] = BinaryPrimitives.ReadInt32LittleEndian(temp.Slice(8));
+                bits[3] = BinaryPrimitives.ReadInt32LittleEndian(temp.Slice(12));
+            }
+            return new decimal(bits);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

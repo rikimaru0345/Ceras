@@ -161,6 +161,11 @@ namespace Ceras.Format
                     return DateTime.FromBinary(SerializerBinary.ReadInt64Fixed(ref reader));
                 case WellKnownTypes.TimeSpan:
                     return new TimeSpan(SerializerBinary.ReadInt64Fixed(ref reader));
+                case WellKnownTypes.DateTimeOffset:
+                    // Matches DateTimeOffsetFormatter / SerializerBinary: ticks then offset minutes.
+                    return new DateTimeOffset(
+                        SerializerBinary.ReadInt64Fixed(ref reader),
+                        TimeSpan.FromMinutes(SerializerBinary.ReadInt16Fixed(ref reader)));
                 case WellKnownTypes.Guid:
                 {
                     byte[] b = new byte[16];

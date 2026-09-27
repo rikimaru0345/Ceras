@@ -29,6 +29,7 @@
 
             [typeof(float)] = new FloatFormatter(),
             [typeof(double)] = new DoubleFormatter(),
+            [typeof(decimal)] = new DecimalFormatter(),
 
             [typeof(IntPtr)] = new IntPtrFormatter(),
             [typeof(UIntPtr)] = new UIntPtrFormatter(),

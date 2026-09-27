@@ -320,11 +320,13 @@ namespace Ceras.SourceGenerator {
 				case SpecialType.System_Int64: return "WriteInt64Fixed";
 				case SpecialType.System_UInt64: return "WriteUInt64Fixed";
 				case SpecialType.System_Double: return "WriteDouble64Fixed";
+				case SpecialType.System_Decimal: return "WriteDecimal";
 			}
 			string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 			if (fqn == "global::System.Guid") return "WriteGuid";
 			if (fqn == "global::System.DateTime") return "WriteDateTime";
 			if (fqn == "global::System.TimeSpan") return "WriteTimeSpan";
+			if (fqn == "global::System.DateTimeOffset") return "WriteDateTimeOffset";
 			throw new NotSupportedException();
 		}
 
@@ -346,11 +348,13 @@ namespace Ceras.SourceGenerator {
 				case SpecialType.System_Int64: readMethod = "ReadInt64Fixed"; break;
 				case SpecialType.System_UInt64: readMethod = "ReadUInt64Fixed"; break;
 				case SpecialType.System_Double: readMethod = "ReadDouble64Fixed"; break;
+				case SpecialType.System_Decimal: readMethod = "ReadDecimal"; break;
 				default:
 					string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 					if (fqn == "global::System.Guid") readMethod = "ReadGuid";
 					else if (fqn == "global::System.DateTime") readMethod = "ReadDateTime";
 					else if (fqn == "global::System.TimeSpan") readMethod = "ReadTimeSpan";
+					else if (fqn == "global::System.DateTimeOffset") readMethod = "ReadDateTimeOffset";
 					else throw new NotSupportedException();
 					break;
 			}
@@ -431,9 +435,11 @@ namespace Ceras.SourceGenerator {
 				case SpecialType.System_Int64: return "global::Ceras.Formatters.Int64Formatter";
 				case SpecialType.System_UInt64: return "global::Ceras.Formatters.UInt64Formatter";
 				case SpecialType.System_Double: return "global::Ceras.Formatters.DoubleFormatter";
+				case SpecialType.System_Decimal: return "global::Ceras.Formatters.DecimalFormatter";
 				case SpecialType.System_String: return "global::Ceras.Formatters.IFormatter<string>";
 			}
 			if (typeFqn == "global::System.DateTime") return "global::Ceras.Formatters.DateTimeFormatter";
+			if (typeFqn == "global::System.DateTimeOffset") return "global::Ceras.Formatters.DateTimeOffsetFormatter";
 			if (typeFqn == "global::System.TimeSpan") return "global::Ceras.Formatters.TimeSpanFormatter";
 			if (typeFqn == "global::System.Guid") return "global::Ceras.Formatters.GuidFormatter";
 			// System.Type is written inline by the robust type formatter (it replaces BOTH the specific
@@ -669,6 +675,7 @@ namespace Ceras.SourceGenerator {
 				if (named.TypeKind == TypeKind.Enum && named.EnumUnderlyingType != null) return ComputeFixedByteSize(named.EnumUnderlyingType);
 				string clrName = named.ToDisplayString(SortKeyFormat);
 				if (clrName == "System.DateTime") return 8;
+				if (clrName == "System.DateTimeOffset") return 10;
 				if (clrName == "System.TimeSpan") return 8;
 				if (clrName == "System.Guid") return 16;
 				// A user struct is only "fixed size" if every one of its own fields is a fixed-width

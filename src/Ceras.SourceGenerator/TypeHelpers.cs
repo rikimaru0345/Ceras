@@ -102,10 +102,11 @@ namespace Ceras.SourceGenerator {
 				case SpecialType.System_Int64:
 				case SpecialType.System_UInt64:
 				case SpecialType.System_Double:
+				case SpecialType.System_Decimal:
 					return true;
 			}
 			string fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-			return fqn == "global::System.Guid" || fqn == "global::System.DateTime" || fqn == "global::System.TimeSpan";
+			return fqn == "global::System.Guid" || fqn == "global::System.DateTime" || fqn == "global::System.TimeSpan" || fqn == "global::System.DateTimeOffset";
 		}
 
 		public static bool IsWellKnownType(ITypeSymbol type) {

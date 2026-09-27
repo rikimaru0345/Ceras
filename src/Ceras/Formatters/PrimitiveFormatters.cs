@@ -134,6 +134,24 @@ namespace Ceras.Formatters
         }
     }
 
+    /// <summary>
+    /// Fixed 16-byte decimal formatter. Both the robust generated reader and the migration interpreter
+    /// encode a decimal as its four <see cref="decimal.GetBits(decimal)"/> words (lo, mid, hi, flags)
+    /// little-endian, matching <see cref="Ceras.Format.WellKnownTypes.Decimal"/> (TODO 0.5 item 5).
+    /// </summary>
+    public sealed class DecimalFormatter : FormatterBase<decimal>
+    {
+        public override void Serialize(IBufferWriter<byte> writer, decimal value)
+        {
+            SerializerBinary.WriteDecimal(writer, value);
+        }
+
+        public override void Deserialize(ref SequenceReader<byte> reader, ref decimal value)
+        {
+            value = SerializerBinary.ReadDecimal(ref reader);
+        }
+    }
+
     public sealed class Int64Formatter : FormatterBase<long>
     {
         public override void Serialize(IBufferWriter<byte> writer, long value)

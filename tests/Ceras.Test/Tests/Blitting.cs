@@ -115,6 +115,7 @@ namespace Ceras.Test
 
             typeof(FloatFormatter),
             typeof(DoubleFormatter),
+            typeof(DecimalFormatter),
         };
 
 

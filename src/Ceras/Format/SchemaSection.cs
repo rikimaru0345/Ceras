@@ -330,6 +330,7 @@ namespace Ceras.Format
                 "System.String"   => WellKnownTypes.String,
                 "System.Object"   => WellKnownTypes.Object,
                 "System.DateTime" => WellKnownTypes.DateTime,
+                "System.DateTimeOffset" => WellKnownTypes.DateTimeOffset,
                 "System.TimeSpan" => WellKnownTypes.TimeSpan,
                 "System.Guid"     => WellKnownTypes.Guid,
                 "System.Type"     => WellKnownTypes.Type,
