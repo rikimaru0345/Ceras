@@ -62,13 +62,6 @@ claiming migration coverage. The fixtures in `fixtures/Ceras.HistoricalWriter` a
 in; reader tests must not reference the historical writer assembly. Do not infer
 cross-version compatibility from a fingerprint flip or a same-version roundtrip.
 
-- **Serialize callbacks in robust generated format.** `[OnBeforeSerialize]` and
-  `[OnAfterSerialize]` are currently ignored there, although raw mode honors them and
-  the public attribute promises invocation. Emit them around member writes with the
-  existing callback/access conventions; accept parameterless or `CerasSerializer`
-  signatures, but diagnose `MigrationContext` on Save (there is no migration).
-  Cover order, private/generic access, serializer argument, nested operations, and
-  generated versus raw behavior. Never silently ignore an unsupported signature.
 - **Banned members must not disappear silently.** A serializable type with an
   `Action`/delegate or other banned member currently saves it as an implicit omission;
   even configuring a custom formatter does not rescue that member. **Decision:** an
@@ -94,6 +87,15 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   type id and can return null without consuming the collection. Reproduced for
   `List<int>` and `Queue<int>`; test with a trailing field and matching-layout
   control, then align the interpreter with the writer's real type-value grammar.
+  The tag space already distinguishes well-known Type values from manifest ids, so
+  no format change is required. **Decision:** decode recursive nested Type values
+  (`List<List<int>>`, jagged arrays, etc.) now, not a temporary reject.
+- **Renamed open generic aliases miss closed file identities.** `[PreviousTypeName]`
+  on an open generic is registered verbatim, e.g. `Old.Box`1`, but a file names its
+  closed type `Old.Box`1<System.Int32>`; the alias never matches and an old save
+  cannot load even when the generic's shape migrates. Expand the alias for each
+  closed instantiation or match open aliases structurally, with a version-separated
+  test and no loose text-prefix matching of unrelated generic definitions.
 - **Enum stable-name migration.** Confirmed silent wrong value on rename/renumber:
   generated and declared enum schemas record the C# name rather than the wire
   `[CerasStableName]`, while migration matches that attribute. Emit the stable wire
