@@ -88,6 +88,17 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   matching-layout collection formatter still calls `Activator.CreateInstance` without
   arguments. Either support the admitted shape on both paths or reject it at bake time
   with a useful diagnostic; pin the same type through both reader paths.
+- **Verify newly surfaced layout mismatches before release.** Pin regressions for a
+  removed boolean collection element on the migration path (`WellKnownTypes` currently
+  reports bool width 0), enum members with `[CerasStableName]` (generated schema uses
+  `field.Name` while migration honors stable names), and generator discovery of an
+  unsupported `System.*` member (generator treats the namespace as well-known while
+  runtime has a finite list). Correct confirmed cases without changing good payload
+  bytes or silently admitting arbitrary BCL types.
+- **Custom formatter/schema mismatch on migration.** Investigate whether overriding a
+  generated formatter can leave a structural schema in the file while writing opaque
+  bytes. If reproducible, fail actionably when skipping/upgrading an unframed custom
+  payload; custom bytes have no automatic migration guarantee and framing is deferred.
 - **Dead branches (former 0.8.13).** Remove the always-true include guard in
   `MemberExplorer`, the unreachable reflective `CollectionFormatter` branch, and
   stale `WellKnownTypes` width comments where still present; validate behavior before
