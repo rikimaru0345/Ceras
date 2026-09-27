@@ -359,11 +359,29 @@ namespace Ceras.Format
                     a.Info.StableName, b.Info.StableName, StringComparison.Ordinal));
 
                 uint h1 = 0, h2 = 0x9e3779b9u;
+
+                // The wire format version is part of the contract: identical logical layouts must not
+                // fingerprint the same across incompatible formats (TODO Phase 3.3).
+                h1 = Combine(h1, (uint)CerasRobustSerializer.FormatVersion);
+
                 foreach (var entry in sorted)
                 {
                     var info = entry.Info;
                     h1 = Combine(h1, Hash(info.StableName));
                     h2 = Combine(h2, (uint)info.Kind);
+
+                    // Enum underlying type / generic definition. Part of the value representation.
+                    h1 = Combine(h1, Hash(info.UnderlyingTypeName));
+
+                    // Generic instantiations encode their ordered argument identities explicitly.
+                    if (info.ArgTypeNames != null)
+                    {
+                        foreach (var argTypeName in info.ArgTypeNames)
+                            h1 = Combine(h1, Hash(argTypeName));
+                    }
+
+                    // Fixed vs variable size changes how the payload is read and skipped.
+                    h2 = Combine(h2, (uint)info.FixedByteSize);
 
 					if (info.Fields != null)
                     {
@@ -371,6 +389,8 @@ namespace Ceras.Format
                         {
                             h1 = Combine(h1, Hash(f.StableName));
                             h2 = Combine(h2, Hash(f.TypeName));
+                            // Monomorphism decides whether per-element type tags are present.
+                            h2 = Combine(h2, f.IsMonomorphic ? 1u : 0u);
                         }
                     }
 
