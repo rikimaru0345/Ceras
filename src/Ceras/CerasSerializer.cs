@@ -189,10 +189,28 @@ namespace Ceras
 			try
 			{
 				GetFormatter<T>().Serialize(writer, obj);
+			}
+			finally
+			{
+				// The reference caches are per-operation state, and clearing them belongs in the
+				// `finally`, not after the write. A formatter that refuses part of a graph (a
+				// multidimensional array in a robust polymorphic slot, a banned runtime value, an
+				// unregistered polymorphic type, a user formatter that throws) aborted the operation with
+				// every object written before the failure still registered, and the *next* operation on
+				// this serializer inherited them: a shared object then serialized as a bare
+				// back-reference to an id the reader was never given, so that save was produced
+				// successfully and could not be read. Refusing loudly is only safe if the refusal also
+				// leaves the serializer reusable.
+				//
+				// This is the *outermost* operation's InstanceData; a nested operation (a callback that
+				// saves) rented its own and is cleared by its own `finally` before being returned to the
+				// pool, exactly as on the success path. `LeaveRecursive` is still last, so the caches are
+				// cleared while this operation's InstanceData is the current one.
 				InstanceData.TypeCache.ResetSerializationCache();
 				InstanceData.ObjectCache.ClearSerializationCache();
+				InstanceData.EncounteredSchemaTypes.Clear();
+				LeaveRecursive(RecursionMode.Serialization);
 			}
-			finally { InstanceData.EncounteredSchemaTypes.Clear(); LeaveRecursive(RecursionMode.Serialization); }
 		}
 
 		[return: MaybeNull]
@@ -216,11 +234,19 @@ namespace Ceras
 				InstanceData.DeserializeCallbacks = null!;
 				GetFormatter<T>().Deserialize(ref reader, ref value);
 				FlushDeserializeCallbacks();
+			}
+			finally
+			{
+				// Same reason as Serialize: the deserialization caches are per-operation state, and a
+				// load that threw part-way through used to leave them populated for the next one. The
+				// deferred callbacks are dropped on the failure path too, which the old `finally` already
+				// did, so a half-read graph is never handed to [OnAfterDeserialize] code.
 				InstanceData.TypeCache.ResetDeserializationCache();
 				InstanceData.ObjectCache.ClearDeserializationCache();
 				InstanceData.EncounteredSchemaTypes.Clear();
+				InstanceData.DeserializeCallbacks = null!;
+				LeaveRecursive(RecursionMode.Deserialization);
 			}
-			finally { InstanceData.DeserializeCallbacks = null!; LeaveRecursive(RecursionMode.Deserialization); }
 		}
 
 		public void SetCurrentObject(object value)

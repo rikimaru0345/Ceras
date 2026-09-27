@@ -51,6 +51,19 @@ namespace Ceras.Format
             // Arrays
             if (value.IsArray)
             {
+                // A rank > 1 array is refused, here and in the reference wrapper that wrote this tag
+                // (both refuse the same value; an array is never a banned shape, so the two checks do not
+                // overlap). The array form of a type value is (Array marker, element type) and carries
+                // nothing else — no rank, no dimensions — and Deserialize below rebuilds it with
+                // MakeArrayType(), which is always rank 1. Writing one here is therefore not merely
+                // described imprecisely: it is read back as a one-dimensional array over the same
+                // flattened elements, and the save itself succeeds. Nothing downstream can tell that
+                // apart from the array the user meant, so the shape is refused before the marker or any
+                // byte of the value behind it is written.
+                if (MultidimensionalArrayGuard.IsMultidimensional(value))
+                    throw MultidimensionalArrayGuard.Reject(
+                        value, "a polymorphic slot or a System.Type value", MultidimensionalArrayGuard.TypeValueReason);
+
                 SchemaSection.WriteLeb128(writer, (uint)WellKnownTypes.Array);
                 Serialize(writer, value.GetElementType());
                 return;
