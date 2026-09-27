@@ -61,7 +61,16 @@ namespace Ceras.SourceGenerator
         // Emission
         // ------------------------------------------------------------------
 
-        public void EmitDeclarations(StringBuilder sb)
+        public void EmitDeclarations(StringBuilder sb) => EmitDeclarations(sb, sb);
+
+        /// <summary>
+        /// Emits accessor declarations. Non-generic accessors go into <paramref name="sb"/> (inside
+        /// the formatter class); generic helper classes go into <paramref name="genericSink"/>.
+        /// Generic helpers must live at namespace scope when the formatter itself is generic,
+        /// otherwise the nested helper's type parameters shadow the outer formatter's and the
+        /// runtime's generic signature match fails.
+        /// </summary>
+        public void EmitDeclarations(StringBuilder sb, StringBuilder genericSink)
         {
             // Group members that need an accessor by the generic definition of their declaring type.
             var groups = new Dictionary<INamedTypeSymbol, List<SerializedMember>>(SymbolEqualityComparer.Default);
@@ -101,7 +110,7 @@ namespace Ceras.SourceGenerator
                         ReportUnsupported(def, "its declaring type is a generic type that generated code cannot name");
                         continue;
                     }
-                    EmitGenericHelper(sb, def, groups[def], hasCtor);
+                    EmitGenericHelper(genericSink, def, groups[def], hasCtor);
                 }
                 else if (!accessible)
                 {
@@ -353,6 +362,18 @@ namespace Ceras.SourceGenerator
             args.AddRange(t.TypeArguments);
         }
 
+        /// <summary>All type parameters in scope for a (possibly nested) type, outermost first.</summary>
+        public static List<ITypeParameterSymbol> GetAllTypeParameters(INamedTypeSymbol t)
+        {
+            var ps = new List<ITypeParameterSymbol>();
+            var args = new List<ITypeSymbol>();
+            CollectTypeParamsAndArgs(t, ps, args);
+            return ps;
+        }
+
+        /// <summary>Ordered type-argument list (e.g. <c>&lt;int, string&gt;</c>) for a constructed type.</summary>
+        public static string TypeArgsListPublic(INamedTypeSymbol constructed) => TypeArgsList(constructed);
+
         static string TypeArgsList(INamedTypeSymbol constructed)
         {
             var ps = new List<ITypeParameterSymbol>();
@@ -360,6 +381,8 @@ namespace Ceras.SourceGenerator
             CollectTypeParamsAndArgs(constructed, ps, args);
             return "<" + string.Join(", ", args.Select(a => a.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))) + ">";
         }
+
+        public static string EmitConstraintClausesPublic(List<ITypeParameterSymbol> ps) => EmitConstraintClauses(ps);
 
         static string EmitConstraintClauses(List<ITypeParameterSymbol> ps)
         {

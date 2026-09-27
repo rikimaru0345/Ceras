@@ -207,7 +207,7 @@ namespace Ceras.SourceGenerator {
 		/// "initiallyPaid" flag): the value is not stored in the save, so we pass the parameter's own
 		/// declared default. The constructor body still runs, and all real state is assigned afterwards.
 		/// </summary>
-		static string FormatDefaultArgument(IParameterSymbol p) {
+		public static string FormatDefaultArgument(IParameterSymbol p) {
 			string typeFqn = p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
 			if (!p.HasExplicitDefaultValue)
@@ -246,7 +246,7 @@ namespace Ceras.SourceGenerator {
 			}
 		}
 
-		static string GetPrimitiveWriteMethod(ITypeSymbol type) {
+		public static string GetPrimitiveWriteMethod(ITypeSymbol type) {
 			switch (type.SpecialType) {
 				case SpecialType.System_Boolean: return "WriteByte";
 				case SpecialType.System_Byte: return "WriteByte";
@@ -268,7 +268,7 @@ namespace Ceras.SourceGenerator {
 			throw new NotSupportedException();
 		}
 
-		static string GetPrimitiveReadExpression(ITypeSymbol type, string readerName) {
+		public static string GetPrimitiveReadExpression(ITypeSymbol type, string readerName) {
 			string readMethod;
 			string prefix = "";
 			string suffix = "";
@@ -375,6 +375,18 @@ namespace Ceras.SourceGenerator {
 		}
 
 		static void WriteSchemaDescriptor(StringBuilder sb, INamedTypeSymbol type, List<SerializedMember> members, AttributeBag attrs) {
+			sb.AppendLine($"        internal static readonly global::Ceras.Format.SchemaTypeInfo Schema =");
+			sb.Append(BuildSchemaExpression(type, members, attrs));
+			sb.AppendLine(";");
+			sb.AppendLine();
+		}
+
+		/// <summary>
+		/// Builds the <c>new SchemaTypeInfo(...)</c> expression for a (closed) type. Used both as the
+		/// static field of a non-generic formatter and as the static field of a per-closed generic
+		/// subclass (Phase 2.4).
+		/// </summary>
+		public static string BuildSchemaExpression(INamedTypeSymbol type, List<SerializedMember> members, AttributeBag attrs) {
 			string stableTypeName = GetStableTypeName(type, attrs.CerasSerializable);
 			var prevTypeNames = new List<string>();
 			if (attrs.PreviousTypeName != null) {
@@ -386,7 +398,8 @@ namespace Ceras.SourceGenerator {
 			string? underlyingTypeFqn = type.TypeKind == TypeKind.Enum ? type.EnumUnderlyingType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) : null;
 			int fixedSize = ComputeFixedByteSize(type);
 
-			sb.AppendLine($"        internal static readonly global::Ceras.Format.SchemaTypeInfo Schema =");
+			var sb = new StringBuilder();
+			sb.AppendLine();
 			sb.AppendLine($"            new global::Ceras.Format.SchemaTypeInfo(");
 			sb.AppendLine($"                stableName: {QuoteString(stableTypeName)},");
 			sb.Append($"                previousTypeNames: ");
@@ -418,8 +431,8 @@ namespace Ceras.SourceGenerator {
 				sb.AppendLine($"                enumValues: null,");
 				sb.AppendLine($"                underlyingTypeName: null");
 			}
-			sb.AppendLine($"            );");
-			sb.AppendLine();
+			sb.Append($"            )");
+			return sb.ToString();
 		}
 
 		public static string GetStableTypeName(INamedTypeSymbol type, INamedTypeSymbol? cerasSerializableAttr) {
