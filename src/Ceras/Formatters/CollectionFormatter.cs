@@ -234,7 +234,23 @@ namespace Ceras.Formatters
                 if (proxy != null && proxy.ProxyType.IsAssignableFrom(typeof(TCollection)))
                     proxy.SetObjectValue(value);
             }
-            else _clearMethod?.Invoke(value);
+            else if (_clearMethod != null)
+            {
+                _clearMethod(value);
+            }
+            else
+            {
+                // No usable clear operation: never silently append. Fall back to fresh construction
+                // (which is always available for a concrete collection) and re-register the identity.
+                value = _capacityConstructor(itemCount);
+                if (value == null)
+                    throw new Ceras.Exceptions.CerasException(
+                        $"The collection type '{typeof(TCollection).FriendlyName()}' has no usable Clear method and could not be constructed fresh; Ceras cannot reuse it in place.");
+
+                var proxy = _ceras.InstanceData.CurrentProxy;
+                if (proxy != null && proxy.ProxyType.IsAssignableFrom(typeof(TCollection)))
+                    proxy.SetObjectValue(value);
+            }
 
             var f = _itemFormatter;
             if (_addMethod == null) throw new Ceras.Exceptions.CerasException($"The collection type '{typeof(TCollection).FriendlyName()}' is not supported because no suitable 'Add' method was found.");

@@ -352,6 +352,11 @@ namespace Ceras.Format
             _plans.TryGetValue(oldSchema.StableName, out var plan);
             Type currentType = plan?.CurrentType ?? targetType;
 
+            // Reuse is only valid for an exact runtime-type match; a subtype/supertype mismatch must
+            // allocate a new instance (matching the generated reference wrapper).
+            if (existingObject != null && !IsExactType(existingObject, currentType))
+                existingObject = null;
+
             if (oldSchema.Kind == SchemaTypeKind.Struct || (currentType != null && currentType.IsValueType))
             {
                 object structObj = existingObject ?? CreateInstance(currentType);
@@ -395,6 +400,37 @@ namespace Ceras.Format
         }
 
 
+        static bool IsExactType(object obj, Type type) => type != null && obj.GetType() == type;
+
+        /// <summary>
+        /// Reuses <paramref name="existingObject"/> in place when it is the exact target type and has a
+        /// usable clear method; otherwise constructs a fresh collection. Never silently appends to a
+        /// collection that cannot be cleared.
+        /// </summary>
+        object ReuseCollection(object existingObject, Type targetType, string clearMethodName, string kind)
+        {
+            if (existingObject != null && IsExactType(existingObject, targetType))
+            {
+                var clear = targetType.GetMethod(clearMethodName, BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                if (clear != null)
+                {
+                    clear.Invoke(existingObject, null);
+                    return existingObject;
+                }
+            }
+
+            try
+            {
+                return Activator.CreateInstance(targetType);
+            }
+            catch (Exception e)
+            {
+                throw new Ceras.Exceptions.CerasException(
+                    $"The {kind} collection type '{targetType?.FullName}' has no usable '{clearMethodName}' method and could not be constructed fresh; " +
+                    "Ceras cannot reuse it in place.", e);
+            }
+        }
+
         object CreateInstance(Type type)
         {
             if (type == null) return null;
@@ -425,6 +461,9 @@ namespace Ceras.Format
             // Arbitrary generic class or struct
             _plans.TryGetValue(oldSchema.StableName, out var plan);
             Type currentType = plan?.CurrentType ?? targetType;
+
+            if (existingObject != null && !IsExactType(existingObject, currentType))
+                existingObject = null;
 
             if (currentType != null && currentType.IsValueType)
             {
@@ -523,8 +562,8 @@ namespace Ceras.Format
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
-            var arr = (Array)existingObject;
-            if (arr == null || arr.Length != count)
+            var arr = existingObject as Array;
+            if (arr == null || arr.Length != count || (targetType != null && arr.GetType() != targetType))
                 arr = Array.CreateInstance(elementType, (int)count);
 
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = arr;
@@ -550,7 +589,9 @@ namespace Ceras.Format
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
-            var list = (System.Collections.IList)existingObject;
+            var list = existingObject as System.Collections.IList;
+            if (list != null && targetType != null && existingObject.GetType() != targetType)
+                list = null;
             if (list == null)
                 list = (System.Collections.IList)Activator.CreateInstance(targetType);
             else
@@ -586,7 +627,9 @@ namespace Ceras.Format
                 return null;
             }
 
-            var dict = (System.Collections.IDictionary)existingObject;
+            var dict = existingObject as System.Collections.IDictionary;
+            if (dict != null && targetType != null && existingObject.GetType() != targetType)
+                dict = null;
             if (dict == null)
                 dict = (System.Collections.IDictionary)Activator.CreateInstance(targetType);
             else
@@ -617,11 +660,7 @@ namespace Ceras.Format
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
-            var set = existingObject;
-            if (set == null)
-                set = Activator.CreateInstance(targetType);
-            else
-                targetType.GetMethod("Clear").Invoke(set, null);
+            var set = ReuseCollection(existingObject, targetType, "Clear", "set");
 
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = set;
             else _objectCache.Add(set);
@@ -647,11 +686,7 @@ namespace Ceras.Format
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
-            var queue = existingObject;
-            if (queue == null)
-                queue = Activator.CreateInstance(targetType);
-            else
-                targetType.GetMethod("Clear").Invoke(queue, null);
+            var queue = ReuseCollection(existingObject, targetType, "Clear", "queue");
 
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = queue;
             else _objectCache.Add(queue);
@@ -686,11 +721,7 @@ namespace Ceras.Format
                 values[i] = Coerce(val, coerce, elementType);
             }
 
-            var stack = existingObject;
-            if (stack == null)
-                stack = Activator.CreateInstance(targetType);
-            else
-                targetType.GetMethod("Clear").Invoke(stack, null);
+            var stack = ReuseCollection(existingObject, targetType, "Clear", "stack");
 
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = stack;
             else _objectCache.Add(stack);
@@ -902,7 +933,28 @@ namespace Ceras.Format
                 }
                 else
                 {
-                    object value = ReadValue(mapping.OldField.TypeId, mapping.NewField.FieldType, ref reader);
+                    // Seed a reference-typed member from its current value so Load(ref existing) reuses
+                    // it in place, exactly like the generated reader does. Value types always overwrite.
+                    object existing = null;
+                    if (target != null && !mapping.NewField.FieldType.IsValueType)
+                        existing = mapping.NewField.GetValue(target);
+
+                    // An array-typed member is written by ArrayFormatter with no reference marker (the
+                    // declared type is exactly an array), so it must be read through the structural
+                    // array reader instead of the polymorphic path.
+                    object value;
+                    if (mapping.NewField.FieldType.IsArray &&
+                        _oldById.TryGetValue(mapping.OldField.TypeId, out var fieldSchema) &&
+                        fieldSchema.Kind == SchemaTypeKind.GenericInstantiation &&
+                        fieldSchema.DefinitionTypeId == WellKnownTypes.Array)
+                    {
+                        value = ReadUserTypeDirect(mapping.OldField.TypeId, mapping.NewField.FieldType, ref reader, null, existing);
+                    }
+                    else
+                    {
+                        value = ReadValue(mapping.OldField.TypeId, mapping.NewField.FieldType, ref reader, existing);
+                    }
+
                     if (target != null) {
                         var coerced = Coerce(value, mapping.Coercion, mapping.NewField.FieldType);
                         mapping.NewField.SetValue(target, coerced);
