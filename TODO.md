@@ -90,12 +90,26 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   The tag space already distinguishes well-known Type values from manifest ids, so
   no format change is required. **Decision:** decode recursive nested Type values
   (`List<List<int>>`, jagged arrays, etc.) now, not a temporary reject.
+- **Polymorphic multidimensional arrays are rank-blind.** `object` containing
+  `int[,]` can decode as `int[]` and corrupt a following field even on the same
+  build: the Type-value tag records only the element type. **Decision:** reject
+  rank > 1 arrays before robust Save with an actionable error; keep raw format
+  behavior. Record rank and support these polymorphic shapes only with a reviewed
+  representation/format change in Milestone 1.
 - **Renamed open generic aliases miss closed file identities.** `[PreviousTypeName]`
   on an open generic is registered verbatim, e.g. `Old.Box`1`, but a file names its
   closed type `Old.Box`1<System.Int32>`; the alias never matches and an old save
   cannot load even when the generic's shape migrates. Expand the alias for each
   closed instantiation or match open aliases structurally, with a version-separated
   test and no loose text-prefix matching of unrelated generic definitions.
+- **Closed generic schema member order differs from payload order.** A shared
+  open-definition formatter writes members in order of their declared generic types,
+  while some closed schema entries re-sort after substituting type arguments;
+  migration can silently populate the wrong field (e.g. `Wrap<T> { T Value; int Tag; }`).
+  There are no old files to preserve. **Decision:** keep the shared writer and make
+  every closed schema report its actual emitted order, with a cross-version test and
+  matching-layout control; do not emit per-closure writers or teach the reader to
+  reinterpret a lying schema.
 - **System-namespace discovery.** Confirmed: user-defined `System.*` types are
   wrongly skipped by the generator; framework types such as Uri, Version and
   BigInteger are admitted at compile time but rejected at the first robust Save
