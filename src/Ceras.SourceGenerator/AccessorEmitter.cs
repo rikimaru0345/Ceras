@@ -173,7 +173,7 @@ namespace Ceras.SourceGenerator
                 return;
             }
 
-            string attr = $"[global::System.Runtime.CompilerServices.UnsafeAccessorType({QuoteString(GetMetadataTypeName(decl))})] ";
+            string attr = $"[global::System.Runtime.CompilerServices.UnsafeAccessorType({QuoteLiteral(GetMetadataTypeName(decl))})] ";
             string recvDecl = attr + "object";
 
             if (hasCtor)
@@ -218,7 +218,7 @@ namespace Ceras.SourceGenerator
             foreach (var cb in callbacks)
             {
                 string args = cb.HasArgument ? ", " + cb.ArgumentTypeFqn + " arg" : "";
-                sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = {QuoteString(cb.Method.Name)})]");
+                sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = {QuoteLiteral(cb.Method.Name)})]");
                 sb.AppendLine($"        internal static extern void {CallbackAccessorName(cb)}({recvDecl} instance{args});");
                 sb.AppendLine();
             }
@@ -240,7 +240,7 @@ namespace Ceras.SourceGenerator
 
             if (m.IsField)
             {
-                sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = {QuoteString(m.Name)})]");
+                sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = {QuoteLiteral(m.Name)})]");
                 sb.AppendLine($"        internal static extern ref {memberType} {methodBase}_ref({recvDecl} instance);");
                 sb.AppendLine();
             }
@@ -248,13 +248,13 @@ namespace Ceras.SourceGenerator
             {
                 if ((req & AccessHelperRequirement.Read) != 0)
                 {
-                    sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = {QuoteString("get_" + m.Name)})]");
+                    sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = {QuoteLiteral("get_" + m.Name)})]");
                     sb.AppendLine($"        internal static extern {memberType} {methodBase}_get({recvDecl} instance);");
                     sb.AppendLine();
                 }
                 if ((req & AccessHelperRequirement.Write) != 0)
                 {
-                    sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = {QuoteString("set_" + m.Name)})]");
+                    sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = {QuoteLiteral("set_" + m.Name)})]");
                     sb.AppendLine($"        internal static extern void {methodBase}_set({recvDecl} instance, {memberType} value);");
                     sb.AppendLine();
                 }
@@ -273,7 +273,7 @@ namespace Ceras.SourceGenerator
                 {
                     if (_hasUnsafeAccessorType)
                     {
-                        parts.Add($"[global::System.Runtime.CompilerServices.UnsafeAccessorType({QuoteString(GetMetadataTypeName(p.Type))})] object {p.Name}");
+                        parts.Add($"[global::System.Runtime.CompilerServices.UnsafeAccessorType({QuoteLiteral(GetMetadataTypeName(p.Type))})] object {p.Name}");
                     }
                     else
                     {

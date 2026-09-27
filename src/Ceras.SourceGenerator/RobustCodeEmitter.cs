@@ -287,10 +287,15 @@ namespace Ceras.SourceGenerator {
 			 or SpecialType.System_UInt32
 			 or SpecialType.System_UInt64;
 
+		/// <summary>
+		/// Formats a compiler-provided constant (a <c>[CerasConstructor]</c> parameter's declared default)
+		/// as a C# literal. The string case goes through the one shared quoting primitive, because a
+		/// <c>string</c> default is author-controlled text just like an attribute argument.
+		/// </summary>
 		static string FormatLiteral(object value) {
 			switch (value) {
 				case bool b: return b ? "true" : "false";
-				case string s: return Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(s, quote: true);
+				case string s: return QuoteLiteral(s);
 				case char c: return Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(c, quote: true);
 				case float f:
 					if (float.IsNaN(f)) return "float.NaN";
@@ -578,6 +583,15 @@ namespace Ceras.SourceGenerator {
 		/// Builds the <c>new SchemaTypeInfo(...)</c> expression for a (closed) type. Used both as the
 		/// static field of a non-generic formatter and as the static field of a per-closed generic
 		/// subclass (Phase 2.4).
+		/// <para>
+		/// <see cref="stableTypeName"/>, <see cref="prevTypeNames"/>, each member's
+		/// <see cref="SerializedMember.StableName"/>/<see cref="SerializedMember.PreviousNames"/> and each
+		/// enum member's name are all arbitrary text the author wrote in an attribute (or, for the
+		/// canonical identities, text derived from a possibly-non-ASCII CLR name). They are emitted as
+		/// C# string literals, so every one of them must go through <see cref="TypeHelpers.QuoteLiteral"/>:
+		/// a <c>"</c>, <c>\</c>, newline or control character in an alias would otherwise produce broken
+		/// or silently-different generated C#.
+		/// </para>
 		/// </summary>
 		public static string BuildSchemaExpression(INamedTypeSymbol type, List<SerializedMember> members, AttributeBag attrs) {
 			string stableTypeName = GetStableTypeName(type, attrs.CerasSerializable);
@@ -594,7 +608,7 @@ namespace Ceras.SourceGenerator {
 			var sb = new StringBuilder();
 			sb.AppendLine();
 			sb.AppendLine($"            new global::Ceras.Format.SchemaTypeInfo(");
-			sb.AppendLine($"                stableName: {QuoteString(stableTypeName)},");
+			sb.AppendLine($"                stableName: {QuoteLiteral(stableTypeName)},");
 			sb.Append($"                previousTypeNames: ");
 			WriteStringArray(sb, prevTypeNames);
 			sb.AppendLine($",");
@@ -607,9 +621,9 @@ namespace Ceras.SourceGenerator {
 				// runtime-dependent. Must match Ceras.Format.TypeIdentity.GetCanonicalName exactly.
 				string fieldTypeName = GetRobustName(m.Type);
 				sb.Append($"                    new global::Ceras.Format.SchemaFieldInfo(");
-				sb.Append($"{QuoteString(m.StableName)}, ");
+				sb.Append($"{QuoteLiteral(m.StableName)}, ");
 				WriteStringArrayInline(sb, m.PreviousNames);
-				sb.Append($", {QuoteString(fieldTypeName)}, {(m.IsMonomorphic ? "true" : "false")}");
+				sb.Append($", {QuoteLiteral(fieldTypeName)}, {(m.IsMonomorphic ? "true" : "false")}");
 				sb.AppendLine($"),");
 			}
 			sb.AppendLine($"                }},");
@@ -629,10 +643,10 @@ namespace Ceras.SourceGenerator {
 						string bits = unsignedUnderlying
 							? $"unchecked((ulong)({literal}))"
 							: $"unchecked((ulong)(long)({literal}))";
-						sb.AppendLine($"                    new global::Ceras.Format.SchemaEnumValueInfo({QuoteString(field.Name)}, {bits}),");
+						sb.AppendLine($"                    new global::Ceras.Format.SchemaEnumValueInfo({QuoteLiteral(field.Name)}, {bits}),");
 					}
 				sb.AppendLine($"                }},");
-				sb.AppendLine($"                underlyingTypeName: {QuoteString(underlyingTypeName ?? "System.Int32")}");
+				sb.AppendLine($"                underlyingTypeName: {QuoteLiteral(underlyingTypeName ?? "System.Int32")}");
 			}
 			else {
 				sb.AppendLine($"                enumValues: null,");
@@ -658,21 +672,27 @@ namespace Ceras.SourceGenerator {
 		}
 
 
+		/// <summary>
+		/// Emits a <c>string[]</c> of user-written alias strings. Every element is author-controlled
+		/// ([PreviousTypeName] / [PreviousName] arguments) and is quoted through
+		/// <see cref="TypeHelpers.QuoteLiteral"/>.
+		/// </summary>
 		static void WriteStringArray(StringBuilder sb, List<string> strings) {
 			if (strings.Count == 0) { sb.Append("global::System.Array.Empty<string>()"); return; }
 			sb.Append("new string[] { ");
 			for (int i = 0; i < strings.Count; i++) {
-				sb.Append(QuoteString(strings[i]));
+				sb.Append(QuoteLiteral(strings[i]));
 				if (i < strings.Count - 1) sb.Append(", ");
 			}
 			sb.Append(" }");
 		}
 
+		/// <summary>As <see cref="WriteStringArray"/>, for the previous names of a single member.</summary>
 		static void WriteStringArrayInline(StringBuilder sb, string[] strings) {
 			if (strings == null || strings.Length == 0) { sb.Append("global::System.Array.Empty<string>()"); return; }
 			sb.Append("new string[] { ");
 			for (int i = 0; i < strings.Length; i++) {
-				sb.Append(QuoteString(strings[i]));
+				sb.Append(QuoteLiteral(strings[i]));
 				if (i < strings.Length - 1) sb.Append(", ");
 			}
 			sb.Append(" }");
