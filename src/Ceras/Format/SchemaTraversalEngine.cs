@@ -81,7 +81,7 @@ namespace Ceras.Format
                     if (_oldByName.ContainsKey(prev))
                         return prev;
             }
-			return t.FullName ?? t.Name;
+			return TypeIdentity.GetCanonicalName(t);
 		}
 
         // ── Core dispatch ─────────────────────────────────────────────────────

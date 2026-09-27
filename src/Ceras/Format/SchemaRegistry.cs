@@ -178,7 +178,7 @@ namespace Ceras.Format
             if (TryBuildStructuralSchema(type, out var structural))
                 return structural;
 
-            string typeName = type.FullName ?? type.Name;
+            string typeName = TypeIdentity.GetCanonicalName(type);
 
             if (type.IsEnum)
             {
@@ -198,7 +198,7 @@ namespace Ceras.Format
                     fields: null,
                     fixedByteSize: 0,
                     enumValues: enumValues,
-                    underlyingTypeName: Enum.GetUnderlyingType(type).FullName);
+                    underlyingTypeName: TypeIdentity.GetCanonicalName(Enum.GetUnderlyingType(type)));
             }
 
             return new SchemaTypeInfo(
@@ -220,14 +220,14 @@ namespace Ceras.Format
             {
                 var element = type.GetElementType();
                 info = new SchemaTypeInfo(
-                    stableName: type.FullName ?? type.Name,
+                    stableName: TypeIdentity.GetCanonicalName(type),
                     previousTypeNames: Array.Empty<string>(),
                     kind: SchemaTypeKind.GenericInstantiation,
                     fields: Array.Empty<SchemaFieldInfo>(),
                     fixedByteSize: 0,
                     enumValues: null,
-                    underlyingTypeName: typeof(Array).FullName,
-                    argTypeNames: new[] { element.FullName ?? element.Name });
+                    underlyingTypeName: TypeIdentity.GetCanonicalName(typeof(Array)),
+                    argTypeNames: new[] { TypeIdentity.GetCanonicalName(element) });
                 return true;
             }
 
@@ -236,16 +236,16 @@ namespace Ceras.Format
                 var def = type.GetGenericTypeDefinition();
                 var args = type.GetGenericArguments();
                 var argNames = new string[args.Length];
-                for (int i = 0; i < args.Length; i++) argNames[i] = args[i].FullName ?? args[i].Name;
+                for (int i = 0; i < args.Length; i++) argNames[i] = TypeIdentity.GetCanonicalName(args[i]);
 
                 info = new SchemaTypeInfo(
-                    stableName: type.FullName ?? type.Name,
+                    stableName: TypeIdentity.GetCanonicalName(type),
                     previousTypeNames: Array.Empty<string>(),
                     kind: SchemaTypeKind.GenericInstantiation,
                     fields: Array.Empty<SchemaFieldInfo>(),
                     fixedByteSize: 0,
                     enumValues: null,
-                    underlyingTypeName: def.FullName ?? def.Name,
+                    underlyingTypeName: TypeIdentity.GetCanonicalName(def),
                     argTypeNames: argNames);
                 return true;
             }
@@ -294,16 +294,23 @@ namespace Ceras.Format
 
             lock (_lock)
             {
+                // 1. Registered types are keyed by their canonical stable name. This covers generated
+                //    closed generics and (after bake) structural arrays/collections.
                 if (_byStableName.TryGetValue(stableName, out var e)) { type = e.Type; return true; }
 
-                // Assembly-qualified names (from field-type metadata) resolve directly.
+                // 2. Assembly-qualified CLR names resolve directly. This is the legacy/old-save shape
+                //    (Type.FullName for closed generics) and genuine external type names.
                 type = Type.GetType(stableName);
                 if (type != null) return true;
 
-                // Last resort: field-type metadata emitted by the generator uses Type.FullName, which
-                // is not assembly-qualified. A bounded scan of loaded assemblies is still required to
-                // resolve those (retiring this needs resolvable type identities from the generator;
-                // see TODO Phase 2.5 / review-later).
+                // 3. Canonical names of closed generics / arrays / pointers that are not registered yet
+                //    (e.g. a structural collection discovered while baking the schema). Definitions are
+                //    resolved from the framework or loaded assemblies.
+                if (TypeIdentity.TryParseCanonicalName(stableName, ResolveDefinitionNameLocked, out type))
+                    return true;
+
+                // 4. Last resort for genuinely-external/old names: an unqualified, non-canonical
+                //    Type.FullName or a definition name. Bounded scan of loaded assemblies.
                 foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
                 {
                     type = assembly.GetType(stableName);
@@ -313,6 +320,28 @@ namespace Ceras.Format
                 type = null;
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Resolves a generic/array element *definition* name (no arguments) to a <see cref="Type"/>
+        /// while <see cref="_lock"/> is held. Used only by canonical-name parsing on cold paths.
+        /// </summary>
+        Type ResolveDefinitionNameLocked(string definitionName)
+        {
+            if (string.IsNullOrEmpty(definitionName)) return null;
+
+            if (_byStableName.TryGetValue(definitionName, out var e)) return e.Type;
+
+            var type = Type.GetType(definitionName);
+            if (type != null) return type;
+
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                type = assembly.GetType(definitionName);
+                if (type != null) return type;
+            }
+
+            return null;
         }
 
         /// <summary>Enumerates all registered entries in registration order.</summary>

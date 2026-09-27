@@ -85,7 +85,9 @@ namespace Ceras.SourceGenerator {
 			switch (type) {
 				case IArrayTypeSymbol arr:
 					BuildRobustName(sb, arr.ElementType);
-					sb.Append("[]");
+					sb.Append('[');
+					for (int i = 1; i < arr.Rank; i++) sb.Append(',');
+					sb.Append(']');
 					return;
 				case IPointerTypeSymbol ptr:
 					BuildRobustName(sb, ptr.PointedAtType);

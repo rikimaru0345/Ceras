@@ -18,7 +18,7 @@ namespace Ceras.Test.Layout
     /// + argument type names), not by reflecting their CLR internals. This keeps BCL implementation
     /// details (e.g. Dictionary`2+Entry) out of the schema and out of save-time registry growth.
     /// </summary>
-    public class LayoutEncodingTests
+    public class LayoutEncodingTests : TestBase
     {
         static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
 
@@ -58,10 +58,12 @@ namespace Ceras.Test.Layout
             };
             var bytes = Generated().Save(model, 1);
 
-            var interp = Generated();
-            interp.Config.SchemaRegistry.InternalClear();
-            interp.Config.UseGeneratedFormatters();
-            var clone = interp.Load<CollectionFieldModel>(bytes, 1);
+            // Genuinely force the interpreter by invalidating the stored fingerprint. Re-registering
+            // the identical deterministic manifest would hit the fast path instead.
+            bytes[RobustHeader.FingerprintOffset] ^= 0xFF;
+            FixRobustChecksum(bytes);
+
+            var clone = Generated().Load<CollectionFieldModel>(bytes, 1);
 
             Assert.Equal(9, clone.Items[0]);
             Assert.Equal(8, clone.Map["k"][1]);

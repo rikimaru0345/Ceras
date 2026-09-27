@@ -395,7 +395,7 @@ namespace Ceras.SourceGenerator {
 						prevTypeNames.Add(ptn);
 			}
 			string kind = type.TypeKind == TypeKind.Enum ? "global::Ceras.Format.SchemaTypeKind.Enum" : (type.IsValueType ? "global::Ceras.Format.SchemaTypeKind.Struct" : "global::Ceras.Format.SchemaTypeKind.Class");
-			string? underlyingTypeFqn = type.TypeKind == TypeKind.Enum ? type.EnumUnderlyingType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) : null;
+			string? underlyingTypeName = type.TypeKind == TypeKind.Enum && type.EnumUnderlyingType != null ? GetRobustName(type.EnumUnderlyingType) : null;
 			int fixedSize = ComputeFixedByteSize(type);
 
 			var sb = new StringBuilder();
@@ -409,11 +409,14 @@ namespace Ceras.SourceGenerator {
 			sb.AppendLine($"                fields: new global::Ceras.Format.SchemaFieldInfo[]");
 			sb.AppendLine($"                {{");
 			foreach (var m in members) {
-				string typeFqn = m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+				// Canonical field-type identity (TODO Phase 2.3/3.3): never Type.FullName, which is
+				// assembly-version-qualified for closed generics and would make the fingerprint
+				// runtime-dependent. Must match Ceras.Format.TypeIdentity.GetCanonicalName exactly.
+				string fieldTypeName = GetRobustName(m.Type);
 				sb.Append($"                    new global::Ceras.Format.SchemaFieldInfo(");
 				sb.Append($"{QuoteString(m.StableName)}, ");
 				WriteStringArrayInline(sb, m.PreviousNames);
-				sb.Append($", typeof({typeFqn}).FullName, {(m.IsMonomorphic ? "true" : "false")}");
+				sb.Append($", {QuoteString(fieldTypeName)}, {(m.IsMonomorphic ? "true" : "false")}");
 				sb.AppendLine($"),");
 			}
 			sb.AppendLine($"                }},");
@@ -425,7 +428,7 @@ namespace Ceras.SourceGenerator {
 					if (member is IFieldSymbol field && field.HasConstantValue)
 						sb.AppendLine($"                    new global::Ceras.Format.SchemaEnumValueInfo({QuoteString(field.Name)}, {field.ConstantValue}),");
 				sb.AppendLine($"                }},");
-				sb.AppendLine($"                underlyingTypeName: typeof({underlyingTypeFqn ?? "int"}).FullName");
+				sb.AppendLine($"                underlyingTypeName: {QuoteString(underlyingTypeName ?? "System.Int32")}");
 			}
 			else {
 				sb.AppendLine($"                enumValues: null,");

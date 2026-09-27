@@ -143,7 +143,7 @@ namespace Ceras.Test.Accessors
         public OuterHost.Nested<string> S;
     }
 
-    public class AccessorConsolidationTests
+    public class AccessorConsolidationTests : TestBase
     {
         static CerasRobustSerializer Create() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
 
@@ -267,10 +267,12 @@ namespace Ceras.Test.Accessors
 
             var bytes = Create().Save(root, 1);
 
-            var interp = Create();
-            interp.Config.SchemaRegistry.InternalClear();
-            interp.Config.UseGeneratedFormatters();
-            var clone = interp.Load<AccessorRoot>(bytes, 1);
+            // Genuinely force the interpreter by invalidating the stored fingerprint. Re-registering
+            // the identical deterministic manifest would hit the fast path instead.
+            bytes[RobustHeader.FingerprintOffset] ^= 0xFF;
+            FixRobustChecksum(bytes);
+
+            var clone = Create().Load<AccessorRoot>(bytes, 1);
 
             Assert.Equal(42, clone.IntBox.Value);
             Assert.Equal("hello", clone.StrBox.Value);

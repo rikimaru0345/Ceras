@@ -37,7 +37,7 @@ namespace Ceras.Test.Reuse
     /// collections are cleared and refilled. The generated fast path must match the
     /// reflection/interpreter path for identity and content.
     /// </summary>
-    public class ReuseSemanticsTests
+    public class ReuseSemanticsTests : TestBase
     {
         static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
 
@@ -92,11 +92,12 @@ namespace Ceras.Test.Reuse
 
             // Force the interpreter path (fingerprint mismatch) over the same bytes. This is the
             // generated-reader vs SchemaTraversalEngine cross-check; a self-roundtrip cannot reveal a
-            // shared format mistake.
-            var interpreterSerializer = Generated();
-            interpreterSerializer.Config.SchemaRegistry.InternalClear();
-            interpreterSerializer.Config.UseGeneratedFormatters();
-            var interpreter = interpreterSerializer.Load<DiffRoot>(bytes, 1);
+            // shared format mistake. Mutating the stored fingerprint is required: re-registering the
+            // identical deterministic manifest would hit the fast path instead.
+            var interpBytes = (byte[])bytes.Clone();
+            interpBytes[RobustHeader.FingerprintOffset] ^= 0xFF;
+            FixRobustChecksum(interpBytes);
+            var interpreter = Generated().Load<DiffRoot>(interpBytes, 1);
 
             AssertEquivalent(generated);
             AssertEquivalent(interpreter);

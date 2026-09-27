@@ -232,8 +232,9 @@ namespace Ceras.Format
                     if (resolvedType == newFieldType) return true;
                 }
                 
-                // Unregistered type fallback
-                if (newFieldType.FullName == oldSchema.StableName) return true;
+                // Unregistered type fallback (canonical identity; legacy FullName too)
+                if (newFieldType.FullName == oldSchema.StableName ||
+                    TypeIdentity.GetCanonicalName(newFieldType) == oldSchema.StableName) return true;
             }
 
             return false;

@@ -40,7 +40,17 @@ The header is a fixed 56-byte little-endian record written by one explicit codec
 
 Stable type names are canonical: `Namespace.Outer+Nested\`Arity` plus ordered generic arguments
 (containing type arguments first), e.g. `System.Collections.Generic.List\`1<System.Int32>`.
-See `TypeHelpers.GetRobustName` (generator) and `TypeHelpers.GetStableTypeName`.
+Arrays are `T[]`/`T[,]` (rank preserved), pointers are `T*`, and generic type parameters are
+`!ordinal`. Names never contain assembly versions, culture, or public key tokens, so the same
+logical layout fingerprints identically across .NET runtimes.
+
+There is exactly one runtime identity helper, `Ceras.Format.TypeIdentity.GetCanonicalName`, and it
+must match the generator's `Ceras.SourceGenerator.TypeHelpers.GetRobustName` exactly; the generator
+emits these canonical names for field types and enum underlying types (never `Type.FullName`).
+Structural/declared runtime schemas (`SchemaRegistry.TryBuildStructuralSchema`,
+`BuildDeclaredSchema`) use the same helper. `SchemaRegistry.TryResolveType` parses canonical names
+back to CLR types on cold paths; the remaining assembly scan is a last resort for genuinely
+external/legacy unqualified `Type.FullName` names.
 
 ## Member layout
 
