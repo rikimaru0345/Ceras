@@ -71,6 +71,11 @@ namespace Ceras.Format
         readonly Dictionary<string, OldTypeSchema> _byName;
         readonly Dictionary<int, OldTypeSchema>     _byId;
 
+        // The current CLR type each entry decoded from a payload's Type *value* names, keyed the same way.
+        // Such an entry has no stable name in the file, so there is no migration plan to look it up in; the
+        // type it resolves to is what decides whether its payload is written behind a reference marker.
+        readonly Dictionary<int, Type>              _typeValueTypes = new();
+
         public FileSchemaView(Dictionary<string, OldTypeSchema> oldSchemas)
         {
             _byName = oldSchemas ?? new Dictionary<string, OldTypeSchema>();
@@ -83,6 +88,29 @@ namespace Ceras.Format
         public Dictionary<string, OldTypeSchema> ByName => _byName;
 
         public bool TryGetById(int typeId, out OldTypeSchema schema) => _byId.TryGetValue(typeId, out schema);
+
+        /// <summary>Whether an id is already taken, so a synthesized identity can be checked for a collision.</summary>
+        public bool ContainsById(int typeId) => _byId.ContainsKey(typeId);
+
+        /// <summary>
+        /// Adds a schema entry decoded from a <c>Type</c> value in the payload (see
+        /// <see cref="TypeValueShapes"/>), so every reader and skipper that looks a value up by id finds it
+        /// exactly as it would find a type the file's schema section described. Such an entry is keyed by id
+        /// only: the file never named it, so adding it under a stable name would invent an identity it does
+        /// not have.
+        /// </summary>
+        public void AddTypeValue(OldTypeSchema schema, Type? currentType)
+        {
+            _byId[schema.TypeId] = schema;
+            if (currentType != null) _typeValueTypes[schema.TypeId] = currentType;
+        }
+
+        /// <summary>
+        /// The current CLR type a Type-value entry names, or null for every entry the file itself described
+        /// (those get their type from their migration plan) and for one this build cannot resolve.
+        /// </summary>
+        public Type? TypeValueCurrentType(int typeId)
+            => _typeValueTypes.TryGetValue(typeId, out var type) ? type : null;
 
         public bool TryGetByName(string stableName, out OldTypeSchema schema)
         {

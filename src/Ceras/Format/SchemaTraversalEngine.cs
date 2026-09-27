@@ -31,6 +31,7 @@ namespace Ceras.Format
         readonly ITypeBinder                           _typeBinder;
         readonly IdentityCache                         _identity = new();
         readonly CurrentObjectFactory                  _factory;
+        readonly TypeValueShapes                       _typeValues;
         readonly uint                                  _maxCollectionSize;
 
         const int FullNameMarker = 127;
@@ -55,6 +56,11 @@ namespace Ceras.Format
             // The robust serializer is the only caller and always passes one with a robust config.
         _registry        = ((CerasRobustConfig)serializer!.Config).SchemaRegistry;
             _maxCollectionSize = serializer.Config.SizeLimits.MaxCollectionSize;
+
+            // The decoder for the Type *value* a polymorphic value carries. It resolves a manifest id
+            // through the same map every other id in this engine resolves through, so a renamed type used
+            // as a nested argument reaches its current type the way every other migration does.
+            _typeValues = new TypeValueShapes(_file, ResolveManifestTypeId);
 
             // The plans below map the file's names onto the current model, which needs the complete name
             // space: a shape only the bake registers answers to its [PreviousTypeName] alias once it is
@@ -257,70 +263,45 @@ namespace Ceras.Format
             => WalkValue(typeId, null, ref reader, null, WalkMode.Skip);
 
         /// <summary>
-        /// Decodes a <see cref="Type"/> value exactly like <c>RobustTypeFormatter.Deserialize</c>:
-        /// a well-known definition id is followed by its ordered argument types, and an array id by its
-        /// element type. Reconstructing the closed type is required both to return the right value and
-        /// to consume the argument bytes so the stream stays aligned.
+        /// Decodes a <see cref="Type"/> value: the writer's recursive grammar, decoded by
+        /// <see cref="TypeValueShapes"/> — the same decoder a polymorphic value's type tag uses, so the two
+        /// can never describe the bytes differently. Reconstructing the closed type is required both to
+        /// return the right value and to consume the argument bytes so the stream stays aligned.
         /// </summary>
         object? ReadTypeValue(ref SequenceReader<byte> reader)
         {
-            uint id = SchemaSection.ReadLeb128(ref reader);
-            if (id == WellKnownTypes.Null) return null;
+            int tag = SchemaSection.ReadTypeIdLeb128(ref reader, "a System.Type value's tag");
+            if (tag == FullNameMarker)
+                return _typeBinder.GetTypeFromBase(ReadStringFromTable(ref reader));
 
-            if (id == FullNameMarker)
-            {
-                string typeName = ReadStringFromTable(ref reader);
-                return _typeBinder.GetTypeFromBase(typeName);
-            }
-
-            if (id == (uint)WellKnownTypes.Array)
-            {
-                Type? element = (Type)ReadTypeValue(ref reader);
-                if (element == null)
-                    throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt System.Type payload: an array type has no element type.");
-                return MakeType(() => element.MakeArrayType(), $"array of '{TypeIdentity.GetCanonicalName(element)}'");
-            }
-
-            if (WellKnownTypes.TryGetType((int)id, out var wellKnown))
-            {
-                if (wellKnown.IsGenericTypeDefinition)
-                {
-                    uint argCount = SchemaSection.ReadLeb128(ref reader);
-                    var args = new Type[argCount];
-                    for (uint i = 0; i < argCount; i++)
-                    {
-                        args[i] = (Type)ReadTypeValue(ref reader);
-                        if (args[i] == null)
-                            throw new Ceras.Exceptions.CerasDataCorruptionException(
-                                $"Corrupt System.Type payload: generic argument {i} of '{wellKnown.Name}' is null.");
-                    }
-                    return MakeType(() => wellKnown.MakeGenericType(args), wellKnown.Name);
-                }
-                return wellKnown;
-            }
-
-            var idToType = RobustContext.IdToType;
-            if (idToType != null && idToType.TryGetValue((int)id, out var resolved)) return resolved;
-
-            return null;
+            return _typeValues.Materialize(_typeValues.Decode(tag, ref reader));
         }
 
         /// <summary>
-        /// Rebuilds a CLR type from decoded identities, reporting an impossible combination (an unknown
-        /// generic argument, a violated constraint) as data corruption rather than letting the BCL's
-        /// <see cref="ArgumentException"/> escape the decoder.
+        /// The current CLR type a manifest id from <b>this save's</b> id space names, resolved through the
+        /// map the loader built from the file's schema section. That map already carries rename aliases, so
+        /// an id the file used for a type this build calls something else answers with the current type —
+        /// which is what a renamed type used as a nested generic argument needs.
         /// </summary>
-        static Type MakeType(Func<Type> build, string description)
+        Type? ResolveManifestTypeId(int id)
         {
-            try
-            {
-                return build();
-            }
-            catch (Exception e) when (e is ArgumentException or InvalidOperationException)
-            {
-                throw new Ceras.Exceptions.CerasDataCorruptionException(
-                    $"Corrupt System.Type payload: '{description}' does not name a type this runtime can construct ({e.Message}).", e);
-            }
+            var idToType = RobustContext.IdToType;
+            return idToType != null && idToType.TryGetValue(id, out var resolved) ? resolved : null;
+        }
+
+        /// <summary>
+        /// The current type a value of <paramref name="old"/>'s identity decodes into: the migration plan
+        /// the file's own name resolves to, else the type a Type-value entry named, else the caller's
+        /// declared type. A Type-value entry has no stable name in the file, so it has no plan; the type it
+        /// names is what decides whether its payload sits behind a reference marker (a collection, an array
+        /// or a class does; a <c>Nullable</c>, a tuple, a <c>KeyValuePair</c> and a struct do not).
+        /// </summary>
+        Type? CurrentTypeOf(OldTypeSchema old, Type? targetType)
+        {
+            if (_plans.TryGetValue(old.StableName, out var plan) && plan?.CurrentType != null)
+                return plan.CurrentType;
+
+            return _file.TypeValueCurrentType(old.TypeId) ?? targetType;
         }
 
         object? ReadUserType(int typeId, Type? targetType, ref SequenceReader<byte> reader, object? existingObject = null)
@@ -328,9 +309,9 @@ namespace Ceras.Format
             if (!_file.TryGetById(typeId, out var oldSchema)) {
                 return null;
             }
-            
+
             _plans.TryGetValue(oldSchema.StableName, out var plan);
-            var currentType = plan?.CurrentType ?? targetType;
+            var currentType = CurrentTypeOf(oldSchema, targetType);
 
             if (oldSchema.Kind == SchemaTypeKind.Enum)
                 return ReadEnumValue(oldSchema, targetType, plan, ref reader);
@@ -402,21 +383,51 @@ namespace Ceras.Format
 
             int typeId;
             if (marker == RefNewValue)
-                typeId = (int)SchemaSection.ReadLeb128(ref reader);
+            {
+                typeId = SchemaSection.ReadTypeIdLeb128(ref reader, "a polymorphic value's type tag");
+
+                // ── A tag below the manifest base is a *Type value*, not a schema type id. ──────────────
+                // RobustTypeFormatter records the concrete runtime type of a polymorphic value as a Type
+                // value: a well-known id followed, for a definition, by its argument type values. Manifest
+                // ids start at UserTypeBase and the file's schema section never holds a well-known id, so
+                // the tag alone decides which of the three it is. Reading a well-known tag as a schema id is
+                // what made a closed built-in generic, an array, a Nullable, a KeyValuePair or a tuple in a
+                // polymorphic slot come back null with its payload left in the stream, desynchronising every
+                // field after it.
+                if (typeId < WellKnownTypes.UserTypeBase && typeId != FullNameMarker)
+                {
+                    int typeValueSlot = _identity.Reserve(existingObject);
+                    return ReadTypeValuePayload(typeId, ref reader, typeValueSlot, existingObject);
+                }
+            }
             else if (marker == RefNewValueSameType)
+            {
+                // "Same type" means the writer found the declared type exact, so it wrote no tag — and a
+                // type's payload is whatever *its own* formatter writes. The one well-known identity that
+                // reaches this path is System.Object: every other reference-typed declared member has a
+                // manifest id, and a declared scalar, string, array or collection is walked by its own id
+                // instead of through a marker. `object` has no serializable members at all, so the writer
+                // wrote the marker and *nothing else* — `new object()` in an `object` slot is one byte, and
+                // an `object` root is two. Read that here instead of refusing it: the empty payload is the
+                // whole grammar for this identity, and a fresh instance is what the writer's object cache
+                // holds for it.
+                if (expectedTypeId == WellKnownTypes.Object) return ReadEmptyObject(existingObject);
+
+                if (expectedTypeId < WellKnownTypes.UserTypeBase)
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        $"Corrupt save: a value behind a same-type marker declares the well-known type id {expectedTypeId}, " +
+                        "whose payload this engine does not read through a reference marker. A declared scalar, string, array " +
+                        "or collection is written by its own id, so the writer never puts one here.");
+
                 typeId = expectedTypeId;
+            }
             else
+            {
                 throw new Ceras.Exceptions.CerasException($"Invalid reference marker {marker}");
+            }
 
             // The slot is reserved before the payload is read, so a cycle back into this object resolves.
             int cacheIndex = _identity.Reserve(existingObject);
-
-            if (typeId < WellKnownTypes.UserTypeBase && typeId != FullNameMarker)
-            {
-                var value = ReadValue(typeId, targetType, ref reader, existingObject);
-                _identity.Publish(cacheIndex, value);
-                return value;
-            }
 
             if (typeId == FullNameMarker)
             {
@@ -448,7 +459,71 @@ namespace Ceras.Format
                     "would desynchronise the rest of the graph.");
             }
 
+            // A tag at or above the manifest base is a schema type id, and the file's own schema section is
+            // the only thing that says how such a value's payload is written. A real writer's id always
+            // comes from its own manifest, so one the section does not describe has no describable payload:
+            // refused, rather than read as a value of no bytes.
+            if (!_file.ContainsById(typeId))
+                throw new Ceras.Exceptions.CerasSchemaException(
+                    $"Corrupt save: a polymorphic value names type id {typeId}, which the save's own schema section does not " +
+                    "describe, so nothing says how its payload is written and the rest of the save could not be read safely.");
+
             return ReadUserTypeDirect(typeId, targetType, ref reader, cacheIndex, existingObject);
+        }
+
+        /// <summary>
+        /// Reads the payload of a concrete type the file named with a <c>Type</c> value behind a reference
+        /// marker. The tag has already been consumed.
+        /// <para>
+        /// A closed built-in generic, an array, a <c>Nullable</c>, a <c>KeyValuePair</c> and a tuple all
+        /// reduce to a <c>GenericInstantiation</c> entry with a definition id and ordered argument ids —
+        /// exactly the shape <see cref="ClassifyPayload"/> and <see cref="ReadGenericInstantiation"/> consume,
+        /// and exactly the shape the file's own schema section writes for a collection member, so all of
+        /// them (including every nesting level of them) take the same path a declared member takes, with the
+        /// same reference markers, element-count encodings and size limits.
+        /// </para>
+        /// <para>
+        /// A terminal tag — a well-known scalar, or a manifest id for a user type — keeps the ordinary
+        /// per-id walk, which is already exactly right for it: a user type's payload is its schema's, and a
+        /// scalar's is its fixed layout.
+        /// </para>
+        /// </summary>
+        object? ReadTypeValuePayload(int tag, ref SequenceReader<byte> reader, int cacheIndex, object? existingObject)
+        {
+            var shape = _typeValues.Decode(tag, ref reader);
+
+            if (!shape.DescribesPayload)
+            {
+                // A tag of System.Object would mean the writer decided the declared type was *not* object
+                // while the runtime type was, and nothing derives from object except object itself — so the
+                // writer cannot emit it (a declared `object` holding `new object()` takes the same-type
+                // marker and no tag at all). Refused as corruption, with that reason, rather than read
+                // through the object reader, which would look for a marker that was never written.
+                if (shape.DefinitionId == WellKnownTypes.Object)
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        "Corrupt save: a polymorphic value carries System.Object as a type tag. The writer emits a tag only " +
+                        "when the declared and runtime types differ, and nothing derives from System.Object except itself.");
+
+                var scalar = ReadValue(shape.DefinitionId, shape.ClrType, ref reader, existingObject);
+                _identity.Publish(cacheIndex, scalar);
+                return scalar;
+            }
+
+            return ReadGenericInstantiation(_typeValues.InternRoot(shape), shape.ClrType, ref reader, cacheIndex, existingObject);
+        }
+
+        /// <summary>
+        /// Reads a value whose declared type is <see cref="object"/>: the writer's own formatter for
+        /// <c>object</c> has no members, so its payload is empty, and the object-cache slot it reserved is
+        /// the identity the writer recorded. A supplied instance is reused in place, exactly as the
+        /// generated reference reader reuses a non-null one.
+        /// </summary>
+        object ReadEmptyObject(object? existingObject)
+        {
+            int slot = _identity.Reserve(existingObject);
+            var value = existingObject ?? new object();
+            _identity.Publish(slot, value);
+            return value;
         }
 
         /// <summary>
@@ -624,8 +699,8 @@ namespace Ceras.Format
             if (WellKnownTypes.IsTupleDefinition(oldSchema.DefinitionTypeId)) return ReadTuple(oldSchema, targetType, ref reader, cacheIndex, existingObject);
 
             // Arbitrary generic class or struct
+            var currentType = CurrentTypeOf(oldSchema, targetType);
             _plans.TryGetValue(oldSchema.StableName, out var plan);
-            Type? currentType = plan?.CurrentType ?? targetType;
 
             // A collection payload is written by the built-in collection formatter as an explicit count
             // plus its elements/entries, so every collection is read through the single collection
@@ -1262,30 +1337,22 @@ namespace Ceras.Format
         /// </summary>
         void CacheCollection(CollectionFill fill, int? cacheIndex) => _identity.Publish(cacheIndex, fill.Result);
 
-        /// <summary>Skips a <see cref="Type"/> value written by <c>RobustTypeFormatter</c>.</summary>
+        /// <summary>
+        /// Skips a <see cref="Type"/> value written by <c>RobustTypeFormatter</c>, through the same decoder
+        /// the reader uses: a type value is pure structure, so consuming it is decoding it and discarding
+        /// the result, and sharing the decoder is what keeps the two from ever disagreeing about how many
+        /// bytes one occupies.
+        /// </summary>
         void SkipTypeValue(ref SequenceReader<byte> reader)
         {
-            uint id = SchemaSection.ReadLeb128(ref reader);
-            if (id == WellKnownTypes.Null) return;
-
-            if (id == FullNameMarker)
+            int tag = SchemaSection.ReadTypeIdLeb128(ref reader, "a System.Type value's tag");
+            if (tag == FullNameMarker)
             {
                 ReadStringFromTable(ref reader);
                 return;
             }
 
-            if (id == (uint)WellKnownTypes.Array)
-            {
-                SkipTypeValue(ref reader);
-                return;
-            }
-
-            if (WellKnownTypes.TryGetType((int)id, out var wellKnown) && wellKnown.IsGenericTypeDefinition)
-            {
-                uint argCount = SchemaSection.ReadLeb128(ref reader);
-                for (uint i = 0; i < argCount; i++)
-                    SkipTypeValue(ref reader);
-            }
+            _typeValues.Decode(tag, ref reader);
         }
 
         /// <summary>
@@ -1304,43 +1371,55 @@ namespace Ceras.Format
                 case SchemaTypeKind.Enum: SkipEnumValue(oldSchema, ref reader); break;
                 case SchemaTypeKind.GenericInstantiation:
                 {
-                    _plans.TryGetValue(oldSchema.StableName, out var plan);
-                    var currentType = plan?.CurrentType;
-
                     // The same two shared decisions the reader makes, in the same order: is there a marker,
                     // and if not, what is the payload?
-                    if (CarriesReferenceMarker(oldSchema, currentType))
+                    if (CarriesReferenceMarker(oldSchema, CurrentTypeOf(oldSchema, null)))
                     {
                         SkipPolymorphicValue(typeId, ref reader);
                         break;
                     }
 
-                    switch (ClassifyPayload(oldSchema))
-                    {
-                        case PayloadShape.Nullable:
-                            if (SerializerBinary.ReadByte(ref reader) != 0)
-                            {
-                                int? innerId = ArgId(oldSchema, 0);
-                                if (innerId.HasValue) SkipValue(innerId.Value, ref reader);
-                            }
-                            break;
-
-                        case PayloadShape.Tuple:
-                            foreach (var argId in oldSchema.ArgTypeIds) SkipValue(argId, ref reader);
-                            break;
-
-                        case PayloadShape.Array:
-                        case PayloadShape.Elements:
-                        case PayloadShape.Entries:
-                            SkipCollectionPayload(ClassifyPayload(oldSchema), oldSchema, ref reader);
-                            break;
-
-                        default:
-                            foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, ref reader);
-                            break;
-                    }
+                    SkipUnmarkedPayload(oldSchema, ref reader);
                     break;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Accounts for a described value that carries no reference marker, dispatching on the same
+        /// <see cref="ClassifyPayload"/> answer <see cref="ReadGenericInstantiation"/> dispatches on, so a
+        /// value can never be read one way and skipped the other. The two callers are a described member
+        /// with no marker in front of it, and a polymorphic value whose <c>Type</c> value named the type.
+        /// </summary>
+        void SkipUnmarkedPayload(OldTypeSchema oldSchema, ref SequenceReader<byte> reader)
+        {
+            switch (ClassifyPayload(oldSchema))
+            {
+                case PayloadShape.Nullable:
+                    if (SerializerBinary.ReadByte(ref reader) != 0)
+                    {
+                        int? innerId = ArgId(oldSchema, 0);
+                        if (innerId.HasValue) SkipValue(innerId.Value, ref reader);
+                    }
+                    return;
+
+                case PayloadShape.Tuple:
+                    foreach (var argId in oldSchema.ArgTypeIds) SkipValue(argId, ref reader);
+                    return;
+
+                case PayloadShape.Array:
+                case PayloadShape.Elements:
+                case PayloadShape.Entries:
+                    SkipCollectionPayload(ClassifyPayload(oldSchema), oldSchema, ref reader);
+                    return;
+
+                default:
+                    // A generic instantiation whose *definition* the well-known set does not name is a user
+                    // generic class or struct, whose payload is its members - not a count followed by
+                    // elements, which is what reading a member count here used to do. This is also the exact
+                    // shape a schema the file really baked takes, so read and skip agree on both.
+                    foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, ref reader);
+                    return;
             }
         }
 
@@ -1350,14 +1429,42 @@ namespace Ceras.Format
             if (marker == RefNull || marker >= 0) return;
             if (marker == RefInlineType) { SkipValue(WellKnownTypes.Type, ref reader); return; }
 
-            int typeId = marker == RefNewValue ? (int)SchemaSection.ReadLeb128(ref reader) : expectedTypeId;
-            _identity.Reserve(null); // keep the index space in sync with the writer's, without building anything
-
-            if (typeId < WellKnownTypes.UserTypeBase && typeId != FullNameMarker)
+            int typeId;
+            if (marker == RefNewValue)
             {
-                SkipValue(typeId, ref reader);
-                return;
+                typeId = SchemaSection.ReadTypeIdLeb128(ref reader, "a polymorphic value's type tag");
+
+                // A well-known tag is a *Type value* (see ReadPolymorphicValue), so it is decoded as one
+                // and the payload it names is accounted for by the representation that definition names,
+                // through the very same ClassifyPayload answer the reader and SkipUserType give. A tag and
+                // a schema entry of the same shape are therefore skipped the same way, nesting included.
+                if (typeId < WellKnownTypes.UserTypeBase && typeId != FullNameMarker)
+                {
+                    _identity.Reserve(null);
+                    SkipTypeValuePayload(typeId, ref reader);
+                    return;
+                }
             }
+            else
+            {
+                // The mirror of the reader: a declared System.Object has an empty payload, so the marker
+                // plus the object-cache slot it reserved is the whole of it.
+                if (expectedTypeId == WellKnownTypes.Object)
+                {
+                    _identity.Reserve(null);
+                    return;
+                }
+
+                if (expectedTypeId < WellKnownTypes.UserTypeBase)
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        $"Corrupt save: a value behind a same-type marker declares the well-known type id {expectedTypeId}, " +
+                        "whose payload this engine does not account for through a reference marker. A declared scalar, string, " +
+                        "array or collection is written by its own id, so the writer never puts one here.");
+
+                typeId = expectedTypeId;
+            }
+
+            _identity.Reserve(null); // keep the index space in sync with the writer's, without building anything
 
             if (typeId == FullNameMarker)
             {
@@ -1374,40 +1481,42 @@ namespace Ceras.Format
             if (_file.TryGetById(typeId, out var oldSchema))
             {
                 if (oldSchema.Kind == SchemaTypeKind.Enum) SkipEnumValue(oldSchema, ref reader);
-                else if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
-                {
-                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Nullable)
-                    {
-                        if (SerializerBinary.ReadByte(ref reader) != 0)
-                        {
-                            int? innerId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                            if (innerId.HasValue) SkipValue(innerId.Value, ref reader);
-                        }
-                        return;
-                    }
-
-                    if (WellKnownTypes.IsTupleDefinition(oldSchema.DefinitionTypeId))
-                    {
-                        foreach (var argId in oldSchema.ArgTypeIds) SkipValue(argId, ref reader);
-                        return;
-                    }
-
-                    int count = ReadCollectionCount(oldSchema.DefinitionTypeId, ref reader);
-                    if (count == -1) return;
-                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)
-                    {
-                        int? kId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                        int? vId = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
-                        for (int i = 0; i < count; i++) { if (kId.HasValue) SkipValue(kId.Value, ref reader); if (vId.HasValue) SkipValue(vId.Value, ref reader); }
-                    }
-                    else
-                    {
-                        int? elemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                        SkipElements((uint)count, elemTypeId, ref reader);
-                    }
-                }
+                else if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation) SkipUnmarkedPayload(oldSchema, ref reader);
                 else foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, ref reader);
             }
+            else
+            {
+                // The mirror of the reader's guard: a value whose payload nothing describes cannot be
+                // accounted for, so it is refused rather than skipped as if it were empty.
+                throw new Ceras.Exceptions.CerasSchemaException(
+                    $"Corrupt save: a polymorphic value at a position that has to be skipped names type id {typeId}, which the " +
+                    "save's own schema section does not describe, so its payload cannot be accounted for.");
+            }
+        }
+
+        /// <summary>
+        /// Accounts for the payload of a type the file named with a <c>Type</c> value behind a reference
+        /// marker. The tag has already been read; the rest of the type value is decoded first, because the
+        /// definition it names is what says how the payload is written.
+        /// </summary>
+        void SkipTypeValuePayload(int tag, ref SequenceReader<byte> reader)
+        {
+            var shape = _typeValues.Decode(tag, ref reader);
+
+            if (!shape.DescribesPayload)
+            {
+                // The reader's reason, in the reader's words: a System.Object tag is unreachable from a
+                // writer, so there is no payload to account for and nothing to guess.
+                if (shape.DefinitionId == WellKnownTypes.Object)
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        "Corrupt save: a polymorphic value carries System.Object as a type tag. The writer emits a tag only " +
+                        "when the declared and runtime types differ, and nothing derives from System.Object except itself.");
+
+                SkipValue(shape.DefinitionId, ref reader);
+                return;
+            }
+
+            SkipUnmarkedPayload(_typeValues.InternRoot(shape), ref reader);
         }
 
 		Type GetCurrentType(string stableName) { _registry.TryResolveType(stableName, out var t); return t; }

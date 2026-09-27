@@ -21,7 +21,11 @@
 // the un-describable-identity consume route. SkipCollectionPayload's element-count read is the one site a
 // Queue/Stack cannot reach - their names always resolve, so the payload always goes through the marker
 // first - so its fix is defence in depth. Fixtures/HistoricalV1 is deliberately not extended: its
-// regeneration is owned one change at a time.
+// regeneration is owned one change at a time. A real cross-version file for a built-in closed generic in
+// an `object` slot - a `Type` value rather than a schema type tag - does now exist, in the
+// HistoricalV1Poly context; see HistoricalPolymorphicFixtureTests, whose PolyQueueOfQueue fixture pins
+// the plain count at a *second* level of nesting. That shape is deliberately not pinned here as well, so
+// this file stays a same-assembly pair and keeps its two reader paths comparable.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -88,11 +92,13 @@ namespace Ceras.Test.QueueStackCount
         }
 
         /// <summary>
-        /// Carrier for the hand-built file below. A built-in closed collection in a real <c>object</c>
-        /// member is written with a Type *value* rather than a schema type tag, which the interpreter's
-        /// polymorphic reader does not understand - a pre-existing, collection-shape-agnostic defect a
-        /// <c>List</c> member reproduces just as well. That is deliberately not pinned here, so this
-        /// shape has no real-save counterpart and no V1 twin.
+        /// Carrier for the hand-built file below. A built-in closed collection in a real <c>object</c> member
+        /// is written with a Type <em>value</em> rather than a schema type tag, which the interpreter's
+        /// polymorphic reader decodes as its own (recursive) grammar — a separate concern from the count
+        /// encoding, and covered for real cross-version files by HistoricalPolymorphicFixtureTests. That is
+        /// deliberately not pinned here, so this shape has no V1 twin and no checked-in fixture: the point
+        /// of this class is that a *schema-described* queue identity this build cannot name is still
+        /// consumed by its own count encoding.
         /// </summary>
         [CerasContext("QueueStackCountV2")] [CerasSerializable]
         public class PolymorphicSlotHolder

@@ -16,6 +16,7 @@ using Ceras;
 using Ceras.Generated;
 using Ceras.HistoricalWriter.V1;
 using Ceras.HistoricalWriter.V1EnumNames;
+using Ceras.HistoricalWriter.V1Poly;
 using Ceras.HistoricalWriter.V1Pooled;
 
 namespace Ceras.HistoricalWriter
@@ -25,6 +26,7 @@ namespace Ceras.HistoricalWriter
         const string Context = "HistoricalV1";
         const string PooledContext = "HistoricalV1Pooled";
         const string EnumNamesContext = "HistoricalV1EnumNames";
+        const string PolyContext = "HistoricalV1Poly";
 
         static int Main(string[] args)
         {
@@ -64,6 +66,7 @@ namespace Ceras.HistoricalWriter
             foreach (var fixture in SaveGameFixtures()) yield return fixture;
             foreach (var fixture in PooledFixtures()) yield return fixture;
             foreach (var fixture in EnumNameFixtures()) yield return fixture;
+            foreach (var fixture in PolymorphicFixtures()) yield return fixture;
         }
 
         static IEnumerable<(string Name, byte[] Bytes)> SaveGameFixtures()
@@ -173,6 +176,115 @@ namespace Ceras.HistoricalWriter
             };
 
             yield return ("Loadout.bin", serializer.Save(loadout, 1));
+        }
+
+        /// <summary>
+        /// A closed built-in generic, an array or a tuple in an <c>object</c> slot. The writer records the
+        /// concrete runtime type of such a value as a <c>System.Type</c> <em>value</em> — a well-known
+        /// definition id followed by its argument type values, recursively — rather than as a schema type id,
+        /// so these files are what the migration interpreter's polymorphic tag path has to read. Each crate
+        /// carries a fixed-width trailing sentinel, so a slot that is mis-decoded shows up as a wrong number
+        /// instead of as a load that happens to succeed. Its own context keeps their ids clear of the other
+        /// fixtures'.
+        /// </summary>
+        static IEnumerable<(string Name, byte[] Bytes)> PolymorphicFixtures()
+        {
+            var serializer = NewSerializer(PolyContext);
+            const uint Sentinel = 0xA5A5A5A5u;
+
+            // Nested built-in generics: the argument of the outer List is itself a complete type value.
+            yield return ("PolyNestedList.bin", serializer.Save(new PolyCrate
+            {
+                Slot = new List<List<int>> { new List<int> { 10, 20 }, new List<int>(), new List<int> { 30 } },
+                Marker = Sentinel,
+            }, 1));
+
+            // A jagged array: two levels of Array, each level behind its own reference marker.
+            yield return ("PolyJagged.bin", serializer.Save(new PolyCrate
+            {
+                Slot = new[] { new[] { 1, 2 }, new[] { 3 }, Array.Empty<int>() },
+                Marker = Sentinel,
+            }, 1));
+
+            // A renamed user type as a nested *argument* of a built-in generic: the id in the type value has
+            // to resolve to the current type through the file's own schema section.
+            yield return ("PolyRenamedNested.bin", serializer.Save(new PolyCrate
+            {
+                Slot = new List<PolyNode>
+                {
+                    new PolyNode { X = 1, Y = 2, Label = "start" },
+                    new PolyNode { X = 3, Y = 4, Label = "end" },
+                },
+                Marker = Sentinel,
+            }, 1));
+
+            // A queue of queues: the inner count is the plain fixed 4-byte element count, so this pins the
+            // composed Queue/Stack count encoding at a *second* level of nesting.
+            var queueOfQueues = new Queue<Queue<int>>();
+            queueOfQueues.Enqueue(new Queue<int>(new[] { 7, 8 }));
+            queueOfQueues.Enqueue(new Queue<int>());
+            yield return ("PolyQueueOfQueue.bin", serializer.Save(new PolyCrate
+            {
+                Slot = queueOfQueues,
+                Marker = Sentinel,
+            }, 1));
+
+            // A dictionary of jagged arrays: a payload that is neither "a count and then elements of one
+            // kind" nor an array, so key/value entries whose values are themselves arrays behind markers.
+            yield return ("PolyMixedShapes.bin", serializer.Save(new PolyCrate
+            {
+                Slot = new Dictionary<string, int[][]>
+                {
+                    ["row"] = new[] { new[] { 1, 2 }, new[] { 3 } },
+                    ["col"] = Array.Empty<int[]>(),
+                },
+                Marker = Sentinel,
+            }, 1));
+
+            // The control: a value the file's schema section *does* describe, so its tag is a manifest id
+            // and nothing about the built-in-generic path applies. It has to keep working unchanged.
+            yield return ("PolyUserType.bin", serializer.Save(new PolyCrate
+            {
+                Slot = new PolyBeast { Hit = 17 },
+                Marker = Sentinel,
+            }, 1));
+
+            // A bare `new object()`. Its runtime type *is* `System.Object`, so the writer takes the
+            // same-type marker and writes **no type tag and no payload at all** — the value is one byte, and
+            // the file is a two-byte `object` root. A reader that assumed a well-known declared identity
+            // could not be a polymorphic value would refuse this perfectly good save, so both directions
+            // are pinned: here it is read, and PolyRemovedObjectMid has it skipped.
+            yield return ("PolyObjectKept.bin", serializer.Save(new PolyCrate
+            {
+                Slot = new object(),
+                Marker = Sentinel,
+            }, 1));
+
+            // The skip side: the same shapes, in a slot the current model has removed.
+            yield return ("PolyRemovedSlot.bin", serializer.Save(new PolyEmptyCrate
+            {
+                Slot = new List<List<int>> { new List<int> { 10, 20 }, new List<int>() },
+                Marker = Sentinel,
+            }, 1));
+
+            // Removed *and* nested, between a retained ordinary class and the sentinel: the neighbours are
+            // the witnesses that only the middle value's bytes were consumed.
+            yield return ("PolyRemovedNested.bin", serializer.Save(new PolyMixedCrate
+            {
+                Head = new PolyBeast { Hit = 42 },
+                Mid = new Dictionary<string, int[][]> { ["a"] = new[] { new[] { 5 } } },
+                Marker = Sentinel,
+            }, 1));
+
+            // The same skip path with a payload that is *empty*: `object` has no members, so a member
+            // removed from between two retained ones must leave both neighbours untouched having consumed
+            // exactly the one marker byte.
+            yield return ("PolyRemovedObjectMid.bin", serializer.Save(new PolyMixedCrate
+            {
+                Head = new PolyBeast { Hit = 7 },
+                Mid = new object(),
+                Marker = Sentinel,
+            }, 1));
         }
     }
 }

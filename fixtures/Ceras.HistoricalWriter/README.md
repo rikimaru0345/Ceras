@@ -16,17 +16,19 @@ dotnet run --project fixtures/Ceras.HistoricalWriter -c Release -- --out tests/C
 ```
 
 The output is deterministic: the build timestamp is pinned to "unknown" (`SetUnknownBuildTimestamp`),
-so re-running with unchanged inputs produces identical bytes — verified by regenerating all six
-fixtures and comparing SHA-256 against the checked-in files. **Every byte in the diff is a real
+so re-running with unchanged inputs produces identical bytes — verified by regenerating every
+fixture of every context and comparing SHA-256 against the checked-in files. **Every byte in the diff
+is a real
 change to what old saves look like** — if a regeneration produces a diff you did not expect, that is
 a finding, not noise. See the note on `Loadout.bin` below before regenerating that one.
 
-All six fixtures are at format version 4. The five that predate the enum wire-name work were
+All fixtures are at format version 4. The five that predate the enum wire-name work were
 regenerated when the format version advanced from 3 to 4 (a robust context now refuses a user custom
 formatter, so a v3 file can hold opaque bytes that its own schema does not describe and that its
-layout fingerprint cannot reveal), and `Loadout.bin` was re-stamped the same way when it joined
-them. Each diff is exactly nine bytes: the version byte, the high half of the layout fingerprint
-(which hashes the format version), and the CRC32 that covers them. No schema or payload byte changed.
+layout fingerprint cannot reveal), and `Loadout.bin` and the polymorphic fixtures below were
+re-stamped the same way when they joined them. Each diff is exactly nine bytes: the version byte, the
+high half of the layout fingerprint (which hashes the format version), and the CRC32 that covers them.
+No schema or payload byte changed.
 
 Ordinary CI never builds or runs this project; it only reads the checked-in files.
 
@@ -76,16 +78,40 @@ at all (a v3 file can hold custom-formatter bytes its own schema does not descri
 `Loadout.bin` generated before such a bump must be regenerated after it — the load then fails with
 "Unsupported robust format version 3", which is the same canary in a louder form.
 
+## The polymorphic-slot fixtures (`V1PolyModel.cs`)
+
+A polymorphic slot records the concrete runtime type of its value as a **recursive `System.Type`
+value** (a well-known definition id followed by its argument type values), not as a schema type id, so
+these shapes have no representation in the fixtures above. They live in their own context
+(`HistoricalV1Poly`) so the ids of the other fixtures cannot move, and every crate ends in a fixed-width
+`uint` sentinel written *after* the slot, so a slot that is mis-decoded shows up as a wrong number
+rather than as a load that happens to succeed.
+
+| Aspect | Fixture | Old (v1) | Current |
+| --- | --- | --- | --- |
+| Nested built-in generic in a slot | `PolyNestedList.bin` | `List<List<int>>` (3 outer, one empty inner) | rebuilt element by element |
+| Jagged array in a slot | `PolyJagged.bin` | `int[][]` (3 rows, one empty) | every row rebuilt |
+| Renamed type as a nested argument | `PolyRenamedNested.bin` | `List<V1Poly.PolyNode>` | `List<Waypoint>` via `[PreviousTypeName]` |
+| Plain count at a nested level | `PolyQueueOfQueue.bin` | `Queue<Queue<int>>` | inner queue keeps the fixed 4-byte count |
+| Keyed shape with an array value | `PolyMixedShapes.bin` | `Dictionary<string, int[][]>` | keys, both rows and the empty value |
+| Control: a described user type | `PolyUserType.bin` | `V1Poly.PolyBeast` | `Creature` via `[PreviousTypeName]` |
+| A declared `object` holds `new object()` | `PolyObjectKept.bin` | one marker byte, no type tag, no payload | loaded as an `object`; the sentinel intact |
+| Removed slot: nested generic | `PolyRemovedSlot.bin` | `object Slot` holding `List<List<int>>` | slot gone — every byte consumed, sentinel intact |
+| Removed slot between two retained members | `PolyRemovedNested.bin` | `object Head`, `object Mid`, `uint Marker` | only `Mid` consumed; both neighbours intact |
+| Removed slot whose payload is empty | `PolyRemovedObjectMid.bin` | `object Mid` holding `new object()` | one marker byte consumed; both neighbours intact |
+
+The reader-side counterpart is `tests/Ceras.Test/Tests/HistoricalPolymorphicFixtureTests.cs`.
+
 ## Changing a fixture
 
 1. Change the old model: `V1Model.cs` for the `HistoricalV1` context, `V1PooledModel.cs` for the
-   `HistoricalV1Pooled` one, `V1EnumNamesModel.cs` for the `HistoricalV1EnumNames` one. The three
-   live in separate contexts on purpose, so adding a type to one of them cannot renumber the ids in
-   the fixtures written through another.
+   `HistoricalV1Pooled` one, `V1EnumNamesModel.cs` for the `HistoricalV1EnumNames` one and
+   `V1PolyModel.cs` for the `HistoricalV1Poly` one. All four live in separate contexts on purpose, so
+   adding a type to one of them cannot renumber the ids in the fixtures written through another.
 2. Change the current model in the matching reader test to match, keeping the `[PreviousName]` /
    `[PreviousTypeName]` / `[CerasStableName]` attributes the migration needs
    (`tests/Ceras.Test/Tests/HistoricalFixtureTests.cs` for the `HistoricalV1` fixtures,
    `HistoricalConstructionFixtureTests.cs` for the pooled ones, `EnumWireNameMigrationTests.cs` for
-   `Loadout.bin`).
+   `Loadout.bin`, and `HistoricalPolymorphicFixtureTests.cs` for the polymorphic ones).
 3. Regenerate (command above) and review the byte diff.
 4. Run `dotnet test tests/Ceras.Test -f net10.0`.
