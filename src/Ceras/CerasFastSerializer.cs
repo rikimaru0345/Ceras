@@ -11,7 +11,7 @@ namespace Ceras
     {
         public new CerasRawConfig Config => (CerasRawConfig)base.Config;
 
-        public CerasFastSerializer(Action<CerasRawConfig> configure = null) : base(MakeConfig(configure)) { }
+        public CerasFastSerializer(Action<CerasRawConfig> configure = null!) : base(MakeConfig(configure)) { }
         internal CerasFastSerializer(CerasRawConfig config) : base(config) { }
 
         static CerasRawConfig MakeConfig(Action<CerasRawConfig> configure)
@@ -21,7 +21,7 @@ namespace Ceras
             return config;
         }
 
-        public new byte[] Serialize<T>(T obj) => base.Serialize(obj);
+        public new byte[]? Serialize<T>(T obj) => base.Serialize(obj);
         public new void Serialize<T>(IBufferWriter<byte> writer, T obj) => base.Serialize(writer, obj);
         public new int Serialize<T>(T obj, ref byte[] buffer, int offset = 0) => base.Serialize(obj, ref buffer, offset);
 

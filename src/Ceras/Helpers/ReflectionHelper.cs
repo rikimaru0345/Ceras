@@ -15,7 +15,7 @@
         static readonly Dictionary<Type, int> _typeToUnsafeSize = new Dictionary<Type, int>();
 
 #pragma warning disable CS8632
-        public static object Invoke(this MethodBase method, object target, object[]? arguments = null)
+        public static object? Invoke(this MethodBase method, object? target, object[]? arguments = null)
 #pragma warning restore CS8632
         {
             try
@@ -34,7 +34,7 @@
             }
         }
 
-        public static Type FindClosedType(Type type, Type openGeneric)
+        public static Type? FindClosedType(Type type, Type openGeneric)
         {
             if (openGeneric.IsInterface)
             {
@@ -74,7 +74,7 @@
             return null;
         }
 
-        public static Type FindClosedArg(this Type objectType, Type openGeneric, int argIndex = 0)
+        public static Type? FindClosedArg(this Type objectType, Type openGeneric, int argIndex = 0)
         {
             var closed = FindClosedType(objectType, openGeneric);
             if (closed == null)
@@ -103,7 +103,7 @@
             if (givenType.IsGenericType && givenType.GetGenericTypeDefinition() == genericType)
                 return true;
 
-            Type baseType = givenType.BaseType;
+            Type? baseType = givenType.BaseType;
             if (baseType == null)
                 return false;
 
@@ -332,15 +332,16 @@
                 if (_typeToUnsafeSize.TryGetValue(type, out int size))
                     return size;
 
-                var m = typeof(Unsafe).GetMethod(nameof(Unsafe.SizeOf)).MakeGenericMethod(type);
-                size = (int)m.Invoke(null, null);
+                // A lookup by name over the BCL, then a constructed generic over a primitive: neither misses.
+                var m = typeof(Unsafe).GetMethod(nameof(Unsafe.SizeOf))!.MakeGenericMethod(type);
+                size = (int)m.Invoke(null, null)!;
 
                 _typeToUnsafeSize.Add(type, size);
                 return size;
             }
         }
 
-        public static Type FieldOrPropType(this MemberInfo memberInfo)
+        public static Type? FieldOrPropType(this MemberInfo memberInfo)
         {
             if (memberInfo is FieldInfo f)
                 return f.FieldType;
@@ -380,7 +381,7 @@
         }
 
         // Select exactly one method out of the given methods that matches the specific (closed) arguments
-        static MethodInfo SelectMethod(MethodInfo[] methods, Type[] specificArguments)
+        static MethodInfo? SelectMethod(MethodInfo[] methods, Type[] specificArguments)
         {
             var matches = new List<MethodInfo>();
 
@@ -434,7 +435,7 @@
         }
 
         // Try to close an open generic method, making it take the given argument types
-        public static MethodInfo TryCloseOpenGeneric(MethodInfo openGenericMethod, Type[] specificArguments)
+        public static MethodInfo? TryCloseOpenGeneric(MethodInfo openGenericMethod, Type[] specificArguments)
         {
             if (!openGenericMethod.IsGenericMethodDefinition)
                 throw new ArgumentException($"'{nameof(openGenericMethod)}' must be a generic method definition");
@@ -604,7 +605,7 @@
             return type.IsAbstract && !type.IsSealed;
         }
 
-        public static string FriendlyName(this Type type, bool fullName = false)
+        public static string? FriendlyName(this Type type, bool fullName = false)
         {
             if (type == typeof(bool))
                 return "bool";
@@ -645,7 +646,7 @@
             if (type.IsGenericType)
             {
                 var name = fullName ? type.FullName : type.Name;
-                var baseName = name.Split('`')[0].Replace("+", ".");
+                var baseName = name!.Split('`')[0].Replace("+", ".");
 
                 return baseName + "<" + string.Join(", ", type.GetGenericArguments().Select(t => t.FriendlyName(fullName)).ToArray()) + ">";
             }

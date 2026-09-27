@@ -20,7 +20,7 @@ namespace Ceras.Format
         sealed class Entry
         {
             public int            Id;
-            public SchemaTypeInfo Info;
+            public SchemaTypeInfo Info = null!;
             public Type           Type;
         }
 
@@ -43,8 +43,8 @@ namespace Ceras.Format
 
 		// Frozen schema (baked once, at seal). The happy path uses this directly and never parses
 		// the file schema nor decodes schema metadata names (TODO Phase 3.3).
-		byte[] _bakedSchemaBytes;
-		byte[] _bakedSchemaStringsBytes;
+		byte[] _bakedSchemaBytes = null!;
+		byte[] _bakedSchemaStringsBytes = null!;
 		ulong _bakedFingerprint;
 		Dictionary<Type, int> _bakedTypeToId;
 		Dictionary<int, Type> _bakedIdToType;
@@ -83,10 +83,10 @@ namespace Ceras.Format
 				_declaredRoots.Clear();
 				_baking = false;
 				_fingerprint = null;
-				_bakedSchemaBytes = null;
-				_bakedSchemaStringsBytes = null;
-				_bakedTypeToId = null;
-				_bakedIdToType = null;
+				_bakedSchemaBytes = null!;
+				_bakedSchemaStringsBytes = null!;
+				_bakedTypeToId = null!;
+				_bakedIdToType = null!;
 				_bakedFingerprint = 0;
             }
         }
@@ -115,7 +115,7 @@ namespace Ceras.Format
 					foreach (var declared in _declaredRoots.Values)
 					{
 						if (_byType.ContainsKey(declared)) continue;
-						Register(declared, null);
+						Register(declared, null!);
 					}
 					_declaredRoots.Clear();
 
@@ -300,7 +300,7 @@ namespace Ceras.Format
                     stableName: typeName,
                     previousTypeNames: previousNames.ToArray(),
                     kind: SchemaTypeKind.Enum,
-                    fields: null,
+                    fields: null!,
                     fixedByteSize: 0,
                     enumValues: enumValues,
                     underlyingTypeName: TypeIdentity.GetCanonicalName(Enum.GetUnderlyingType(type)));
@@ -339,7 +339,7 @@ namespace Ceras.Format
                     kind: SchemaTypeKind.GenericInstantiation,
                     fields: Array.Empty<SchemaFieldInfo>(),
                     fixedByteSize: 0,
-                    enumValues: null,
+                    enumValues: null!,
                     underlyingTypeName: TypeIdentity.GetCanonicalName(typeof(Array)),
                     argTypeNames: new[] { TypeIdentity.GetCanonicalName(element) });
                 return true;
@@ -358,7 +358,7 @@ namespace Ceras.Format
                     kind: SchemaTypeKind.GenericInstantiation,
                     fields: Array.Empty<SchemaFieldInfo>(),
                     fixedByteSize: 0,
-                    enumValues: null,
+                    enumValues: null!,
                     underlyingTypeName: TypeIdentity.GetCanonicalName(def),
                     argTypeNames: argNames);
                 return true;
@@ -370,7 +370,7 @@ namespace Ceras.Format
             // instead of emitting an empty ordinary-class schema that cannot describe a single byte.
             if (WellKnownTypes.TryResolveCollectionShape(type, out var shapeDef, out var shapeArgs))
             {
-                var argNames = new string[shapeArgs.Length];
+                var argNames = new string[shapeArgs!.Length];
                 for (int i = 0; i < shapeArgs.Length; i++) argNames[i] = TypeIdentity.GetCanonicalName(shapeArgs[i]);
 
                 info = new SchemaTypeInfo(
@@ -379,13 +379,13 @@ namespace Ceras.Format
                     kind: SchemaTypeKind.GenericInstantiation,
                     fields: Array.Empty<SchemaFieldInfo>(),
                     fixedByteSize: 0,
-                    enumValues: null,
+                    enumValues: null!,
                     underlyingTypeName: TypeIdentity.GetCanonicalName(shapeDef),
                     argTypeNames: argNames);
                 return true;
             }
 
-            info = null;
+            info = null!;
             return false;
         }
 
@@ -418,7 +418,7 @@ namespace Ceras.Format
             lock (_lock)
             {
                 if (_byType.TryGetValue(type, out var e)) { info = e.Info; return true; }
-                info = null;
+                info = null!;
                 return false;
             }
         }
@@ -432,7 +432,7 @@ namespace Ceras.Format
         {
 			if (string.IsNullOrEmpty(stableName))
 			{
-				type = null;
+				type = null!;
 				return false;
 			}
 
@@ -468,7 +468,7 @@ namespace Ceras.Format
         /// the registry, and a miss is not a correctness problem for the caller (a name that is absent
         /// here is absent from the registry too, and <see cref="TryResolveType"/> is a cold path).
         /// </summary>
-        static Type ScanLoadedAssemblies(string name)
+        static Type? ScanLoadedAssemblies(string name)
         {
             if (string.IsNullOrEmpty(name)) return null;
 
@@ -486,7 +486,7 @@ namespace Ceras.Format
         /// Used only by canonical-name parsing on cold paths, and called without <see cref="_lock"/> held
         /// so the assembly scan cannot stall the registry (0.8.14).
         /// </summary>
-        Type ResolveDefinitionName(string definitionName)
+        Type? ResolveDefinitionName(string definitionName)
         {
             if (string.IsNullOrEmpty(definitionName)) return null;
 

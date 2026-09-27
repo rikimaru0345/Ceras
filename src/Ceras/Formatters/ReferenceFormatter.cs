@@ -32,7 +32,7 @@ namespace Ceras.Formatters {
 		}
 
 		public void DeserializeUntyped(ref SequenceReader<byte> reader, object container, MemberInfo member) {
-			T value = default;
+			T value = default!;
 			if (member is FieldInfo f) {
 				var existing = f.GetValue(container);
 				if (existing is T t) value = t;
@@ -58,7 +58,7 @@ namespace Ceras.Formatters {
 			}
 
 			var entry = GetOrCreateEntry(specificType);
-			if (entry.IsType) { SerializerBinary.WriteUInt32Bias(writer, InlineType, Bias); _typeFormatter.Serialize(writer, (Type)(object)value); return; }
+			if (entry!.IsType) { SerializerBinary.WriteUInt32Bias(writer, InlineType, Bias); _typeFormatter!.Serialize(writer, (Type)(object)value); return; }
 		// ExternalRootObject support removed
 
 			if (_ceras.InstanceData.ObjectCache.TryGetExistingObjectId(value, out int id)) {
@@ -85,7 +85,7 @@ namespace Ceras.Formatters {
 			if (objId == NewValue) _typeFormatter.Deserialize(ref reader, ref specificType);
 			var entry = GetOrCreateEntry(specificType);
 
-			if (!entry.IsValueType) {
+			if (!entry!.IsValueType) {
 				bool allocated = false;
 				if (value != null) {
 					if (value.GetType() != specificType) {
@@ -124,7 +124,7 @@ namespace Ceras.Formatters {
 			value = objectProxy.Value;
 		}
 
-		DispatcherEntry GetOrCreateEntry(Type type) {
+		DispatcherEntry? GetOrCreateEntry(Type type) {
 			if (type == null) throw new ArgumentNullException(nameof(type));
 
 			ref var entry = ref _dispatchers.GetOrAddValueRef(type);
@@ -141,7 +141,7 @@ namespace Ceras.Formatters {
 			if (_ceras.IsFormatterConstructedInstance(type))
 				entry.Constructor = () => null;
 			else
-				entry.Constructor = _ceras.Config.GetTypeConfig(type, false).TypeConstruction.GetRefFormatterConstructor();
+				entry.Constructor = _ceras.Config.GetTypeConfigForClosedType(type, false).TypeConstruction.GetRefFormatterConstructor();
 			
 			return entry;
 		}
@@ -155,7 +155,7 @@ namespace Ceras.Formatters {
 			// Use a helper class to avoid boxing and object[] allocation
 			var helperType = typeof(ReflectionSerializationHelper<,>).MakeGenericType(typeof(T), type);
 			var helper = (IReflectionSerializer<T>)Activator.CreateInstance(helperType, specificFormatter);
-			return helper.Serialize;
+			return helper!.Serialize;
 		}
 		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher(Type type, IFormatter specificFormatter) {
 			var method = specificFormatter.GetType().ResolveDeserializeMethod(type);
@@ -165,7 +165,7 @@ namespace Ceras.Formatters {
 			// Use a helper class to avoid boxing ref struct
 			var helperType = typeof(ReflectionDeserializationHelper<,>).MakeGenericType(typeof(T), type);
 			var helper = (IReflectionDeserializer<T>)Activator.CreateInstance(helperType, specificFormatter);
-			return helper.Deserialize;
+			return helper!.Deserialize;
 		}
 
 		class DispatcherEntry {
@@ -210,7 +210,7 @@ namespace Ceras.Formatters {
 		}
 
 		public void Deserialize(ref SequenceReader<byte> reader, ref TBase value) {
-			TSpecific specific = value != null ? (TSpecific)value : default;
+			TSpecific? specific = value != null ? (TSpecific)value : default;
 			_formatter.Deserialize(ref reader, ref specific);
 			value = specific;
 		}
@@ -226,7 +226,7 @@ namespace Ceras.Formatters {
 			if (type.IsStatic()) throw new InvalidOperationException("static");
 			if (!type.IsSealed) throw new InvalidOperationException("Not sealed");
 			_formatter = (IFormatter<T>)ceras.GetSpecificFormatter(type);
-			_constructor = _ceras.Config.GetTypeConfig(type, false).TypeConstruction.GetRefFormatterConstructor();
+			_constructor = _ceras.Config.GetTypeConfigForClosedType(type, false).TypeConstruction.GetRefFormatterConstructor();
 			}
 
 		
@@ -235,7 +235,7 @@ namespace Ceras.Formatters {
 		}
 
 		public void DeserializeUntyped(ref SequenceReader<byte> reader, object container, MemberInfo member) {
-			T value = default;
+			T value = default!;
 			if (member is FieldInfo f) {
 				var existing = f.GetValue(container);
 				if (existing is T t) value = t;

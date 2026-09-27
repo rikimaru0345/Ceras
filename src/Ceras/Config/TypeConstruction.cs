@@ -15,7 +15,7 @@ namespace Ceras
 
     public abstract class TypeConstruction
     {
-        internal TypeConfig TypeConfig; // Not as clean as I'd like, this can't be set from a protected base ctor, because users might eventually want to create their own
+        internal TypeConfig TypeConfig = null!; // Not as clean as I'd like, this can't be set from a protected base ctor, because users might eventually want to create their own
 
         internal abstract bool HasDataArguments { get; }
         internal abstract Func<object> GetRefFormatterConstructor();
@@ -51,7 +51,7 @@ namespace Ceras
             var neededType = TypeConfig.Type;
 
             if (!neededType.IsAssignableFrom(resultType))
-                throw new InvalidOperationException($"The given method or constructor returns a '{resultType.FullName}' which is not compatible to the needed type '{neededType.FullName}'");
+                throw new InvalidOperationException($"The given method or constructor returns a '{Format.TypeIdentity.GetCanonicalNameOrUnknown(resultType)}' which is not compatible to the needed type '{neededType.FullName}'");
         }
 
         protected void VerifyParameterMapping(MethodBase methodBase)
@@ -69,11 +69,11 @@ namespace Ceras
                 // Are we still missing a mapping for this member?
                 if (!map.TryGetValue(parameterInfo, out MemberInfo sourceMember))
                 {
-                    var caseInsensitiveMatches = memberConfigs.Where(mc => parameterInfo.Name.Equals(mc.Member.Name, StringComparison.OrdinalIgnoreCase)).ToArray();
+                    var caseInsensitiveMatches = memberConfigs.Where(mc => string.Equals(parameterInfo.Name, mc.Member.Name, StringComparison.OrdinalIgnoreCase)).ToArray();
                     if (SetMatchOrThrow(parameterInfo, caseInsensitiveMatches))
                         continue;
                     
-                    var tolerantMatches = memberConfigs.Where(mc => parameterInfo.Name.Equals(MiscHelpers.CleanMemberName(mc.Member.Name), StringComparison.OrdinalIgnoreCase)).ToArray();
+                    var tolerantMatches = memberConfigs.Where(mc => string.Equals(parameterInfo.Name, MiscHelpers.CleanMemberName(mc.Member.Name), StringComparison.OrdinalIgnoreCase)).ToArray();
                     if (SetMatchOrThrow(parameterInfo, tolerantMatches))
                         continue;
 
@@ -81,21 +81,21 @@ namespace Ceras
 
                     // Check if the member exists but is excluded — gives a much more actionable error than "not found"
                     var excludedMatch = TypeConfig._allMembers.FirstOrDefault(mc =>
-                        (parameterInfo.Name.Equals(mc.Member.Name, StringComparison.OrdinalIgnoreCase) ||
-                         parameterInfo.Name.Equals(MiscHelpers.CleanMemberName(mc.Member.Name), StringComparison.OrdinalIgnoreCase))
+                        (string.Equals(parameterInfo.Name, mc.Member.Name, StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(parameterInfo.Name, MiscHelpers.CleanMemberName(mc.Member.Name), StringComparison.OrdinalIgnoreCase))
                         && !mc.ComputeFinalInclusionFast());
 
                     if (excludedMatch != null)
-                        throw new CerasException($"Ceras automatically selected the constructor '({ctorParamStrings})' for type '{TypeConfig.Type.FriendlyName()}', but the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}' matches member '{excludedMatch.Member.Name}' which is excluded from serialization (reason: {excludedMatch.IncludeExcludeReason ?? "unknown"}). To fix this: either include the member with [Include], change ReadonlyFieldHandling, or configure a different constructor via ConfigType<T>().ConstructBy(...).");
+                        throw new CerasException($"Ceras automatically selected the constructor '({ctorParamStrings})' for type '{Format.TypeIdentity.GetCanonicalNameOrUnknown(TypeConfig.Type)}', but the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}' matches member '{excludedMatch.Member.Name}' which is excluded from serialization (reason: {excludedMatch.IncludeExcludeReason ?? "unknown"}). To fix this: either include the member with [Include], change ReadonlyFieldHandling, or configure a different constructor via ConfigType<T>().ConstructBy(...).");
 
-                    throw new CerasException($"There is no mapping specified from the members of '{TypeConfig.Type.FriendlyName()}' to the constructor '({ctorParamStrings})'. Ceras has tried to automatically detect a mapping by matching the names of the fields/properties to the method parameters, but no source field or property could be found to populate the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}'");
+                    throw new CerasException($"There is no mapping specified from the members of '{Format.TypeIdentity.GetCanonicalNameOrUnknown(TypeConfig.Type)}' to the constructor '({ctorParamStrings})'. Ceras has tried to automatically detect a mapping by matching the names of the fields/properties to the method parameters, but no source field or property could be found to populate the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}'");
                 }
                 else
                 {
                     // We already have a user-provided match, but is it part of the serialization?
                     var sourceMemberConfig = TypeConfig.Members.First(mc => mc.Member == sourceMember);
                     if (!sourceMemberConfig.ComputeFinalInclusionFast())
-                        throw new CerasException($"The construction mode for the type '{TypeConfig.Type.FriendlyName()}' is invalid because the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}' is supposed to be initialized from the member '{sourceMember.FieldOrPropType().FriendlyName()} {sourceMember.Name}', but that member is not part of the serialization, so it will not be available at deserialization-time.");
+                        throw new CerasException($"The construction mode for the type '{Format.TypeIdentity.GetCanonicalNameOrUnknown(TypeConfig.Type)}' is invalid because the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}' is supposed to be initialized from the member '{sourceMember.FieldOrPropType().FriendlyName()} {sourceMember.Name}', but that member is not part of the serialization, so it will not be available at deserialization-time.");
                 }
             }
 
@@ -141,7 +141,7 @@ namespace Ceras
         ConstructNull() { }
 
         internal override bool HasDataArguments => false;
-        internal override Func<object> GetRefFormatterConstructor() => () => null;
+        internal override Func<object>? GetRefFormatterConstructor() => () => null;
     }
 
     class SpecificConstructor : TypeConstruction
@@ -154,13 +154,13 @@ namespace Ceras
         }
 
         internal override bool HasDataArguments => Constructor.GetParameters().Length > 0;
-        internal override Func<object> GetRefFormatterConstructor()
+        internal override Func<object>? GetRefFormatterConstructor()
         {
             var ctor = Constructor;
             if (ctor.GetParameters().Length == 0)
                 return () => ctor.Invoke(null);
 
-            throw new NotSupportedException($"Parameterized constructors (Type: {ctor.DeclaringType.FullName}) are no longer supported because the fixup system was removed. Use a parameterless constructor or 'ConstructByUninitialized()'.");
+            throw new NotSupportedException($"Parameterized constructors (Type: {Format.TypeIdentity.GetCanonicalNameOrUnknown(ctor.DeclaringType)}) are no longer supported because the fixup system was removed. Use a parameterless constructor or 'ConstructByUninitialized()'.");
         }
 
         internal override void VerifyReturnType() => VerifyMethodReturn(Constructor);
@@ -193,10 +193,10 @@ namespace Ceras
 
 
         internal override bool HasDataArguments => Method.GetParameters().Length > 0;
-        internal override Func<object> GetRefFormatterConstructor()
+        internal override Func<object>? GetRefFormatterConstructor()
         {
             if (Method.GetParameters().Length > 0)
-                throw new NotSupportedException($"Factory methods with parameters (Method: {Method.DeclaringType.FullName}.{Method.Name}) are no longer supported because the fixup system was removed. Use a parameterless method or 'ConstructByUninitialized()'.");
+                throw new NotSupportedException($"Factory methods with parameters (Method: {Format.TypeIdentity.GetCanonicalNameOrUnknown(Method.DeclaringType)}.{Method.Name}) are no longer supported because the fixup system was removed. Use a parameterless method or 'ConstructByUninitialized()'.");
 
             if (Method.IsStatic)
                 return () => Method.Invoke(null, null);
@@ -210,11 +210,11 @@ namespace Ceras
 
     class UninitializedObject : TypeConstruction
     {
-        ConstructorInfo _directConstructor;
+        ConstructorInfo _directConstructor = null!;
 
         internal override bool HasDataArguments => _directConstructor != null && _directConstructor.GetParameters().Length > 0;
 
-        internal override Func<object> GetRefFormatterConstructor()
+        internal override Func<object>? GetRefFormatterConstructor()
         {
             var t = TypeConfig.Type;
             return () => RuntimeHelpers.GetUninitializedObject(t);

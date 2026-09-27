@@ -17,7 +17,7 @@
                 _ceras = ceras;
             }
     
-            public IFormatter GetFormatter(Type type)
+            public IFormatter? GetFormatter(Type type)
             {
                 _ceras.VerifyReflectionFallbackAllowed(type);
 

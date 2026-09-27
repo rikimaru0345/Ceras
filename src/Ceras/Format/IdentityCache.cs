@@ -16,7 +16,7 @@ namespace Ceras.Format
     /// </summary>
     sealed class IdentityCache
     {
-        readonly List<object> _slots = new();
+        readonly List<object?> _slots = new();
 
         public int Count => _slots.Count;
 
@@ -25,7 +25,7 @@ namespace Ceras.Format
         /// <paramref name="placeholder"/> is what a reference to it resolves to until it is published —
         /// a reused instance for a value that reuses one, otherwise null.
         /// </summary>
-        public int Reserve(object placeholder)
+        public int Reserve(object? placeholder)
         {
             int index = _slots.Count;
             _slots.Add(placeholder);
@@ -33,10 +33,10 @@ namespace Ceras.Format
         }
 
         /// <summary>Publishes the object into a reserved slot.</summary>
-        public void Publish(int index, object value) => _slots[index] = value;
+        public void Publish(int index, object? value) => _slots[index] = value;
 
         /// <summary>Publishes into a reserved slot, if one was reserved.</summary>
-        public void Publish(int? index, object value)
+        public void Publish(int? index, object? value)
         {
             if (index.HasValue) Publish(index.Value, value);
         }
@@ -46,7 +46,7 @@ namespace Ceras.Format
         /// emits indices for objects it has written, so this used to decode as a legitimate null — the one
         /// value a caller cannot tell apart from a real one.
         /// </summary>
-        public object Resolve(int index)
+        public object? Resolve(int index)
         {
             if ((uint)index >= (uint)_slots.Count)
                 throw new Exceptions.CerasDataCorruptionException(
@@ -88,7 +88,7 @@ namespace Ceras.Format
         {
             if (stableName == null)
             {
-                schema = null;
+                schema = null!;
                 return false;
             }
 

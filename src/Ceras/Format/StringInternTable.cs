@@ -145,7 +145,7 @@ namespace Ceras.Format
                     $"Corrupt string table: declared {count} entries but only {sequence.Length} bytes remain.");
 
             var table = new string[count + 1];
-            table[0] = null;
+            table[0] = null!;
 
             // Bounded per entry, so one declared length cannot pick the allocation.
             int maxEntryBytes = maxStringLength > int.MaxValue ? int.MaxValue : (int)maxStringLength;

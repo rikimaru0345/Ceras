@@ -783,7 +783,7 @@ namespace Ceras
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static string ReadString(byte[] buffer, ref int offset)
+        public static string? ReadString(byte[] buffer, ref int offset)
         {
             var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset);
             var reader = new SequenceReader<byte>(seq);
@@ -793,7 +793,7 @@ namespace Ceras
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static string ReadString(ref SequenceReader<byte> reader)
+        public static string? ReadString(ref SequenceReader<byte> reader)
         {
             int length = ReadUInt32Bias(ref reader, 1);
             if (length == -1) return null;
@@ -824,7 +824,7 @@ namespace Ceras
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static string ReadStringLimited(ref SequenceReader<byte> reader, uint maxLength)
+        public static string? ReadStringLimited(ref SequenceReader<byte> reader, uint maxLength)
         {
             int length = ReadUInt32Bias(ref reader, 1);
             if (length == -1) return null;

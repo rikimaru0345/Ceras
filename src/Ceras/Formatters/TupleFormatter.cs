@@ -3,13 +3,17 @@ using System.Buffers;
 
 namespace Ceras.Formatters
 {
+    // The `_itemNFormatter` fields are assigned by the resolver that builds the formatter (Ceras
+    // dependency injection) before it is ever used, and the `itemN` locals deliberately start at
+    // `default` because that is the "not read yet" state of an unconstrained T. Neither is a nullable
+    // claim the compiler could check, so both say so with `default!` rather than a file-wide suppression.
     public sealed class TupleFormatter<T1> : FormatterBase<Tuple<T1>>
     {
         IFormatter<T1> _item1Formatter = default!;
         public override void Serialize(IBufferWriter<byte> writer, Tuple<T1> value) => _item1Formatter.Serialize(writer, value.Item1);
         public override void Deserialize(ref SequenceReader<byte> reader, ref Tuple<T1> value)
         {
-            T1 item1 = default; _item1Formatter.Deserialize(ref reader, ref item1);
+            T1 item1 = default!; _item1Formatter.Deserialize(ref reader, ref item1);
             value = new Tuple<T1>(item1);
         }
     }
@@ -25,7 +29,7 @@ namespace Ceras.Formatters
         }
         public override void Deserialize(ref SequenceReader<byte> reader, ref Tuple<T1, T2> value)
         {
-            T1 item1 = default; T2 item2 = default;
+            T1 item1 = default!; T2 item2 = default!;
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
             value = new Tuple<T1, T2>(item1, item2);
@@ -45,7 +49,7 @@ namespace Ceras.Formatters
         }
         public override void Deserialize(ref SequenceReader<byte> reader, ref Tuple<T1, T2, T3> value)
         {
-            T1 item1 = default; T2 item2 = default; T3 item3 = default;
+            T1 item1 = default!; T2 item2 = default!; T3 item3 = default!;
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
             _item3Formatter.Deserialize(ref reader, ref item3);
@@ -68,7 +72,7 @@ namespace Ceras.Formatters
         }
         public override void Deserialize(ref SequenceReader<byte> reader, ref Tuple<T1, T2, T3, T4> value)
         {
-            T1 item1 = default; T2 item2 = default; T3 item3 = default; T4 item4 = default;
+            T1 item1 = default!; T2 item2 = default!; T3 item3 = default!; T4 item4 = default!;
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
             _item3Formatter.Deserialize(ref reader, ref item3);
@@ -94,7 +98,7 @@ namespace Ceras.Formatters
         }
         public override void Deserialize(ref SequenceReader<byte> reader, ref Tuple<T1, T2, T3, T4, T5> value)
         {
-            T1 item1 = default; T2 item2 = default; T3 item3 = default; T4 item4 = default; T5 item5 = default;
+            T1 item1 = default!; T2 item2 = default!; T3 item3 = default!; T4 item4 = default!; T5 item5 = default!;
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
             _item3Formatter.Deserialize(ref reader, ref item3);
@@ -123,7 +127,7 @@ namespace Ceras.Formatters
         }
         public override void Deserialize(ref SequenceReader<byte> reader, ref Tuple<T1, T2, T3, T4, T5, T6> value)
         {
-            T1 item1 = default; T2 item2 = default; T3 item3 = default; T4 item4 = default; T5 item5 = default; T6 item6 = default;
+            T1 item1 = default!; T2 item2 = default!; T3 item3 = default!; T4 item4 = default!; T5 item5 = default!; T6 item6 = default!;
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
             _item3Formatter.Deserialize(ref reader, ref item3);
@@ -155,7 +159,7 @@ namespace Ceras.Formatters
         }
         public override void Deserialize(ref SequenceReader<byte> reader, ref Tuple<T1, T2, T3, T4, T5, T6, T7> value)
         {
-            T1 item1 = default; T2 item2 = default; T3 item3 = default; T4 item4 = default; T5 item5 = default; T6 item6 = default; T7 item7 = default;
+            T1 item1 = default!; T2 item2 = default!; T3 item3 = default!; T4 item4 = default!; T5 item5 = default!; T6 item6 = default!; T7 item7 = default!;
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
             _item3Formatter.Deserialize(ref reader, ref item3);

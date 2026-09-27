@@ -117,6 +117,16 @@ namespace Ceras.HistoricalWriter.V1
         public Player Main;
         public Settings Stats;
 
+        /// <summary>A string field the current model does not have.</summary>
+        public string RetiredText;
+
+        /// <summary>
+        /// A struct-typed field the current model does not have. A described struct has a fixed byte size, so
+        /// this is the one removal that can be accounted for by advancing rather than by walking fields - the
+        /// case 0.8.2 is about, and the one a field-by-field skip would get wrong.
+        /// </summary>
+        public Coord Home;
+
         /// <summary>
         /// A field the current model does not have, of a <em>reference-typed</em> collection. Its payload is
         /// an explicit count plus elements, but a collection is a reference, so a skipper that asks "is the

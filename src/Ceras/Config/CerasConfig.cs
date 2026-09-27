@@ -93,24 +93,33 @@ namespace Ceras
 			if (type.ContainsGenericParameters)
 				throw new InvalidOperationException("You cannot configure open generic types like List<>. Only closed types like List<int> can be configured statically. Use OnConfigNewType for dynamic configuration.");
 
+			// Activator returns object?; the constructed type is known to exist here (it is a closed
+			// TypeConfig<> over a type that passed the check above), and a null here would be a broken
+			// deployment rather than a runtime condition.
 			typeConfig = (TypeConfig)Activator.CreateInstance(
 				typeof(TypeConfig<>).MakeGenericType(type),
 				System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
-				null, new object[] { this, isStatic }, null);
+				null, new object[] { this, isStatic }, null)!;
 			configDict.Add(type, typeConfig);
 			return typeConfig;
 		}
 
-		// Returns a pre-existing TypeConfig without creating one or firing callbacks.
-		internal TypeConfig GetExistingTypeConfig(Type type, bool isStatic)
+		/// <summary>
+		/// The pre-existing config for a type, without creating one or firing callbacks. Null when the type
+		/// was never configured - including an open generic, which cannot be configured statically.
+		/// </summary>
+		internal TypeConfig? GetExistingTypeConfig(Type type, bool isStatic)
 		{
 			var configDict = isStatic ? _staticConfigEntries : _configEntries;
 			configDict.TryGetValue(type, out var typeConfig);
 			return typeConfig;
 		}
 
-		// Get or create a TypeConfig for use, firing OnConfigNewType if needed.
-		internal TypeConfig GetTypeConfig(Type type, bool isStatic)
+		/// <summary>
+		/// The config for a type, created on first use (<c>OnConfigNewType</c> fires then). Null for an open
+		/// generic, which cannot be configured statically - the caller decides what that means.
+		/// </summary>
+		internal TypeConfig? GetTypeConfig(Type type, bool isStatic)
 		{
 			var configDict = isStatic ? _staticConfigEntries : _configEntries;
 			if (configDict.TryGetValue(type, out var typeConfig))
@@ -119,15 +128,29 @@ namespace Ceras
 			if (type.ContainsGenericParameters)
 				return null;
 
+			// Activator returns object?; the constructed type is known to exist here (it is a closed
+			// TypeConfig<> over a type that passed the check above), and a null here would be a broken
+			// deployment rather than a runtime condition.
 			typeConfig = (TypeConfig)Activator.CreateInstance(
 				typeof(TypeConfig<>).MakeGenericType(type),
 				System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
-				null, new object[] { this, isStatic }, null);
+				null, new object[] { this, isStatic }, null)!;
 
 			OnConfigNewType?.Invoke(typeConfig);
 			configDict.Add(type, typeConfig);
 			return typeConfig;
 		}
+
+		/// <summary>
+		/// The config for a <em>closed</em> type, which always has one. The formatters and resolvers all hold
+		/// closed types (a runtime <see cref="Type"/> from a value, or a constructed generic), so they use
+		/// this instead of repeating a null check that cannot happen.
+		/// </summary>
+		internal TypeConfig GetTypeConfigForClosedType(Type type, bool isStatic)
+			=> GetTypeConfig(type, isStatic)
+			   ?? throw new InvalidOperationException(
+				   $"'{Format.TypeIdentity.GetCanonicalNameOrUnknown(type)}' is an open generic type and cannot be configured; " +
+				   "a serializer only works with closed types.");
 
 		/// <summary>
 		/// Configure a specific type. Use this for types you don't control (external libraries, etc.).

@@ -26,7 +26,7 @@ namespace Ceras.Format
             uint index = SerializerBinary.ReadUInt32Fixed(ref reader);
             if (index == 0)
             {
-                value = null;
+                value = null!;
                 return;
             }
 

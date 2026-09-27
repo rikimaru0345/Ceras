@@ -31,8 +31,8 @@ namespace Ceras.Formatters
             public BannedType(Type type, string banReason, bool alsoCheckInherit)
             {
                 Type = type;
-                FullName = null;
-                CustomIsBannedCheck = null;
+                FullName = null!;
+                CustomIsBannedCheck = null!;
 
                 BanReason = banReason;
                 AlsoCheckInherit = alsoCheckInherit;
@@ -40,9 +40,9 @@ namespace Ceras.Formatters
 
             public BannedType(string fullName, string banReason, bool alsoCheckInherit)
             {
-                Type = null;
+                Type = null!;
                 FullName = fullName;
-                CustomIsBannedCheck = null;
+                CustomIsBannedCheck = null!;
 
                 BanReason = banReason;
                 AlsoCheckInherit = alsoCheckInherit;
@@ -50,8 +50,8 @@ namespace Ceras.Formatters
 
             public BannedType(Func<Type, bool> customCheck, string banReason)
             {
-                Type = null;
-                FullName = null;
+                Type = null!;
+                FullName = null!;
                 CustomIsBannedCheck = customCheck;
 
                 BanReason = banReason;

@@ -131,7 +131,7 @@ namespace Ceras.Helpers
 
         internal class TypeRefProxy
         {
-            public Type Type;
+            public Type Type = null!;
 
             public override string ToString()
             {

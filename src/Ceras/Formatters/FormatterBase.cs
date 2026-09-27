@@ -21,7 +21,7 @@ namespace Ceras.Formatters
 
         public virtual void DeserializeUntyped(ref SequenceReader<byte> reader, object container, MemberInfo member)
         {
-            T value = default;
+            T value = default!;
             if (member is FieldInfo f)
             {
                 var existing = f.GetValue(container);

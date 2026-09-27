@@ -72,7 +72,7 @@ namespace Ceras.Formatters
             int length = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (length == -1)
             {
-                value = null;
+                value = null!;
                 return;
             }
 

@@ -57,7 +57,7 @@
         /// Initializes a new instance of the <see cref="ObjectCache"/> class.
         /// </summary>
         /// <param name="comparer">The <see cref="IEqualityComparer{T}"/> to use.</param>
-        public ObjectCache(IEqualityComparer<object> comparer = null)
+        public ObjectCache(IEqualityComparer<object> comparer = null!)
         {
             _serializationCache = new Dictionary<object, int>(64, comparer);
         }
@@ -87,7 +87,7 @@
 
         // Deserialization:
         // When encountering a new object
-        internal RefProxy<T> CreateDeserializationProxy<T>(Type overrideType = null) where T : class
+        internal RefProxy<T> CreateDeserializationProxy<T>(Type overrideType = null!) where T : class
         {
             var p = RefProxyPool<T>.Rent();
             _deserializationCache.Add(p);
@@ -159,7 +159,7 @@
 
         internal sealed class RefProxy<T> : RefProxy where T : class
         {
-            T _value;
+            T _value = null!;
             public T Value
             {
                 get => _value;

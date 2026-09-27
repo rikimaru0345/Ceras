@@ -254,7 +254,7 @@ namespace Ceras.Format
         /// The result is used both for the structural schema and by the migration interpreter, so a
         /// collection subclass round-trips instead of decoding as an empty ordinary object.
         /// </summary>
-        public static bool TryResolveCollectionShape(Type type, out Type definition, out Type[] args)
+        public static bool TryResolveCollectionShape(Type? type, out Type? definition, out Type[]? args)
         {
             definition = null;
             args = null;
@@ -310,7 +310,7 @@ namespace Ceras.Format
         }
 
         /// <summary>Finds the closed <paramref name="openGeneric"/> in <paramref name="type"/>'s base chain (concrete classes only).</summary>
-        static Type FindBase(Type type, Type openGeneric)
+        static Type? FindBase(Type type, Type openGeneric)
         {
             for (var t = type; t != null; t = t.BaseType)
             {
@@ -325,7 +325,7 @@ namespace Ceras.Format
         /// walking base types only for the special-case <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> shapes
         /// (which are concrete classes, not interfaces).
         /// </summary>
-        static Type FindClosedInterface(Type type, Type openGeneric)
+        static Type? FindClosedInterface(Type? type, Type openGeneric)
         {
             for (var t = type; t != null; t = t.BaseType)
             {
@@ -333,7 +333,7 @@ namespace Ceras.Format
                 if (t.GetGenericTypeDefinition() == openGeneric) return t;
             }
 
-            foreach (var iface in type.GetInterfaces())
+            foreach (var iface in type!.GetInterfaces())
             {
                 if (!iface.IsGenericType) continue;
                 if (iface.GetGenericTypeDefinition() == openGeneric) return iface;

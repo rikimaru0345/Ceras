@@ -75,7 +75,7 @@
 				}
 				else
 				{
-					_overrideFormatter = null;
+					_overrideFormatter = null!;
 				}
 			}
 		}
@@ -319,7 +319,7 @@
 		/// </summary>
 		public TypeConfig<T> ConstructBy(Expression<Func<T>> methodSelectExpression)
 		{
-			return ConstructBy(instance: null, methodSelectExpression);
+			return ConstructBy(instance: null!, methodSelectExpression);
 		}
 
 		/// <summary>
@@ -411,20 +411,20 @@
 
 		#region Member Config
 
-		public MemberConfig<T> ConfigMember<TMember>(Expression<Func<T, TMember>> selectMemberExpression)
+		public MemberConfig<T>? ConfigMember<TMember>(Expression<Func<T, TMember>> selectMemberExpression)
 		{
 			var memberInfo = ((MemberExpression)selectMemberExpression.Body).Member;
 			var memberConfig = Members.FirstOrDefault(m => m.Member == memberInfo);
 			return (MemberConfig<T>)memberConfig;
 		}
 
-		public MemberConfig<T> ConfigField(string fieldName)
+		public MemberConfig<T>? ConfigField(string fieldName)
 		{
 			var memberConfig = Members.FirstOrDefault(m => m.Member is FieldInfo && m.Member.Name == fieldName);
 			return (MemberConfig<T>)memberConfig;
 		}
 
-		public MemberConfig<T> ConfigProperty(string propName)
+		public MemberConfig<T>? ConfigProperty(string propName)
 		{
 			var memberConfig = Members.FirstOrDefault(m => m.Member is PropertyInfo && m.Member.Name == propName);
 			return (MemberConfig<T>)memberConfig;
@@ -532,7 +532,8 @@
 				if (match.Success)
 				{
 					string propName = match.Groups[1].Value;
-					AssociatedProperty = fi.DeclaringType.GetProperty(propName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+					// A dynamic member has no declaring type, and then no auto-property to find either.
+				AssociatedProperty = fi.DeclaringType?.GetProperty(propName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
 				}
 			}
 

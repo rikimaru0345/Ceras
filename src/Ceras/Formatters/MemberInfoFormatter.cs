@@ -18,7 +18,7 @@ namespace Ceras.Formatters
         {
             if (member == null)
             {
-                _typeFormatter.Serialize(writer, null);
+                _typeFormatter.Serialize(writer, null!);
                 return;
             }
 
@@ -29,9 +29,9 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref T value)
         {
-            Type declaringType = null;
+            Type? declaringType = null;
             _typeFormatter.Deserialize(ref reader, ref declaringType);
-            if (declaringType == null) { value = null; return; }
+            if (declaringType == null!) { value = null!; return; }
 
             var memberType = (MemberTypes)SerializerBinary.ReadByte(ref reader);
             var name = SerializerBinary.ReadString(ref reader);

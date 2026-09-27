@@ -31,7 +31,7 @@ namespace Ceras
     /// <para>
     /// Omitting the attribute leaves the timestamp explicitly <b>unknown</b>: Ceras records 0 in the
     /// header and performs no build-ordering check, which is visible via
-    /// <see cref="BuildInfo.ProducerBuildTimestampKnown"/>. Unknown is a deliberate mode for
+    /// <see cref="CerasRobustConfig.BuildTimestampKnown"/>. Unknown is a deliberate mode for
     /// experiments/development, not a silent default for release builds.
     /// </para>
     /// </summary>

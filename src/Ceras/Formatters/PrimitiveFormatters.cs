@@ -142,7 +142,7 @@ namespace Ceras.Formatters
     /// encode a decimal as its four <see cref="decimal.GetBits(decimal)"/> words (lo, mid, hi, flags)
     /// little-endian, matching <see cref="Ceras.Format.WellKnownTypes.Decimal"/>. This is the only
     /// decimal encoding in the library: decimal is excluded from the reinterpret fast path, so a
-    /// decimal[], a KeyValuePair<decimal,_> and any struct containing a decimal write it too.
+    /// decimal[], a KeyValuePair&lt;decimal,_&gt; and any struct containing a decimal write it too.
     /// </summary>
     public sealed class DecimalFormatter : FormatterBase<decimal>
     {

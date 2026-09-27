@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
@@ -51,7 +52,8 @@ namespace Ceras.Format
             // one Load. Take the configured one.
             _typeBinder = serializer?.Config?.TypeBinder ?? new SimpleTypeBinder();
             _serializer      = serializer;
-            _registry        = ((CerasRobustConfig)serializer.Config).SchemaRegistry;
+            // The robust serializer is the only caller and always passes one with a robust config.
+        _registry        = ((CerasRobustConfig)serializer!.Config).SchemaRegistry;
             _maxCollectionSize = serializer.Config.SizeLimits.MaxCollectionSize;
 
             _plans = MigrationPlanBuilder.BuildAll(_file.ByName, _registry);
@@ -70,7 +72,7 @@ namespace Ceras.Format
             }
         }
 
-        static Action<CerasSerializer, object> MakeInvoker(MethodInfo method, CallbackArgumentKind kind, MigrationContext context)
+        static Action<CerasSerializer, object>? MakeInvoker(MethodInfo method, CallbackArgumentKind kind, MigrationContext context)
         {
             if (method == null) return null;
 
@@ -98,6 +100,7 @@ namespace Ceras.Format
             return result;
         }
 
+        [return: MaybeNull]
         public T ReadRoot<T>(ref SequenceReader<byte> reader, T rootObject = default)
         {
             // Roots are declared types, so the stored root id and this CLR type were already
@@ -107,79 +110,147 @@ namespace Ceras.Format
             // default (e.g. 0 for a saved int).
             if (WellKnownTypes.TryGetId(typeof(T), out int wellKnownId))
             {
-                object wk = ReadValue(wellKnownId, typeof(T), ref reader, rootObject);
-                return wk == null ? default : (T)wk;
+                object? wellKnown = ReadValue(wellKnownId, typeof(T), ref reader, rootObject);
+                return wellKnown == null ? default : (T)wellKnown;
             }
 
             string stableName = ResolveOldStableName(typeof(T));
-            object obj = ReadUserTypeByStableName(stableName, typeof(T), ref reader, rootObject);
-            if (obj == null) return default;
-            return (T)obj;
+            object? obj = ReadUserTypeByStableName(stableName, typeof(T), ref reader, rootObject);
+            return obj == null ? default : (T)obj;
         }
 
         string ResolveOldStableName(Type t) => _file.ResolveStableName(t, _registry);
 
         // ── Core dispatch ─────────────────────────────────────────────────────
 
-        object ReadValue(int typeId, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
+        /// <summary>Whether a value is being decoded or only accounted for.</summary>
+        enum WalkMode { Read, Skip }
+
+        /// <summary>
+        /// The single entry point for a payload value, in both directions. <para>
+        /// "What does this type id mean?" used to be answered twice — once in <c>ReadValue</c> and once in
+        /// <c>SkipValue</c> — and the two switches had to be kept in step by hand, so a change to one could
+        /// silently desynchronise the other. Now the type-id dispatch, the fixed-size short-circuit and the
+        /// scalar widths exist once; only the leaf differs between decoding a value and advancing past it.
+        /// </para>
+        /// <para>
+        /// A skipped value still validates: a back-reference past the identity cache and a full-name
+        /// reference the manifest cannot describe are both refused, because a skip that quietly accepted
+        /// them would return a plausible answer for a stream it had lost track of.
+        /// </para>
+        /// </summary>
+        object? WalkValue(int typeId, Type? targetType, ref SequenceReader<byte> reader,
+            object? existingObject, WalkMode mode)
         {
+            // A fixed-size value is a fixed-size value in both directions: when skipping, that is the whole
+            // of it, and it is why a described struct's payload never has to be walked field by field.
+            if (mode == WalkMode.Skip)
+            {
+                if (_file.TryGetById(typeId, out var described) && described.FixedByteSize > 0)
+                {
+                    reader.Advance(described.FixedByteSize);
+                    return null;
+                }
+
+                int fixedSize = WellKnownTypes.GetFixedSize(typeId);
+                if (fixedSize > 0)
+                {
+                    reader.Advance(fixedSize);
+                    return null;
+                }
+            }
+
             switch (typeId)
             {
                 case WellKnownTypes.Null:    return null;
-                case WellKnownTypes.Bool:    return SerializerBinary.ReadByte(ref reader) != 0;
-                case WellKnownTypes.Byte:    return SerializerBinary.ReadByte(ref reader);
-                case WellKnownTypes.SByte:   return (sbyte)SerializerBinary.ReadByte(ref reader);
-                case WellKnownTypes.Char:    return (char)SerializerBinary.ReadInt16Fixed(ref reader);
-                case WellKnownTypes.Int16:   return SerializerBinary.ReadInt16Fixed(ref reader);
-                case WellKnownTypes.UInt16:  return (ushort)SerializerBinary.ReadInt16Fixed(ref reader);
-                case WellKnownTypes.Int32:   return SerializerBinary.ReadInt32Fixed(ref reader);
-                case WellKnownTypes.UInt32:  return SerializerBinary.ReadUInt32Fixed(ref reader);
-                case WellKnownTypes.Single:  return SerializerBinary.ReadFloat32Fixed(ref reader);
-                case WellKnownTypes.Int64:   return SerializerBinary.ReadInt64Fixed(ref reader);
-                case WellKnownTypes.UInt64:  return (ulong)SerializerBinary.ReadInt64Fixed(ref reader);
-                case WellKnownTypes.Double:  return SerializerBinary.ReadDouble64Fixed(ref reader);
+                case WellKnownTypes.Bool:    return mode == WalkMode.Read ? SerializerBinary.ReadByte(ref reader) != 0 : Advance(ref reader, 1);
+                case WellKnownTypes.Byte:    return mode == WalkMode.Read ? SerializerBinary.ReadByte(ref reader) : Advance(ref reader, 1);
+                case WellKnownTypes.SByte:   return mode == WalkMode.Read ? (object)(sbyte)SerializerBinary.ReadByte(ref reader) : Advance(ref reader, 1);
+                case WellKnownTypes.Char:    return mode == WalkMode.Read ? (char)SerializerBinary.ReadInt16Fixed(ref reader) : Advance(ref reader, 2);
+                case WellKnownTypes.Int16:   return mode == WalkMode.Read ? SerializerBinary.ReadInt16Fixed(ref reader) : Advance(ref reader, 2);
+                case WellKnownTypes.UInt16:  return mode == WalkMode.Read ? (ushort)SerializerBinary.ReadInt16Fixed(ref reader) : Advance(ref reader, 2);
+                case WellKnownTypes.Int32:   return mode == WalkMode.Read ? SerializerBinary.ReadInt32Fixed(ref reader) : Advance(ref reader, 4);
+                case WellKnownTypes.UInt32:  return mode == WalkMode.Read ? SerializerBinary.ReadUInt32Fixed(ref reader) : Advance(ref reader, 4);
+                case WellKnownTypes.Single:  return mode == WalkMode.Read ? SerializerBinary.ReadFloat32Fixed(ref reader) : Advance(ref reader, 4);
+                case WellKnownTypes.Int64:   return mode == WalkMode.Read ? SerializerBinary.ReadInt64Fixed(ref reader) : Advance(ref reader, 8);
+                case WellKnownTypes.UInt64:  return mode == WalkMode.Read ? (object)(ulong)SerializerBinary.ReadInt64Fixed(ref reader) : Advance(ref reader, 8);
+                case WellKnownTypes.Double:  return mode == WalkMode.Read ? SerializerBinary.ReadDouble64Fixed(ref reader) : Advance(ref reader, 8);
                 case WellKnownTypes.Decimal:
                 {
-                    // Route through SerializerBinary so an impossible scale/sign/reserved-bit word is
+                    // 16 bytes, validated by SerializerBinary so an impossible scale/sign/reserved-bit word is
                     // reported as data corruption rather than escaping as ArgumentException.
+                    if (mode == WalkMode.Skip) return Advance(ref reader, 16);
                     return SerializerBinary.ReadDecimal(ref reader);
                 }
                 case WellKnownTypes.String:
                 {
+                    if (mode == WalkMode.Skip) { SerializerBinary.ReadUInt32Fixed(ref reader); return null; }
                     return ReadStringFromTable(ref reader);
                 }
                 case WellKnownTypes.DateTime:
                     // Matches SerializerBinary.WriteDateTime / DateTimeFormatter: the writer persists
                     // DateTime.ToBinary() (ticks plus kind bits), so the interpreter must use FromBinary.
                     // Treating the bits as raw ticks throws for Utc/Local values and loses the kind.
+                    if (mode == WalkMode.Skip) return Advance(ref reader, 8);
                     return DateTime.FromBinary(SerializerBinary.ReadInt64Fixed(ref reader));
                 case WellKnownTypes.TimeSpan:
+                    if (mode == WalkMode.Skip) return Advance(ref reader, 8);
                     return new TimeSpan(SerializerBinary.ReadInt64Fixed(ref reader));
                 case WellKnownTypes.DateTimeOffset:
                     // Matches DateTimeOffsetFormatter / SerializerBinary: ticks then offset minutes, and
                     // validates them (an out-of-range value is corruption, not a decoder failure).
+                    if (mode == WalkMode.Skip) return Advance(ref reader, 10);
                     return SerializerBinary.ReadDateTimeOffset(ref reader);
                 case WellKnownTypes.Guid:
                 {
+                    if (mode == WalkMode.Skip) return Advance(ref reader, 16);
                     byte[] b = new byte[16];
                     if (!reader.TryCopyTo(b))
-                        throw new InvalidOperationException("End of sequence while reading Guid");
+                        throw new Ceras.Exceptions.CerasDataCorruptionException(
+                            "Corrupt data: the save ended before a 16-byte Guid could be read (truncated payload).");
                     reader.Advance(16);
                     return new Guid(b);
                 }
                 case WellKnownTypes.Type:
-                    return ReadTypeValue(ref reader);
+                    if (mode == WalkMode.Read) return ReadTypeValue(ref reader);
+                    SkipTypeValue(ref reader);
+                    return null;
                 case WellKnownTypes.Object:
-                    return ReadPolymorphicValue(WellKnownTypes.Object, targetType, ref reader, existingObject);
+                    if (mode == WalkMode.Read)
+                        return ReadPolymorphicValue(WellKnownTypes.Object, targetType, ref reader, existingObject);
+
+                    SkipPolymorphicValue(WellKnownTypes.Object, ref reader);
+                    return null;
                 default:
                 {
-                    if (typeId >= WellKnownTypes.UserTypeBase)
+                    if (typeId < WellKnownTypes.UserTypeBase)
+                    {
+                        // Not a type this reader knows: it cannot be decoded, and it has no describable
+                        // payload either, so there is nothing to account for.
+                        return null;
+                    }
+
+                    if (mode == WalkMode.Read)
                         return ReadUserType(typeId, targetType, ref reader, existingObject);
-                    SkipValue(typeId, ref reader);
+
+                    SkipUserType(typeId, ref reader);
                     return null;
                 }
             }
         }
+
+        /// <summary>Consumes <paramref name="count"/> bytes. The result is always null: a skip produces no value.</summary>
+        static object? Advance(ref SequenceReader<byte> reader, int count)
+        {
+            reader.Advance(count);
+            return null;
+        }
+
+        object? ReadValue(int typeId, Type? targetType, ref SequenceReader<byte> reader, object? existingObject = null)
+            => WalkValue(typeId, targetType, ref reader, existingObject, WalkMode.Read);
+
+        void SkipValue(int typeId, ref SequenceReader<byte> reader)
+            => WalkValue(typeId, null, ref reader, null, WalkMode.Skip);
 
         /// <summary>
         /// Decodes a <see cref="Type"/> value exactly like <c>RobustTypeFormatter.Deserialize</c>:
@@ -187,7 +258,7 @@ namespace Ceras.Format
         /// element type. Reconstructing the closed type is required both to return the right value and
         /// to consume the argument bytes so the stream stays aligned.
         /// </summary>
-        object ReadTypeValue(ref SequenceReader<byte> reader)
+        object? ReadTypeValue(ref SequenceReader<byte> reader)
         {
             uint id = SchemaSection.ReadLeb128(ref reader);
             if (id == WellKnownTypes.Null) return null;
@@ -200,7 +271,7 @@ namespace Ceras.Format
 
             if (id == (uint)WellKnownTypes.Array)
             {
-                Type element = (Type)ReadTypeValue(ref reader);
+                Type? element = (Type)ReadTypeValue(ref reader);
                 if (element == null)
                     throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt System.Type payload: an array type has no element type.");
                 return MakeType(() => element.MakeArrayType(), $"array of '{TypeIdentity.GetCanonicalName(element)}'");
@@ -248,7 +319,7 @@ namespace Ceras.Format
             }
         }
 
-        object ReadUserType(int typeId, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
+        object? ReadUserType(int typeId, Type? targetType, ref SequenceReader<byte> reader, object? existingObject = null)
         {
             if (!_file.TryGetById(typeId, out var oldSchema)) {
                 return null;
@@ -279,7 +350,7 @@ namespace Ceras.Format
         /// definition id alone gets that backwards, which is what this predicate exists to prevent.
         /// </para>
         /// </summary>
-        bool CarriesReferenceMarker(OldTypeSchema old, Type currentType)
+        bool CarriesReferenceMarker(OldTypeSchema old, Type? currentType)
         {
             switch (old.Kind)
             {
@@ -300,7 +371,7 @@ namespace Ceras.Format
             }
         }
 
-        object ReadUserTypeDirect(int typeId, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
+        object? ReadUserTypeDirect(int typeId, Type? targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object? existingObject = null)
         {
             if (!_file.TryGetById(typeId, out var oldSchema)) return null;
 
@@ -310,7 +381,7 @@ namespace Ceras.Format
             return ReadUserTypeInstance(oldSchema, targetType, ref reader, cacheIndex, existingObject);
         }
 
-        object ReadPolymorphicValue(int expectedTypeId, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
+        object? ReadPolymorphicValue(int expectedTypeId, Type? targetType, ref SequenceReader<byte> reader, object? existingObject = null)
         {
             int marker = SerializerBinary.ReadUInt32Bias(ref reader, RefBias);
             if (marker == RefNull) return null;
@@ -352,7 +423,7 @@ namespace Ceras.Format
                 // else is rejected, because this engine cannot know how the bytes that follow are laid
                 // out and guessing would corrupt the rest of the graph.
                 string typeName = ReadStringFromTable(ref reader);
-                Type type = ResolveFullName(typeName);
+                Type? type = ResolveFullName(typeName);
                 if (type == null)
                     throw new Ceras.Exceptions.CerasSchemaException(
                         $"The save names the type '{typeName}' for a full-name reference, but it does not resolve in this " +
@@ -367,7 +438,7 @@ namespace Ceras.Format
                 }
 
                 throw new Ceras.Exceptions.CerasSchemaException(
-                    $"The save references '{TypeIdentity.GetCanonicalName(type)}' by full name, but that type is not part of the " +
+                    $"The save references '{TypeIdentity.GetCanonicalNameOrUnknown(type)}' by full name, but that type is not part of the " +
                     "current context's manifest, so its payload cannot be decoded. Declare it in the context " +
                     "([CerasContext]/[CerasKnownType]) and rebuild; loading the save as a type that is merely structurally similar " +
                     "would desynchronise the rest of the graph.");
@@ -381,7 +452,7 @@ namespace Ceras.Format
         /// "no such type" either by returning null or by throwing (SimpleTypeBinder throws), so both are
         /// normalized to null and the caller decides what an unresolvable name means.
         /// </summary>
-        Type ResolveFullName(string typeName)
+        Type? ResolveFullName(string typeName)
         {
             try
             {
@@ -393,7 +464,7 @@ namespace Ceras.Format
             }
         }
 
-        object ReadUserTypeByStableName(string stableName, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
+        object? ReadUserTypeByStableName(string stableName, Type targetType, ref SequenceReader<byte> reader, object existingObject = null!)
         {
             if (stableName != null && _file.TryGetByName(stableName, out var oldSchema))
             {
@@ -402,10 +473,10 @@ namespace Ceras.Format
             return null;
         }
 
-        object ReadUserTypeInstance(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
+        object? ReadUserTypeInstance(OldTypeSchema oldSchema, Type? targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object? existingObject = null)
         {
             _plans.TryGetValue(oldSchema.StableName, out var plan);
-            Type currentType = plan?.CurrentType ?? targetType;
+            Type? currentType = plan?.CurrentType ?? targetType;
 
             RejectUndescribableShape(oldSchema, currentType);
 
@@ -416,7 +487,7 @@ namespace Ceras.Format
 
             if (oldSchema.Kind == SchemaTypeKind.Struct || (currentType != null && currentType.IsValueType))
             {
-                object structObj = existingObject ?? _factory.CreateInstance(currentType);
+                object? structObj = existingObject ?? _factory.CreateInstance(currentType);
                 _identity.Publish(cacheIndex, structObj);
 
                 FireBeforeCallback(structObj, plan);
@@ -454,15 +525,15 @@ namespace Ceras.Format
         /// <item>defer <c>[OnAfterDeserialize]</c> until the whole graph is populated.</item>
         /// </list>
         /// </summary>
-        object ReadReferenceInstance(OldTypeSchema oldSchema, TypeMigrationPlan plan, Type currentType,
-            ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        object? ReadReferenceInstance(OldTypeSchema oldSchema, TypeMigrationPlan? plan, Type? currentType,
+            ref SequenceReader<byte> reader, int? cacheIndex, object? existingObject)
         {
             // A reused instance is never re-constructed: no constructor, no field initializers.
             var ctorArgs = existingObject == null
                 ? CtorArgumentPlanBuilder.Resolve(currentType, plan)
                 : null;
 
-            object obj = ctorArgs != null
+            object? obj = ctorArgs != null
                 ? RuntimeHelpers.GetUninitializedObject(currentType)
                 : existingObject ?? _factory.CreateReference(currentType);
 
@@ -478,8 +549,8 @@ namespace Ceras.Format
 
             if (ctorArgs != null)
             {
-                var values = new object[ctorArgs.Parameters.Length];
-                var assignments = new List<(FieldInfo Field, object Value)>();
+                var values = new object?[ctorArgs.Parameters.Length];
+                var assignments = new List<(FieldInfo Field, object? Value)>();
                 ReadAndApplyFields(oldSchema, plan, null, ref reader, ctorArgs, values, assignments);
 
                 // A parameter no serialized member feeds is transient construction input and gets its own
@@ -498,7 +569,7 @@ namespace Ceras.Format
                     // The constructor is user code, so its failure is the load's failure. Name the type and
                     // the payload's field order so the cause can be found.
                     throw new Ceras.Exceptions.CerasSchemaException(
-                        $"The [CerasConstructor] of '{TypeIdentity.GetCanonicalName(currentType)}' threw while migrating a save " +
+                        $"The [CerasConstructor] of '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}' threw while migrating a save " +
                         $"(payload fields: {CtorArgumentPlanBuilder.DescribeOldFields(plan)}): {e.InnerException.GetType().Name}: {e.InnerException.Message}",
                         e.InnerException);
                 }
@@ -520,15 +591,16 @@ namespace Ceras.Format
         /// record the element's type identity. A fixed-size element can still be skipped from its current
         /// CLR type; anything else fails loudly rather than desyncing the stream.
         /// </summary>
-        object SkipAndReturnDefault(Type elementType, ref SequenceReader<byte> reader)
+        object? SkipAndReturnDefault(Type? elementType, ref SequenceReader<byte> reader)
         {
             int fixedSize = elementType != null && WellKnownTypes.TryGetId(elementType, out int wellKnownId)
                 ? WellKnownTypes.GetFixedSize(wellKnownId)
                 : 0;
             if (fixedSize > 0)
             {
+                // elementType is non-null here: a fixed size is only known for a registered type.
                 reader.Advance(fixedSize);
-                return elementType.IsValueType ? Activator.CreateInstance(elementType) : null;
+                return elementType!.IsValueType ? Activator.CreateInstance(elementType) : null;
             }
 
             throw new Ceras.Exceptions.CerasSchemaException(
@@ -538,7 +610,7 @@ namespace Ceras.Format
         }
 
 
-        object ReadGenericInstantiation(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
+        object? ReadGenericInstantiation(OldTypeSchema oldSchema, Type? targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object? existingObject = null)
         {
             if (oldSchema.DefinitionTypeId == WellKnownTypes.Array) return ReadArray(oldSchema, targetType, ref reader, cacheIndex, existingObject);
             if (oldSchema.DefinitionTypeId == WellKnownTypes.KeyValuePair) return ReadKeyValuePair(oldSchema, targetType, ref reader, cacheIndex, existingObject);
@@ -547,7 +619,7 @@ namespace Ceras.Format
 
             // Arbitrary generic class or struct
             _plans.TryGetValue(oldSchema.StableName, out var plan);
-            Type currentType = plan?.CurrentType ?? targetType;
+            Type? currentType = plan?.CurrentType ?? targetType;
 
             // A collection payload is written by the built-in collection formatter as an explicit count
             // plus its elements/entries, so every collection is read through the single collection
@@ -571,7 +643,7 @@ namespace Ceras.Format
 
             if (currentType != null && currentType.IsValueType)
             {
-                object structObj = existingObject ?? _factory.CreateInstance(currentType);
+                object? structObj = existingObject ?? _factory.CreateInstance(currentType);
                 _identity.Publish(cacheIndex, structObj);
 
                 FireBeforeCallback(structObj, plan);
@@ -594,7 +666,7 @@ namespace Ceras.Format
         /// <see cref="Nullable{T}"/> layout: one presence byte, then the element value when present
         /// (matching <c>NullableFormatter&lt;T&gt;</c>). Returns the boxed element value, or null.
         /// </summary>
-        object ReadNullable(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
+        object? ReadNullable(OldTypeSchema oldSchema, Type? targetType, ref SequenceReader<byte> reader)
         {
             int hasValue = SerializerBinary.ReadByte(ref reader);
             int? innerId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
@@ -602,7 +674,7 @@ namespace Ceras.Format
             if (hasValue == 0)
                 return null;
 
-            Type innerType = targetType == null ? null : Nullable.GetUnderlyingType(targetType);
+            Type? innerType = targetType == null ? null : Nullable.GetUnderlyingType(targetType);
             if (innerType == null || innerId == null)
             {
                 // No current element representation: still consume the element to keep alignment.
@@ -613,10 +685,10 @@ namespace Ceras.Format
             return ReadValue(innerId.Value, innerType, ref reader);
         }
 
-        object ReadKeyValuePair(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
+        object? ReadKeyValuePair(OldTypeSchema oldSchema, Type? targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object? existingObject = null)
         {
-            Type keyType = targetType != null && targetType.IsGenericType ? targetType.GetGenericArguments()[0] : null;
-            Type valType = targetType != null && targetType.IsGenericType ? targetType.GetGenericArguments()[1] : null;
+            Type? keyType = targetType != null && targetType.IsGenericType ? targetType.GetGenericArguments()[0] : null;
+            Type? valType = targetType != null && targetType.IsGenericType ? targetType.GetGenericArguments()[1] : null;
             int? oldKeyTid = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             int? oldValTid = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
 
@@ -629,7 +701,7 @@ namespace Ceras.Format
 
             var key = ReadValue(oldKeyTid.Value, keyType, ref reader);
             var val = ReadValue(oldValTid.Value, valType, ref reader);
-            object kvp = Activator.CreateInstance(targetType, key, val);
+            object? kvp = Activator.CreateInstance(targetType, key, val);
             // KeyValuePair is a value type written with no reference marker and is never registered by
             // the writer, so only fill a slot the writer actually created.
             _identity.Publish(cacheIndex, kvp);
@@ -650,7 +722,7 @@ namespace Ceras.Format
         /// registered <em>before</em> the items are read, so a self-referential graph cannot recurse.
         /// </para>
         /// </summary>
-        object ReadTuple(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
+        object? ReadTuple(OldTypeSchema oldSchema, Type? targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object? existingObject = null)
         {
             int count = oldSchema.ArgTypeIds.Length;
             var argTypes = targetType != null && targetType.IsGenericType ? targetType.GetGenericArguments() : null;
@@ -670,7 +742,7 @@ namespace Ceras.Format
                 var itemFields = GetTupleItemFields(targetType);
                 for (int i = 0; i < count; i++)
                 {
-                    Type itemType = i < argTypes.Length ? argTypes[i] : null;
+                    Type? itemType = i < argTypes.Length ? argTypes[i] : null;
                     var value = ReadValue(oldSchema.ArgTypeIds[i], itemType, ref reader);
                     if (itemFields != null && i < itemFields.Length && itemFields[i] != null)
                         itemFields[i].SetValue(tuple, value);
@@ -678,11 +750,11 @@ namespace Ceras.Format
                 return tuple;
             }
 
-            var values = new object[count];
+            var values = new object?[count];
             for (int i = 0; i < count; i++)
             {
                 int oldItemId = oldSchema.ArgTypeIds[i];
-                Type itemType = i < argTypes.Length ? argTypes[i] : null;
+                Type? itemType = i < argTypes.Length ? argTypes[i] : null;
                 values[i] = ReadValue(oldItemId, itemType, ref reader);
             }
 
@@ -706,13 +778,13 @@ namespace Ceras.Format
             catch (TargetInvocationException e) when (e.InnerException != null)
             {
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
-                    $"Corrupt payload: constructing the value tuple '{TypeIdentity.GetCanonicalName(targetType)}' from the stored items failed: " +
+                    $"Corrupt payload: constructing the value tuple '{TypeIdentity.GetCanonicalNameOrUnknown(targetType)}' from the stored items failed: " +
                     $"{e.InnerException.Message}", e.InnerException);
             }
             catch (ArgumentException e)
             {
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
-                    $"Corrupt payload: the stored items do not form a valid '{TypeIdentity.GetCanonicalName(targetType)}': {e.Message}", e);
+                    $"Corrupt payload: the stored items do not form a valid '{TypeIdentity.GetCanonicalNameOrUnknown(targetType)}': {e.Message}", e);
             }
         }
 
@@ -761,7 +833,7 @@ namespace Ceras.Format
             return itemFields;
         }
 
-        object ReadArray(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
+        object? ReadArray(OldTypeSchema oldSchema, Type? targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object? existingObject = null)
         {
             // Multidimensional arrays are written by MultiDimensionalArrayFormatter (rank + per-dimension
             // lengths + flattened elements), which this structural reader does not decode. Reject them
@@ -775,7 +847,7 @@ namespace Ceras.Format
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
                     $"Corrupt save: an array declares {count} elements, outside the configured maximum of {_maxCollectionSize}.");
 
-            Type elementType = targetType?.IsArray == true ? targetType.GetElementType() : null;
+            Type? elementType = targetType?.IsArray == true ? targetType.GetElementType() : null;
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             if (elementType == null || oldElemTypeId == null) { SkipElements((uint)count, oldElemTypeId, ref reader); return null; }
 
@@ -806,7 +878,7 @@ namespace Ceras.Format
         }
 
         /// <summary>
-        /// True when <paramref name="type"/> is a concrete collection written by the built-in collection
+        /// True when the type is a concrete collection written by the built-in collection
         /// formatter (a built-in collection, a collection subclass, or a Queue/Stack), i.e. it should be
         /// read through <see cref="ReadCollectionShape"/> rather than as an ordinary field-based object.
         /// </summary>
@@ -818,7 +890,7 @@ namespace Ceras.Format
         /// following field decodes as garbage. Failing loudly turns that silent corruption into an
         /// actionable error; such saves are not migratable (see Format/LAYOUT.md).
         /// </summary>
-        static void RejectUndescribableShape(OldTypeSchema oldSchema, Type currentType)
+        static void RejectUndescribableShape(OldTypeSchema oldSchema, Type? currentType)
         {
             if (oldSchema == null || currentType == null) return;
             if (oldSchema.Kind != SchemaTypeKind.Class && oldSchema.Kind != SchemaTypeKind.Struct) return;
@@ -833,7 +905,7 @@ namespace Ceras.Format
                     $"Cannot migrate the value of '{oldSchema.StableName}': the save file describes it as a class with no members, which is how " +
                     $"Ceras recorded a collection or tuple before the format could describe those shapes. Its payload is a count plus elements, " +
                     $"which that schema does not describe, so reading it would silently desynchronize the rest of the save. " +
-                    $"'{TypeIdentity.GetCanonicalName(currentType)}' is described structurally now, so files written by this version onward " +
+                    $"'{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}' is described structurally now, so files written by this version onward " +
                     "migrate; load this one with the build that wrote it, or start the save again.");
         }
 
@@ -903,7 +975,7 @@ namespace Ceras.Format
             => _file.TryGetById(typeId, out var schema) ? schema : EmptySchema;
 
         static readonly OldTypeSchema EmptySchema = new OldTypeSchema(
-            0, "", Array.Empty<string>(), SchemaTypeKind.Class, Array.Empty<OldFieldSchema>(), 0, 0, null, null);
+            0, "", Array.Empty<string>(), SchemaTypeKind.Class, Array.Empty<OldFieldSchema>(), 0, 0, null!, null!);
 
         /// <summary>The old type's argument id at <paramref name="index"/>, or null when it did not record one.</summary>
         static int? ArgId(OldTypeSchema old, int index)
@@ -946,16 +1018,16 @@ namespace Ceras.Format
         /// CLR side means a rename, an id reassignment or a changed shape still decodes by shape rather
         /// than by id.
         /// </summary>
-        object ReadCollectionShape(Type currentType, Type targetType, OldTypeSchema oldSchema, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        object? ReadCollectionShape(Type? currentType, Type? targetType, OldTypeSchema oldSchema, ref SequenceReader<byte> reader, int? cacheIndex, object? existingObject)
         {
             if (!WellKnownTypes.TryResolveCollectionShape(currentType, out var shapeDef, out var shapeArgs))
                 throw new Ceras.Exceptions.CerasSchemaException(
-                    $"Cannot decode collection type '{TypeIdentity.GetCanonicalName(currentType)}': Ceras could not infer its element/key/value type. " +
+                    $"Cannot decode collection type '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}': Ceras could not infer its element/key/value type. " +
                     "Give the type a concrete ICollection<T>/IDictionary<K,V> implementation, or provide a custom formatter for it.");
 
             if (!IsCollectionPayload(oldSchema.DefinitionTypeId))
                 throw new Ceras.Exceptions.CerasSchemaException(
-                    $"Cannot decode '{TypeIdentity.GetCanonicalName(currentType)}': the save file describes it as type id " +
+                    $"Cannot decode '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}': the save file describes it as type id " +
                     $"{oldSchema.DefinitionTypeId}, which is not a collection payload. Ceras cannot tell how many bytes its " +
                     "elements occupy, so the rest of the save cannot be read safely.");
 
@@ -965,11 +1037,15 @@ namespace Ceras.Format
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
                     $"Corrupt save: a collection declares {count} elements, outside the configured maximum of {_maxCollectionSize}.");
 
-            int? oldElem0 = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-            int? oldElem1 = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
-            Type elementType = shapeArgs.Length > 0 ? shapeArgs[0] : null;
-            Type keyType = shapeArgs.Length > 0 ? shapeArgs[0] : null;
-            Type valueType = shapeArgs.Length > 1 ? shapeArgs[1] : null;
+            int? oldElem0 = ArgId(oldSchema, 0);
+            int? oldElem1 = ArgId(oldSchema, 1);
+
+            // The resolve above succeeded, so the shape's arguments are there; ArgId-style guards keep the
+            // arity honest if a file ever records fewer.
+            var args = shapeArgs!;
+            Type? elementType = args.Length > 0 ? args[0] : null;
+            Type? keyType = args.Length > 0 ? args[0] : null;
+            Type? valueType = args.Length > 1 ? args[1] : null;
 
             switch (oldSchema.DefinitionTypeId)
             {
@@ -991,7 +1067,7 @@ namespace Ceras.Format
         /// (the old name no longer resolves, or the slot is polymorphic and the runtime type is unknown
         /// here). Consume the payload so the stream stays aligned and report no value.
         /// </summary>
-        object ReadUnknownCollectionPayload(OldTypeSchema oldSchema, ref SequenceReader<byte> reader)
+        object? ReadUnknownCollectionPayload(OldTypeSchema oldSchema, ref SequenceReader<byte> reader)
         {
             int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (count == -1) return null;
@@ -1017,7 +1093,7 @@ namespace Ceras.Format
             return null;
         }
 
-        object ReadListShape(Type currentType, Type elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        object? ReadListShape(Type? currentType, Type? elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object? existingObject)
         {
             var fill = _factory.CreateCollection(currentType, typeof(List<>), elementType == null ? null : new[] { elementType },
                 existingObject, "Clear", "list");
@@ -1025,7 +1101,7 @@ namespace Ceras.Format
 
             var add = CurrentObjectFactory.ResolveElementAdder(fill.Target, elementType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
-                    $"Cannot refill the collection type '{TypeIdentity.GetCanonicalName(currentType)}' while migrating: it has no usable " +
+                    $"Cannot refill the collection type '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}' while migrating: it has no usable " +
                     $"'{elementType?.Name ?? "element"}' add method. Provide a custom formatter for it, or load the save with the build that wrote it.");
 
             var coerce = oldElemId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldElemId.Value, elementType) : CoercionKind.None;
@@ -1039,7 +1115,7 @@ namespace Ceras.Format
             return fill.Result;
         }
 
-        object ReadDictionaryShape(Type currentType, Type keyType, Type valType, int? oldKeyId, int? oldValId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        object? ReadDictionaryShape(Type? currentType, Type? keyType, Type? valType, int? oldKeyId, int? oldValId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object? existingObject)
         {
             var fill = _factory.CreateCollection(currentType, typeof(Dictionary<,>), new[] { keyType, valType },
                 existingObject, "Clear", "dictionary");
@@ -1047,7 +1123,7 @@ namespace Ceras.Format
 
             var add = CurrentObjectFactory.ResolveEntryAdder(fill.Target, keyType, valType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
-                    $"Cannot refill the dictionary type '{TypeIdentity.GetCanonicalName(currentType)}' while migrating: it has no usable " +
+                    $"Cannot refill the dictionary type '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}' while migrating: it has no usable " +
                     $"'Add({keyType?.Name ?? "key"}, {valType?.Name ?? "value"})' method. Provide a custom formatter for it, or load the save " +
                     "with the build that wrote it.");
 
@@ -1062,7 +1138,7 @@ namespace Ceras.Format
             return fill.Result;
         }
 
-        object ReadHashSetShape(Type currentType, Type elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        object? ReadHashSetShape(Type? currentType, Type? elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object? existingObject)
         {
             var fill = _factory.CreateCollection(currentType, typeof(HashSet<>), elementType == null ? null : new[] { elementType },
                 existingObject, "Clear", "set");
@@ -1070,7 +1146,7 @@ namespace Ceras.Format
 
             var add = CurrentObjectFactory.ResolveElementAdder(fill.Target, elementType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
-                    $"Cannot refill the set type '{TypeIdentity.GetCanonicalName(currentType)}' while migrating: it has no usable " +
+                    $"Cannot refill the set type '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}' while migrating: it has no usable " +
                     $"'Add({elementType?.Name ?? "element"})' method.");
 
             var coerce = oldElemId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldElemId.Value, elementType) : CoercionKind.None;
@@ -1082,7 +1158,7 @@ namespace Ceras.Format
             return fill.Result;
         }
 
-        object ReadQueueShape(Type currentType, Type elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        object? ReadQueueShape(Type? currentType, Type? elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object? existingObject)
         {
             var fill = _factory.CreateCollection(currentType, typeof(Queue<>), elementType == null ? null : new[] { elementType },
                 existingObject, "Clear", "queue");
@@ -1090,7 +1166,7 @@ namespace Ceras.Format
 
             var enqueue = CurrentObjectFactory.ResolveElementAdder(fill.Target, elementType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
-                    $"Cannot refill the queue type '{TypeIdentity.GetCanonicalName(currentType)}' while migrating: it has no usable " +
+                    $"Cannot refill the queue type '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}' while migrating: it has no usable " +
                     $"'Enqueue({elementType?.Name ?? "element"})' method.");
 
             var coerce = oldElemId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldElemId.Value, elementType) : CoercionKind.None;
@@ -1102,9 +1178,9 @@ namespace Ceras.Format
             return fill.Result;
         }
 
-        object ReadStackShape(Type currentType, Type elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        object? ReadStackShape(Type? currentType, Type? elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object? existingObject)
         {
-            var values = new object[count];
+            var values = new object?[count];
             var coerce = oldElemId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldElemId.Value, elementType) : CoercionKind.None;
             for (int i = 0; i < count; i++)
             {
@@ -1118,7 +1194,7 @@ namespace Ceras.Format
 
             var push = CurrentObjectFactory.ResolveElementAdder(fill.Target, elementType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
-                    $"Cannot refill the stack type '{TypeIdentity.GetCanonicalName(currentType)}' while migrating: it has no usable " +
+                    $"Cannot refill the stack type '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}' while migrating: it has no usable " +
                     $"'Push({elementType?.Name ?? "element"})' method.");
 
             for (int i = count - 1; i >= 0; i--) push(fill.Target, values[i]);
@@ -1132,26 +1208,6 @@ namespace Ceras.Format
         /// the wrong object.
         /// </summary>
         void CacheCollection(CollectionFill fill, int? cacheIndex) => _identity.Publish(cacheIndex, fill.Result);
-
-        void SkipValue(int typeId, ref SequenceReader<byte> reader)
-        {
-            if (_file.TryGetById(typeId, out var s) && s.FixedByteSize > 0) { reader.Advance(s.FixedByteSize); return; }
-            int fixedSize = WellKnownTypes.GetFixedSize(typeId);
-            if (fixedSize > 0) { reader.Advance(fixedSize); return; }
-
-            switch (typeId)
-            {
-                case WellKnownTypes.Bool: reader.Advance(1); return;
-                case WellKnownTypes.String: SerializerBinary.ReadUInt32Fixed(ref reader); return;
-                case WellKnownTypes.Int32: SerializerBinary.ReadInt32Fixed(ref reader); return;
-                case WellKnownTypes.UInt32: SerializerBinary.ReadUInt32Fixed(ref reader); return;
-                case WellKnownTypes.Object: SkipPolymorphicValue(WellKnownTypes.Object, ref reader); return;
-                case WellKnownTypes.Type: SkipTypeValue(ref reader); return;
-                default:
-                    if (typeId >= WellKnownTypes.UserTypeBase) SkipUserType(typeId, ref reader);
-                    return;
-            }
-        }
 
         /// <summary>Skips a <see cref="Type"/> value written by <c>RobustTypeFormatter</c>.</summary>
         void SkipTypeValue(ref SequenceReader<byte> reader)
@@ -1179,10 +1235,14 @@ namespace Ceras.Format
             }
         }
 
+        /// <summary>
+        /// Accounts for a described user type, one kind at a time. The fixed-size short-circuit is
+        /// <em>not</em> repeated here: <see cref="WalkValue"/> is this method's only caller and has already
+        /// applied it, which is the point of having one entry point.
+        /// </summary>
         void SkipUserType(int typeId, ref SequenceReader<byte> reader)
         {
             if (!_file.TryGetById(typeId, out var oldSchema)) return;
-            if (oldSchema.FixedByteSize > 0) { reader.Advance(oldSchema.FixedByteSize); return; }
 
             switch (oldSchema.Kind)
             {
@@ -1299,10 +1359,10 @@ namespace Ceras.Format
 
 		Type GetCurrentType(string stableName) { _registry.TryResolveType(stableName, out var t); return t; }
 
-        object ReadEnumValue(OldTypeSchema oldSchema, Type targetType, TypeMigrationPlan plan, ref SequenceReader<byte> reader)
+        object? ReadEnumValue(OldTypeSchema oldSchema, Type? targetType, TypeMigrationPlan? plan, ref SequenceReader<byte> reader)
         {
             int underlyingId = oldSchema.DefinitionTypeId == 0 ? WellKnownTypes.Int32 : oldSchema.DefinitionTypeId;
-            object rawValue = ReadValue(underlyingId, null, ref reader);
+            object? rawValue = ReadValue(underlyingId, null, ref reader);
 
             if (plan?.EnumValueMap != null && plan.CurrentType != null)
             {
@@ -1330,7 +1390,7 @@ namespace Ceras.Format
             return rawValue;
         }
 
-        static object MakeEnum(Type enumType, object rawValue)
+        static object? MakeEnum(Type enumType, object? rawValue)
         {
             try
             {
@@ -1339,7 +1399,7 @@ namespace Ceras.Format
             catch (Exception e) when (e is ArgumentException or InvalidCastException or OverflowException)
             {
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
-                    $"Corrupt enum payload for '{TypeIdentity.GetCanonicalName(enumType)}': the stored value '{rawValue ?? "null"}' is not a " +
+                    $"Corrupt enum payload for '{TypeIdentity.GetCanonicalNameOrUnknown(enumType)}': the stored value '{rawValue ?? "null"}' is not a " +
                     $"valid '{enumType.Name}' value.", e);
             }
         }
@@ -1361,8 +1421,8 @@ namespace Ceras.Format
         /// takes its values out of the payload. <paramref name="target"/> is then ignored.
         /// </para>
         /// </summary>
-        void ReadAndApplyFields(OldTypeSchema oldSchema, TypeMigrationPlan plan, object target, ref SequenceReader<byte> reader,
-            CtorArgumentPlan ctorArgs = null, object[] ctorValues = null, List<(FieldInfo Field, object Value)> assignments = null)
+        void ReadAndApplyFields(OldTypeSchema oldSchema, TypeMigrationPlan? plan, object? target, ref SequenceReader<byte> reader,
+            CtorArgumentPlan ctorArgs = null!, object[] ctorValues = null!, List<(FieldInfo Field, object? Value)>? assignments = null)
         {
             var mappings = plan?.Mappings ?? BuildSkipMappings(oldSchema);
             foreach (var mapping in mappings)
@@ -1380,7 +1440,7 @@ namespace Ceras.Format
                 {
                     // Seed a reference-typed member from its current value so Load(ref existing) reuses
                     // it in place, exactly like the generated reader does. Value types always overwrite.
-                    object existing = null;
+                    object? existing = null;
                     if (target != null && !mapping.NewField.FieldType.IsValueType)
                         existing = mapping.NewField.GetValue(target);
 
@@ -1423,7 +1483,7 @@ namespace Ceras.Format
             return m;
         }
 
-        static object Coerce(object value, CoercionKind kind, Type targetType)
+        static object? Coerce(object? value, CoercionKind kind, Type? targetType)
         {
             if (kind == CoercionKind.None) return value;
             return kind switch
@@ -1439,15 +1499,15 @@ namespace Ceras.Format
 
         string ReadStringFromTable(ref SequenceReader<byte> reader) => StringTable.ReadString(ref reader, _stringTable);
 
-        static HashSet<string> CollectSkippedFields(TypeMigrationPlan plan)
+        static HashSet<string> CollectSkippedFields(TypeMigrationPlan? plan)
         {
             var set = new HashSet<string>(StringComparer.Ordinal);
-            if (plan.Mappings == null) return set;
-            foreach (var m in plan.Mappings) if (m.NewField == null && m.OldField != null) set.Add(m.OldField.StableName);
+            if (plan?.Mappings == null) return set;
+            foreach (var m in plan!.Mappings) if (m.NewField == null && m.OldField != null) set.Add(m.OldField.StableName);
             return set;
         }
 
-        void FireBeforeCallback(object obj, TypeMigrationPlan plan)
+        void FireBeforeCallback(object? obj, TypeMigrationPlan? plan)
         {
             if (obj == null || plan?.BeforeInvoker == null) return;
             plan.BeforeInvoker(_serializer, obj);
@@ -1457,22 +1517,22 @@ namespace Ceras.Format
         /// Defers the post-deserialization callback until the whole root graph is populated. Used for
         /// reference types; value types invoke it inline because a boxed struct copy cannot be deferred.
         /// </summary>
-        void EnqueueAfterCallback(object obj, TypeMigrationPlan plan)
+        void EnqueueAfterCallback(object? obj, TypeMigrationPlan? plan)
         {
             if (obj == null || plan?.AfterInvoker == null) return;
             _serializer.EnqueueDeserializeCallback(obj, plan.AfterInvoker);
         }
 
-        void FireAfterCallbackInline(object obj, TypeMigrationPlan plan)
+        void FireAfterCallbackInline(object? obj, TypeMigrationPlan? plan)
         {
             if (obj == null || plan?.AfterInvoker == null) return;
             plan.AfterInvoker(_serializer, obj);
         }
 
-        bool TryReadCustomFormatter(Type type, ref object obj, ref SequenceReader<byte> reader)
+        bool TryReadCustomFormatter(Type? type, ref object? obj, ref SequenceReader<byte> reader)
         {
             if (type == null) return false;
-            var config = _serializer.Config.GetTypeConfig(type, false);
+            var config = _serializer.Config.GetTypeConfigForClosedType(type, false);
             if (config == null) return false;
 
             var formatter = config.CustomFormatter;

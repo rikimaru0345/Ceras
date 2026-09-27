@@ -48,14 +48,14 @@ namespace Ceras.Format
         /// The value for a parameter that no serialized member feeds: its declared default, or
         /// <c>default(T)</c> when it has none. Mirrors <c>RobustCodeEmitter.FormatDefaultArgument</c>.
         /// </summary>
-        public object DefaultFor(int slot)
+        public object? DefaultFor(int slot)
         {
             var parameter = Parameters[slot];
             var parameterType = parameter.ParameterType;
 
             if (parameter.HasDefaultValue)
             {
-                object declared = parameter.DefaultValue;
+                object? declared = parameter.DefaultValue;
                 if (declared == null) return parameterType.IsValueType ? Activator.CreateInstance(parameterType) : null;
                 if (parameterType.IsEnum) return Enum.ToObject(parameterType, declared);
                 try
@@ -91,13 +91,13 @@ namespace Ceras.Format
 
     sealed class TypeMigrationPlan
     {
-        public Type CurrentType;
-        public FieldMapping[] Mappings;
-        public string[] AddedFieldNames;
+        public Type CurrentType = null!;
+        public FieldMapping[] Mappings = null!;
+        public string[] AddedFieldNames = null!;
         public bool HasChanges;
-        public MethodInfo OnBeforeDeserialize;
+        public MethodInfo OnBeforeDeserialize = null!;
         public CallbackArgumentKind OnBeforeDeserializeArgument;
-        public MethodInfo OnAfterDeserialize;
+        public MethodInfo OnAfterDeserialize = null!;
         public CallbackArgumentKind OnAfterDeserializeArgument;
         // Cached invokers that already carry the migration context for this type. Built by the
         // traversal engine once per plan (the migration context is identical for every instance).
@@ -109,7 +109,7 @@ namespace Ceras.Format
         // How this type's [CerasConstructor] gets its values while migrating, resolved once per load
         // (the same resolution the generator does at compile time). Null when the type needs no
         // constructor arguments.
-        public CtorArgumentPlan CtorArgs;
+        public CtorArgumentPlan CtorArgs = null!;
         public bool CtorArgsResolved;
     }
 
@@ -163,7 +163,7 @@ namespace Ceras.Format
             for (int i = 0; i < old.Fields.Length; i++)
             {
                 var oldField = old.Fields[i];
-                FieldInfo newField = FindCurrentField(oldField, currentFieldMap);
+                FieldInfo? newField = FindCurrentField(oldField, currentFieldMap);
                 CoercionKind coerce = CoercionKind.None;
 
                 if (newField != null)
@@ -269,7 +269,7 @@ namespace Ceras.Format
             return map;
         }
 
-        static FieldInfo FindCurrentField(
+        static FieldInfo? FindCurrentField(
             OldFieldSchema old,
             Dictionary<string, FieldInfo> currentFieldMap)
         {
@@ -282,7 +282,7 @@ namespace Ceras.Format
             return null;
         }
 
-        internal static CoercionKind DetectCoercion(int oldTypeId, Type newFieldType)
+        internal static CoercionKind DetectCoercion(int oldTypeId, Type? newFieldType)
         {
             if (oldTypeId == WellKnownTypes.Int32 && newFieldType == typeof(long)) return CoercionKind.Int32ToInt64;
             if (oldTypeId == WellKnownTypes.Int16 && newFieldType == typeof(int)) return CoercionKind.Int16ToInt32;
@@ -299,7 +299,7 @@ namespace Ceras.Format
         };
 
         /// <summary>Names the type a field's stored type id refers to, for an actionable error message.</summary>
-        static string DescribeTypeId(int typeId, Dictionary<int, OldTypeSchema> oldById)
+        static string? DescribeTypeId(int typeId, Dictionary<int, OldTypeSchema> oldById)
         {
             if (WellKnownTypes.TryGetType(typeId, out var wellKnown))
                 return TypeIdentity.GetCanonicalName(wellKnown);
@@ -361,14 +361,14 @@ namespace Ceras.Format
         /// Within one type the parameterless form is preferred, then <c>(MigrationContext)</c>, then
         /// <c>(CerasSerializer)</c>.
         /// </summary>
-        static MethodInfo FindCallback(Type type, Type attributeType, out CallbackArgumentKind kind)
+        static MethodInfo? FindCallback(Type type, Type attributeType, out CallbackArgumentKind kind)
         {
             kind = CallbackArgumentKind.None;
             if (type == null) return null;
 
             for (var t = type; t != null && t != typeof(object); t = t.BaseType)
             {
-                MethodInfo best = null;
+                MethodInfo? best = null;
                 CallbackArgumentKind bestKind = CallbackArgumentKind.None;
                 int bestRank = int.MaxValue;
 
@@ -455,7 +455,7 @@ namespace Ceras.Format
     static class CtorArgumentPlanBuilder
     {
         /// <summary>Names the payload's field order for a constructor error, so the cause can be found.</summary>
-        public static string DescribeOldFields(TypeMigrationPlan plan)
+        public static string? DescribeOldFields(TypeMigrationPlan plan)
         {
             if (plan?.Mappings == null || plan.Mappings.Length == 0) return "none";
             return string.Join(", ", plan.Mappings.Select(m => m.OldField?.StableName).Where(n => n != null));
@@ -465,7 +465,7 @@ namespace Ceras.Format
         /// The plan for a type, or null when the type needs no constructor arguments. Cached on the
         /// migration plan, so a type with many instances still resolves its constructor once.
         /// </summary>
-        public static CtorArgumentPlan Resolve(Type type, TypeMigrationPlan plan)
+        public static CtorArgumentPlan? Resolve(Type type, TypeMigrationPlan plan)
         {
             if (plan == null) return null;
             if (!plan.CtorArgsResolved)
@@ -476,7 +476,7 @@ namespace Ceras.Format
             return plan.CtorArgs;
         }
 
-        static CtorArgumentPlan Build(Type type, TypeMigrationPlan plan)
+        static CtorArgumentPlan? Build(Type type, TypeMigrationPlan plan)
         {
             // A value type never takes a [CerasConstructor] on the generated path (the generator only looks
             // for one on reference types), and an interface/abstract type has no instance to construct.
@@ -519,7 +519,7 @@ namespace Ceras.Format
             return new CtorArgumentPlan(chosen, parameters, slotByField, mapped);
         }
 
-        internal static ConstructorInfo SelectConstructor(ConstructorInfo[] constructors, List<(FieldInfo Field, string StableName)> members)
+        internal static ConstructorInfo? SelectConstructor(ConstructorInfo[] constructors, List<(FieldInfo Field, string StableName)> members)
         {
             // 1. Explicit [CerasConstructor]
             foreach (var ctor in constructors)

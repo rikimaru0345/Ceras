@@ -44,7 +44,7 @@
             _ceras = ceras;
         }
 
-        public IFormatter GetFormatter(Type type)
+        public IFormatter? GetFormatter(Type type)
         {
             if (_primitiveFormatters.TryGetValue(type, out var f))
                 return f;

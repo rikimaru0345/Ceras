@@ -23,7 +23,7 @@ namespace Ceras.Format
 
         internal OldTypeSchema(int typeId, string stableName, string[] previousNames,
             SchemaTypeKind kind, OldFieldSchema[] fields, int fixedByteSize,
-            int definitionTypeId = 0, int[] argTypeIds = null, OldEnumValue[] enumValues = null)
+            int definitionTypeId = 0, int[] argTypeIds = null!, OldEnumValue[] enumValues = null!)
         {
             TypeId        = typeId;
             StableName    = stableName ?? "";
@@ -260,7 +260,7 @@ namespace Ceras.Format
 
                 // Structural BCL shapes (arrays, built-in collections, KeyValuePair, tuples, Nullable)
                 // are intentionally skipped by the generator and registered structurally on first use.
-                registry.Register(type, null);
+                registry.Register(type, null!);
                 if (!registry.TryGetId(type, out id))
                     throw new Ceras.Exceptions.CerasSchemaException(
                         $"Cannot bake the schema for type '{declaringTypeName}': its {memberDescription} is of type '{clrName}', " +
@@ -412,7 +412,7 @@ namespace Ceras.Format
                             reader.Advance(8);
                             vals[j] = new OldEnumValue(name, BinaryPrimitives.ReadUInt64LittleEndian(rawEnumValue));
                         }
-                        schema = new OldTypeSchema(typeId, stableName, prevNames, kind, null, 0, underlyingId, null, vals);
+                        schema = new OldTypeSchema(typeId, stableName, prevNames, kind, null!, 0, underlyingId, null!, vals);
                         break;
 
                     case SchemaTypeKind.Struct:

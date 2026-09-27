@@ -98,7 +98,7 @@ namespace Ceras.Format
             uint id = SchemaSection.ReadLeb128(ref reader);
             if (id == WellKnownTypes.Null)
             {
-                value = null;
+                value = null!;
                 return;
             }
 
@@ -113,7 +113,7 @@ namespace Ceras.Format
 
             if (id == (uint)WellKnownTypes.Array)
             {
-                Type elementType = null;
+                Type? elementType = null;
                 Deserialize(ref reader, ref elementType);
                 if (elementType == null) throw new Ceras.Exceptions.CerasException("Failed to deserialize element type for array");
                 value = elementType.MakeArrayType();
@@ -128,7 +128,7 @@ namespace Ceras.Format
                     Type[] args = new Type[argCount];
                     for (int i = 0; i < argCount; i++)
                     {
-                        Type arg = null;
+                        Type? arg = null;
                         Deserialize(ref reader, ref arg);
                         if (arg == null) throw new Ceras.Exceptions.CerasException($"Failed to deserialize generic argument {i} for type '{value.Name}'");
                         args[i] = arg;
@@ -145,7 +145,7 @@ namespace Ceras.Format
                     return;
             }
 
-            value = null;
+            value = null!;
         }
     }
 }

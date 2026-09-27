@@ -55,9 +55,9 @@ namespace Ceras.Format
             SchemaTypeKind        kind,
             SchemaFieldInfo[]     fields,
             int                   fixedByteSize,
-            SchemaEnumValueInfo[] enumValues         = null,
-            string                underlyingTypeName = null,
-            string[]              argTypeNames       = null)
+            SchemaEnumValueInfo[] enumValues         = null!,
+            string                underlyingTypeName = null!,
+            string[]              argTypeNames       = null!)
         {
             StableName         = stableName         ?? throw new ArgumentNullException(nameof(stableName));
             PreviousTypeNames  = previousTypeNames   ?? Array.Empty<string>();

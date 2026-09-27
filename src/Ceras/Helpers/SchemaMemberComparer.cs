@@ -9,7 +9,7 @@ namespace Ceras.Helpers
     {
         public static readonly SchemaMemberComparer Instance = new SchemaMemberComparer();
 
-        public int Compare(SchemaMember x, SchemaMember y)
+        public int Compare(SchemaMember? x, SchemaMember? y)
         {
             if (ReferenceEquals(x, y)) return 0;
             if (ReferenceEquals(null, y)) return 1;
@@ -26,7 +26,9 @@ namespace Ceras.Helpers
         {
             string typeName = m.MemberType.FullName ?? m.MemberType.Name;
             string memberName = m.Member.Name;
-            string declaringFqn = m.Member.DeclaringType.FullName ?? m.Member.DeclaringType.Name;
+            // DeclaringType is null only for a global type, which a serialized member cannot be.
+        var declaringType = m.Member.DeclaringType!;
+        string declaringFqn = declaringType.FullName ?? declaringType.Name;
             string kind = m.Member is FieldInfo ? "f" : "p";
 
             return typeName + memberName + declaringFqn + kind;

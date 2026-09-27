@@ -3,11 +3,15 @@ using System.Buffers;
 
 namespace Ceras.Formatters
 {
+    // The `_itemNFormatter` fields are assigned by the resolver that builds the formatter (Ceras
+    // dependency injection) before it is ever used, and the `itemN` locals deliberately start at
+    // `default` because that is the "not read yet" state of an unconstrained T. Neither is a nullable
+    // claim the compiler could check, so both say so with `default!` rather than a file-wide suppression.
 #pragma warning disable 0649 // Field is never assigned to (Ceras dependency injection)
 
     public sealed class ValueTupleFormatter<T1> : FormatterBase<ValueTuple<T1>>
     {
-        IFormatter<T1> _item1Formatter;
+        IFormatter<T1> _item1Formatter = default!;
 
         public override void Serialize(IBufferWriter<byte> writer, ValueTuple<T1> value)
         {
@@ -16,7 +20,7 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref ValueTuple<T1> value)
         {
-            T1 item1 = default;
+            T1 item1 = default!;
 
             _item1Formatter.Deserialize(ref reader, ref item1);
 
@@ -27,8 +31,8 @@ namespace Ceras.Formatters
 
     public sealed class ValueTupleFormatter<T1, T2> : FormatterBase<ValueTuple<T1, T2>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
 
         public override void Serialize(IBufferWriter<byte> writer, ValueTuple<T1, T2> value)
         {
@@ -38,8 +42,8 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref ValueTuple<T1, T2> value)
         {
-            T1 item1 = default;
-            T2 item2 = default;
+            T1 item1 = default!;
+            T2 item2 = default!;
 
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
@@ -51,9 +55,9 @@ namespace Ceras.Formatters
 
     public sealed class ValueTupleFormatter<T1, T2, T3> : FormatterBase<ValueTuple<T1, T2, T3>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
-        IFormatter<T3> _item3Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
+        IFormatter<T3> _item3Formatter = default!;
 
         public override void Serialize(IBufferWriter<byte> writer, ValueTuple<T1, T2, T3> value)
         {
@@ -64,9 +68,9 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref ValueTuple<T1, T2, T3> value)
         {
-            T1 item1 = default;
-            T2 item2 = default;
-            T3 item3 = default;
+            T1 item1 = default!;
+            T2 item2 = default!;
+            T3 item3 = default!;
 
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
@@ -79,10 +83,10 @@ namespace Ceras.Formatters
 
     public sealed class ValueTupleFormatter<T1, T2, T3, T4> : FormatterBase<ValueTuple<T1, T2, T3, T4>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
-        IFormatter<T3> _item3Formatter;
-        IFormatter<T4> _item4Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
+        IFormatter<T3> _item3Formatter = default!;
+        IFormatter<T4> _item4Formatter = default!;
 
         public override void Serialize(IBufferWriter<byte> writer, ValueTuple<T1, T2, T3, T4> value)
         {
@@ -94,10 +98,10 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref ValueTuple<T1, T2, T3, T4> value)
         {
-            T1 item1 = default;
-            T2 item2 = default;
-            T3 item3 = default;
-            T4 item4 = default;
+            T1 item1 = default!;
+            T2 item2 = default!;
+            T3 item3 = default!;
+            T4 item4 = default!;
 
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
@@ -111,11 +115,11 @@ namespace Ceras.Formatters
 
     public sealed class ValueTupleFormatter<T1, T2, T3, T4, T5> : FormatterBase<ValueTuple<T1, T2, T3, T4, T5>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
-        IFormatter<T3> _item3Formatter;
-        IFormatter<T4> _item4Formatter;
-        IFormatter<T5> _item5Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
+        IFormatter<T3> _item3Formatter = default!;
+        IFormatter<T4> _item4Formatter = default!;
+        IFormatter<T5> _item5Formatter = default!;
 
         public override void Serialize(IBufferWriter<byte> writer, ValueTuple<T1, T2, T3, T4, T5> value)
         {
@@ -128,11 +132,11 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref ValueTuple<T1, T2, T3, T4, T5> value)
         {
-            T1 item1 = default;
-            T2 item2 = default;
-            T3 item3 = default;
-            T4 item4 = default;
-            T5 item5 = default;
+            T1 item1 = default!;
+            T2 item2 = default!;
+            T3 item3 = default!;
+            T4 item4 = default!;
+            T5 item5 = default!;
 
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
@@ -147,12 +151,12 @@ namespace Ceras.Formatters
 
     public sealed class ValueTupleFormatter<T1, T2, T3, T4, T5, T6> : FormatterBase<ValueTuple<T1, T2, T3, T4, T5, T6>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
-        IFormatter<T3> _item3Formatter;
-        IFormatter<T4> _item4Formatter;
-        IFormatter<T5> _item5Formatter;
-        IFormatter<T6> _item6Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
+        IFormatter<T3> _item3Formatter = default!;
+        IFormatter<T4> _item4Formatter = default!;
+        IFormatter<T5> _item5Formatter = default!;
+        IFormatter<T6> _item6Formatter = default!;
 
         public override void Serialize(IBufferWriter<byte> writer, ValueTuple<T1, T2, T3, T4, T5, T6> value)
         {
@@ -166,12 +170,12 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref ValueTuple<T1, T2, T3, T4, T5, T6> value)
         {
-            T1 item1 = default;
-            T2 item2 = default;
-            T3 item3 = default;
-            T4 item4 = default;
-            T5 item5 = default;
-            T6 item6 = default;
+            T1 item1 = default!;
+            T2 item2 = default!;
+            T3 item3 = default!;
+            T4 item4 = default!;
+            T5 item5 = default!;
+            T6 item6 = default!;
 
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
@@ -187,13 +191,13 @@ namespace Ceras.Formatters
 
     public sealed class ValueTupleFormatter<T1, T2, T3, T4, T5, T6, T7> : FormatterBase<ValueTuple<T1, T2, T3, T4, T5, T6, T7>>
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
-        IFormatter<T3> _item3Formatter;
-        IFormatter<T4> _item4Formatter;
-        IFormatter<T5> _item5Formatter;
-        IFormatter<T6> _item6Formatter;
-        IFormatter<T7> _item7Formatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
+        IFormatter<T3> _item3Formatter = default!;
+        IFormatter<T4> _item4Formatter = default!;
+        IFormatter<T5> _item5Formatter = default!;
+        IFormatter<T6> _item6Formatter = default!;
+        IFormatter<T7> _item7Formatter = default!;
 
         public override void Serialize(IBufferWriter<byte> writer, ValueTuple<T1, T2, T3, T4, T5, T6, T7> value)
         {
@@ -208,13 +212,13 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref ValueTuple<T1, T2, T3, T4, T5, T6, T7> value)
         {
-            T1 item1 = default;
-            T2 item2 = default;
-            T3 item3 = default;
-            T4 item4 = default;
-            T5 item5 = default;
-            T6 item6 = default;
-            T7 item7 = default;
+            T1 item1 = default!;
+            T2 item2 = default!;
+            T3 item3 = default!;
+            T4 item4 = default!;
+            T5 item5 = default!;
+            T6 item6 = default!;
+            T7 item7 = default!;
 
             _item1Formatter.Deserialize(ref reader, ref item1);
             _item2Formatter.Deserialize(ref reader, ref item2);
@@ -231,14 +235,14 @@ namespace Ceras.Formatters
 
     public sealed class ValueTupleFormatter<T1, T2, T3, T4, T5, T6, T7, TRest> : FormatterBase<ValueTuple<T1, T2, T3, T4, T5, T6, T7, TRest>> where TRest : struct
     {
-        IFormatter<T1> _item1Formatter;
-        IFormatter<T2> _item2Formatter;
-        IFormatter<T3> _item3Formatter;
-        IFormatter<T4> _item4Formatter;
-        IFormatter<T5> _item5Formatter;
-        IFormatter<T6> _item6Formatter;
-        IFormatter<T7> _item7Formatter;
-        IFormatter<TRest> _restFormatter;
+        IFormatter<T1> _item1Formatter = default!;
+        IFormatter<T2> _item2Formatter = default!;
+        IFormatter<T3> _item3Formatter = default!;
+        IFormatter<T4> _item4Formatter = default!;
+        IFormatter<T5> _item5Formatter = default!;
+        IFormatter<T6> _item6Formatter = default!;
+        IFormatter<T7> _item7Formatter = default!;
+        IFormatter<TRest> _restFormatter = default!;
 
         public override void Serialize(IBufferWriter<byte> writer, ValueTuple<T1, T2, T3, T4, T5, T6, T7, TRest> value)
         {
@@ -254,13 +258,13 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref ValueTuple<T1, T2, T3, T4, T5, T6, T7, TRest> value)
         {
-            T1 item1 = default;
-            T2 item2 = default;
-            T3 item3 = default;
-            T4 item4 = default;
-            T5 item5 = default;
-            T6 item6 = default;
-            T7 item7 = default;
+            T1 item1 = default!;
+            T2 item2 = default!;
+            T3 item3 = default!;
+            T4 item4 = default!;
+            T5 item5 = default!;
+            T6 item6 = default!;
+            T7 item7 = default!;
             TRest rest = default;
 
             _item1Formatter.Deserialize(ref reader, ref item1);

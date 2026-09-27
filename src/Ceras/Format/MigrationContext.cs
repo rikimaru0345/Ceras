@@ -12,7 +12,7 @@ namespace Ceras.Format
     public sealed class MigrationContext
     {
         /// <summary>Singleton for the no-migration fast path — avoids allocation.</summary>
-        public static readonly MigrationContext None = new MigrationContext(false, 0, null, null);
+        public static readonly MigrationContext None = new MigrationContext(false, 0, null!, null!);
 
         /// <summary>True when the schema of this type differed from the save file.</summary>
         public bool WasMigrated { get; }

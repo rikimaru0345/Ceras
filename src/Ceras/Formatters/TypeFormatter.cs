@@ -72,7 +72,7 @@ namespace Ceras.Formatters
             int mode = SerializerBinary.ReadUInt32Bias(ref reader, Bias);
             if (mode == Null)
             {
-                type = null;
+                type = null!;
                 return;
             }
 
@@ -85,7 +85,7 @@ namespace Ceras.Formatters
 
             if (mode == NewGeneric)
             {
-                Type baseType = null;
+                Type? baseType = null;
                 Deserialize(ref reader, ref baseType);
                 var argCount = SerializerBinary.ReadByte(ref reader);
                 Type[] genericArgs = new Type[argCount];
@@ -100,7 +100,7 @@ namespace Ceras.Formatters
             else
             {
                 var proxy = typeCache.CreateDeserializationProxy();
-                string baseTypeName = SerializerBinary.ReadString(ref reader);
+                string? baseTypeName = SerializerBinary.ReadString(ref reader);
                 type = _typeBinder.GetTypeFromBase(baseTypeName);
                 proxy.Type = type;
                 if (_isSealed) ThrowSealed(type, false);

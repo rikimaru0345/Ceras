@@ -30,7 +30,12 @@ namespace Ceras.Formatters
     /// then the value, which is exactly the <c>Dictionary&lt;,&gt;</c> payload the schema describes for a
     /// dictionary shape.
     /// </summary>
+    /// <remarks>
+    /// <c>TKey : notnull</c> because a dictionary's key cannot be null, which is the constraint
+    /// <see cref="Dictionary{TKey, TValue}"/> and <see cref="KeyValuePair{TKey, TValue}"/> both carry.
+    /// </remarks>
     public class ReadOnlyDictionaryFormatter<TKey, TValue> : CollectionByListProxyFormatter<ReadOnlyDictionary<TKey, TValue>, KeyValuePair<TKey, TValue>>
+        where TKey : notnull
     {
         protected override void Finalize(List<KeyValuePair<TKey, TValue>> builder, ref ReadOnlyDictionary<TKey, TValue> collection)
         {

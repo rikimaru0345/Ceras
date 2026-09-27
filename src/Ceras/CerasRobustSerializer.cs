@@ -147,7 +147,7 @@ namespace Ceras
 
         public new CerasRobustConfig Config => _config;
 
-        public CerasRobustSerializer(Action<CerasRobustConfig> configure = null) : base(MakeConfig(configure, Assembly.GetCallingAssembly()))
+        public CerasRobustSerializer(Action<CerasRobustConfig>? configure = null) : base(MakeConfig(configure, Assembly.GetCallingAssembly()))
         {
             _config = (CerasRobustConfig)base.Config;
         }
@@ -249,7 +249,7 @@ namespace Ceras
 
         public T Load<T>(byte[] data, uint currentRobustVersion)
         {
-            T value = default;
+            T value = default!;
             Load(ref value, data, currentRobustVersion);
             return value;
         }
@@ -358,7 +358,7 @@ namespace Ceras
                 using (RobustContext.BeginRead(payloadTable, slowIdToType, _config.SizeLimits.MaxStringLength))
                 {
                     var engine = new SchemaTraversalEngine(fileSchemas, payloadTable, robustVersion, this);
-                    InstanceData.DeserializeCallbacks = null;
+                    InstanceData.DeserializeCallbacks = null!;
                     value = engine.ReadRoot<T>(ref reader, value);
                     // Deferred [OnAfterDeserialize] callbacks run once the whole graph is populated.
                     FlushDeserializeCallbacks();
@@ -367,7 +367,7 @@ namespace Ceras
             finally
             {
                 // A failed or abandoned load must not leave callbacks queued for the next one.
-                InstanceData.DeserializeCallbacks = null;
+                InstanceData.DeserializeCallbacks = null!;
             }
         }
 
@@ -383,7 +383,7 @@ namespace Ceras
             var schemasById = new Dictionary<int, OldTypeSchema>();
             foreach (var s in fileSchemas.Values) schemasById.TryAdd(s.TypeId, s);
 
-            Type ResolveById(int id)
+            Type? ResolveById(int id)
             {
                 if (idToType.TryGetValue(id, out var t)) return t;
                 if (!schemasById.TryGetValue(id, out var s)) return null;
@@ -415,7 +415,7 @@ namespace Ceras
                         bool allResolved = true;
                         for (int i = 0; i < s.ArgTypeIds.Length; i++)
                         {
-                            argTypes[i] = ResolveById(s.ArgTypeIds[i]);
+                            argTypes[i] = ResolveById(s.ArgTypeIds[i])!;
                             if (argTypes[i] == null) { allResolved = false; break; }
                         }
                         if (allResolved)
@@ -477,7 +477,7 @@ namespace Ceras
             if (fingerprintMatched && storedRootId == GetTypeId(requestedType, registry))
                 return;
 
-            Type storedType = null;
+            Type? storedType = null;
             idToType?.TryGetValue(storedRootId, out storedType);
 
             // 2. Identity: the file's stored root resolves to exactly the requested CLR type. This also

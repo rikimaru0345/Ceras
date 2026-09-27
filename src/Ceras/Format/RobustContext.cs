@@ -18,7 +18,7 @@ namespace Ceras.Format
     static class RobustContext
     {
         [ThreadStatic]
-        static ContextData _current;
+        static ContextData _current = null!;
 
         public static StringInternTable InternTable => _current?.InternTable;
         public static string[] StringTable => _current?.StringTable;
@@ -50,13 +50,13 @@ namespace Ceras.Format
         {
             ContextData _previous;
             public Scope(ContextData previous) { _previous = previous; }
-            public void Dispose() { _current = _previous; _previous = null; }
+            public void Dispose() { _current = _previous; _previous = null!; }
         }
 
         class ContextData
         {
-            public StringInternTable InternTable;
-            public string[] StringTable;
+            public StringInternTable InternTable = null!;
+            public string[] StringTable = null!;
             public Dictionary<Type, int> TypeToId;
             public Dictionary<int, Type> IdToType;
             public uint MaxStringLength;

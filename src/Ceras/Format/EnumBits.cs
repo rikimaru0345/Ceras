@@ -39,7 +39,7 @@ namespace Ceras.Format
         /// The raw 64-bit pattern of an enum value, widened from its underlying type without ever
         /// going through <see cref="long"/>, so nothing overflows.
         /// </summary>
-        public static ulong ToRawBits(object value, Type enumType)
+        public static ulong ToRawBits(object? value, Type enumType)
         {
             if (value == null) return 0;
             if (IsUnsigned(enumType)) return Convert.ToUInt64(value, System.Globalization.CultureInfo.InvariantCulture);

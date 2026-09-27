@@ -239,7 +239,7 @@ namespace Ceras
                     return;
                 }
 
-                if (type.FullName.StartsWith("System.Runtime.CompilerServices.TrueReadOnlyCollection"))
+                if (type.FullName?.StartsWith("System.Runtime.CompilerServices.TrueReadOnlyCollection", StringComparison.Ordinal) == true)
                 {
                     ForceSerialization(typeConfig);
                     return;
@@ -264,8 +264,13 @@ namespace Ceras
         static IFormatter ForceDynamicResolver(CerasSerializer ceras, Type type)
         {
 #pragma warning disable CS0618
-            var r = ceras.GetFormatterResolver<ReflectionFallbackResolver>();
-            return r.GetFormatter(type);
+            // Only called once the fallback has been allowed, so the resolver is installed; saying so
+            // beats a null reference if that ever stops being true.
+            var r = ceras.GetFormatterResolver<ReflectionFallbackResolver>()
+                ?? throw new InvalidOperationException(
+                    "The reflection fallback resolver is not installed, so the type cannot be serialized by reflection. " +
+                    "Enable CerasConfig.AllowReflectionFallback (or declare the type with [CerasSerializable]).");
+            return r.GetFormatter(type)!;
 #pragma warning restore CS0618
         }
     }

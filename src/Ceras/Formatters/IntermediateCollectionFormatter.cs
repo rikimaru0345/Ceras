@@ -47,7 +47,7 @@ namespace Ceras.Formatters
             var builder = CreateProxy(count);
             for (int i = 0; i < count; i++)
             {
-                TItem item = default;
+                TItem? item = default;
                 _itemFormatter.Deserialize(ref reader, ref item);
                 AddToProxy(builder, item);
             }

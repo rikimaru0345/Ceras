@@ -20,7 +20,7 @@ namespace Ceras.Formatters
             var str = SerializerBinary.ReadString(ref reader);
             if (str == null)
             {
-                value = null;
+                value = null!;
                 return;
             }
 

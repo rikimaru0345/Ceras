@@ -16,7 +16,7 @@ namespace Ceras.Formatters
         {
             _ceras = serializer;
             _maxCount = maxCount;
-            _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(typeof(TItem));
+            _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatterRequired(typeof(TItem));
         }
 
         public override void Serialize(IBufferWriter<byte> writer, TItem[] ar)
@@ -38,7 +38,7 @@ namespace Ceras.Formatters
             int length = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (length == -1)
             {
-                ar = null;
+                ar = null!;
                 return;
             }
 
@@ -74,7 +74,7 @@ namespace Ceras.Formatters
         internal MultiDimensionalArrayFormatter(CerasSerializer serializer, uint maxCount)
         {
             _maxCount = maxCount;
-            _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(typeof(TItem));
+            _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatterRequired(typeof(TItem));
         }
 
         public override void Serialize(IBufferWriter<byte> writer, Array baseAr)
@@ -140,7 +140,7 @@ namespace Ceras.Formatters
                 for (int i = 0; i < max; i++)
                 {
                     index[depth] = i;
-                    TItem val = default;
+                    TItem? val = default;
                     formatter.Deserialize(ref reader, ref val);
                     array.SetValue(val, index);
                 }
@@ -177,7 +177,7 @@ namespace Ceras.Formatters
         internal CollectionFormatter(CerasSerializer serializer)
         {
             _ceras = serializer;
-            _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatter(typeof(TItem));
+            _itemFormatter = (IFormatter<TItem>)serializer.GetReferenceFormatterRequired(typeof(TItem));
             _maxSize = serializer.Config.SizeLimits.MaxCollectionSize;
             var collectionType = typeof(TCollection);
             
@@ -199,12 +199,12 @@ namespace Ceras.Formatters
             // Resolve access methods
             if (typeof(ICollection<TItem>).IsAssignableFrom(collectionType))
             {
-                _clearMethod = c => ((ICollection<TItem>)c).Clear();
+                _clearMethod = c => ((ICollection<TItem>)c!).Clear();
                 _addMethod = (c, i) => {
                     if (c == null) throw new Ceras.Exceptions.CerasException("_addMethod called with null collection!");
                     ((ICollection<TItem>)c).Add(i);
                 };
-                _getCountMethod = c => ((ICollection<TItem>)c).Count;
+                _getCountMethod = c => ((ICollection<TItem>)c!).Count;
             }
             else
             {
@@ -297,7 +297,7 @@ namespace Ceras.Formatters
 
             for (int i = 0; i < itemCount; i++)
             {
-                TItem item = default;
+                TItem? item = default;
                 f.Deserialize(ref reader, ref item);
                 _addMethod(value, item);
             }

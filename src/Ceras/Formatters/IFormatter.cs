@@ -27,7 +27,8 @@ namespace Ceras.Formatters
         public static bool IsFormatterMatch(IFormatter formatter, Type type)
         {
             var closedFormatter = ReflectionHelper.FindClosedType(formatter.GetType(), typeof(IFormatter<>));
-            var formattedType = closedFormatter.GetGenericArguments()[0];
+            // A closed formatter over T has exactly one argument, and it is T.
+            var formattedType = closedFormatter!.GetGenericArguments()[0]!;
             return type == formattedType;
         }
 

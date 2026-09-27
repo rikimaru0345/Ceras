@@ -52,18 +52,20 @@ namespace Ceras
     public class PreviousNameAttribute : Attribute
     {
         public readonly string[] AlternativeNames = new string[0];
-        public readonly string Name;
+
+        /// <summary>The previous name, or null when this attribute only records alternatives.</summary>
+        public readonly string? Name;
 
         public PreviousNameAttribute()
         {
         }
 
-        public PreviousNameAttribute(string name)
+        public PreviousNameAttribute(string? name)
         {
             Name = name;
         }
 
-        public PreviousNameAttribute(string name, params string[] alternativeNames)
+        public PreviousNameAttribute(string? name, params string[]? alternativeNames)
         {
             Name = name;
             AlternativeNames = alternativeNames;
@@ -191,7 +193,7 @@ namespace Ceras
         /// </summary>
         public string StableName { get; }
 
-        public CerasSerializableAttribute(string stableName = null)
+        public CerasSerializableAttribute(string? stableName = null)
         {
             StableName = stableName;
         }
@@ -309,7 +311,7 @@ namespace Ceras
         public string Context { get; }
 
         public CerasKnownTypeAttribute(Type type)
-            : this(type, null)
+            : this(type, null!)
         {
         }
 
@@ -335,7 +337,7 @@ namespace Ceras
         public string Context { get; }
 
         public CerasKnownTypeAttribute()
-            : this(null)
+            : this(null!)
         {
         }
 
@@ -364,7 +366,7 @@ namespace Ceras
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Assembly, AllowMultiple = true)]
     public class CerasSerializableAttribute<T> : CerasSerializableAttribute
     {
-        public CerasSerializableAttribute(string stableName = null) : base(stableName)
+        public CerasSerializableAttribute(string? stableName = null) : base(stableName)
         {
         }
     }

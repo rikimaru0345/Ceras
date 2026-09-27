@@ -38,7 +38,7 @@ namespace Ceras.Formatters
             BannedTypes.ThrowIfNonspecific(type);
             
             var typeConfig = _ceras.Config.GetTypeConfig(type, isStatic);
-            typeConfig.VerifyConstructionMethod();
+            typeConfig!.VerifyConstructionMethod();
             _factory = typeConfig.TypeConstruction.GetRefFormatterConstructor();
 
             // Structs with only auto-properties cannot be serialized using reflection
@@ -63,7 +63,7 @@ namespace Ceras.Formatters
                 _ceras.PushContext(type, m.Member);
                 try
                 {
-                    var formatter = m.IsMonomorphic ? _ceras.GetSpecificFormatter(m.MemberType) : _ceras.GetReferenceFormatter(m.MemberType);
+                    var formatter = m.IsMonomorphic ? _ceras.GetSpecificFormatter(m.MemberType) : _ceras.GetReferenceFormatterRequired(m.MemberType);
                     _members[i] = (m.Member, formatter, m.IsMonomorphic);
                 }
                 finally
@@ -80,7 +80,7 @@ namespace Ceras.Formatters
 
         public override void Serialize(IBufferWriter<byte> writer, T value)
         {
-            object target = _isStatic ? null : value;
+            object? target = _isStatic ? null : value;
 
             InvokeCallback(_onBeforeSerialize, target);
 
@@ -95,7 +95,7 @@ namespace Ceras.Formatters
             {
                 var m = _members[i];
 
-                object memberValue = null;
+                object? memberValue = null;
                 if (m.member is FieldInfo f)
                     memberValue = f.GetValue(target);
                 else if (m.member is PropertyInfo prop)
@@ -116,19 +116,19 @@ namespace Ceras.Formatters
         {
             if (_isStatic)
             {
-                InvokeCallback(_onBeforeDeserialize, null);
+                InvokeCallback(_onBeforeDeserialize, null!);
                 for (int i = 0; i < _members.Length; i++)
                 {
                     var m = _members[i];
-                    m.formatter.DeserializeUntyped(ref reader, null, m.member);
+                    m.formatter.DeserializeUntyped(ref reader, null!, m.member);
                 }
-                InvokeCallback(_onAfterDeserialize, null);
+                InvokeCallback(_onAfterDeserialize, null!);
                 return;
             }
 
             if (typeof(T).IsValueType)
             {
-                object boxed = value;
+                object? boxed = value;
                 InvokeCallback(_onBeforeDeserialize, boxed);
 
                 for (int i = 0; i < _members.Length; i++)
@@ -165,7 +165,7 @@ namespace Ceras.Formatters
 
         internal override void DeserializeToMember(ref SequenceReader<byte> reader, object container, MemberInfo member)
         {
-            T value = default;
+            T value = default!;
 
             if (member is FieldInfo f)
             {
@@ -199,7 +199,7 @@ namespace Ceras.Formatters
             }
         }
 
-        static MethodInfo GetMethodByAttribute(Type objectType, Type attributeType)
+        static MethodInfo? GetMethodByAttribute(Type objectType, Type attributeType)
         {
             return objectType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
                 .FirstOrDefault(m => m.GetCustomAttribute(attributeType) != null);

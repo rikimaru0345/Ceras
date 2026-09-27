@@ -8,6 +8,11 @@
     /// </summary>
     public interface IFormatterResolver
     {
-        IFormatter GetFormatter(Type type);
+        /// <summary>
+        /// The formatter for a type, or null when this resolver does not handle it — which is how a
+        /// resolver declines and lets the next one try. Every implementation already returned null in
+        /// that case; the signature is what did not say so.
+        /// </summary>
+        IFormatter? GetFormatter(Type type);
     }
 }

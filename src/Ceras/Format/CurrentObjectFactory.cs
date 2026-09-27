@@ -13,10 +13,10 @@ namespace Ceras.Format
     /// </summary>
     readonly struct CollectionFill
     {
-        public readonly object Result;
+        public readonly object? Result;
         public readonly object Target;
 
-        public CollectionFill(object result, object target)
+        public CollectionFill(object? result, object target)
         {
             Result = result;
             Target = target;
@@ -58,7 +58,7 @@ namespace Ceras.Format
         /// consulted here — routing reference types through it is TODO 0.8.11, and doing it now would
         /// change reuse/pooling semantics as a side effect of this contract.
         /// </summary>
-        public object CreateReference(Type type)
+        public object? CreateReference(Type? type)
         {
             if (type == null) return null;
 
@@ -86,12 +86,12 @@ namespace Ceras.Format
         /// uninitialized instance when nothing is configured, matching <see cref="CreateReference"/>'s
         /// treatment of a type with no usable constructor.
         /// </summary>
-        public object CreateInstance(Type type)
+        public object? CreateInstance(Type? type)
         {
             if (type == null) return null;
             if (type.IsValueType) return Activator.CreateInstance(type);
 
-            var typeConfig = _serializer.Config.GetTypeConfig(type, false);
+            var typeConfig = _serializer.Config.GetTypeConfigForClosedType(type, false);
             var tc = typeConfig.TypeConstruction;
             if (tc != null && !tc.HasDataArguments && tc is not ConstructNull)
             {
@@ -118,9 +118,12 @@ namespace Ceras.Format
         /// A shape that satisfies none of those is rejected with an actionable schema error rather than
         /// a raw reflection exception.
         /// </summary>
-        public CollectionFill CreateCollection(Type collectionType, Type backingDefinition, Type[] backingArgs,
-            object existingObject, string clearMethodName, string kind)
+        public CollectionFill CreateCollection(Type? collectionType, Type? backingDefinition, Type[]? backingArgs,
+            object? existingObject, string clearMethodName, string kind)
         {
+            if (collectionType == null)
+                throw new ArgumentNullException(nameof(collectionType));
+
             if (existingObject != null && IsExactType(existingObject, collectionType))
             {
                 var clear = collectionType.GetMethod(clearMethodName, BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
@@ -150,14 +153,14 @@ namespace Ceras.Format
             }
 
             // No parameterless constructor: build the built-in collection this shape describes and wrap it.
-            Type backingType = null;
+            Type? backingType = null;
             if (backingDefinition != null && backingArgs != null && backingArgs.Length == backingDefinition.GetGenericArguments().Length
                 && Array.TrueForAll(backingArgs, a => a != null))
             {
                 backingType = backingDefinition.MakeGenericType(backingArgs);
             }
 
-            object backing = null;
+            object? backing = null;
             if (backingType != null && backingType.GetConstructor(Type.EmptyTypes) != null)
                 backing = Activator.CreateInstance(backingType);
 
@@ -192,7 +195,7 @@ namespace Ceras.Format
         /// <c>ReadOnlyCollection&lt;T&gt;</c> wraps an <c>IList&lt;T&gt;</c>, and
         /// <c>ReadOnlyDictionary&lt;K,V&gt;</c> an <c>IDictionary&lt;K,V&gt;</c>).
         /// </summary>
-        static ConstructorInfo FindWrappingConstructor(Type collectionType, Type backingType)
+        static ConstructorInfo? FindWrappingConstructor(Type collectionType, Type backingType)
         {
             var sources = new List<Type> { backingType };
             var args = backingType.GetGenericArguments();
@@ -230,7 +233,7 @@ namespace Ceras.Format
         /// the shape's own <c>Add(T)</c>/<c>Enqueue(T)</c>/<c>Push(T)</c> (which is also how
         /// <c>CollectionFormatter</c> writes the shape), otherwise <c>Add(K,V)</c>.
         /// </summary>
-        public static Action<object, object> ResolveElementAdder(object fillTarget, Type elementType)
+        public static Action<object, object?>? ResolveElementAdder(object fillTarget, Type? elementType)
         {
             if (elementType != null && fillTarget is System.Collections.IList list)
                 return (target, value) => list.Add(value);
@@ -244,7 +247,7 @@ namespace Ceras.Format
             return null;
         }
 
-        public static Action<object, object, object> ResolveEntryAdder(object fillTarget, Type keyType, Type valueType)
+        public static Action<object, object?, object?>? ResolveEntryAdder(object fillTarget, Type? keyType, Type? valueType)
         {
             if (keyType != null && valueType != null && fillTarget is System.Collections.IDictionary dictionary)
                 return (target, key, value) => dictionary.Add(key, value);

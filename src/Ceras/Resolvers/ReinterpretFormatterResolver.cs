@@ -21,7 +21,7 @@ namespace Ceras.Resolvers
             _ceras = ceras;
         }
 
-        public IFormatter GetFormatter(Type type)
+        public IFormatter? GetFormatter(Type type)
         {
             if (!(_ceras.Config is CerasRawConfig rawCfg) || !rawCfg.UseReinterpretFormatter)
                 return null;

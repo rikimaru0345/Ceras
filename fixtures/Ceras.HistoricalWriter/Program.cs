@@ -86,6 +86,8 @@ namespace Ceras.HistoricalWriter
                 Players = new List<Player> { main, buddy },
                 Main = main,            // same instance as Players[0]: must load back shared
                 Stats = new Settings { Fullscreen = true, Volume = 42, Profile = "default" },
+                RetiredText = "gone",                  // removed in the current model
+                Home = new Coord { X = 20, Y = 21, Z = 22 },   // removed, and a fixed-size struct
                 Retired = new List<int> { 9, 8, 7 },   // removed in the current model: a reference-typed collection
                 Slots = new[] { 1, 2, 3, 4, 5 },     // the field right after it, so a bad skip is visible
                 Scores = new Dictionary<string, int> { ["Ayla"] = 100, ["Bryn"] = 250 },

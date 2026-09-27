@@ -42,7 +42,7 @@
         }
 
 
-        public string GetBaseName(Type type)
+        public string? GetBaseName(Type type)
         {
             if (type.IsGenericType)
                 return type.GetGenericTypeDefinition().FullName;

@@ -27,6 +27,15 @@ namespace Ceras.Format
             return sb.ToString();
         }
 
+        /// <summary>
+        /// The canonical name, or a placeholder when there is no type at all. <b>For diagnostics only.</b>
+        /// A real canonical name never has a null type, so <see cref="GetCanonicalName(Type)"/> throws
+        /// instead - but an error message that is built from a type the reader could not resolve must not
+        /// throw a second, unrelated exception while reporting the first.
+        /// </summary>
+        public static string GetCanonicalNameOrUnknown(Type? type)
+            => type == null ? "<unknown>" : GetCanonicalName(type);
+
         static void AppendCanonicalName(StringBuilder sb, Type type)
         {
             if (type.IsArray)
@@ -96,14 +105,14 @@ namespace Ceras.Format
         /// </summary>
         internal static bool TryParseCanonicalName(string name, Func<string, Type> resolveDefinition, out Type type)
         {
-            type = null;
+            type = null!;
             if (string.IsNullOrEmpty(name) || resolveDefinition == null) return false;
             return TryParse(name, resolveDefinition, out type);
         }
 
         static bool TryParse(string name, Func<string, Type> resolveDefinition, out Type type)
         {
-            type = null;
+            type = null!;
 
             // Arrays: T[] / T[,] / T[,,] ...
             if (name.Length > 0 && name[name.Length - 1] == ']')
