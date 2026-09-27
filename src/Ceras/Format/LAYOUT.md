@@ -110,11 +110,12 @@ external/legacy unqualified `Type.FullName` names.
 **No primitive uses a compact encoding.** `int32`/`uint32` are fixed 4-byte little-endian both in
 the generated writers (`WriteInt32Fixed`) and in the formatters (`Int32Formatter`), which is what
 `fixedByteSize` and `WellKnownTypes.FixedSizes` claim for them; `string` is a fixed 4-byte table
-index in both the payload and the schema string table. The two remaining compact encodings are not
-primitives and are documented at their use sites: collection counts (`bias +1`) and
-reference/polymorphism markers (bias `+5`), both written with `WriteUInt32Bias`. Those biases and
-constants are **not** hashed into the fingerprint individually — only `FormatVersion` is. They are
-covered only insofar as a change to them is accompanied by a deliberate `FormatVersion` bump; see
+index in both the payload and the schema string table. The one remaining compact encoding is not a
+primitive and is documented at its use site: reference/polymorphism markers, written with
+`WriteUInt32Bias` at bias `+5`. Collection counts are *not* uniformly compact — see
+[Collections and arrays](#collections-and-arrays) for the per-shape rule. Those biases and constants
+are **not** hashed into the fingerprint individually — only `FormatVersion` is. They are covered only
+insofar as a change to them is accompanied by a deliberate `FormatVersion` bump; see
 [Not yet implemented](#not-yet-implemented). Raw primitive encoding never persists CLR struct padding.
 
 `decimal` is the one primitive whose documented order is **not** its CLR memory order: the runtime
@@ -129,8 +130,30 @@ has exactly one decimal encoding, and it is the row above.
 
 Built-in collections (`List<>`, `Dictionary<,>`, `HashSet<>`, `Queue<>`, `Stack<>`, arrays) are
 encoded **structurally**: a well-known definition ID plus ordered argument type IDs, not by
-reflecting CLR internals. Counts use bias `+1`; `-1` marks null. This keeps implementation details
-such as `Dictionary\`2+Entry` out of the schema (`WellKnownTypes.IsWellKnownCollectionDefinition`).
+reflecting CLR internals. This keeps implementation details such as `Dictionary\`2+Entry` out of the
+schema (`WellKnownTypes.IsWellKnownCollectionDefinition`).
+
+**The element count is encoded per shape, not per "collection".** `ArrayFormatter` and
+`CollectionFormatter` (for `List<>`/`HashSet<>`/`Dictionary<,>` and every collection subclass) write
+`WriteUInt32Bias(count, 1)`, so the count is a compact biased varint in which `-1` marks a null
+collection. `QueueFormatter` and `StackFormatter` do **not**: they write the count through the injected
+`IFormatter<int>`, which is the fixed 4-byte little-endian `int` encoding (`Int32Formatter`), unbiased
+and with no null marker — a null queue or stack cannot be written at all, because `Serialize` reads
+`value.Count` before it looks at anything else. So:
+
+| shape | count | null marker |
+|---|---|---|
+| array, `List<>`, `HashSet<>`, `Dictionary<,>`, collection subclass | `WriteUInt32Bias(count, 1)` | `-1` |
+| `Queue<>`, `Stack<>` | `WriteInt32Fixed(count)` | none — a negative count is corruption |
+
+The two encodings are indistinguishable for the small counts a test save usually holds, which is what
+makes this a silent-corruption hazard rather than a loud one: a reader that applies the biased rule to
+a queue or a stack decodes a *plausible* count, consumes the wrong number of bytes and desynchronises
+every field after it. The migration interpreter therefore picks the encoding from the **file's**
+definition ID (`SchemaTraversalEngine.ReadCollectionCount`), never from the current CLR type, for the
+same reason it picks the rest of the payload grammar: a rename, a re-assigned ID or a changed shape
+must still decode by the layout the writer used. The bound (`SizeLimits.MaxCollectionSize`) is checked
+in the same place, so it cannot drift between the shapes either.
 
 Any other concrete collection shape — a subclass, or a shape with no public parameterless constructor
 and no `Add` such as `ReadOnlyCollection<T>` / `ReadOnlyDictionary<K,V>` — is described as the

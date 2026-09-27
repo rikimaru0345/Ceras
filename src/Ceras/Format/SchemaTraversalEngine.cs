@@ -841,11 +841,8 @@ namespace Ceras.Format
             if (targetType != null && targetType.IsArray && targetType.GetArrayRank() != 1)
                 throw SchemaRegistry.UnsupportedMultidimensionalArray(targetType, "the migration interpreter");
 
-            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            int count = ReadCollectionCount(WellKnownTypes.Array, ref reader);
             if (count == -1) return null;
-            if (count < 0 || count > _maxCollectionSize)
-                throw new Ceras.Exceptions.CerasDataCorruptionException(
-                    $"Corrupt save: an array declares {count} elements, outside the configured maximum of {_maxCollectionSize}.");
 
             Type? elementType = targetType?.IsArray == true ? targetType.GetElementType() : null;
             int? oldElemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
@@ -982,17 +979,69 @@ namespace Ceras.Format
             => old.ArgTypeIds != null && old.ArgTypeIds.Length > index ? (int?)old.ArgTypeIds[index] : null;
 
         /// <summary>
-        /// Accounts for a collection payload: an explicit count (biased, <c>-1</c> for null) followed by that
-        /// many elements or key/value entries. One implementation for every shape, so the count's meaning and
-        /// its bound cannot drift between them.
+        /// Whether a payload written for <paramref name="definitionTypeId"/> starts with a fixed, <b>unbiased</b>
+        /// 4-byte little-endian element count instead of the shared bias-<c>+1</c> varint.
+        /// <para>
+        /// <c>QueueFormatter</c> and <c>StackFormatter</c> write their count through the injected
+        /// <c>IFormatter&lt;int&gt;</c>, which is the fixed 4-byte little-endian <c>int</c> encoding
+        /// (<c>Int32Formatter</c>), and they have no null marker. Every other collection —
+        /// <c>ArrayFormatter</c>, <c>CollectionFormatter</c> for <c>List</c>/<c>HashSet</c>/<c>Dictionary</c>
+        /// and every collection subclass — writes <c>WriteUInt32Bias(count, 1)</c>, where <c>-1</c> is a null
+        /// collection.
+        /// </para>
+        /// <para>
+        /// The two encodings are indistinguishable for the small counts a test save usually holds, which is
+        /// exactly why this matters: reading a queue or a stack with the shared biased read does not fail, it
+        /// returns a plausible count, consumes the wrong number of bytes and desynchronises everything after it.
+        /// </para>
         /// </summary>
-        void SkipCollectionPayload(PayloadShape shape, OldTypeSchema old, ref SequenceReader<byte> reader)
+        static bool UsesFixedElementCount(int definitionTypeId)
+            => definitionTypeId == WellKnownTypes.Queue || definitionTypeId == WellKnownTypes.Stack;
+
+        /// <summary>
+        /// The element count that introduces a described collection payload, plus the bound check. One reader
+        /// for every shape and both directions, so the count's encoding and its limit cannot drift between them.
+        /// <para>
+        /// The encoding is chosen by the <em>file's</em> definition id, never by the current CLR type, for the
+        /// same reason the rest of the payload grammar is: a rename, a re-assigned id or a changed shape must
+        /// still decode by the layout the writer used.
+        /// </para>
+        /// <para>
+        /// Returns <c>-1</c> for an encoded null collection, which only the biased encodings can express — a
+        /// queue or a stack cannot be written as null at all, so a negative count there is corruption rather
+        /// than a null.
+        /// </para>
+        /// </summary>
+        int ReadCollectionCount(int definitionTypeId, ref SequenceReader<byte> reader)
         {
+            if (UsesFixedElementCount(definitionTypeId))
+            {
+                int fixedCount = SerializerBinary.ReadInt32Fixed(ref reader);
+                if (fixedCount < 0 || fixedCount > _maxCollectionSize)
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        $"Corrupt save: a {(definitionTypeId == WellKnownTypes.Queue ? "queue" : "stack")} declares {fixedCount} elements, " +
+                        $"outside the configured maximum of {_maxCollectionSize}. Its count is a plain 4-byte element count, " +
+                        "so a negative one is a corrupt payload, not a null collection.");
+                return fixedCount;
+            }
+
             int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
-            if (count == -1) return;                          // a null collection
+            if (count == -1) return -1;                      // a null collection
             if (count < 0 || count > _maxCollectionSize)
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
                     $"Corrupt save: a collection declares {count} elements, outside the configured maximum of {_maxCollectionSize}.");
+            return count;
+        }
+
+        /// <summary>
+        /// Accounts for a collection payload: an explicit count followed by that many elements or key/value
+        /// entries, each count read by <see cref="ReadCollectionCount"/> so the queue/stack encoding is honoured
+        /// here too.
+        /// </summary>
+        void SkipCollectionPayload(PayloadShape shape, OldTypeSchema old, ref SequenceReader<byte> reader)
+        {
+            int count = ReadCollectionCount(old.DefinitionTypeId, ref reader);
+            if (count == -1) return;                          // a null collection
 
             if (shape == PayloadShape.Entries)
             {
@@ -1031,11 +1080,8 @@ namespace Ceras.Format
                     $"{oldSchema.DefinitionTypeId}, which is not a collection payload. Ceras cannot tell how many bytes its " +
                     "elements occupy, so the rest of the save cannot be read safely.");
 
-            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            int count = ReadCollectionCount(oldSchema.DefinitionTypeId, ref reader);
             if (count == -1) return null;
-            if (count < 0 || count > _maxCollectionSize)
-                throw new Ceras.Exceptions.CerasDataCorruptionException(
-                    $"Corrupt save: a collection declares {count} elements, outside the configured maximum of {_maxCollectionSize}.");
 
             int? oldElem0 = ArgId(oldSchema, 0);
             int? oldElem1 = ArgId(oldSchema, 1);
@@ -1069,11 +1115,8 @@ namespace Ceras.Format
         /// </summary>
         object? ReadUnknownCollectionPayload(OldTypeSchema oldSchema, ref SequenceReader<byte> reader)
         {
-            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            int count = ReadCollectionCount(oldSchema.DefinitionTypeId, ref reader);
             if (count == -1) return null;
-            if (count < 0 || count > _maxCollectionSize)
-                throw new Ceras.Exceptions.CerasDataCorruptionException(
-                    $"Corrupt save: a collection declares {count} elements, outside the configured maximum of {_maxCollectionSize}.");
 
             int? oldKey = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             int? oldValue = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
@@ -1339,7 +1382,7 @@ namespace Ceras.Format
                         return;
                     }
 
-                    int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+                    int count = ReadCollectionCount(oldSchema.DefinitionTypeId, ref reader);
                     if (count == -1) return;
                     if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)
                     {
