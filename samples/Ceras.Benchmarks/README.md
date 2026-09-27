@@ -5,9 +5,11 @@ A standalone, runnable measurement tool for the P0 0.7 roadmap performance basel
 "retain only genuinely useful exploratory tools/benchmarks").
 
 It is a tool, not a test and not a sample: it references only `src/Ceras` plus the source
-generator, so the numbers cannot change when `tests/Ceras.Test` or the legacy
-`samples/LiveTesting` sandbox is modified or deleted. Its models belong to their own
-serialization context, `"CerasBenchmarks"` (not `Ceras.Test`'s `"Tests"`).
+generator. It therefore has no test-assembly and no sandbox dependency, so changing or deleting
+the test suite (or a sample) cannot move its numbers — but it does build and measure `src/Ceras`,
+so a library change is expected to. Treat a number as describing the library as it currently is,
+not a pinned historical baseline, and pin the library state when you compare two runs. Its models
+belong to their own serialization context, `"CerasBenchmarks"` (not `Ceras.Test`'s `"Tests"`).
 
 ## Running it
 

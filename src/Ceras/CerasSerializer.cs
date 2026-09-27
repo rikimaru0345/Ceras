@@ -1,5 +1,4 @@
 ﻿// ReSharper disable RedundantTypeArgumentsOfMethod
-[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("LiveTesting")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.Test")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.AotGenerator")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.TestDebugger")]

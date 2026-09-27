@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Ceras.Test
 {
-    // Promoted from samples/LiveTesting/Program.cs :: InjectSpecificFormatterTest.
+    // Promoted from the now-deleted samples/LiveTesting sandbox :: InjectSpecificFormatterTest.
     //
     // A formatter a user hands to Ceras (here through CerasConfig.OnResolveFormatter) is prepared
     // exactly like a built-in one: Ceras injects the serializer itself, the sub-formatters the
