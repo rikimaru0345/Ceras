@@ -345,7 +345,18 @@ This replaces the old external AotGenerator tool and works automatically — no 
 > member whose *type* generated code cannot name (e.g. a private nested type) — now report
 > `CERAS018` as an **error** instead of emitting silently-broken output. A merely private member
 > with a nameable type still works through `[UnsafeAccessor]`. Mark the member `[Exclude]`, make
-> the type/member accessible, or provide a custom formatter to resolve it.
+> the type/member accessible, or provide a custom formatter to resolve it — in which case that
+> formatter belongs to a `CerasFastSerializer`/`CerasSerializer` context, because robust contexts
+> currently reject custom formatters (see below).
+
+> **Temporary limitation (robust contexts):** a user custom formatter is **rejected** in a robust
+> context. A robust save describes its values in the schema section it carries and the layout
+> fingerprint is derived from that section, so neither records which formatter wrote the bytes; a
+> later build that removed, reordered or retyped a member of the overridden type could not skip the
+> opaque value and would silently return wrong data. Store an id or a `[CerasSerializable]`
+> representation in the robust graph and keep the custom encoding in a raw/transient serializer over
+> that value. This is lifted when the format carries explicit opaque-schema and formatter-selection
+> metadata. Raw/transient contexts are unaffected.
 
 ### Quick setup (2 steps)
 

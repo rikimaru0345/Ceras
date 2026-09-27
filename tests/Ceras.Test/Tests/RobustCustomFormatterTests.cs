@@ -2,32 +2,48 @@ using System;
 using System.Buffers;
 using System.Reflection;
 using Ceras;
+using Ceras.Exceptions;
 using Ceras.Formatters;
 using Ceras.Generated;
 using Xunit;
 
 namespace Ceras.Test.Tests {
+	// A user custom formatter is no longer honoured in a robust context: its bytes are opaque to the
+	// file's schema section and invisible to the layout fingerprint, so a later build cannot skip them
+	// and silently returns wrong data (see RobustCustomFormatterPolicy). The model and the formatter
+	// below are the shape that used to reproduce it, kept so the rejection is pinned against the exact
+	// case — and so the raw path keeps the coverage that the custom formatter is still honoured where
+	// it is supported.
 	public partial class RobustCustomFormatterTests {
 		[Fact]
-		public void Robust_Respects_CustomFormatter() {
-			var robust = new CerasRobustSerializer(config =>
+		public void Robust_Rejects_CustomFormatter_And_Raw_Still_Honors_It() {
+			// Robust: refused, naming the type, the formatter and the way out.
+			var rejection = Assert.Throws<CerasSchemaException>(() => new CerasRobustSerializer(config =>
 			{
 				config.ConfigType<MyCustomStruct>().CustomFormatter = new MyCustomStructFormatter();
 				config.UseGeneratedFormatters("Tests");
-			});
+			}));
+
+			Assert.Contains("MyCustomStruct", rejection.Message, StringComparison.Ordinal);
+			Assert.Contains(nameof(MyCustomStructFormatter), rejection.Message, StringComparison.Ordinal);
+			Assert.Contains("temporary", rejection.Message, StringComparison.OrdinalIgnoreCase);
+
+			// Raw/transient: unchanged, the custom formatter is installed and used.
+			MyCustomStructFormatter.WasSerializedCalled = false;
+			MyCustomStructFormatter.WasDeserializedCalled = false;
 
 			var original = new ClassWithCustomStruct {
 				Id = 42,
 				MyStruct = new MyCustomStruct { MagicValue = "CustomSerialized" }
 			};
 
-			MyCustomStructFormatter.WasSerializedCalled = false;
-			MyCustomStructFormatter.WasDeserializedCalled = false;
+			var raw = new CerasFastSerializer(config =>
+			{
+				config.ConfigType<MyCustomStruct>().CustomFormatter = new MyCustomStructFormatter();
+				config.UseGeneratedFormatters("Tests");
+			});
 
-			var data = robust.Save(original, 1);
-
-			// It should be properly deserialized using the custom formatter
-			var loaded = robust.Load<ClassWithCustomStruct>(data, 1);
+			var loaded = raw.Deserialize<ClassWithCustomStruct>(raw.Serialize(original));
 
 			Assert.Equal(42, loaded.Id);
 			Assert.Equal("CustomSerialized", loaded.MyStruct.MagicValue);

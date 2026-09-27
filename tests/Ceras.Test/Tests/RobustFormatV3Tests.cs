@@ -93,7 +93,7 @@ namespace Ceras.Test.RobustV3
 
             Assert.InRange(schemaStrOff, (long)RobustHeader.Size, dataOff);
             Assert.True(dataOff <= strOff);
-            Assert.Equal(3, bytes[4]); // FormatVersion
+            Assert.Equal(CerasRobustSerializer.FormatVersion, bytes[4]);
 
             var clone = Generated().Load<V3Model>(bytes, 1);
             Assert.Equal(9, clone.Values[0]);

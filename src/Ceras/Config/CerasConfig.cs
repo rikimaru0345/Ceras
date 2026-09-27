@@ -153,6 +153,27 @@ namespace Ceras
 				   "a serializer only works with closed types.");
 
 		/// <summary>
+		/// Every explicitly configured type config, instance and static. Internal: the robust context
+		/// checks have to inspect what the user configured (a user custom formatter is refused in a
+		/// robust context), and nothing else needs the whole set.
+		/// </summary>
+		internal IEnumerable<TypeConfig> EnumerateConfiguredTypes()
+		{
+			foreach (var kv in _configEntries)
+				yield return kv.Value;
+			foreach (var kv in _staticConfigEntries)
+				yield return kv.Value;
+		}
+
+		// Counts every CustomFormatter assignment, so a whole-config check can be skipped while nothing has
+		// changed. The check itself is O(configured types) and runs before each Save/Load, which is not a
+		// cost worth paying for a context that configures no custom formatter at all — the common case,
+		// and the only one a robust context allows through.
+		int _formatterAssignmentCount;
+		internal int FormatterAssignmentCount => _formatterAssignmentCount;
+		internal void NoteFormatterAssignment() => _formatterAssignmentCount++;
+
+		/// <summary>
 		/// Configure a specific type. Use this for types you don't control (external libraries, etc.).
 		/// Prefer putting attributes directly on your types when possible.
 		/// </summary>

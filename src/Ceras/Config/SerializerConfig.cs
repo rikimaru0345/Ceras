@@ -27,6 +27,14 @@ namespace Ceras
 		internal readonly RobustConfig _robustConfig = new RobustConfig();
 
 		/// <summary>
+		/// How many formatter assignments the last <c>RobustCustomFormatterPolicy</c> scan already
+		/// covered, so a context that configures no user custom formatter — the only kind a robust
+		/// context accepts — pays one integer comparison per <c>Save</c>/<c>Load</c> instead of a walk of
+		/// every configured type. See <see cref="CerasConfig.FormatterAssignmentCount"/>.
+		/// </summary>
+		internal int VerifiedFormatterAssignmentCount { get; set; } = -1;
+
+		/// <summary>
 		/// Declares a root shape this context may serialize, for the shapes no generated manifest can
 		/// describe: a one-dimensional array, a built-in closed collection (<c>List&lt;T&gt;</c>,
 		/// <c>Dictionary&lt;K,V&gt;</c>, <c>HashSet&lt;T&gt;</c>, <c>Queue&lt;T&gt;</c>, <c>Stack&lt;T&gt;</c>),
@@ -143,6 +151,11 @@ namespace Ceras
 		internal override void Seal()
 		{
 			base.Seal();
+			// A user custom formatter writes bytes the schema section cannot describe, and the layout
+			// fingerprint cannot see that it was selected. Reject it as early as possible — at context
+			// setup, before a save can exist — instead of only at the first Save/Load
+			// (RobustCustomFormatterPolicy).
+			RobustCustomFormatterPolicy.VerifyNoUserCustomFormatters(this);
 			// (This used to also set RobustConfig.Locked, which nothing ever read: either it was meant to
 			// guard something that does not exist, or it is dead. The sealed state that *is* consulted is
 			// SizeLimits/CerasConfig's own, set by base.Seal().)

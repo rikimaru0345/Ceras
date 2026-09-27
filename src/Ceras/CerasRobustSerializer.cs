@@ -126,10 +126,26 @@ namespace Ceras
                     "Invalid magic. The provided data does not appear to be a Ceras-serialized block.");
 
             uint version = data[FormatVersionOffset];
-            if (version != expectedFormatVersion)
+            if (version == expectedFormatVersion)
+                return;
+
+            // An older version is a *known* file that this build deliberately no longer reads, so it gets
+            // the reason rather than a bare mismatch: the experimental format carried no upgrade promise,
+            // and v3 in particular could hold a user custom formatter's opaque bytes under a schema (and a
+            // matching layout fingerprint) that described generated fields, which is exactly the state
+            // that cannot be told apart from a good file.
+            if (version < expectedFormatVersion)
                 throw new Ceras.Exceptions.CerasVersionMismatchException(
-                    $"Format version mismatch. File version {version} is not compatible with library version {expectedFormatVersion}.",
+                    $"Unsupported robust format version {version}: this build reads version {expectedFormatVersion} only. " +
+                    $"Format version {version} is an older experimental version and is no longer accepted; experimental saves are not " +
+                    "upgradeable and must be recreated. Version 3 is rejected in particular because it could be written with a user " +
+                    "custom formatter, whose opaque bytes were invisible to both the file's schema section and the layout fingerprint, " +
+                    "so such a file cannot be validated. See RobustCustomFormatterPolicy.",
                     version, expectedFormatVersion);
+
+            throw new Ceras.Exceptions.CerasVersionMismatchException(
+                $"Format version mismatch. File version {version} is not compatible with library version {expectedFormatVersion}.",
+                version, expectedFormatVersion);
         }
 
         /// <summary>Returns true when <paramref name="flags"/> is a known string-table compression flag.</summary>
@@ -139,9 +155,13 @@ namespace Ceras
 
     public sealed class CerasRobustSerializer : CerasSerializer
     {
-        // v3: two-region string handling — the schema strings live in their own region so the happy
-        // path can skip schema/metadata decoding entirely.
-        public const int FormatVersion = 3;
+        // v4: a robust context no longer accepts a user custom formatter (see
+        // RobustCustomFormatterPolicy). v3 could be written with one — the schema section still
+        // described the *generated* fields while the payload held opaque custom bytes, and the layout
+        // fingerprint matched anyway, so such a file could not be distinguished from a good one. The
+        // experimental format therefore advances rather than keeping a false promise: every v3 file is
+        // rejected, including the ones that happen to be fine.
+        public const int FormatVersion = 4;
 
         internal readonly CerasRobustConfig _config;
 
@@ -191,6 +211,12 @@ namespace Ceras
         public byte[] Save<T>(T rootObject, uint robustVersion)
         {
             var registry = _config.SchemaRegistry;
+
+            // Re-run the context check: a type config is sealed lazily, so a user custom formatter can
+            // still be installed after the serializer was constructed (the setup-time check in
+            // CerasRobustConfig.Seal only sees what was configured before it). Nothing with opaque bytes
+            // may enter a robust file.
+            RobustCustomFormatterPolicy.VerifyNoUserCustomFormatters(_config);
 
             // Declare the root (normally via the generated manifest) and seal. A context has one
             // finite manifest: a root shape no manifest can describe (an array, a built-in closed
@@ -261,6 +287,10 @@ namespace Ceras
             if (data == null) throw new ArgumentNullException(nameof(data));
 
             var registry = _config.SchemaRegistry;
+
+            // Same gate as Save: a formatter installed after construction must not be able to decode
+            // this file either (see RobustCustomFormatterPolicy).
+            RobustCustomFormatterPolicy.VerifyNoUserCustomFormatters(_config);
 
             // Validate magic/version and the full section-offset envelope before any offset is used to
             // index or allocate (TODO 0.6 item 8).

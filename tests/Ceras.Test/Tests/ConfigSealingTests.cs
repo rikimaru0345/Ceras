@@ -95,7 +95,9 @@ namespace Ceras.Test.Tests
         }
     }
 
-    // A robust config that installs the custom string formatter from its Seal() override.
+    // A robust config that installs a custom string formatter from its Seal() override. The override
+    // runs before the base Seal(), so the formatter is in place when the robust custom-formatter check
+    // runs — this is the same code path a user would hit at context setup, just later.
     public class SealingRobustConfig : CerasRobustConfig
     {
         internal override void Seal()
@@ -175,23 +177,31 @@ namespace Ceras.Test.Tests
             Assert.True(SealingProbeTypeFormatter.DeserializeCalls > 0, "custom Type Deserialize was not called");
         }
 
+        /// <summary>
+        /// The robust counterpart of the sealing-gap fix above. A user custom formatter installed from
+        /// Seal() is no longer *used* on the robust path — a robust context refuses it outright
+        /// (RobustCustomFormatterPolicy), because a length-prefixed custom string is opaque to the file's
+        /// schema section and to the layout fingerprint. Re-classified rather than deleted: the sealing
+        /// gap itself is still covered by the two raw tests, and this pins that a robust context fails
+        /// loud at setup instead of writing a file whose schema no longer describes its payload.
+        /// </summary>
         [Fact]
-        public void CustomFormatter_InstalledDuringSeal_IsUsed_OnRobustPath()
+        public void CustomFormatter_InstalledDuringSeal_IsRejected_OnRobustPath()
         {
             SealingProbeStringFormatter.SerializeCalls = 0;
             SealingProbeStringFormatter.DeserializeCalls = 0;
 
-            var config = new SealingRobustConfig();
-            config.UseGeneratedFormatters("Tests");
-            var robust = new CerasRobustSerializer(config);
+            var ex = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(() =>
+            {
+                var config = new SealingRobustConfig();
+                config.UseGeneratedFormatters("Tests");
+                return new CerasRobustSerializer(config);
+            });
 
-            var bytes = robust.Save(new SealingStringModel { Text = "robust", N = 9 }, 1);
-            var clone = robust.Load<SealingStringModel>(bytes, 1);
-
-            Assert.Equal("robust", clone.Text);
-            Assert.Equal(9, clone.N);
-            Assert.True(SealingProbeStringFormatter.SerializeCalls > 0, "custom string Serialize was not called");
-            Assert.True(SealingProbeStringFormatter.DeserializeCalls > 0, "custom string Deserialize was not called");
+            Assert.Contains("System.String", ex.Message, StringComparison.Ordinal);
+            Assert.Contains(nameof(SealingProbeStringFormatter), ex.Message, StringComparison.Ordinal);
+            Assert.Equal(0, SealingProbeStringFormatter.SerializeCalls);
+            Assert.Equal(0, SealingProbeStringFormatter.DeserializeCalls);
         }
 
         [Fact]

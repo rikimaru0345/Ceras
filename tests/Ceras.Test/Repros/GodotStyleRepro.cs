@@ -101,55 +101,73 @@ namespace ReproGame
 
     public class GodotStyleRepro : Ceras.Test.TestBase
     {
-        static CerasRobustSerializer MakeSerializer() => new CerasRobustSerializer(config =>
+        // A custom formatter for a blacklisted engine type is supported in a raw/transient context, and
+        // is refused in a robust one: Curve3DFormatter writes an opaque count + float array that the
+        // file's schema section cannot describe, so a build that removed or retyped `Points` could not
+        // skip the value and would silently return wrong data. See RobustCustomFormatterPolicy.
+        static CerasFastSerializer MakeTransientSerializer() => new CerasFastSerializer(config =>
         {
             config.AllowReflectionFallback = true;
             config.UseGeneratedFormatters("Tests");
             config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
         });
 
-        [Fact]
-        public void TestGodotSerialization()
+        static Action<CerasRobustConfig> RobustConfigWithCustomFormatter() => config =>
         {
-            var robust = MakeSerializer();
+            config.AllowReflectionFallback = true;
+            config.UseGeneratedFormatters("Tests");
+            config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
+        };
+
+        // The same context *without* the custom formatter, so a formatter can be installed after the
+        // serializer already exists.
+        static CerasRobustSerializer MakeRobustSerializerWithoutCustomFormatter()
+            => new CerasRobustSerializer(config =>
+            {
+                config.AllowReflectionFallback = true;
+                config.UseGeneratedFormatters("Tests");
+            });
+
+        [Fact]
+        public void GodotStyleSerialization_Raw()
+        {
+            var transient = MakeTransientSerializer();
             var rail = new RailSegment { Curve = new Curve3D { Points = new[] { 1f, 2f, 3f } } };
 
-            // Standard Save/Load (raw path through robust serializer)
-            var data = robust.Save(rail, 1);
-            var clone = robust.Load<RailSegment>(data, 1);
+            var data = transient.Serialize(rail);
+            var clone = transient.Deserialize<RailSegment>(data);
 
             Assert.NotNull(clone.Curve);
             Assert.Equal(3, clone.Curve.Points.Length);
 
-            // Robust Save/Load (fast path — same fingerprint)
-            var robustData = robust.Save(rail, 1);
-            var robustClone = robust.Load<RailSegment>(robustData, 1);
+            // A fresh serializer, i.e. the realistic "next session" shape.
+            var cloneFresh = MakeTransientSerializer().Deserialize<RailSegment>(data);
+            Assert.NotNull(cloneFresh.Curve);
+            Assert.Equal(3, cloneFresh.Curve.Points.Length);
+        }
 
-            Assert.NotNull(robustClone.Curve);
-            Assert.Equal(3, robustClone.Curve.Points.Length);
+        /// <summary>
+        /// The robust half of the repro, re-classified. It used to assert that a robust save round-trips
+        /// the engine-object member through the custom formatter; a robust context now refuses that
+        /// formatter outright instead of writing a file whose schema does not describe its payload.
+        /// </summary>
+        [Fact]
+        public void GodotStyleSerialization_Robust_RefusesTheCustomFormatter()
+        {
+            var ex = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(
+                () => new CerasRobustSerializer(RobustConfigWithCustomFormatter()));
 
-            // Robust Load with a fresh serializer (same schema → fast path again).
-            // This is the most realistic scenario: save in one session, load in the next.
-            var robust3 = MakeSerializer();
-            var robustCloneFresh = robust3.Load<RailSegment>(robustData, 1);
-            Assert.NotNull(robustCloneFresh.Curve);
-            Assert.Equal(3, robustCloneFresh.Curve.Points.Length);
+            Assert.Contains("Curve3D", ex.Message, StringComparison.Ordinal);
+            Assert.Contains(nameof(Curve3DFormatter), ex.Message, StringComparison.Ordinal);
 
-            // Robust Slow Path (force fingerprint mismatch on a copy)
-            var robust2 = new CerasRobustSerializer(config =>
-            {
-                config.AllowReflectionFallback = true;
-                config.UseGeneratedFormatters("Tests");
-                config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
-            });
+            // Also refused when installed after the serializer exists: a TypeConfig is sealed lazily, so
+            // the setup-time check alone is not enough to keep a file from being written.
+            var robust = MakeRobustSerializerWithoutCustomFormatter();
+            robust.Config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
 
-            var slowData = (byte[])robustData.Clone();
-            slowData[RobustHeader.FingerprintOffset] ^= 0xFF;
-            FixRobustChecksum(slowData);
-
-            var robustCloneSlow = robust2.Load<RailSegment>(slowData, 1);
-            Assert.NotNull(robustCloneSlow.Curve);
-            Assert.Equal(3, robustCloneSlow.Curve.Points.Length);
+            var rail = new RailSegment { Curve = new Curve3D { Points = new[] { 1f, 2f, 3f } } };
+            var loadEx = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(() => robust.Save(rail, 1));
+            Assert.Contains("Curve3D", loadEx.Message, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -158,17 +176,18 @@ namespace ReproGame
         /// After deserialization Curve was null → NullReferenceException in
         /// VisualUtils.PopulateSplineMultiMesh → VisualRailSegment._Ready.
         /// Fix: engine-object fields are included (CERAS017 warning emitted) rather than
-        /// dropped — no [Include] needed.
+        /// dropped — no [Include] needed. Re-classified to the raw context, which is where a
+        /// custom formatter for an engine type is supported.
         /// </summary>
         [Fact]
         public void CurveIsNotNullAfterLoad()
         {
-            var robust = MakeSerializer();
+            var transient = MakeTransientSerializer();
             var rail = new RailSegment { Curve = new Curve3D { Points = new[] { 10f, 20f } } };
-            var data = robust.Save(rail, 1);
+            var data = transient.Serialize(rail);
 
             // Fresh serializer — simulates game restart / new session load
-            var loaded = MakeSerializer().Load<RailSegment>(data, 1);
+            var loaded = MakeTransientSerializer().Deserialize<RailSegment>(data);
 
             // Without the [Include] fix this would be null → NullReferenceException in VisualRailSegment._Ready
             Assert.NotNull(loaded.Curve);
