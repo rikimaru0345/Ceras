@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Roadmap performance baselines (see TODO.md, Milestone 5: "retain only genuinely useful
+    exploratory tools/benchmarks").
+
+    This is a standalone, runnable measurement tool. It deliberately references only
+    src/Ceras + the source generator, and nothing else in the repository:
+
+      * no dependency on tests/Ceras.Test and no dependency on the legacy samples/LiveTesting
+        sandbox, so the numbers cannot silently change when either of those is deleted;
+      * its models live in their own generator-enabled compilation, so they get a real generated
+        manifest for their own context. Two generator-enabled assemblies referenced from one
+        compilation would both emit Ceras.Generated.CerasConfigExtensions and every
+        UseGeneratedFormatters(...) call would become ambiguous (CS0121);
+      * its context is named "CerasBenchmarks" rather than reusing Ceras.Test's "Tests", so a
+        context name in a benchmark result can always be traced back to this project.
+
+    It is a friend assembly of Ceras (see src/Ceras/CerasSerializer.cs), so the measurement code
+    reads the robust header offsets and the loader's own CRC32 from RobustHeader/HashHelpers
+    rather than restating them.
+
+    Run it in Release (the exact invocations are in samples/Ceras.Benchmarks/README.md): the
+    "self-check", "roadmap-quick" and "roadmap-bench" modes.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Ceras.Benchmarks</AssemblyName>
+    <RootNamespace>Ceras.Benchmarks</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ceras\Ceras.csproj" />
+    <ProjectReference Include="..\..\src\Ceras.SourceGenerator\Ceras.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <PackageReference Include="BenchmarkDotNet" Version="0.13.12" />
+  </ItemGroup>
+
+</Project>

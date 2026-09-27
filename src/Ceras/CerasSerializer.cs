@@ -4,6 +4,10 @@
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.AotGenerator")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.TestDebugger")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.ImmutableCollections")]
+// The roadmap benchmark tool measures internal costs (header offsets, the loader's own CRC32,
+// string-table decode), so it reads RobustHeader/HashHelpers instead of restating the mutable
+// layout constants - which would silently go stale on a format change.
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Ceras.Benchmarks")]
 
 namespace Ceras
 {

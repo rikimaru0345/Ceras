@@ -326,17 +326,9 @@ namespace LiveTesting
 
         static unsafe void Main(string[] args)
         {
-            if (args.Length > 0 && args[0] == "--roadmap-quick")
-            {
-                LiveTesting.Benchmarks.RoadmapBenchmarks.RunQuick();
-                return;
-            }
-
-            if (args.Length > 0 && args[0] == "--roadmap-bench")
-            {
-                LiveTesting.Benchmarks.RoadmapBenchmarks.RunBenchmarkDotNet();
-                return;
-            }
+            // The roadmap baselines used to be reachable from here (--roadmap-quick / --roadmap-bench).
+            // They are a maintained tool of their own now:
+            //   dotnet run --project samples/Ceras.Benchmarks -c Release -- --roadmap-quick
 
             // InferConstructor();
 
