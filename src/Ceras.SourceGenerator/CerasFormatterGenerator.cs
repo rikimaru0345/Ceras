@@ -158,6 +158,102 @@ namespace Ceras.SourceGenerator
                 }
             }
 
+            // ------------------------------------------------------------------------------------
+            // Fail-early pass (CASE A symbol names / CASE B missing formatters).
+            //
+            // Every generated artifact name is derived from SanitizeIdentifier(<qualified display>):
+            //   formatter class name   MakeFormatterClassName(type)                 = sanitize + "Formatter"
+            //   generic base name      GenericFormatterEmitter.GenericBaseName(def) = sanitize + "Formatter"
+            //   AddSource hint         sanitize + ".Ceras.g.cs"
+            //   registration local     "tc_" + sanitize
+            // SanitizeIdentifier is not injective (punctuation collapses to '_'), so two distinct types
+            // can produce the same class name / hint / local. A single dictionary keyed on the sanitized
+            // display covers all four explicitly (class name, base name, hint, and tc_ local), so no
+            // separate check is needed for each. The fixed "RobustFormatters.g.cs" hint is provably
+            // unique because every generated hint ends in ".Ceras.g.cs". This pass mirrors the emission
+            // conditions exactly once and records:
+            //   * generatedFormatterTypes - types that will actually get a generated formatter class;
+            //   * noFormatterReason       - why a skipped discovered type has no formatter (CASE B);
+            // and reports any generated-name collision instead of letting it explode later.
+            // ------------------------------------------------------------------------------------
+            var memberCache = new Dictionary<INamedTypeSymbol, List<SerializedMember>>(SymbolEqualityComparer.Default);
+            List<SerializedMember> DiscoverCached(INamedTypeSymbol t)
+            {
+                if (!memberCache.TryGetValue(t, out var cached))
+                    memberCache[t] = cached = MemberExplorer.DiscoverMembers(context, t, attrBag, blacklistPatterns, finalTypesSet);
+                return cached;
+            }
+
+            var generatedFormatterTypes = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            var nonConstructableTypes = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            var noFormatterReason = new Dictionary<INamedTypeSymbol, string>(SymbolEqualityComparer.Default);
+            var generatedNameOwners = new Dictionary<string, INamedTypeSymbol>(StringComparer.Ordinal);
+            var collidedDefinitions = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            var claimedDefinitions = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+
+            bool ClaimGeneratedName(string name, INamedTypeSymbol owner)
+            {
+                if (generatedNameOwners.TryGetValue(name, out var prev))
+                {
+                    if (!SymbolEqualityComparer.Default.Equals(prev, owner))
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(
+                            Diag.GeneratedNameCollision,
+                            owner.Locations.FirstOrDefault() ?? prev.Locations.FirstOrDefault(),
+                            owner.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                            prev.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                            name));
+                        return false;
+                    }
+                    return true;
+                }
+
+                generatedNameOwners[name] = owner;
+                return true;
+            }
+
+            foreach (var type in finalTypes)
+            {
+                if (type.TypeKind == TypeKind.Interface || type.IsAbstract) { noFormatterReason[type] = "it is an interface or abstract type"; continue; }
+                if (IsOpenType(type)) { noFormatterReason[type] = "it is an open generic definition"; continue; }
+                if (IsWellKnownType(type)) { noFormatterReason[type] = "it uses a built-in formatter"; continue; }
+                if (MemberExplorer.IsCollectionType(type)) { noFormatterReason[type] = "it is handled by the built-in collection formatter"; continue; }
+
+                var members = DiscoverCached(type);
+                if (!type.IsValueType && !MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr, members))
+                {
+                    nonConstructableTypes.Add(type);
+                    noFormatterReason[type] = "Ceras cannot construct it: add a parameterless constructor, a constructor whose parameters all map to serializable members, or mark one constructor [CerasConstructor]";
+                    continue;
+                }
+
+                // The generic base name is emitted once per definition and shares the same
+                // "sanitize + Formatter" scheme as the per-type class name, so check it as well.
+                bool definitionCollided = false;
+                if (type.IsGenericType)
+                {
+                    var definition = type.OriginalDefinition;
+                    if (collidedDefinitions.Contains(definition))
+                    {
+                        definitionCollided = true;
+                    }
+                    else if (claimedDefinitions.Add(definition) &&
+                             !ClaimGeneratedName(GenericFormatterEmitter.GenericBaseName(definition), definition))
+                    {
+                        collidedDefinitions.Add(definition);
+                        definitionCollided = true;
+                    }
+                }
+
+                if (definitionCollided || !ClaimGeneratedName(SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal)), type))
+                {
+                    noFormatterReason[type] = "another type produces the same generated formatter name";
+                    continue;
+                }
+
+                generatedFormatterTypes.Add(type);
+            }
+
             // 1. Generate the 'UseRobustFormatters' file
             var sbUse = new StringBuilder();
             sbUse.AppendLine("// <auto-generated/>");
@@ -181,20 +277,9 @@ namespace Ceras.SourceGenerator
 
             foreach (var type in finalTypes)
             {
-                if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
-                // Open generic definitions have no nameable formatter type; closed instantiations that
-                // are reachable are discovered and generated separately. (Generic templates: Phase 2.)
-                if (IsOpenType(type)) continue;
-                // Well-known and collection types use built-in formatters; generating a custom
-                // formatter for them would override the built-in one (e.g. an empty List formatter).
-                if (IsWellKnownType(type) || MemberExplorer.IsCollectionType(type)) continue;
-
-                // Discover members once per type to check constructability and generate the formatter
-                var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns, finalTypesSet);
-
-                // Only register if we can actually construct it (to avoid broken formatters being used)
-                if (!type.IsValueType && !MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr, members))
-                    continue;
+                // generatedFormatterTypes already encodes the interface/abstract/open/well-known/
+                // collection/constructability and generated-name-collision filters.
+                if (!generatedFormatterTypes.Contains(type)) continue;
 
                 string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 string formatterName = MakeFormatterClassName(type);
@@ -252,15 +337,16 @@ namespace Ceras.SourceGenerator
             var emittedGenericDefs = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
             foreach (var type in finalTypes)
             {
-                if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
-                if (IsOpenType(type)) continue;
-                if (IsWellKnownType(type) || MemberExplorer.IsCollectionType(type)) continue;
+                // generatedFormatterTypes / nonConstructableTypes are the single source of truth for
+                // the emission conditions (computed in the fail-early pass above), so this loop cannot
+                // drift from the registration loop.
+                bool isGenerated = generatedFormatterTypes.Contains(type);
+                if (!isGenerated && !nonConstructableTypes.Contains(type)) continue;
 
                 MemberExplorer.ValidateIncludeExcludeConflicts(context, type, attrBag);
-                var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns, finalTypesSet);
+                var members = DiscoverCached(type);
 
-                bool canConstruct = type.IsValueType || MemberExplorer.CanCerasConstruct(type, cerasConstructorAttr, members);
-                if (!canConstruct)
+                if (!isGenerated)
                 {
                     // Validation will emit specific errors if not constructable
                     MemberExplorer.ValidateCerasConstructor(context, compilation, type, members, attrBag);
@@ -327,7 +413,7 @@ namespace Ceras.SourceGenerator
                     var definition = type.OriginalDefinition;
                     if (emittedGenericDefs.Add(definition))
                     {
-                        var openMembers = MemberExplorer.DiscoverMembers(context, definition, attrBag, blacklistPatterns, finalTypesSet);
+                        var openMembers = DiscoverCached(definition);
 
                         var sbBase = new StringBuilder();
                         var sbHelpers = new StringBuilder();
@@ -344,7 +430,8 @@ namespace Ceras.SourceGenerator
                 }
                 else
                 {
-                    RobustCodeEmitter.WriteFormatterClass(sbFmt, compilation, context, type, members, attrBag);
+                    RobustCodeEmitter.WriteFormatterClass(sbFmt, compilation, context, type, members, attrBag,
+                        generatedFormatterTypes, finalTypesSet, noFormatterReason);
                 }
 
                 sbFmt.AppendLine("}");

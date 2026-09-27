@@ -14,7 +14,10 @@ namespace Ceras.SourceGenerator {
 			SourceProductionContext context,
 			INamedTypeSymbol type,
 			List<SerializedMember> members,
-			AttributeBag attrs) {
+			AttributeBag attrs,
+			HashSet<INamedTypeSymbol> generatedFormatterTypes,
+			HashSet<INamedTypeSymbol> discoveredTypes,
+			IReadOnlyDictionary<INamedTypeSymbol, string> noFormatterReason) {
 			string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 			string formatterName = MakeFormatterClassName(type);
 			var bestCtor = type.IsReferenceType ? GetBestConstructor(type, attrs.CerasConstructor, members) : null;
@@ -27,6 +30,8 @@ namespace Ceras.SourceGenerator {
 			sb.AppendLine();
 
 			// --- Formatter fields (one per distinct member type) -------------------
+			// CASE A: fail early if two distinct member types collapse to the same generated field name.
+			ValidateFormatterFieldNameCollisions(context, type, members);
 			var seenFieldNames = new HashSet<string>();
 			foreach (var m in members) {
 				if (TypeHelpers.IsFastPrimitive(m.Type)) continue;
@@ -34,7 +39,7 @@ namespace Ceras.SourceGenerator {
 				string fieldName = MakeFormatterFieldName(m.Type);
 				if (!seenFieldNames.Add(fieldName)) continue;
 
-				string concreteFormatterType = GetConcreteFormatterType(m.Type, m.IsMonomorphic, attrs);
+				string concreteFormatterType = ResolveConcreteFormatterType(context, type, m, attrs, generatedFormatterTypes, discoveredTypes, noFormatterReason);
 				sb.AppendLine("        [global::Ceras.Formatters.CerasInject]");
 				sb.AppendLine($"        {concreteFormatterType} {fieldName};");
 			}
@@ -295,6 +300,65 @@ namespace Ceras.SourceGenerator {
 					break;
 			}
 			return $"{prefix}global::Ceras.SerializerBinary.{readMethod}(ref {readerName}){suffix}";
+		}
+
+		/// <summary>
+		/// CASE B: resolves the concrete formatter type for a member, but fails early (with a clear
+		/// diagnostic) when <see cref="GetConcreteFormatterType"/> would reference a generated formatter
+		/// (<c>Ceras.Generated.&lt;X&gt;Formatter</c>) that will not exist. This happens when the member's
+		/// declared <c>[CerasSerializable]</c> type was skipped during generation (for example because
+		/// Ceras cannot construct it, or because it is handled as a collection). Instead of emitting the
+		/// broken reference, we report the member/declaring type/referenced type and fall back to
+		/// <c>IFormatter&lt;T&gt;</c> so the rest of the generated file still compiles cleanly.
+		/// </summary>
+		static string ResolveConcreteFormatterType(
+			SourceProductionContext context,
+			INamedTypeSymbol declaringType,
+			SerializedMember member,
+			AttributeBag attrs,
+			HashSet<INamedTypeSymbol> generatedFormatterTypes,
+			HashSet<INamedTypeSymbol> discoveredTypes,
+			IReadOnlyDictionary<INamedTypeSymbol, string> noFormatterReason) {
+			if (RequiresGeneratedFormatter(member.Type, attrs, discoveredTypes, out var referencedType) &&
+				!generatedFormatterTypes.Contains(referencedType)) {
+				string reason = noFormatterReason.TryGetValue(referencedType, out var r)
+					? r
+					: "it is not part of the generated serialization graph";
+				context.ReportDiagnostic(Diagnostic.Create(
+					Diag.MemberTypeWithoutGeneratedFormatter,
+					member.MemberSymbol?.Locations.FirstOrDefault() ?? declaringType.Locations.FirstOrDefault(),
+					member.Name,
+					declaringType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+					referencedType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+					reason));
+
+				// Fall back to the universal formatter interface; the error diagnostic fails the build,
+				// but this keeps the generated file from producing additional cascade errors.
+				string fallbackFqn = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+				return $"global::Ceras.Formatters.IFormatter<{fallbackFqn}>";
+			}
+
+			return GetConcreteFormatterType(member.Type, member.IsMonomorphic, attrs);
+		}
+
+		/// <summary>
+		/// True when a member of this declared type requires a generated formatter to exist. This mirrors
+		/// the first branch of <see cref="GetConcreteFormatterType"/>. A value type names the generated
+		/// formatter directly (a hard compile-time reference), so it always requires one. A reference type
+		/// is wrapped in <c>ReferenceFormatter&lt;T&gt;</c> and resolves its inner formatter at runtime, so
+		/// we only treat it as required when it was actually discovered (an external/blacklisted type may
+		/// legitimately be served by a user-provided custom formatter), and never for collection types
+		/// (which use the built-in collection formatter and may also have a custom formatter).
+		/// </summary>
+		static bool RequiresGeneratedFormatter(ITypeSymbol type, AttributeBag attrs, HashSet<INamedTypeSymbol> discoveredTypes, out INamedTypeSymbol referencedType) {
+			referencedType = null!;
+			if (type is not INamedTypeSymbol named) return false;
+			if (named.IsAbstract || named.TypeKind == TypeKind.Interface) return false;
+			if (!HasAttribute(named, attrs.CerasSerializable)) return false;
+
+			referencedType = named;
+			if (type.IsValueType) return true;
+			return discoveredTypes.Contains(named) && !IsWellKnownType(named) && !IsCollectionType(named);
 		}
 
 		static string GetConcreteFormatterType(ITypeSymbol type, bool isMonomorphic, AttributeBag attrs) {

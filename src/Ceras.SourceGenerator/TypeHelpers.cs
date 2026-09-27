@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
 
@@ -33,6 +34,45 @@ namespace Ceras.SourceGenerator {
 		public static string MakeFormatterFieldName(ITypeSymbol type) {
 			string raw = SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal));
 			return "_" + raw + "Formatter";
+		}
+
+		/// <summary>
+		/// CASE A: detects two <em>distinct</em> member types that map to the same generated formatter
+		/// field name. <see cref="SanitizeIdentifier"/> replaces every non-alphanumeric character with
+		/// '_', so it is not injective: e.g. <c>A.B_C</c> and the nested <c>A.B.C</c> both sanitize to
+		/// <c>A_B_C</c>. The emitters deduplicate fields by name and would silently drop the later one,
+		/// leaving Serialize/Deserialize referencing a field typed for the wrong member type. Reporting
+		/// an error here is far more actionable than the resulting compile error.
+		/// <para>
+		/// Must be called with exactly the same member list and the same field-name function the emitter
+		/// uses, so the check can never disagree with actual emission. Repeating the same type is fine
+		/// (the emitter intentionally emits one field per distinct type).
+		/// </para>
+		/// </summary>
+		public static void ValidateFormatterFieldNameCollisions(SourceProductionContext context, INamedTypeSymbol declaringType, List<SerializedMember> members) {
+			var byFieldName = new Dictionary<string, (ITypeSymbol Type, string MemberName)>(StringComparer.Ordinal);
+
+			foreach (var m in members) {
+				if (IsFastPrimitive(m.Type)) continue;
+
+				string fieldName = MakeFormatterFieldName(m.Type);
+				if (byFieldName.TryGetValue(fieldName, out var prev)) {
+					if (!SymbolEqualityComparer.Default.Equals(prev.Type, m.Type)) {
+						context.ReportDiagnostic(Diagnostic.Create(
+							Diag.FormatterFieldNameCollision,
+							m.MemberSymbol?.Locations.FirstOrDefault() ?? declaringType.Locations.FirstOrDefault(),
+							declaringType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+							prev.MemberName,
+							prev.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+							m.Name,
+							m.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+							fieldName));
+					}
+				}
+				else {
+					byFieldName[fieldName] = (m.Type, m.Name);
+				}
+			}
 		}
 
 		public static string SanitizeIdentifier(string displayName) {

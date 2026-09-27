@@ -41,6 +41,12 @@ namespace Ceras.SourceGenerator
 
             // Formatter fields: IFormatter<openType> so injection resolves the right formatter per
             // closed instantiation (reference wrappers included). Protected for inherited injection.
+            //
+            // CASE A: two distinct member types can sanitize to the same generated field name; failing
+            // early is better than silently dropping the later field. (CASE B does not apply here: the
+            // field type is always the universal IFormatter<openType>, so no generated formatter type is
+            // named at compile time and there is no broken reference to detect.)
+            ValidateFormatterFieldNameCollisions(context, definition, members);
             var seen = new HashSet<string>();
             foreach (var m in members)
             {

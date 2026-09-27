@@ -147,5 +147,29 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor FormatterFieldNameCollision = new(
+            id: "CERAS020",
+            title: "Generated formatter field name collision",
+            messageFormat: "Type '{0}' has members '{1}' (type '{2}') and '{3}' (type '{4}') whose generated formatter fields both map to '{5}'. Two distinct types are collapsing to the same identifier; rename one of them (change its namespace, nesting, or spelling) or exclude one member",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor MemberTypeWithoutGeneratedFormatter = new(
+            id: "CERAS021",
+            title: "Member type has no generated formatter",
+            messageFormat: "Member '{0}' in type '{1}' references type '{2}', but no formatter will be generated for it ({3}). Fix that type's construction or accessibility, provide a custom IFormatter<{2}>, or mark the member [Exclude]",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor GeneratedNameCollision = new(
+            id: "CERAS022",
+            title: "Generated formatter name collision",
+            messageFormat: "Types '{0}' and '{1}' both produce the generated name '{2}', which is used for the formatter class, the generated-source hint, and/or the registration local. Rename one type (change its namespace, nesting, or spelling)",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }
