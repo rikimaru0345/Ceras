@@ -122,7 +122,13 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   advance the experimental format version and deliberately update golden fixtures if
   needed. Restore robust custom formatters after Milestone 1 adds truthful opaque
   schema/formatter-selection metadata; migration must still refuse unframed opaque
-  values it cannot consume. Opaque framing remains deferred.
+  values it cannot consume. Opaque framing remains deferred. **Guard design:** use
+  generated-formatter/schema identity from the baked manifest, not a new public
+  `SetGeneratedFormatter` self-attestation. Refuse doctored schemas rather than using
+  them to force tests through the interpreter; force a fingerprint mismatch instead.
+  `SchemaRegistry.Register` is public and can deliberately register a lying schema
+  today; full validation of writer bytes against an authoritative layout belongs to
+  Milestone 1, not an assertion that the temporary guard is unforgeable.
 - **Detect trailing migration payload bytes.** After interpreting a root, assert that
   the declared data section was consumed exactly. A mismatched schema can otherwise
   leave bytes silently unread; reject it with a typed, actionable error. This is a
@@ -250,14 +256,6 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
 - Reconcile `CLEANUP_TODO.md` against real APIs, move justified work here and delete
   the stale list. Do not internalize `CerasSerializer` while generated code needs it;
   review raw method exposure on robust serializers and remaining config sealing.
-- Retire the broken `samples/LiveTesting` sandbox, its comparison dependencies,
-  merge-blitting microbenchmark, unadopted ref-proxy experiment, and friend-assembly
-  declaration. The working benchmark has been relocated to the standalone,
-  self-checking `samples/Ceras.Benchmarks` project with its own generated context;
-  seven previously missing formatter-injection, comparer, direct-formatter and
-  readonly-reuse checks are now proper tests. The README no longer claims legacy
-  comparison numbers. Banned runtime values in `object`/`Type` remain a separate
-  fail-loud P0 above; do not mistake their removal from the sample for a fix.
 - Update README/tutorials/samples/format docs with verified contracts and remove
   obsolete runtime-generation, universal-type, Unity/AOT and diagnostic claims.
 - Review concrete formatter selection and unsupported-type diagnostics against
