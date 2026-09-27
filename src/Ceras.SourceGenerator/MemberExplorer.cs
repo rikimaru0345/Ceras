@@ -57,6 +57,22 @@ namespace Ceras.SourceGenerator
 
                         if (hasExclude) continue;
 
+                        // The robust format describes only one-dimensional arrays. A multidimensional
+                        // array member would otherwise emit an ArrayFormatter<T[]> that does not compile
+                        // (CS1503). Report it as a hard diagnostic instead (TODO 0.5).
+                        if (IsUnsupportedMultidimensionalArray(field.Type))
+                        {
+                            string memberName = associatedProp?.Name ?? field.Name;
+                            string typeName = field.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            string containingTypeName = type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            var location = (associatedProp?.Locations.FirstOrDefault() ?? field.Locations.FirstOrDefault());
+                            ReportMemberDiagnostic(diagnosticSink, Diagnostic.Create(
+                                Diag.UnsupportedMultidimensionalArray,
+                                location,
+                                memberName, containingTypeName, typeName, ((IArrayTypeSymbol)field.Type).Rank));
+                            continue;
+                        }
+
                         // Hard-banned types (delegates, enumerators, reflection) can never round-trip
                         // and are skipped. The generator blacklist only prevents formatter *generation*
                         // for those types; a field of a blacklisted type is still included and requires
@@ -215,6 +231,49 @@ namespace Ceras.SourceGenerator
             }
             return false;
         }
+
+        /// <summary>
+        /// True when the type is served by the built-in <c>CollectionFormatter&lt;TCollection, TItem&gt;</c>
+        /// at runtime (a collection subclass such as <c>MyList&lt;T&gt; : List&lt;T&gt;</c>, or a
+        /// <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> special-case). Such a type is written as an explicit
+        /// element count plus elements, so the generator must not emit an empty ordinary-object formatter
+        /// for it (a field-based formatter would override the built-in collection one). The structural
+        /// schema is derived at bake time from the same predicate (TODO 0.5).
+        /// </summary>
+        public static bool IsCollectionFormatterType(ITypeSymbol type)
+        {
+            if (type is IArrayTypeSymbol) return false;
+            if (type is not INamedTypeSymbol named) return false;
+            if (named.TypeKind == TypeKind.Interface || named.IsAbstract) return false;
+            if (!IsCollectionType(named)) return false;
+
+            // Queue<>/Stack<> are concrete classes served by their dedicated formatters; they are not
+            // caught by the ICollection<> check above (they do not implement ICollection<T>), so add them.
+            foreach (var iface in named.AllInterfaces)
+            {
+                var ifaceFqn = iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                if (ifaceFqn.StartsWith("global::System.Collections.Generic.ICollection<") ||
+                    ifaceFqn.StartsWith("global::System.Collections.Generic.IDictionary<"))
+                    return true;
+            }
+
+            for (var t = named.BaseType; t != null; t = t.BaseType)
+            {
+                var baseFqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                if (baseFqn.StartsWith("global::System.Collections.Generic.Queue<") ||
+                    baseFqn.StartsWith("global::System.Collections.Generic.Stack<"))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// A multidimensional array member (rank &gt; 1). The robust format describes only one-dimensional
+        /// arrays, so this is reported as a hard diagnostic instead of emitting an <c>ArrayFormatter</c>
+        /// that does not compile for a <c>T[,]</c> member (TODO 0.5).
+        /// </summary>
+        public static bool IsUnsupportedMultidimensionalArray(ITypeSymbol type)
+            => type is IArrayTypeSymbol { Rank: > 1 };
 
         /// <summary>
         /// Hard ban: types that can NEVER round-trip regardless of formatters.

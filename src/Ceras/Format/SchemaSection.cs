@@ -276,10 +276,10 @@ namespace Ceras.Format
 
         /// <summary>
         /// True for the built-in shapes the generator deliberately does not emit formatters/schemas for:
-        /// well-known primitives, arrays, the built-in collections and <c>KeyValuePair</c> (structural
-        /// schemas), and closed instantiations of the other reserved generic definitions
-        /// (<c>Nullable&lt;&gt;</c>, <c>Tuple&lt;&gt;</c>, <c>ValueTuple&lt;&gt;</c>). Everything else must be
-        /// declared in the generated manifest (TODO Phase 2.5/3.4).
+        /// well-known primitives, one-dimensional arrays, the built-in collections and
+        /// <c>KeyValuePair</c> (structural schemas), closed instantiations of the other reserved generic
+        /// definitions, collection subclasses served by the built-in collection formatter, and enums.
+        /// Everything else must be declared in the generated manifest (TODO Phase 2.5/3.4).
         /// </summary>
         static bool CanAutoRegister(Type type)
         {
@@ -288,32 +288,18 @@ namespace Ceras.Format
             if (SchemaRegistry.TryBuildStructuralSchema(type, out _)) return true;
             if (type.IsGenericType && !type.IsGenericTypeDefinition &&
                 WellKnownTypes.TryGetId(type.GetGenericTypeDefinition(), out _)) return true;
-            if (IsCollectionLike(type)) return true;
+            // Collection subclasses are described as their underlying collection payload (see
+            // SchemaRegistry.TryBuildStructuralSchema); reject an undescribable one loudly instead of
+            // admitting it with an empty class schema.
+            if (WellKnownTypes.TryResolveCollectionShape(type, out _, out _)) return true;
+            if (type is { IsArray: false } && WellKnownTypes.IsCollectionFormatterShape(type))
+                throw new Ceras.Exceptions.CerasSchemaException(
+                    $"The collection type '{TypeIdentity.GetCanonicalName(type)}' is handled by the built-in collection formatter, but Ceras " +
+                    "cannot infer a single element/key/value type to describe it with. Give it a concrete " +
+                    "ICollection<T> or IDictionary<K,V> implementation, or provide a custom formatter.");
             // Enum schemas are fully derivable from CLR metadata at runtime, so an enum that the
             // generator skipped (e.g. blacklisted) can still be declared structurally.
             if (type.IsEnum) return true;
-            return false;
-        }
-
-        /// <summary>
-        /// Mirrors the generator's <c>MemberExplorer.IsCollectionType</c>: a collection subclass such as
-        /// <c>MyList&lt;T&gt; : List&lt;T&gt;</c> is intentionally served by the built-in
-        /// <c>CollectionFormatter</c> and receives no generated schema, so it may be registered
-        /// structurally on first use. Without this, the fail-loud bake check would reject a legitimate
-        /// built-in-formatter shape.
-        /// </summary>
-        static bool IsCollectionLike(Type type)
-        {
-            if (typeof(System.Collections.ICollection).IsAssignableFrom(type)) return true;
-            if (typeof(System.Collections.IDictionary).IsAssignableFrom(type)) return true;
-            foreach (var iface in type.GetInterfaces())
-            {
-                if (!iface.IsGenericType) continue;
-                var def = iface.GetGenericTypeDefinition();
-                if (def == typeof(System.Collections.Generic.ICollection<>) ||
-                    def == typeof(System.Collections.Generic.IDictionary<,>))
-                    return true;
-            }
             return false;
         }
 

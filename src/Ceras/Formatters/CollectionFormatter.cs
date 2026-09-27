@@ -208,9 +208,21 @@ namespace Ceras.Formatters
             }
             else
             {
-                // Fallback for non-generic IEnumerable if needed, but TCollection usually implements it
+                // TItem came from an ICollection<>/IDictionary<> interface, but the concrete collection's
+                // own enumeration element differs (e.g. MySet : HashSet<long> : IEnumerable<long> with an
+                // explicit IEnumerable<object>). Fall back to the non-generic enumerator and coerce
+                // (TODO 0.5).
                 var e = (System.Collections.IEnumerable)value;
-                foreach (var item in e) f.Serialize(writer, (TItem)item);
+                if (typeof(TItem).IsAssignableFrom(typeof(object)))
+                {
+                    foreach (var item in e) f.Serialize(writer, (TItem)item);
+                }
+                else
+                {
+                    foreach (var item in e)
+                        if (item is TItem typed)
+                            f.Serialize(writer, typed);
+                }
             }
         }
 

@@ -221,6 +221,15 @@ namespace Ceras.Format
         {
             if (type.IsArray)
             {
+                if (type.GetArrayRank() != 1)
+                {
+                    // Multidimensional arrays are written by MultiDimensionalArrayFormatter as
+                    // rank + per-dimension lengths + flattened elements, which this structural
+                    // (definition=Array, one element arg) description cannot express. Rejected loudly
+                    // rather than described with a payload the interpreter cannot decode (TODO 0.5).
+                    throw UnsupportedMultidimensionalArray(type, "schema");
+                }
+
                 var element = type.GetElementType();
                 info = new SchemaTypeInfo(
                     stableName: TypeIdentity.GetCanonicalName(type),
@@ -253,9 +262,39 @@ namespace Ceras.Format
                 return true;
             }
 
+            // Collection subclasses (e.g. MyList<T> : List<T>, MyDict : Dictionary<K,V>) are written by
+            // the built-in CollectionFormatter with an explicit element count; describe that payload
+            // (a List<>/Dictionary<>/Queue<>/Stack<> definition plus the element/key/value identities)
+            // instead of emitting an empty ordinary-class schema that cannot describe a single byte.
+            if (WellKnownTypes.TryResolveCollectionShape(type, out var shapeDef, out var shapeArgs))
+            {
+                var argNames = new string[shapeArgs.Length];
+                for (int i = 0; i < shapeArgs.Length; i++) argNames[i] = TypeIdentity.GetCanonicalName(shapeArgs[i]);
+
+                info = new SchemaTypeInfo(
+                    stableName: TypeIdentity.GetCanonicalName(type),
+                    previousTypeNames: Array.Empty<string>(),
+                    kind: SchemaTypeKind.GenericInstantiation,
+                    fields: Array.Empty<SchemaFieldInfo>(),
+                    fixedByteSize: 0,
+                    enumValues: null,
+                    underlyingTypeName: TypeIdentity.GetCanonicalName(shapeDef),
+                    argTypeNames: argNames);
+                return true;
+            }
+
             info = null;
             return false;
         }
+
+        /// <summary>
+        /// The actionable error for a multidimensional array, which the robust format cannot currently
+        /// represent (TODO 0.5). </summary>
+        internal static Exception UnsupportedMultidimensionalArray(Type type, string context)
+            => new Ceras.Exceptions.CerasSchemaException(
+                $"The multidimensional array type '{TypeIdentity.GetCanonicalName(type)}' (rank {type.GetArrayRank()}) cannot be used with {context}: " +
+                "the robust format currently describes only one-dimensional arrays. Use a jagged array " +
+                "(T[][]) or flatten it into a one-dimensional array plus explicit dimension fields.");
 
         // ── Lookup ────────────────────────────────────────────────────────────
 

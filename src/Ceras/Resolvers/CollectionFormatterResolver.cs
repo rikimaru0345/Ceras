@@ -75,8 +75,12 @@
             //
             // Special collection? (Stack, Queue, ReadOnlyDictionary)
             //
+            // The dedicated Queue/Stack formatters construct the built-in type directly, so they are only
+            // valid for the exact built-in type. A subclass (e.g. MyQueue : Queue<T>) is handled by the
+            // general CollectionFormatter below, which constructs the subclass (TODO 0.5).
+            //
             var closedStack = ReflectionHelper.FindClosedType(type, typeof(Stack<>));
-            if (closedStack != null)
+            if (closedStack != null && type == closedStack)
             {
                 var formatterType = typeof(StackFormatter<>).MakeGenericType(closedStack.GetGenericArguments());
                 formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType);
@@ -85,7 +89,7 @@
             }
 
             var closedQueue = ReflectionHelper.FindClosedType(type, typeof(Queue<>));
-            if (closedQueue != null)
+            if (closedQueue != null && type == closedQueue)
             {
                 var formatterType = typeof(QueueFormatter<>).MakeGenericType(closedQueue.GetGenericArguments());
                 formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType);

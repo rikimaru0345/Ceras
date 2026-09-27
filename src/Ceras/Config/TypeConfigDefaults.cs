@@ -41,7 +41,16 @@ namespace Ceras
             // 1. Arrays, statics, and manually handled types
             if (CerasSerializer.IsFormatterConstructed(type) || type.IsStatic() || type.IsArray || (typeof(System.Collections.IEnumerable).IsAssignableFrom(type) && type != typeof(string)))
             {
-                typeConfig.TypeConstruction = TypeConstruction.Null();
+                // Collections are "formatter constructed" in the sense that their formatter builds the
+                // instance, so no CLR constructor is run for a fresh object. But a reference type still
+                // needs *some* non-null allocation before its members/elements are read: the built-in
+                // collection formatter constructs the actual instance, and the reference wrapper only
+                // needs a placeholder for object-cache registration. ConstructNull returns null, which
+                // breaks that, so a concrete collection subclass (e.g. MyList<T> : List<T>) is allocated
+                // uninitialized instead (TODO 0.5).
+                typeConfig.TypeConstruction = type.IsValueType || type.IsAbstract || type.IsInterface || type.IsArray
+                    ? TypeConstruction.Null()
+                    : TypeConstruction.ByUninitialized();
                 return;
             }
 

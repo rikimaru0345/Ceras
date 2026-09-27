@@ -353,6 +353,7 @@ namespace Ceras.SourceGenerator
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) { noFormatterReason[type] = "it is an interface or abstract type"; continue; }
                 if (IsOpenType(type)) { noFormatterReason[type] = "it is an open generic definition"; continue; }
                 if (IsWellKnownType(type)) { noFormatterReason[type] = "it uses a built-in formatter"; continue; }
+                if (MemberExplorer.IsCollectionFormatterType(type)) { noFormatterReason[type] = "it is handled by the built-in collection formatter"; continue; }
                 if (MemberExplorer.IsCollectionType(type)) { noFormatterReason[type] = "it is handled by the built-in collection formatter"; continue; }
 
                 var members = DiscoverCached(type);

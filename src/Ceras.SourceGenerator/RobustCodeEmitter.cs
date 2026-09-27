@@ -457,34 +457,18 @@ namespace Ceras.SourceGenerator {
 				return $"global::Ceras.Formatters.ArrayFormatter<{elemFqn}>";
 			}
 
-			if (IsCollectionType(type)) {
-				if (type is INamedTypeSymbol namedColl && namedColl.TypeArguments.Length > 0) {
-					bool isDict = false;
-					ITypeSymbol? keyType = null, valType = null;
-					var fqn = namedColl.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-					if (fqn.StartsWith("global::System.Collections.Generic.IDictionary<") || fqn.StartsWith("global::System.Collections.Generic.Dictionary<")) {
-						isDict = true; keyType = namedColl.TypeArguments[0]; valType = namedColl.TypeArguments[1];
-					}
-					else {
-						foreach (var iface in namedColl.AllInterfaces) {
-							var ifaceFqn = iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-							if (ifaceFqn.StartsWith("global::System.Collections.Generic.IDictionary<")) {
-								isDict = true; keyType = iface.TypeArguments[0]; valType = iface.TypeArguments[1]; break;
-							}
-						}
-					}
-					string concrete;
-					if (isDict && keyType != null && valType != null) {
-						string k = keyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-						string v = valType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-						string kvp = $"global::System.Collections.Generic.KeyValuePair<{k}, {v}>";
-						concrete = $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {kvp}>";
-					}
-					else {
-						string elemFqn = namedColl.TypeArguments[namedColl.TypeArguments.Length - 1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-						concrete = $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {elemFqn}>";
-					}
+			// Collection shape emitted by the built-in CollectionFormatter: a collection subclass such as
+			// MyList<T> : List<T> (or a Queue/Stack subclass). This must be resolved before the generic
+			// ReferenceFormatter fallback so the field type matches what the runtime injects (TODO 0.5).
+			if (IsCollectionFormatterType(type)) {
+				string concrete = GetCollectionConcreteFormatterType(type);
+				if (concrete != null)
+					return type.IsValueType ? concrete : $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+			}
 
+			if (IsCollectionType(type)) {
+				string concrete = GetCollectionConcreteFormatterType(type);
+				if (concrete != null) {
 					if (type.IsValueType) return concrete;
 					return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
 				}
@@ -496,6 +480,72 @@ namespace Ceras.SourceGenerator {
 				return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
 			}
 			return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
+		}
+
+		/// <summary>
+		/// The concrete <c>CollectionFormatter&lt;TCollection, TItem&gt;</c> field type for a collection
+		/// symbol, or null when the element/key/value type cannot be determined. Shared by the
+		/// built-in-collection and collection-subclass branches so both resolve identically to the
+		/// runtime's <c>CollectionFormatterResolver</c> (TODO 0.5).
+		/// </summary>
+		static string? GetCollectionConcreteFormatterType(ITypeSymbol type) {
+			if (type is not INamedTypeSymbol namedColl) return null;
+			string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+			ITypeSymbol? keyType = null, valType = null;
+			foreach (var iface in namedColl.AllInterfaces) {
+				var ifaceFqn = iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+				if (ifaceFqn.StartsWith("global::System.Collections.Generic.IDictionary<")) {
+					keyType = iface.TypeArguments[0];
+					valType = iface.TypeArguments[1];
+					break;
+				}
+			}
+
+			// A collection whose own declaration is (or derives from) Dictionary<K,V>.
+			if (keyType == null && namedColl.TypeArguments.Length == 2) {
+				var fqn = namedColl.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+				if (fqn.StartsWith("global::System.Collections.Generic.IDictionary<") || fqn.StartsWith("global::System.Collections.Generic.Dictionary<")) {
+					keyType = namedColl.TypeArguments[0];
+					valType = namedColl.TypeArguments[1];
+				}
+			}
+
+			if (keyType != null && valType != null) {
+				string k = keyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+				string v = valType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+				return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, global::System.Collections.Generic.KeyValuePair<{k}, {v}>>";
+			}
+
+			ITypeSymbol? elemType = null;
+			foreach (var iface in namedColl.AllInterfaces) {
+				var ifaceFqn = iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+				if (ifaceFqn.StartsWith("global::System.Collections.Generic.ICollection<")) {
+					elemType = iface.TypeArguments[0];
+					break;
+				}
+			}
+
+			// A Queue<>/Stack<> subclass does not implement ICollection<T>; take the element from the
+			// built-in base type, which is what the runtime CollectionFormatterResolver uses (TODO 0.5).
+			if (elemType == null) {
+				for (var t = namedColl.BaseType; t != null; t = t.BaseType) {
+					var baseFqn = t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+					if ((baseFqn.StartsWith("global::System.Collections.Generic.Queue<") || baseFqn.StartsWith("global::System.Collections.Generic.Stack<"))
+						&& t.TypeArguments.Length > 0) {
+						elemType = t.TypeArguments[0];
+						break;
+					}
+				}
+			}
+
+			// A collection whose own declaration is an ICollection<T> (e.g. MyCollection<T> : Collection<T>).
+			if (elemType == null && namedColl.TypeArguments.Length > 0)
+				elemType = namedColl.TypeArguments[namedColl.TypeArguments.Length - 1];
+
+			if (elemType == null) return null;
+			string elemFqn = elemType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+			return $"global::Ceras.Formatters.CollectionFormatter<{typeFqn}, {elemFqn}>";
 		}
 
 		static void WriteSchemaDescriptor(StringBuilder sb, INamedTypeSymbol type, List<SerializedMember> members, AttributeBag attrs) {

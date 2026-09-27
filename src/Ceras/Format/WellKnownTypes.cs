@@ -196,6 +196,149 @@ namespace Ceras.Format
             return def == typeof(KeyValuePair<,>) || def == typeof(Nullable<>);
         }
 
+        /// <summary>
+        /// Returns the reserved well-known definition ID used to describe a closed generic's payload
+        /// (<c>List`1</c> -&gt; <see cref="List"/>, and so on). This covers the built-in collections and
+        /// the structural value types whose encoding is definition + ordered arguments. Returns -1 for
+        /// every other type.
+        /// </summary>
+        public static int GetStructuralDefinitionId(Type type)
+        {
+            if (type == null || !type.IsGenericType) return -1;
+            var def = type.IsGenericTypeDefinition ? type : type.GetGenericTypeDefinition();
+            if (GenericDefToId.TryGetValue(def, out int id)) return id;
+            return -1;
+        }
+
+        /// <summary>
+        /// The built-in <c>CollectionFormatter&lt;TCollection, TItem&gt;</c> is selected for any concrete
+        /// type that implements <c>ICollection&lt;TItem&gt;</c> / <c>IDictionary&lt;K,V&gt;</c>, plus the
+        /// <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> special-cases. Such a type is written as an explicit
+        /// element count followed by the elements, never as reflected CLR fields, so it must be described
+        /// structurally (definition + ordered argument IDs) rather than by enumerating its members
+        /// (TODO 0.5). This is exactly the predicate the generated manifest already uses to skip a type
+        /// (mirrors <c>MemberExplorer.IsCollectionType</c>).
+        /// <para>
+        /// A collection subclass whose element/key/value types cannot be inferred cannot be described and
+        /// must be rejected before saving; use <see cref="TryResolveCollectionShape"/> for that.
+        /// </para>
+        /// </summary>
+        public static bool IsCollectionFormatterShape(Type type)
+        {
+            if (type == null || type.IsArray) return false;
+            if (type.IsInterface || type.IsAbstract) return false;
+            if (!typeof(System.Collections.IEnumerable).IsAssignableFrom(type)) return false;
+
+            return FindClosedInterface(type, typeof(System.Collections.Generic.ICollection<>)) != null
+                || FindClosedInterface(type, typeof(System.Collections.Generic.IDictionary<,>)) != null
+                || FindBase(type, typeof(HashSet<>)) != null
+                || FindBase(type, typeof(Queue<>)) != null
+                || FindBase(type, typeof(Stack<>)) != null;
+        }
+
+        /// <summary>
+        /// Resolves the <c>(definition, ordered argument)</c> shape used by the built-in collection
+        /// formatter for <paramref name="type"/>:
+        /// <list type="bullet">
+        /// <item>a closed built-in collection (definition is one of the reserved
+        /// <c>List</c>/<c>Dictionary</c>/... ids) keeps its own definition;</item>
+        /// <item>a <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> keeps its own definition;</item>
+        /// <item>every other collection shape becomes a <c>List&lt;TItem&gt;</c>/<c>Dictionary&lt;K,V&gt;</c>
+        /// description (its exact collection semantics live in the element/key/value types);</item>
+        /// <item>an <c>IDictionary&lt;K,V&gt;</c> is preferred over <c>ICollection&lt;T&gt;</c>, matching the
+        /// generated collection formatter selection.</item>
+        /// </list>
+        /// The result is used both for the structural schema and by the migration interpreter, so a
+        /// collection subclass round-trips instead of decoding as an empty ordinary object.
+        /// </summary>
+        public static bool TryResolveCollectionShape(Type type, out Type definition, out Type[] args)
+        {
+            definition = null;
+            args = null;
+            if (type == null || type.IsArray) return false;
+
+            if (type.IsGenericType && !type.IsGenericTypeDefinition)
+            {
+                var ownDef = type.GetGenericTypeDefinition();
+                if (GenericDefToId.ContainsKey(ownDef))
+                {
+                    definition = ownDef;
+                    args = type.GetGenericArguments();
+                    return true;
+                }
+            }
+
+            var dictItf = FindClosedInterface(type, typeof(System.Collections.Generic.IDictionary<,>));
+            if (dictItf != null)
+            {
+                definition = typeof(Dictionary<,>);
+                args = dictItf.GetGenericArguments();
+                return true;
+            }
+
+            // Preserve the semantic set/queue/stack shape when the type derives from the built-in
+            // implementation, so the interpreter refills it correctly and the schema is accurate.
+            var setBase = FindBase(type, typeof(HashSet<>));
+            if (setBase != null)
+            {
+                definition = typeof(HashSet<>);
+                args = setBase.GetGenericArguments();
+                return true;
+            }
+
+            var collectionItf = FindClosedInterface(type, typeof(System.Collections.Generic.ICollection<>));
+            if (collectionItf != null)
+            {
+                definition = typeof(List<>);
+                args = collectionItf.GetGenericArguments();
+                return true;
+            }
+
+            // Queue<>/Stack<> subclasses are NOT supported: the built-in QueueFormatter/StackFormatter
+            // construct the exact built-in type (losing the subclass) and CollectionFormatter needs an
+            // 'Add' method that Queue/Stack do not have. Reject them loudly instead of admitting a shape
+            // that cannot round-trip (TODO 0.5).
+            if (FindBase(type, typeof(Queue<>)) != null || FindBase(type, typeof(Stack<>)) != null)
+                throw new Ceras.Exceptions.CerasSchemaException(
+                    $"The collection type '{TypeIdentity.GetCanonicalName(type)}' derives from Queue<>/Stack<> and is not supported by Ceras. " +
+                    "Use the built-in Queue<>/Stack<> directly, or expose the queue/stack contents through an ICollection<T> member.");
+
+            return false;
+        }
+
+        /// <summary>Finds the closed <paramref name="openGeneric"/> in <paramref name="type"/>'s base chain (concrete classes only).</summary>
+        static Type FindBase(Type type, Type openGeneric)
+        {
+            for (var t = type; t != null; t = t.BaseType)
+            {
+                if (!t.IsGenericType || t.IsGenericTypeDefinition) continue;
+                if (t.GetGenericTypeDefinition() == openGeneric) return t;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Finds the closed interface generic definition in <paramref name="type"/>'s interface set,
+        /// walking base types only for the special-case <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> shapes
+        /// (which are concrete classes, not interfaces).
+        /// </summary>
+        static Type FindClosedInterface(Type type, Type openGeneric)
+        {
+            for (var t = type; t != null; t = t.BaseType)
+            {
+                if (!t.IsGenericType || t.IsGenericTypeDefinition) continue;
+                if (t.GetGenericTypeDefinition() == openGeneric) return t;
+            }
+
+            foreach (var iface in type.GetInterfaces())
+            {
+                if (!iface.IsGenericType) continue;
+                if (iface.GetGenericTypeDefinition() == openGeneric) return iface;
+            }
+
+            return null;
+        }
+
         public static bool TryGetType(int id, out Type type)
             => IdToTypeMap.TryGetValue(id, out type);
 

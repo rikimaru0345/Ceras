@@ -462,6 +462,14 @@ namespace Ceras.Format
             _plans.TryGetValue(oldSchema.StableName, out var plan);
             Type currentType = plan?.CurrentType ?? targetType;
 
+            // A concrete collection shape (built-in collection subclass, or an interface/abstract
+            // collection slot bound to a concrete runtime type) is written by the built-in collection
+            // formatter as an explicit count plus elements. Read it through the matching reader using the
+            // element/key/value identities from this type's own generic arguments, never through the
+            // ordinary user-type path (which would consume a reference marker that was never written).
+            if (IsCollectionShape(currentType))
+                return ReadCollectionShape(currentType, targetType, oldSchema, ref reader, cacheIndex, existingObject);
+
             if (existingObject != null && !IsExactType(existingObject, currentType))
                 existingObject = null;
 
@@ -555,6 +563,12 @@ namespace Ceras.Format
 
         object ReadArray(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
+            // Multidimensional arrays are written by MultiDimensionalArrayFormatter (rank + per-dimension
+            // lengths + flattened elements), which this structural reader does not decode. Reject them
+            // loudly rather than misreading the payload as a single length (TODO 0.5).
+            if (targetType != null && targetType.IsArray && targetType.GetArrayRank() != 1)
+                throw SchemaRegistry.UnsupportedMultidimensionalArray(targetType, "the migration interpreter");
+
             int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (count == -1) return null;
             if (count > _maxCollectionSize) throw new InvalidOperationException("Max size exceeded");
@@ -738,6 +752,154 @@ namespace Ceras.Format
         {
             if (elemTypeId == null) return;
             for (int i = 0; i < count; i++) SkipValue(elemTypeId.Value, ref reader);
+        }
+
+        /// <summary>
+        /// True when <paramref name="type"/> is a concrete collection written by the built-in collection
+        /// formatter (a built-in collection, a collection subclass, or a Queue/Stack), i.e. it should be
+        /// read through <see cref="ReadCollectionShape"/> rather than as an ordinary field-based object.
+        /// </summary>
+        static bool IsCollectionShape(Type type)
+            => type != null && !type.IsArray && WellKnownTypes.IsCollectionFormatterShape(type);
+
+        /// <summary>
+        /// Reads a collection shape (its actual payload is a count plus elements) using the current
+        /// type's own generic arguments to identify the element/key/value types, ignoring whatever
+        /// definition id the file recorded (so a rename or an ID/formatter change across contexts still
+        /// decodes by shape). Falls back to consuming-and-discarding when no current element type can be
+        /// inferred.
+        /// </summary>
+        object ReadCollectionShape(Type currentType, Type targetType, OldTypeSchema oldSchema, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        {
+            if (!WellKnownTypes.TryResolveCollectionShape(currentType, out var shapeDef, out var shapeArgs))
+                throw new Ceras.Exceptions.CerasSchemaException(
+                    $"Cannot decode collection type '{currentType?.FullName}': Ceras could not infer its element/key/value type.");
+
+            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            if (count == -1) return null;
+            if (count > _maxCollectionSize)
+                throw new Ceras.Exceptions.CerasSchemaException("Max collection size exceeded while decoding a save file.");
+
+            int? oldElem0 = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+            int? oldElem1 = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
+
+            var def = shapeDef.IsGenericTypeDefinition ? shapeDef : shapeDef.GetGenericTypeDefinition();
+
+            if (def == typeof(Dictionary<,>))
+                return ReadDictionaryShape(currentType, shapeArgs[0], shapeArgs[1], oldElem0, oldElem1, count, ref reader, cacheIndex, existingObject);
+            if (def == typeof(Queue<>))
+                return ReadQueueShape(currentType, shapeArgs[0], oldElem0, count, ref reader, cacheIndex, existingObject);
+            if (def == typeof(Stack<>))
+                return ReadStackShape(currentType, shapeArgs[0], oldElem0, count, ref reader, cacheIndex, existingObject);
+            if (def == typeof(HashSet<>))
+                return ReadHashSetShape(currentType, shapeArgs[0], oldElem0, count, ref reader, cacheIndex, existingObject);
+
+            // List<>/ICollection<> and everything else collapse to element-ordered refill.
+            return ReadListShape(currentType, shapeArgs[0], oldElem0, count, ref reader, cacheIndex, existingObject);
+        }
+
+        object ReadListShape(Type currentType, Type elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        {
+            var list = existingObject as System.Collections.IList;
+            if (list != null && currentType != null && existingObject.GetType() != currentType)
+                list = null;
+            if (list == null)
+                list = (System.Collections.IList)Activator.CreateInstance(currentType);
+            else
+                list.Clear();
+
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = list;
+
+            var coerce = oldElemId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldElemId.Value, elementType) : CoercionKind.None;
+            for (int i = 0; i < count; i++)
+            {
+                var val = oldElemId.HasValue
+                    ? ReadValue(oldElemId.Value, elementType, ref reader)
+                    : SkipAndReturnDefault(elementType, ref reader);
+                list.Add(Coerce(val, coerce, elementType));
+            }
+            return list;
+        }
+
+        object ReadDictionaryShape(Type currentType, Type keyType, Type valType, int? oldKeyId, int? oldValId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        {
+            var dict = existingObject as System.Collections.IDictionary;
+            if (dict != null && currentType != null && existingObject.GetType() != currentType)
+                dict = null;
+            if (dict == null)
+                dict = (System.Collections.IDictionary)Activator.CreateInstance(currentType);
+            else
+                dict.Clear();
+
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = dict;
+
+            var kCoerce = oldKeyId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldKeyId.Value, keyType) : CoercionKind.None;
+            var vCoerce = oldValId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldValId.Value, valType) : CoercionKind.None;
+            for (int i = 0; i < count; i++)
+            {
+                var k = oldKeyId.HasValue ? ReadValue(oldKeyId.Value, keyType, ref reader) : SkipAndReturnDefault(keyType, ref reader);
+                var v = oldValId.HasValue ? ReadValue(oldValId.Value, valType, ref reader) : SkipAndReturnDefault(valType, ref reader);
+                dict.Add(Coerce(k, kCoerce, keyType), Coerce(v, vCoerce, valType));
+            }
+            return dict;
+        }
+
+        object ReadHashSetShape(Type currentType, Type elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        {
+            var set = ReuseCollection(existingObject, currentType, "Clear", "set");
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = set;
+
+            var addMethod = currentType.GetMethod("Add", new[] { elementType });
+            var coerce = oldElemId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldElemId.Value, elementType) : CoercionKind.None;
+            for (int i = 0; i < count; i++)
+            {
+                var val = oldElemId.HasValue ? ReadValue(oldElemId.Value, elementType, ref reader) : SkipAndReturnDefault(elementType, ref reader);
+                addMethod.Invoke(set, new[] { Coerce(val, coerce, elementType) });
+            }
+            return set;
+        }
+
+        object ReadQueueShape(Type currentType, Type elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        {
+            var queue = ReuseCollection(existingObject, currentType, "Clear", "queue");
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = queue;
+
+            var enqueueMethod = currentType.GetMethod("Enqueue", new[] { elementType });
+            var coerce = oldElemId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldElemId.Value, elementType) : CoercionKind.None;
+            for (int i = 0; i < count; i++)
+            {
+                var val = oldElemId.HasValue ? ReadValue(oldElemId.Value, elementType, ref reader) : SkipAndReturnDefault(elementType, ref reader);
+                enqueueMethod.Invoke(queue, new[] { Coerce(val, coerce, elementType) });
+            }
+            return queue;
+        }
+
+        object ReadStackShape(Type currentType, Type elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
+        {
+            var values = new object[count];
+            var coerce = oldElemId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldElemId.Value, elementType) : CoercionKind.None;
+            for (int i = 0; i < count; i++)
+            {
+                var val = oldElemId.HasValue ? ReadValue(oldElemId.Value, elementType, ref reader) : SkipAndReturnDefault(elementType, ref reader);
+                values[i] = Coerce(val, coerce, elementType);
+            }
+
+            var stack = ReuseCollection(existingObject, currentType, "Clear", "stack");
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = stack;
+
+            var pushMethod = currentType.GetMethod("Push", new[] { elementType });
+            for (int i = count - 1; i >= 0; i--) pushMethod.Invoke(stack, new[] { values[i] });
+            return stack;
+        }
+
+        /// <summary>
+        /// No old element identity was recorded: skip a fixed-size element if we can, otherwise fail
+        /// loudly rather than desyncing the stream.
+        /// </summary>
+        object SkipAndReturnDefault(Type elementType, ref SequenceReader<byte> reader)
+        {
+            throw new Ceras.Exceptions.CerasSchemaException(
+                $"Cannot decode a collection of '{elementType?.FullName}': the save file did not record the element type identity.");
         }
 
         void SkipValue(int typeId, ref SequenceReader<byte> reader)

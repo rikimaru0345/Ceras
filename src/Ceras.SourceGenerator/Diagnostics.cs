@@ -203,5 +203,13 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor UnsupportedMultidimensionalArray = new(
+            id: "CERAS027",
+            title: "Unsupported multidimensional array",
+            messageFormat: "Member '{0}' in type '{1}' has multidimensional array type '{2}' (rank {3}). The robust format currently describes only one-dimensional arrays. Use a jagged array (T[][]) or flatten it into a one-dimensional array plus explicit dimension fields, or mark the member [Exclude]",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }
