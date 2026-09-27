@@ -12,6 +12,8 @@ namespace Ceras.SourceGenerator
         public readonly INamedTypeSymbol? SerializedAs;
         public readonly INamedTypeSymbol? CerasSerializable;
         public readonly INamedTypeSymbol? CerasConstructor;
+        public readonly INamedTypeSymbol? OnBeforeSerialize;
+        public readonly INamedTypeSymbol? OnAfterSerialize;
         public readonly INamedTypeSymbol? OnBeforeDeserialize;
         public readonly INamedTypeSymbol? OnAfterDeserialize;
         public readonly INamedTypeSymbol? CerasSerializerType;
@@ -25,7 +27,9 @@ namespace Ceras.SourceGenerator
             INamedTypeSymbol? onBeforeDeserialize = null,
             INamedTypeSymbol? onAfterDeserialize = null,
             INamedTypeSymbol? cerasSerializerType = null,
-            INamedTypeSymbol? migrationContextType = null)
+            INamedTypeSymbol? migrationContextType = null,
+            INamedTypeSymbol? onBeforeSerialize = null,
+            INamedTypeSymbol? onAfterSerialize = null)
         {
             Include = include;
             Exclude = exclude;
@@ -38,10 +42,23 @@ namespace Ceras.SourceGenerator
             OnAfterDeserialize = onAfterDeserialize;
             CerasSerializerType = cerasSerializerType;
             MigrationContextType = migrationContextType;
+            OnBeforeSerialize = onBeforeSerialize;
+            OnAfterSerialize = onAfterSerialize;
         }
     }
 
-    /// <summary>The supported parameter shape of a deserialization callback.</summary>
+    /// <summary>
+    /// Which half of the round trip a callback belongs to. Serialize callbacks run around the writer's
+    /// member writes, deserialize callbacks around the reader's member reads, and the two halves accept
+    /// different arguments (there is no migration while saving).
+    /// </summary>
+    internal enum CallbackKind
+    {
+        Serialize = 0,
+        Deserialize = 1,
+    }
+
+    /// <summary>The supported parameter shape of a callback.</summary>
     internal enum CallbackParameterKind
     {
         /// <summary><c>void M()</c></summary>
@@ -53,18 +70,21 @@ namespace Ceras.SourceGenerator
     }
 
     /// <summary>
-    /// A discovered <c>[OnBeforeDeserialize]</c> / <c>[OnAfterDeserialize]</c> method together
-    /// with the argument shape the generated reader must pass it.
+    /// A discovered <c>[OnBeforeSerialize]</c> / <c>[OnAfterSerialize]</c> / <c>[OnBeforeDeserialize]</c> /
+    /// <c>[OnAfterDeserialize]</c> method together with the argument shape the generated writer/reader
+    /// must pass it.
     /// </summary>
     internal sealed class CallbackInfo
     {
         public readonly IMethodSymbol Method;
+        public readonly CallbackKind Kind;
         public readonly bool IsBefore;
         public readonly CallbackParameterKind ParameterKind;
 
-        public CallbackInfo(IMethodSymbol method, bool isBefore, CallbackParameterKind parameterKind)
+        public CallbackInfo(IMethodSymbol method, CallbackKind kind, bool isBefore, CallbackParameterKind parameterKind)
         {
             Method = method;
+            Kind = kind;
             IsBefore = isBefore;
             ParameterKind = parameterKind;
         }

@@ -31,12 +31,23 @@ namespace Ceras.SourceGenerator
             string typeFqn = definition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             string baseName = GenericBaseName(definition);
             var bestCtor = definition.IsReferenceType ? GetBestConstructor(definition, attrs.CerasConstructor, members) : null;
-            var onBefore = MemberExplorer.FindCallback(definition, attrs, isBefore: true);
-            var onAfter = MemberExplorer.FindCallback(definition, attrs, isBefore: false);
+
+            // Reported once per definition (the open formatter is emitted once and shared by every closed
+            // instantiation), so a bad signature is diagnosed once no matter how many closures exist.
+            MemberExplorer.ReportUnsupportedCallbacks(context, definition, attrs);
+
+            var beforeSerialize = MemberExplorer.FindCallback(definition, attrs, CallbackKind.Serialize, isBefore: true);
+            var afterSerialize = MemberExplorer.FindCallback(definition, attrs, CallbackKind.Serialize, isBefore: false);
+            var onBefore = MemberExplorer.FindCallback(definition, attrs, CallbackKind.Deserialize, isBefore: true);
+            var onAfter = MemberExplorer.FindCallback(definition, attrs, CallbackKind.Deserialize, isBefore: false);
             var callbacks = new List<CallbackInfo>();
+            if (beforeSerialize != null) callbacks.Add(beforeSerialize);
+            if (afterSerialize != null) callbacks.Add(afterSerialize);
             if (onBefore != null) callbacks.Add(onBefore);
             if (onAfter != null) callbacks.Add(onAfter);
             bool needsCerasField = definition.IsReferenceType
+                || (beforeSerialize != null && beforeSerialize.ParameterKind == CallbackParameterKind.Serializer)
+                || (afterSerialize != null && afterSerialize.ParameterKind == CallbackParameterKind.Serializer)
                 || (onBefore != null && onBefore.ParameterKind == CallbackParameterKind.Serializer)
                 || (onAfter != null && onAfter.ParameterKind == CallbackParameterKind.Serializer);
             var accessors = new AccessorEmitter(compilation, context.ReportDiagnostic, definition, members, bestCtor, callbacks.Count > 0 ? callbacks : null);
@@ -75,6 +86,10 @@ namespace Ceras.SourceGenerator
             // --- Serialize ---
             sb.AppendLine($"        public override void Serialize(global::System.Buffers.IBufferWriter<byte> writer, {typeFqn} value)");
             sb.AppendLine("        {");
+            // Same bracketing as RobustCodeEmitter: [OnBeforeSerialize] before the first member read,
+            // [OnAfterSerialize] after the last member write.
+            if (beforeSerialize != null)
+                sb.AppendLine($"            {accessors.CallbackCallExpression(beforeSerialize, "value", RobustCodeEmitter.CallbackArgument(beforeSerialize, "_ceras"))};");
             foreach (var m in members)
             {
                 string fieldName = MakeFormatterFieldName(m.Type);
@@ -92,6 +107,8 @@ namespace Ceras.SourceGenerator
                     sb.AppendLine($"            {fieldName}.Serialize(writer, {getAccess});");
                 }
             }
+            if (afterSerialize != null)
+                sb.AppendLine($"            {accessors.CallbackCallExpression(afterSerialize, "value", RobustCodeEmitter.CallbackArgument(afterSerialize, "_ceras"))};");
             sb.AppendLine("        }");
             sb.AppendLine();
 

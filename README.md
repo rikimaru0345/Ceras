@@ -204,8 +204,20 @@ void OnMigrated(MigrationContext ctx)
 > Taking a `CerasSerializer` parameter instead of a `MigrationContext` is supported, and gives you
 > `UserContext`.
 >
-> The corresponding **serialize** callbacks (`[OnBeforeSerialize]`, `[OnAfterSerialize]`) are
-> currently honoured by the reflection fallback only; the robust generated path ignores them.
+> The corresponding **serialize** callbacks (`[OnBeforeSerialize]`, `[OnAfterSerialize]`) are invoked by
+> the generated formatters as well, once per written instance, bracketing that instance's member writes:
+>
+> - `[OnBeforeSerialize]` runs before the first member is read, so whatever it writes into the object is
+>   what ends up in the stream.
+> - `[OnAfterSerialize]` runs after the last member has been written, so it can finish the state the
+>   writer just captured — but anything it changes now is *not* in the stream.
+>
+> They accept no parameter or a `CerasSerializer` (for `UserContext`). A `MigrationContext` parameter is
+> rejected at compile time (`CERAS028`): it describes a migration, and there is none while saving. So is
+> any other shape Ceras cannot invoke — a non-void return, a `static` or generic method, an `async void`
+> method (it would return at its first `await` and could no longer be ordered around the member writes), or
+> a `ref`/`out`/`in` parameter (a callback parameter is always passed by value). Every such signature is
+> reported rather than silently never called.
 
 ## Performance benchmarks
 Ceras generally ranks at the top end of the performance spectrum, together with NetSerializer and MessagePack-CSharp.

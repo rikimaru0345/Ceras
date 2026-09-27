@@ -100,8 +100,8 @@ namespace Ceras.SourceGenerator
                 order.Add(ctorDef);
             }
 
-            // Deserialization callbacks are invoked through an UnsafeAccessor as well, so a callback's
-            // declaring type (which may be a base type) participates in the same grouping.
+            // Callbacks are invoked through an UnsafeAccessor as well, so a callback's declaring type
+            // (which may be a base type) participates in the same grouping.
             var callbackGroups = new Dictionary<INamedTypeSymbol, List<CallbackInfo>>(SymbolEqualityComparer.Default);
             if (_callbacks != null)
             {
@@ -337,10 +337,14 @@ namespace Ceras.SourceGenerator
         public string CtorParameterModifier(IParameterSymbol p) => ParameterModifier(p);
 
         // ------------------------------------------------------------------
-        // Deserialization callbacks
+        // Callbacks
         // ------------------------------------------------------------------
 
-        static string CallbackAccessorName(CallbackInfo cb) => cb.IsBefore ? "__ceras_cb_before" : "__ceras_cb_after";
+        // The direction is part of the name: a type can declare all four callback attributes, and the
+        // "before" accessor of one direction must not collide with the "before" accessor of the other.
+        static string CallbackAccessorName(CallbackInfo cb)
+            => (cb.Kind == CallbackKind.Serialize ? "__ceras_cb_serialize_" : "__ceras_cb_deserialize_")
+               + (cb.IsBefore ? "before" : "after");
 
         /// <summary>
         /// The prefix needed to reach the callback accessor from the generated formatter. Generic
@@ -354,7 +358,7 @@ namespace Ceras.SourceGenerator
             return "";
         }
 
-        /// <summary>Expression that invokes a deserialization callback on <paramref name="targetExpr"/>.</summary>
+        /// <summary>Expression that invokes a callback on <paramref name="targetExpr"/>.</summary>
         public string CallbackCallExpression(CallbackInfo cb, string targetExpr, string argumentExpr)
         {
             string target = CallbackCallTarget(cb);

@@ -21,12 +21,23 @@ namespace Ceras.SourceGenerator {
 			string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 			string formatterName = MakeFormatterClassName(type);
 			var bestCtor = type.IsReferenceType ? GetBestConstructor(type, attrs.CerasConstructor, members) : null;
-			var onBefore = MemberExplorer.FindCallback(type, attrs, isBefore: true);
-			var onAfter = MemberExplorer.FindCallback(type, attrs, isBefore: false);
+
+			// A callback whose signature Ceras cannot invoke would simply never run, so it is reported
+			// instead of dropped.
+			MemberExplorer.ReportUnsupportedCallbacks(context, type, attrs);
+
+			var beforeSerialize = MemberExplorer.FindCallback(type, attrs, CallbackKind.Serialize, isBefore: true);
+			var afterSerialize = MemberExplorer.FindCallback(type, attrs, CallbackKind.Serialize, isBefore: false);
+			var onBefore = MemberExplorer.FindCallback(type, attrs, CallbackKind.Deserialize, isBefore: true);
+			var onAfter = MemberExplorer.FindCallback(type, attrs, CallbackKind.Deserialize, isBefore: false);
 			var callbacks = new List<CallbackInfo>();
+			if (beforeSerialize != null) callbacks.Add(beforeSerialize);
+			if (afterSerialize != null) callbacks.Add(afterSerialize);
 			if (onBefore != null) callbacks.Add(onBefore);
 			if (onAfter != null) callbacks.Add(onAfter);
 			bool needsCerasField = type.IsReferenceType
+				|| (beforeSerialize != null && beforeSerialize.ParameterKind == CallbackParameterKind.Serializer)
+				|| (afterSerialize != null && afterSerialize.ParameterKind == CallbackParameterKind.Serializer)
 				|| (onBefore != null && onBefore.ParameterKind == CallbackParameterKind.Serializer)
 				|| (onAfter != null && onAfter.ParameterKind == CallbackParameterKind.Serializer);
 			var accessors = new AccessorEmitter(compilation, context.ReportDiagnostic, type, members, bestCtor, callbacks.Count > 0 ? callbacks : null);
@@ -77,6 +88,14 @@ namespace Ceras.SourceGenerator {
 				sb.AppendLine($"            global::Ceras.SerializerBinary.{writeMethod}(writer, ({underlyingFqn})value);");
 			}
 			else {
+				// [OnBeforeSerialize] runs before the first member is read, so whatever it writes into the
+				// object is what ends up in the stream; [OnAfterSerialize] runs after the last member has
+				// been written, so it can observe (or finish) the state the writer just captured. This
+				// matches the reflection fallback's Serialize, which brackets the same member loop.
+				if (beforeSerialize != null) {
+					sb.AppendLine($"            {accessors.CallbackCallExpression(beforeSerialize, "value", CallbackArgument(beforeSerialize, "_ceras"))};");
+				}
+
 				var serializeMembers = members;
 				foreach (var m in serializeMembers) {
 					string fieldName = MakeFormatterFieldName(m.Type);
@@ -99,6 +118,10 @@ namespace Ceras.SourceGenerator {
 					else {
 						sb.AppendLine($"            {fieldName}.Serialize(writer, {getAccess});");
 					}
+				}
+
+				if (afterSerialize != null) {
+					sb.AppendLine($"            {accessors.CallbackCallExpression(afterSerialize, "value", CallbackArgument(afterSerialize, "_ceras"))};");
 				}
 			}
 			sb.AppendLine("        }");
@@ -270,8 +293,10 @@ namespace Ceras.SourceGenerator {
 		}
 
 		/// <summary>
-		/// The extra argument a deserialization callback receives on the matching-layout generated
-		/// path: the serializer itself, or <see cref="MigrationContext.None"/> (no migration happened).
+		/// The extra argument a callback receives on the matching-layout generated path: the serializer
+		/// itself, or <see cref="MigrationContext.None"/> (no migration happened). A serialize callback can
+		/// never reach the <c>MigrationContext</c> case — <see cref="MemberExplorer"/> rejects that
+		/// signature with a diagnostic, because there is no migration while saving.
 		/// </summary>
 		public static string CallbackArgument(CallbackInfo cb, string serializerExpr) => cb.ParameterKind switch
 		{

@@ -84,9 +84,8 @@ namespace Ceras.Test.Reentrancy
     /// write half of the scoped context: the outer read has to keep its own string table and type map while
     /// a write context is pushed on top of it.
     /// <para>
-    /// The nesting point has to be a deserialize callback because the robust generated path only emits
-    /// those; [OnBeforeSerialize] is honoured by the raw serializer but silently ignored here (see the
-    /// open P0 item in TODO.md, "Serialize callbacks in robust generated format"). Load-inside-load
+    /// Both directions nest now: the robust generated path emits the serialize callbacks as well, so
+    /// [OnBeforeSerialize] is a second nesting point (pinned in SerializationCallbackTests). Load-inside-load
     /// above and load-inside-save here exercise the same [ThreadStatic] stack for both context kinds.
     /// </para>
     /// </summary>
