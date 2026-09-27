@@ -83,8 +83,10 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   through a safe literal encoder; compile and run a generated-schema regression.
 - **Migration construction (former 0.8.11).** Reference objects bypass configured
   `TypeConstruction` when materialized by the interpreter without constructor arguments.
-  Match the generated path for fresh/reused instances, including factories and cycles;
-  retain the existing parameterized-constructor coverage.
+  The generated reader also silently ignores explicitly configured factories for
+  non-sealed types and polymorphic slots. **Decision:** honor explicit factories on
+  both paths for fresh generated reference objects; preserve default construction,
+  exact reuse, cycles and callbacks, and retain parameterized-constructor coverage.
 - **Wrap-only user collection construction.** The migration reader can construct a
   `List<T>`/`Dictionary<K,V>` subclass through a wrapping constructor, but the generated
   matching-layout collection formatter still calls `Activator.CreateInstance` without
