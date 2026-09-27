@@ -47,6 +47,11 @@ in two contexts — IDs are context-local, and a fingerprint identifies a contex
 individual type. The schema/isolation guarantees below are therefore per context, and a save written
 under one context must be loaded only under that context (a mismatched context falls into the
 interpreter, where a root absent from the current manifest is rejected with an undeclared-root error).
+A compilation that shows serialization intent (a type-level `[CerasSerializable]`/`[CerasContext]`
+or an assembly-level `[CerasSerializable<T>]`/`[CerasKnownType]`) but declares no context is rejected
+at compile time with `CERAS025`; the generator still emits the (empty) registration, so that
+diagnostic is the only failure. A compilation that merely references the generator without any
+serialization intent is left alone.
 
 
 ## Type identity

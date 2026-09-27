@@ -187,5 +187,13 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor NoSerializationContext = new(
+            id: "CERAS025",
+            title: "No serialization context declared",
+            messageFormat: "No Ceras serialization context is declared. Ceras has no default context: annotate at least one root type with [CerasContext(\"Name\")] (and optionally [CerasSerializable]) so the generator can emit a manifest, then call UseGeneratedFormatters(\"Name\").",
+            category: "CerasSourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }

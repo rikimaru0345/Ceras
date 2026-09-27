@@ -138,6 +138,7 @@ namespace Ceras.SourceGenerator
             // 2. Assembly-level [CerasSerializable<T>] / [CerasKnownType...] targets. These are roots
             //    of every declared context by default. [CerasKnownType...] additionally accepts an
             //    explicit context name; if it names a context that no type declares, that is an error.
+            bool hasIntentToSerialize = false;
             foreach (var attr in compilation.Assembly.GetAttributes())
             {
                 bool isSerializable = SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr) ||
@@ -145,6 +146,9 @@ namespace Ceras.SourceGenerator
                 bool isKnownType = SymbolEqualityComparer.Default.Equals(attr.AttributeClass, knownTypeAttr) ||
                                    SymbolEqualityComparer.Default.Equals(attr.AttributeClass?.OriginalDefinition, knownTypeGenericAttr);
                 if (!isSerializable && !isKnownType) continue;
+
+                // The assembly explicitly declared serialization intent, even if the target is bogus.
+                hasIntentToSerialize = true;
 
                 INamedTypeSymbol? target = null;
                 string? contextName = null;
@@ -188,6 +192,19 @@ namespace Ceras.SourceGenerator
                         contextName!,
                         contextRoots.Count == 0 ? "(none)" : string.Join(", ", contextRoots.Keys)));
                 }
+            }
+
+            // 2b. A compilation that visibly intends to use the generated manifest (it has a
+            //     type-level [CerasSerializable]/[CerasContext] annotation or an assembly-level
+            //     [CerasSerializable<T>]/[CerasKnownType]) but declares no [CerasContext] root is a
+            //     configuration error: Ceras deliberately has no default context, so there is no
+            //     manifest to register and every UseGeneratedFormatters(...) call would throw at
+            //     runtime. Report it at the compilation level and still emit compilable (empty) code.
+            //     A compilation that merely references the analyzer without any such annotation is
+            //     left alone.
+            if (contextRoots.Count == 0 && (types.Length > 0 || hasIntentToSerialize))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(Diag.NoSerializationContext, Location.None));
             }
 
             // 3. Discover each context independently; keep the first discovery path per type for the

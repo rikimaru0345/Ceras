@@ -247,6 +247,14 @@ namespace Ceras
     /// <c>Ceras.Generated.RobustFormatters.ContextNames</c>, and passing an unknown name to
     /// <c>UseGeneratedFormatters</c> fails with an error that lists the available contexts.
     /// </para>
+    /// <para>
+    /// Because there is deliberately no default context, a compilation that shows serialization
+    /// intent (it annotates a type with <see cref="CerasSerializableAttribute"/>/<see cref="CerasContextAttribute"/>,
+    /// or declares an assembly-level <see cref="CerasSerializableAttribute{T}"/>/<see cref="CerasKnownTypeAttribute"/>)
+    /// but declares no <c>[CerasContext]</c> fails the build with <c>CERAS025</c>: there would be no
+    /// manifest to register. A compilation that merely references the generator without any such
+    /// declaration is left alone and emits an empty (compilable) registration.
+    /// </para>
     /// </remarks>
     /// <example>
     /// <code>

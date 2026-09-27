@@ -317,5 +317,58 @@ namespace T
             var ids = RunGeneratorDiagnosticIds(source);
             Assert.DoesNotContain("CERAS021", ids);
         }
+
+        // ----------------------------------------------------------------------------------------
+        // CERAS025 — a compilation that intends to use the generated manifest (it annotates at
+        // least one type with [CerasSerializable]/[CerasContext], or has an assembly-level
+        // [CerasSerializable<T>]/[CerasKnownType]) but declares no [CerasContext] context is a
+        // compile-time error, because Ceras has no default context and every UseGeneratedFormatters
+        // call would otherwise throw at runtime.
+        // ----------------------------------------------------------------------------------------
+        [Fact]
+        public void NoContext_WithSerializableType_EmitsCERAS025()
+        {
+            const string source = @"
+using Ceras;
+namespace T
+{
+    [CerasSerializable]
+    public class Holder { public int Value; }
+}";
+
+            var ids = RunGeneratorDiagnosticIds(source);
+            Assert.Contains("CERAS025", ids);
+        }
+
+        [Fact]
+        public void NoContext_WithOnlyAssemblyLevelKnownType_EmitsCERAS025()
+        {
+            const string source = @"
+using Ceras;
+[assembly: CerasKnownType<System.Collections.Generic.List<int>>]
+namespace T
+{
+    public class Plain { public int Value; }
+}";
+
+            var ids = RunGeneratorDiagnosticIds(source);
+            Assert.Contains("CERAS025", ids);
+        }
+
+        // The deliberately tolerated case: a compilation that references the analyzer but shows no
+        // serialization intent (no type-level annotations and no assembly-level declarations) is not
+        // asked to declare a context. The generator emits an empty (compilable) manifest.
+        [Fact]
+        public void NoContext_WithoutSerializationIntent_DoesNotEmitCERAS025()
+        {
+            const string source = @"
+namespace T
+{
+    public class Plain { public int Value; }
+}";
+
+            var ids = RunGeneratorDiagnosticIds(source);
+            Assert.DoesNotContain("CERAS025", ids);
+        }
     }
 }

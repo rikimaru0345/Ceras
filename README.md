@@ -275,6 +275,12 @@ public class Player
 > automatically — a serializer in a library assembly cannot see the formatters emitted for your
 > assembly. `RobustFormatters.ContextNames` lists the contexts declared in the current compilation,
 > and passing an unknown name throws an error with that list.
+>
+> Because there is no default context, a compilation that shows serialization intent (it annotates
+> a type with `[CerasSerializable]`/`[CerasContext]`, or declares an assembly-level
+> `[CerasSerializable<T>]`/`[CerasKnownType]`) but declares **no** `[CerasContext]` fails the build
+> with `CERAS025`. A project that references the generator without any such declaration is left
+> alone.
 
 Generated formatters only change *how* values are read and written; the wire format is unchanged.
 
