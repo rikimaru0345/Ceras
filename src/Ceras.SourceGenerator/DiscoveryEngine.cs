@@ -50,6 +50,15 @@ namespace Ceras.SourceGenerator
 
                 bool isInstantiable = !currentType.IsAbstract && currentType.TypeKind != TypeKind.Interface;
 
+                // Always explore generic arguments of a constructed/known type so the closed set is
+                // complete even when the type itself is a well-known generic (e.g. List<KnownItem>
+                // declared via [CerasKnownType<List<KnownItem>>]) (TODO Phase 2.1).
+                if (currentType.IsGenericType)
+                {
+                    foreach (var arg in currentType.TypeArguments)
+                        ExploreType(arg, currentType, currentResult.DiscoveryPath);
+                }
+
                 if (isInstantiable)
                 {
                     // Skip types we shouldn't explore further (primitives, well-knowns)

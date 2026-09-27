@@ -65,11 +65,18 @@ namespace Ceras.SourceGenerator
             var excludeFromDiscoveryAttr = compilation.GetTypeByMetadataName(ExcludeFromDiscoveryFqn);
             var blacklistAttr = compilation.GetTypeByMetadataName(BlacklistFqn);
 
-            // Also include assembly-level [CerasSerializable] targets as roots
+            // Also include assembly-level [CerasSerializable] and [CerasKnownType] targets as roots.
+            // CerasKnownType explicitly authorizes closed instantiations (and their transitive
+            // closure) that are hidden behind object/interface members (TODO Phase 2.1).
+            var knownTypeAttr = compilation.GetTypeByMetadataName("Ceras.CerasKnownTypeAttribute");
+            var knownTypeGenericAttr = compilation.GetTypeByMetadataName("Ceras.CerasKnownTypeAttribute`1");
+
             foreach (var attr in compilation.Assembly.GetAttributes())
             {
                 if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, cerasSerializableAttr) ||
-                    SymbolEqualityComparer.Default.Equals(attr.AttributeClass?.OriginalDefinition, cerasSerializableGenericAttr))
+                    SymbolEqualityComparer.Default.Equals(attr.AttributeClass?.OriginalDefinition, cerasSerializableGenericAttr) ||
+                    SymbolEqualityComparer.Default.Equals(attr.AttributeClass, knownTypeAttr) ||
+                    SymbolEqualityComparer.Default.Equals(attr.AttributeClass?.OriginalDefinition, knownTypeGenericAttr))
                 {
                     if (attr.AttributeClass!.IsGenericType)
                     {
@@ -119,6 +126,7 @@ namespace Ceras.SourceGenerator
             foreach (var type in finalTypes)
             {
                 if (IsOpenType(type)) continue;
+                if (IsWellKnownType(type) || MemberExplorer.IsCollectionType(type)) continue;
                 string stable = RobustCodeEmitter.GetStableTypeName(type, cerasSerializableAttr);
                 if (stableNameOwners.TryGetValue(stable, out var prev))
                 {
@@ -177,6 +185,9 @@ namespace Ceras.SourceGenerator
                 // Open generic definitions have no nameable formatter type; closed instantiations that
                 // are reachable are discovered and generated separately. (Generic templates: Phase 2.)
                 if (IsOpenType(type)) continue;
+                // Well-known and collection types use built-in formatters; generating a custom
+                // formatter for them would override the built-in one (e.g. an empty List formatter).
+                if (IsWellKnownType(type) || MemberExplorer.IsCollectionType(type)) continue;
 
                 // Discover members once per type to check constructability and generate the formatter
                 var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns, finalTypesSet);
@@ -242,6 +253,7 @@ namespace Ceras.SourceGenerator
             {
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) continue;
                 if (IsOpenType(type)) continue;
+                if (IsWellKnownType(type) || MemberExplorer.IsCollectionType(type)) continue;
 
                 MemberExplorer.ValidateIncludeExcludeConflicts(context, type, attrBag);
                 var members = MemberExplorer.DiscoverMembers(context, type, attrBag, blacklistPatterns, finalTypesSet);

@@ -187,6 +187,33 @@ namespace Ceras
         }
     }
 
+    /// <summary>
+    /// Declares an additional known type for the generated manifest, beyond the types that are
+    /// reachable from the roots. This is primarily useful for closed generic instantiations that
+    /// are hidden behind <c>object</c>/interface members and therefore cannot be discovered by
+    /// walking member types (e.g. <c>[assembly: CerasKnownType&lt;List&lt;MyItem&gt;&gt;]</c>).
+    /// The declared type and everything reachable from it are added to the generated closed set.
+    /// Applied at the assembly level (the current compilation is the serialization context).
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public class CerasKnownTypeAttribute : Attribute
+    {
+        public Type Type { get; }
+
+        public CerasKnownTypeAttribute(Type type)
+        {
+            Type = type;
+        }
+    }
+
+    /// <summary>
+    /// Generic, type-safe form of <see cref="CerasKnownTypeAttribute"/>.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public class CerasKnownTypeAttribute<T> : Attribute
+    {
+    }
+
 	/// <summary>
 	/// Prevents the Ceras source generator from automatically discovering and generating
 	/// formatters for types in the specified namespace or matching the pattern (e.g. "Godot.*").
