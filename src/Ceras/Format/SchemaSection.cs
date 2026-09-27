@@ -577,6 +577,28 @@ namespace Ceras.Format
             }
         }
 
+        /// <summary>
+        /// Reads a LEB128 that has to be a <b>type id</b> — a type-value tag, a manifest type id, a
+        /// definition id or an argument id.
+        /// <para>
+        /// <see cref="ReadLeb128"/> is a <c>uint</c> and accepts five bytes, so it can legitimately return
+        /// a value above <see cref="int.MaxValue"/>. Casting that to <c>int</c> yields a <em>negative</em>
+        /// number, and every id space in the format starts at 0 with nothing above <see cref="int.MaxValue"/>
+        /// — a negative id then reads as a small well-known id, which is a different type entirely, and the
+        /// decoder goes on to misinterpret the rest of the payload. The value is therefore rejected here,
+        /// where the description of what was being read is still known, instead of downstream.
+        /// </para>
+        /// </summary>
+        internal static int ReadTypeIdLeb128(ref SequenceReader<byte> reader, string description)
+        {
+            uint raw = ReadLeb128(ref reader);
+            if (raw > int.MaxValue)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt data: {description} decodes to {raw}, which is not a type id. Type ids are never negative, " +
+                    $"so a value above {int.MaxValue} is a corrupt field rather than an id.");
+            return (int)raw;
+        }
+
         internal static void WriteInternedString(IBufferWriter<byte> writer, string s, StringInternTable internTable)
         {
             int index = internTable.GetIndex(s);

@@ -207,6 +207,78 @@ Reference/polymorphism markers are defined once in `Format/Protocol.cs`
 (`RefNull=-1`, `RefNewValue=-2`, `RefNewValueSameType=-3`, `RefInlineType=-5`, bias `+5`).
 A marker is written with the bias so non-negative values are object-cache IDs.
 
+## The `Type` value: a polymorphic value's type tag
+
+A `RefNewValue` marker is followed by the **concrete runtime type of the value**, written by
+`RobustTypeFormatter` — and that is a *`Type` value*, not a schema type ID, unless the type happens to
+have a schema entry of its own. The two id spaces are disjoint: ids `0..127` are permanently reserved
+for well-known types and manifest ids start at `WellKnownTypes.UserTypeBase` (128), so a single tag
+decides which of the three cases it is.
+
+```
+TypeValue := LEB(tag) [tail]
+
+tag = 0                       (Null)        terminal: the value is null
+tag = 127                     (FullName)    tail = a 4-byte string-table index, read-only path
+tag in 1..42, a scalar                     terminal
+tag = 16                      (Array)       tail = one TypeValue: the element type
+tag in {17..22, 23..36, 41}   (a definition) tail = LEB(argCount), then argCount × TypeValue
+tag >= 128                    (a manifest id) terminal: the file's schema section describes it
+```
+
+Ids `43..126` are reserved and unassigned; no writer emits them and a reader refuses them rather than
+guessing. The grammar is **recursive**: `List<List<int>>` is `List, 1, List, 1, Int32` and `int[][]` is
+`Array, Array, Int32`, and one walk of the rules above produces the whole tree. That is unambiguous
+rather than a best-effort parse, because the tag alone selects the case and every case says how many
+bytes its tail occupies.
+
+**The payload follows the type value, and the definition decides which payload.** It is the same
+decision the schema section encodes for a member: a `GenericInstantiation` (definition + ordered
+argument ids), whose `ClassifyPayload` answer is a count plus elements/entries, a presence byte, the
+items of a tuple, a key and a value, or — for a definition the well-known set does not name — the
+members of a user generic class. The migration interpreter therefore interns a nested described type
+value as exactly that shape (`TypeValueShapes`), so `List<List<int>>` in a slot takes the very same path
+a declared `List<List<int>>` member takes: its argument is a second synthesized entry, each level's
+reference marker is the writer's own, and the per-shape element-count encoding and the
+`SizeLimits.MaxCollectionSize` bound apply unchanged at every level. A terminal tag — a scalar, or a
+manifest id — keeps the ordinary per-id walk.
+
+A **nested** argument or element that is itself a reference type is written behind its own reference
+marker (an inner `List<>`, array, dictionary, queue or class), while a value type is written inline (a
+`Nullable<>`, a `Tuple`/`ValueTuple`, a `KeyValuePair`, a struct). That is the same decision the
+interpreter already makes for a described member, from the type the *current* model resolves the
+argument to.
+
+**A declared `System.Object` is a marker and nothing else.** `new object()`'s runtime type *is*
+`object`, so the writer takes `RefNewValueSameType` and writes no type tag and no payload at all: the
+value is one byte, and an `object` root is two (the root type id and the marker). `object` has no
+serializable members, so there is nothing between them. The object cache still gets a slot per
+occurrence, so two `new object()` values stay distinct and the same one twice stays shared. The
+generated reader and the interpreter agree on this, and both are pinned by a real cross-version fixture.
+A *type tag* of `object` is unreachable — a tag is written only when the declared and runtime types
+differ, and nothing derives from `object` except itself — so a doctored one is refused as corruption.
+
+Bounded on purpose: a type-id LEB128 that does not fit in a non-negative `int` is refused before it can
+be read as a small well-known id; an argument count is checked against the definition's own arity (at
+most 7, the tuple family) *and* against the bytes that remain before anything is allocated from it; one
+type value may contain at most 256 nodes and nest at most 64 levels deep. A tag or argument that names a
+manifest id the file's own schema section does not describe is refused on both the read and the skip
+path, because nothing then says how its payload is written.
+
+**The synthesized entries are interned by value, not by occurrence.** Two type values that decode to the
+same structure — at every level of nesting, and with argument order significant — resolve to one entry,
+so the retained cost of a polymorphic slot's type value is the number of *distinct* nested shapes in the
+save, not the number of values that mention them. All of it is per-load state: the engine that owns the
+decoder is created by one `Load` and becomes garbage with it, so nothing is retained across operations.
+That is what makes the per-load bound (65536 distinct identities) unreachable for a real save while
+still bounding a crafted one.
+
+**Not expressible: a multidimensional array's rank.** The `Array` tag names one element type, so
+`T[,]` and `T[]` produce the same type value while their payloads differ. This is a pre-existing gap —
+`int[,]` in an `object` slot does not round-trip even in the same version — and it is reported here
+rather than guessed at; the rank-1 restriction above already rejects the shape everywhere the schema is
+consulted.
+
 ## Schema types
 
 `SchemaTypeInfo` kinds: `Enum`, `Struct`, `Class`, `GenericInstantiation`. `GenericInstantiation`
