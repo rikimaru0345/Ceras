@@ -547,8 +547,9 @@ namespace Ceras.Format
             var key = ReadValue(oldKeyTid.Value, keyType, ref reader);
             var val = ReadValue(oldValTid.Value, valType, ref reader);
             object kvp = Activator.CreateInstance(targetType, key, val);
+            // KeyValuePair is a value type written with no reference marker and is never registered by
+            // the writer, so only fill a slot the writer actually created.
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = kvp;
-            else _objectCache.Add(kvp);
             return kvp;
         }
 
@@ -566,8 +567,10 @@ namespace Ceras.Format
             if (arr == null || arr.Length != count || (targetType != null && arr.GetType() != targetType))
                 arr = Array.CreateInstance(elementType, (int)count);
 
+            // Only fill an object-cache slot that the writer actually created. Monomorphic array
+            // members are written by ArrayFormatter with no reference marker and are never
+            // registered by the writer, so adding a slot here would shift every later back-reference.
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = arr;
-            else _objectCache.Add(arr);
 
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
 

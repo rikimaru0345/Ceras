@@ -75,6 +75,27 @@ namespace Ceras.Test.ConstructionContract
         public ContractChild Nullable;
     }
 
+    // Member order puts the array (System.Int32[]) before the object references (System.Object), so a
+    // spurious object-cache slot for the array would shift the back-reference to the shared child.
+    [CerasContext("Tests")]
+    [CerasSerializable]
+    public class ArrayBeforeRefRoot
+    {
+        public int[] Numbers;
+        public object First;
+        public object Second;
+    }
+
+    // Same object-cache-shift hazard for a value-type KeyValuePair member (also written with no marker).
+    [CerasContext("Tests")]
+    [CerasSerializable]
+    public class KvpBeforeRefRoot
+    {
+        public KeyValuePair<int, ContractChild> Pair;
+        public object First;
+        public object Second;
+    }
+
     public static class ContractCtorCounter
     {
         public static int Calls;
@@ -230,10 +251,56 @@ namespace Ceras.Test.ConstructionContract
         }
 
         [Fact]
+        public void ArrayMember_DoesNotShiftObjectCache_OnBothReaders()
+        {
+            var child = new ContractChild { Id = 1, Name = "c" };
+            var bytes = Generated().Save(new ArrayBeforeRefRoot
+            {
+                Numbers = new[] { 1, 2, 3 },
+                First = child,
+                Second = child,
+            }, 1);
+
+            var fast = Generated().Load<ArrayBeforeRefRoot>(bytes, 1);
+            Assert.Equal(new[] { 1, 2, 3 }, fast.Numbers);
+            Assert.Same(fast.First, fast.Second);
+            Assert.Equal(1, ((ContractChild)fast.First).Id);
+
+            var slow = Generated().Load<ArrayBeforeRefRoot>(ForceSlowPath(bytes), 1);
+            Assert.Equal(new[] { 1, 2, 3 }, slow.Numbers);
+            Assert.Same(slow.First, slow.Second);
+            Assert.Equal(1, ((ContractChild)slow.First).Id);
+        }
+
+        [Fact]
+        public void KeyValuePairMember_DoesNotShiftObjectCache_OnBothReaders()
+        {
+            var pairChild = new ContractChild { Id = 1, Name = "pair" };
+            var shared = new ContractChild { Id = 2, Name = "shared" };
+            var bytes = Generated().Save(new KvpBeforeRefRoot
+            {
+                Pair = new KeyValuePair<int, ContractChild>(5, pairChild),
+                First = shared,
+                Second = shared,
+            }, 1);
+
+            var fast = Generated().Load<KvpBeforeRefRoot>(bytes, 1);
+            Assert.Equal(5, fast.Pair.Key);
+            Assert.Equal(1, fast.Pair.Value.Id);
+            Assert.Equal(2, ((ContractChild)fast.First).Id);
+            Assert.Same(fast.First, fast.Second);
+
+            var slow = Generated().Load<KvpBeforeRefRoot>(ForceSlowPath(bytes), 1);
+            Assert.Equal(5, slow.Pair.Key);
+            Assert.Equal(1, slow.Pair.Value.Id);
+            Assert.Equal(2, ((ContractChild)slow.First).Id);
+            Assert.Same(slow.First, slow.Second);
+        }
+
+        [Fact]
         public void MutableCycle_IdentityIsPreservedOnBothReaders()
         {
-            var a = new ContractNode { Id = 1 };
-            var b = new ContractNode { Id = 2 };
+            var a = new ContractNode { Id = 1 };            var b = new ContractNode { Id = 2 };
             a.Next = b;
             b.Next = a;
             var bytes = Generated().Save(new ContractCycleRoot { A = a, B = b }, 1);
