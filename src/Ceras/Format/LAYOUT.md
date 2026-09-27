@@ -255,6 +255,25 @@ the magnitude for an unsigned underlying type and a two's-complement negative va
      in the current 4.1.x development line (this repository has never published a `0.5`; the
      released versions are 1.x, 2.x, 3.0.x and 4.0.x), so there is no release number to name and the
      exception itself is the only marker.
+5. **The declared data section is consumed exactly**, on both readers. The data section holds nothing
+   but the declared root type id followed by the root's payload — `Save` starts the payload string
+   table at the very next byte and never pads the region — so a reader that stops before the header's
+   `stringTableOffset` has left part of the save unread, and the graph it returns is only as good as
+   the part it read. That used to happen silently: the interpreter skips a field it cannot map and a
+   payload its grammar does not describe, and then returned. A leftover is now a typed error naming the
+   region, where the reader stopped and how many bytes it never looked at: `CerasSchemaException`
+   after the interpreter (a schema/layout disagreement, which is what a caller can act on) and
+   `CerasDataCorruptionException` after the generated reader (a matching fingerprint means the file
+   claims this build's own layout, so a leftover is not a layout disagreement but bytes that are not a
+   Ceras save of it). The check is O(1) and needs no schema parse, so the matching-fingerprint path
+   still parses nothing; on the interpreter path it runs *before* the deferred `[OnAfterDeserialize]`
+   callbacks, because a load that did not read the whole data section must not hand a half-described
+   graph to user code.
+   **This is a detector, not proof of layout or schema truth.** A desync that happens to land exactly
+   on the end of the region passes it and still decodes wrong values, and a deliberately lying
+   `SchemaRegistry.Register`-ed schema matches its own fingerprint either way. It is not a substitute
+   for truthful custom-payload metadata; it only turns "your save loaded, but part of it was never
+   read" from a silent success into a loud failure.
 
 Whether a given save is *meant* to stay loadable is a separate question from whether this decoder
 can read it: the compatibility starting format has not been declared yet, so nothing here promises

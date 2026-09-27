@@ -366,6 +366,16 @@ namespace Ceras
                 {
                     Deserialize(ref reader, ref value);
                 }
+
+                // The same detector the interpreter gets, and it stays a detector here: the reader is
+                // already bounded to the declared data section, so knowing what it should have consumed
+                // needs no schema parse, no string-table decode and no allocation. (The generated path
+                // flushes its deferred [OnAfterDeserialize] callbacks inside Deserialize, so unlike the
+                // interpreter below they have already run by the time this can fire; that is inherent to
+                // reusing Deserialize rather than re-implementing it, and it only matters for a load that
+                // is about to be rejected anyway.)
+                VerifyDataSectionConsumedExactly(ref reader, dataSectionOffset, stringTableOffset,
+                    fingerprintMatched: true, typeof(T));
                 return;
             }
 
@@ -393,6 +403,13 @@ namespace Ceras
                     var engine = new SchemaTraversalEngine(fileSchemas, payloadTable, robustVersion, this);
                     InstanceData.DeserializeCallbacks = null!;
                     value = engine.ReadRoot<T>(ref reader, value);
+
+                    // Before the deferred callbacks, and that ordering is the point: a load that did not
+                    // read the whole declared data section is not a successful load, and [OnAfterDeserialize]
+                    // would otherwise run on a graph the file only half described.
+                    VerifyDataSectionConsumedExactly(ref reader, dataSectionOffset, stringTableOffset,
+                        fingerprintMatched: false, typeof(T));
+
                     // Deferred [OnAfterDeserialize] callbacks run once the whole graph is populated.
                     FlushDeserializeCallbacks();
                 }
@@ -402,6 +419,79 @@ namespace Ceras
                 // A failed or abandoned load must not leave callbacks queued for the next one.
                 InstanceData.DeserializeCallbacks = null!;
             }
+        }
+
+        /// <summary>
+        /// The declared data section must be consumed **exactly** (TODO P0, "Detect trailing migration
+        /// payload bytes"). By construction it holds nothing but the declared root type id followed by
+        /// the root's payload: <see cref="Save"/> starts the payload string table at the very byte after
+        /// the last payload byte and never pads the region, so a reader that stopped earlier left part of
+        /// the save unread, and the object graph it returns is only as trustworthy as the part it did read.
+        /// A schema mismatch used to reach this point silently - the interpreter skips a field it cannot
+        /// map, skips a payload its grammar does not describe, and returns - so the check turns one whole
+        /// class of "your save loaded, but half of it is missing" into a typed error naming the offsets.
+        /// <para>
+        /// <b>What this is not.</b> It is a detector, not evidence that the format or the schema was
+        /// truthful. A desync that happens to land exactly on the end of the data section passes here and
+        /// still decodes wrong values, and a deliberately lying <c>SchemaRegistry.Register</c>ed schema
+        /// matches its own fingerprint just the same (see <c>Format/LAYOUT.md</c>). It cannot stand in for
+        /// truthful custom-payload metadata either: it only says the reader covered the whole declared
+        /// region, which is a necessary - not sufficient - condition for a correct load.
+        /// </para>
+        /// <para>
+        /// <b>Why the exception type depends on the path.</b> The interpreter ran because the stored
+        /// fingerprint did not match this context's, so the file's own schema was mapped onto the current
+        /// model and the two disagreeing is a schema/layout problem the caller can act on
+        /// (<see cref="Ceras.Exceptions.CerasSchemaException"/>). The generated reader ran because the
+        /// fingerprint <em>did</em> match, so the file declares this build's own layout and no layout
+        /// disagreement can explain a leftover: what is left are bytes that are not a Ceras save of this
+        /// layout (<see cref="Ceras.Exceptions.CerasDataCorruptionException"/>), whether from a
+        /// hand-edited block, a foreign block, or a decoder defect.
+        /// </para>
+        /// <para>
+        /// The happy path is a single integer compare with no allocation, and the reader is already
+        /// bounded to the declared slice, so this costs the same O(1) on the generated path (which
+        /// deliberately parses no schema) as on the interpreter path.
+        /// </para>
+        /// </summary>
+        static void VerifyDataSectionConsumedExactly(ref SequenceReader<byte> reader, long dataSectionOffset,
+            long stringTableOffset, bool fingerprintMatched, Type rootType)
+        {
+            // Taken from the header rather than from reader.Sequence.Length (which holds the same value):
+            // the report has to talk about the region the file *declares*, because that declaration is
+            // what a writer and a reader disagree about.
+            long declaredLength = stringTableOffset - dataSectionOffset;
+            long consumed = reader.Consumed;
+            if (consumed == declaredLength)
+                return;
+
+            // The reader is constructed from exactly this slice, so it cannot have consumed more than the
+            // region holds; the leftover count is therefore a real "bytes no reader ever looked at".
+            long unread = declaredLength - consumed;
+            long stoppedAt = dataSectionOffset + consumed;
+
+            string readerDescription = fingerprintMatched
+                ? "the generated (matching-layout) reader"
+                : "the migration interpreter, running because the layout fingerprint did not match";
+            string because = fingerprintMatched
+                ? "a matching fingerprint means the file declares this build's own layout, so no layout disagreement can explain the leftover"
+                : "the file's own schema section was mapped onto this build's model, and the two do not describe the same payload";
+
+            string message =
+                $"The save's declared data section is [{dataSectionOffset}, {stringTableOffset}) " +
+                $"({declaredLength} bytes), but reading the root '{TypeIdentity.GetCanonicalNameOrUnknown(rootType)}' consumed only " +
+                $"{consumed} of them and stopped at file offset {stoppedAt}: {unread} byte(s) of the data section were never read. " +
+                $"The reader was {readerDescription}, and {because}. A robust save holds nothing after the root's payload " +
+                "(see Format/LAYOUT.md, \"Envelope\"), so a leftover means this build and the file do not agree on the layout of the " +
+                "data section - typically a member the file wrote that this build does not describe, a member whose type changed shape, " +
+                "or a payload written by a formatter no schema accounts for. Load the save with the build that wrote it, or start the save " +
+                "again. Note this is a consumption check only: it says the reader covered the whole declared region, not that the schema " +
+                "described those bytes correctly, and it cannot detect a mismatch that happens to land exactly on the end of the region.";
+
+            if (fingerprintMatched)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(message);
+
+            throw new Ceras.Exceptions.CerasSchemaException(message);
         }
 
         /// <summary>
