@@ -86,14 +86,20 @@ namespace Ceras.Formatters {
 			var entry = GetOrCreateEntry(specificType);
 
 			if (!entry.IsValueType) {
+				bool allocated = false;
 				if (value != null) {
 					if (value.GetType() != specificType) {
 						value = (T)entry.Constructor();
+						allocated = true;
 					}
 				}
 				else {
 					value = (T)entry.Constructor();
+					allocated = true;
 				}
+				// Tell the specific formatter (if it is generated) whether it must run the
+				// constructor exactly once (new instance) or must leave the reused instance alone.
+				_ceras.SetCurrentObjectFresh(allocated);
 			}
 
 			var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>(specificType);
@@ -258,7 +264,11 @@ namespace Ceras.Formatters {
 				return;
 			}
 			if (value == null) {
+				_ceras.SetCurrentObjectFresh(true);
 				value = (T)_constructor();
+			}
+			else {
+				_ceras.SetCurrentObjectFresh(false);
 			}
 			var objectProxy = _ceras.InstanceData.ObjectCache.CreateDeserializationProxy<T>(typeof(T));
 			objectProxy.Value = value;

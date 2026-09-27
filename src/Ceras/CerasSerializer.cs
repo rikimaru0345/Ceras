@@ -214,6 +214,29 @@ namespace Ceras
 			InstanceData.CurrentProxy?.SetObjectValue(value);
 		}
 
+		/// <summary>
+		/// Records whether the object that a generated formatter is about to deserialize was newly
+		/// allocated by the reference wrapper for this dispatch (so the selected constructor must run
+		/// exactly once) or is an existing instance being reused (so its constructor and field
+		/// initializers must not run again). Set by <see cref="Formatters.ReferenceFormatter{T}"/>
+		/// and <see cref="Formatters.ReferenceFormatter_KnownSealedType{T}"/> immediately before they
+		/// invoke the specific formatter.
+		/// </summary>
+		internal void SetCurrentObjectFresh(bool fresh) => InstanceData.CurrentObjectIsNew = fresh;
+
+		/// <summary>
+		/// Reads and resets <see cref="InstanceData.CurrentObjectIsNew"/>. Generated readers call this
+		/// once at the start of <c>Deserialize</c> (for reference types) so the flag can never leak into
+		/// a sibling dispatch. When the generated reader allocates the instance itself (a null argument)
+		/// it must treat that as fresh regardless of the consumed value.
+		/// </summary>
+		public bool ConsumeCurrentObjectFresh()
+		{
+			bool fresh = InstanceData.CurrentObjectIsNew;
+			InstanceData.CurrentObjectIsNew = false;
+			return fresh;
+		}
+
 		public class FixedArrayBufferWriter : IBufferWriter<byte>
 		{
 			public byte[] Buffer; public int Offset;
@@ -487,6 +510,7 @@ namespace Ceras
 		public ObjectCache.RefProxy CurrentProxy;
 		public object UserContext;
 		public HashSet<Type> EncounteredSchemaTypes;
+		public bool CurrentObjectIsNew;
 
 		// Fixup context for circular references in [CerasConstructor]
 

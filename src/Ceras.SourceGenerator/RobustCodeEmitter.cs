@@ -112,6 +112,7 @@ namespace Ceras.SourceGenerator {
 			}
 			else {
 				if (type.IsReferenceType) {
+					sb.AppendLine("                bool __ceras_fresh = _ceras.ConsumeCurrentObjectFresh();");
 					sb.AppendLine("                if (value == null)");
 					sb.AppendLine("                {");
 					if (accessors.CtorIsDirectNew) {
@@ -125,6 +126,7 @@ namespace Ceras.SourceGenerator {
 						// the object currently being built.
 						sb.AppendLine($"                    value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
 					}
+					sb.AppendLine("                    __ceras_fresh = true;");
 					sb.AppendLine("                    _ceras.SetCurrentObject(value);");
 
 					if (accessors.CtorNeedsAccessor && bestCtor != null && bestCtor.Parameters.Length == 0) {
@@ -164,6 +166,8 @@ namespace Ceras.SourceGenerator {
 				}
 
 				// Invoke the constructor (with parameters) now that all members were read into locals.
+				// Only when this dispatch actually produced a new instance: reusing an existing object
+				// must not run its constructor (or its field initializers) again.
 				if (bestCtorForMapping != null && bestCtorForMapping.Parameters.Length > 0) {
 					var args = string.Join(", ", bestCtorForMapping.Parameters.Select(p => {
 						string normParam = NormalizeName(p.Name);
@@ -191,7 +195,10 @@ namespace Ceras.SourceGenerator {
 							? accessors.CtorParameterModifier(p) + "l_" + TypeHelpers.SanitizeIdentifier(match.Name)
 							: FormatDefaultArgument(p);
 					}));
-					sb.AppendLine($"                {accessors.CtorCallTarget}__ceras_ctor(value, {args});");
+					sb.AppendLine("                if (__ceras_fresh)");
+					sb.AppendLine("                {");
+					sb.AppendLine($"                    {accessors.CtorCallTarget}__ceras_ctor(value, {args});");
+					sb.AppendLine("                }");
 				}
 
 				// Assign locals to members

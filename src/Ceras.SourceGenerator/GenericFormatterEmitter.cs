@@ -92,12 +92,14 @@ namespace Ceras.SourceGenerator
             sb.AppendLine("        {");
             if (definition.IsReferenceType)
             {
+                sb.AppendLine("                bool __ceras_fresh = _ceras.ConsumeCurrentObjectFresh();");
                 sb.AppendLine("                if (value == null)");
                 sb.AppendLine("                {");
                 if (accessors.CtorIsDirectNew)
                     sb.AppendLine($"                    value = new {typeFqn}();");
                 else
                     sb.AppendLine($"                    value = ({typeFqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({typeFqn}));");
+                sb.AppendLine("                    __ceras_fresh = true;");
                 sb.AppendLine("                    _ceras.SetCurrentObject(value);");
                 if (accessors.CtorNeedsAccessor && bestCtor != null && bestCtor.Parameters.Length == 0)
                     sb.AppendLine($"                    {accessors.CtorCallTarget}__ceras_ctor(value);");
@@ -145,7 +147,10 @@ namespace Ceras.SourceGenerator
                         ? accessors.CtorParameterModifier(p) + "l_" + SanitizeIdentifier(match.Name)
                         : RobustCodeEmitter.FormatDefaultArgument(p);
                 }));
-                sb.AppendLine($"                {accessors.CtorCallTarget}__ceras_ctor(value, {args});");
+                sb.AppendLine("                if (__ceras_fresh)");
+                sb.AppendLine("                {");
+                sb.AppendLine($"                    {accessors.CtorCallTarget}__ceras_ctor(value, {args});");
+                sb.AppendLine("                }");
             }
 
             foreach (var m in members)
