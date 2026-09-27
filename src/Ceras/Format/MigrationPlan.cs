@@ -21,13 +21,28 @@ namespace Ceras.Format
         public CoercionKind Coercion;
     }
 
+    /// <summary>The parameter shape of a deserialization callback accepted by the interpreter.</summary>
+    enum CallbackArgumentKind
+    {
+        None = 0,
+        Serializer = 1,
+        MigrationContext = 2,
+    }
+
     sealed class TypeMigrationPlan
     {
         public Type CurrentType;
         public FieldMapping[] Mappings;
         public string[] AddedFieldNames;
         public bool HasChanges;
-        public MethodInfo OnAfterDeserialize; // method taking MigrationContext, or null
+        public MethodInfo OnBeforeDeserialize;
+        public CallbackArgumentKind OnBeforeDeserializeArgument;
+        public MethodInfo OnAfterDeserialize;
+        public CallbackArgumentKind OnAfterDeserializeArgument;
+        // Cached invokers that already carry the migration context for this type. Built by the
+        // traversal engine once per plan (the migration context is identical for every instance).
+        public Action<CerasSerializer, object> BeforeInvoker;
+        public Action<CerasSerializer, object> AfterInvoker;
         public Dictionary<long, long> EnumValueMap;
     }
 
@@ -125,7 +140,10 @@ namespace Ceras.Format
             plan.HasChanges = plan.AddedFieldNames.Length > 0
                 || Array.Exists(plan.Mappings, m => m.NewField == null);
 
-            plan.OnAfterDeserialize = FindMigrationCallback(currentType);
+            plan.OnBeforeDeserialize = FindCallback(currentType, typeof(OnBeforeDeserializeAttribute), out var beforeArg);
+            plan.OnBeforeDeserializeArgument = beforeArg;
+            plan.OnAfterDeserialize = FindCallback(currentType, typeof(OnAfterDeserializeAttribute), out var afterArg);
+            plan.OnAfterDeserializeArgument = afterArg;
             return plan;
         }
 
@@ -240,17 +258,57 @@ namespace Ceras.Format
             return false;
         }
 
-        static MethodInfo FindMigrationCallback(Type type)
+        /// <summary>
+        /// Finds a deserialization callback on <paramref name="type"/> or a base type. The hierarchy is
+        /// walked from the most derived type up so a private base callback is found (reflection's
+        /// <c>GetMethods</c> would miss a private base method declared on a derived type's formatter).
+        /// Within one type the parameterless form is preferred, then <c>(MigrationContext)</c>, then
+        /// <c>(CerasSerializer)</c>.
+        /// </summary>
+        static MethodInfo FindCallback(Type type, Type attributeType, out CallbackArgumentKind kind)
         {
-            foreach (var m in type.GetMethods(
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+            kind = CallbackArgumentKind.None;
+            if (type == null) return null;
+
+            for (var t = type; t != null && t != typeof(object); t = t.BaseType)
             {
-                if (m.GetCustomAttribute<OnAfterDeserializeAttribute>() == null) continue;
-                var ps = m.GetParameters();
-                if (ps.Length == 0) return m;
-                if (ps.Length == 1 && ps[0].ParameterType == typeof(MigrationContext))
-                    return m;
+                MethodInfo best = null;
+                CallbackArgumentKind bestKind = CallbackArgumentKind.None;
+                int bestRank = int.MaxValue;
+
+                foreach (var m in t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                {
+                    if (m.IsStatic || m.ReturnType != typeof(void) || m.IsGenericMethod) continue;
+                    if (m.GetCustomAttribute(attributeType) == null) continue;
+
+                    var ps = m.GetParameters();
+                    CallbackArgumentKind k;
+                    if (ps.Length == 0) k = CallbackArgumentKind.None;
+                    else if (ps.Length == 1 && ps[0].ParameterType == typeof(MigrationContext)) k = CallbackArgumentKind.MigrationContext;
+                    else if (ps.Length == 1 && ps[0].ParameterType == typeof(CerasSerializer)) k = CallbackArgumentKind.Serializer;
+                    else continue;
+
+                    int rank = k switch
+                    {
+                        CallbackArgumentKind.None => 0,
+                        CallbackArgumentKind.MigrationContext => 1,
+                        _ => 2,
+                    };
+                    if (best == null || rank < bestRank)
+                    {
+                        best = m;
+                        bestKind = k;
+                        bestRank = rank;
+                    }
+                }
+
+                if (best != null)
+                {
+                    kind = bestKind;
+                    return best;
+                }
             }
+
             return null;
         }
 

@@ -31,11 +31,19 @@ namespace Ceras.SourceGenerator
             string typeFqn = definition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             string baseName = GenericBaseName(definition);
             var bestCtor = definition.IsReferenceType ? GetBestConstructor(definition, attrs.CerasConstructor, members) : null;
-            var accessors = new AccessorEmitter(compilation, context.ReportDiagnostic, definition, members, bestCtor);
+            var onBefore = MemberExplorer.FindCallback(definition, attrs, isBefore: true);
+            var onAfter = MemberExplorer.FindCallback(definition, attrs, isBefore: false);
+            var callbacks = new List<CallbackInfo>();
+            if (onBefore != null) callbacks.Add(onBefore);
+            if (onAfter != null) callbacks.Add(onAfter);
+            bool needsCerasField = definition.IsReferenceType
+                || (onBefore != null && onBefore.ParameterKind == CallbackParameterKind.Serializer)
+                || (onAfter != null && onAfter.ParameterKind == CallbackParameterKind.Serializer);
+            var accessors = new AccessorEmitter(compilation, context.ReportDiagnostic, definition, members, bestCtor, callbacks.Count > 0 ? callbacks : null);
 
             sb.AppendLine($"    internal class {baseName}{typeParams} : global::Ceras.Formatters.FormatterBase<{typeFqn}>{constraints}");
             sb.AppendLine("    {");
-            if (definition.IsReferenceType)
+            if (needsCerasField)
                 sb.AppendLine("        protected global::Ceras.CerasSerializer _ceras;");
             sb.AppendLine();
 
@@ -106,6 +114,9 @@ namespace Ceras.SourceGenerator
                 sb.AppendLine("                }");
             }
 
+            if (onBefore != null)
+                sb.AppendLine($"                {accessors.CallbackCallExpression(onBefore, "value", RobustCodeEmitter.CallbackArgument(onBefore, "_ceras"))};");
+
             foreach (var m in members)
             {
                 string fieldName = MakeFormatterFieldName(m.Type);
@@ -158,8 +169,24 @@ namespace Ceras.SourceGenerator
                 string localName = "l_" + SanitizeIdentifier(m.Name);
                 accessors.WriteMemberSet(sb, m, "value", localName, 16);
             }
+
+            if (onAfter != null)
+            {
+                if (definition.IsReferenceType)
+                    sb.AppendLine("                _ceras.EnqueueDeserializeCallback(value, __ceras_cb_after_invoke);");
+                else
+                    sb.AppendLine($"                {accessors.CallbackCallExpression(onAfter, "value", RobustCodeEmitter.CallbackArgument(onAfter, "_ceras"))};");
+            }
             sb.AppendLine("        }");
             sb.AppendLine();
+
+            if (onAfter != null && definition.IsReferenceType)
+            {
+                string call = accessors.CallbackCallExpression(onAfter, "__target", RobustCodeEmitter.CallbackArgument(onAfter, "__ceras"));
+                sb.AppendLine("        static readonly global::System.Action<global::Ceras.CerasSerializer, object> __ceras_cb_after_invoke =");
+                sb.AppendLine($"            static (__ceras, __target) => {call};");
+                sb.AppendLine();
+            }
 
             accessors.EmitDeclarations(sb, namespaceHelpers);
 

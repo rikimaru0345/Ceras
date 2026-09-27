@@ -31,18 +31,21 @@ namespace Ceras.SourceGenerator
         readonly INamedTypeSymbol _formattedType;
         readonly List<SerializedMember> _members;
         readonly IMethodSymbol? _ctor;
+        readonly List<CallbackInfo>? _callbacks;
         readonly bool _hasUnsafeAccessorType;
 
         const string CtorMethodName = "__ceras_ctor";
 
         public AccessorEmitter(Compilation compilation, Action<Diagnostic> report,
-            INamedTypeSymbol formattedType, List<SerializedMember> members, IMethodSymbol? ctor)
+            INamedTypeSymbol formattedType, List<SerializedMember> members, IMethodSymbol? ctor,
+            List<CallbackInfo>? callbacks = null)
         {
             _compilation = compilation;
             _report = report;
             _formattedType = formattedType;
             _members = members;
             _ctor = ctor;
+            _callbacks = callbacks;
             _hasUnsafeAccessorType =
                 compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.UnsafeAccessorTypeAttribute") != null;
         }
@@ -97,11 +100,36 @@ namespace Ceras.SourceGenerator
                 order.Add(ctorDef);
             }
 
+            // Deserialization callbacks are invoked through an UnsafeAccessor as well, so a callback's
+            // declaring type (which may be a base type) participates in the same grouping.
+            var callbackGroups = new Dictionary<INamedTypeSymbol, List<CallbackInfo>>(SymbolEqualityComparer.Default);
+            if (_callbacks != null)
+            {
+                foreach (var cb in _callbacks)
+                {
+                    if (cb.Method.IsStatic) continue;
+                    var cbDef = cb.Method.ContainingType.OriginalDefinition;
+                    if (!callbackGroups.TryGetValue(cbDef, out var list))
+                    {
+                        list = new List<CallbackInfo>();
+                        callbackGroups[cbDef] = list;
+                    }
+                    list.Add(cb);
+
+                    if (!groups.ContainsKey(cbDef))
+                    {
+                        groups[cbDef] = new List<SerializedMember>();
+                        order.Add(cbDef);
+                    }
+                }
+            }
+
             foreach (var def in order)
             {
                 bool generic = IsGenericContext(def);
                 bool accessible = IsTypeAccessible(def);
                 bool hasCtor = CtorNeedsAccessor && SymbolEqualityComparer.Default.Equals(def, ctorDef);
+                callbackGroups.TryGetValue(def, out var callbacks);
 
                 if (generic)
                 {
@@ -110,20 +138,20 @@ namespace Ceras.SourceGenerator
                         ReportUnsupported(def, "its declaring type is a generic type that generated code cannot name");
                         continue;
                     }
-                    EmitGenericHelper(genericSink, def, groups[def], hasCtor);
+                    EmitGenericHelper(genericSink, def, groups[def], hasCtor, callbacks);
                 }
                 else if (!accessible)
                 {
-                    EmitInaccessibleInline(sb, def, groups[def], hasCtor);
+                    EmitInaccessibleInline(sb, def, groups[def], hasCtor, callbacks);
                 }
                 else
                 {
-                    EmitInline(sb, def, groups[def], hasCtor);
+                    EmitInline(sb, def, groups[def], hasCtor, callbacks);
                 }
             }
         }
 
-        void EmitInline(StringBuilder sb, INamedTypeSymbol decl, List<SerializedMember> members, bool hasCtor)
+        void EmitInline(StringBuilder sb, INamedTypeSymbol decl, List<SerializedMember> members, bool hasCtor, List<CallbackInfo>? callbacks)
         {
             string declFqn = decl.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             string recvDecl = decl.IsValueType ? "ref " + declFqn : declFqn;
@@ -133,9 +161,11 @@ namespace Ceras.SourceGenerator
 
             foreach (var m in members)
                 EmitMemberAccessors(sb, m, recvDecl, openTypes: false);
+
+            EmitCallbackAccessors(sb, callbacks, recvDecl);
         }
 
-        void EmitInaccessibleInline(StringBuilder sb, INamedTypeSymbol decl, List<SerializedMember> members, bool hasCtor)
+        void EmitInaccessibleInline(StringBuilder sb, INamedTypeSymbol decl, List<SerializedMember> members, bool hasCtor, List<CallbackInfo>? callbacks)
         {
             if (!_hasUnsafeAccessorType)
             {
@@ -151,9 +181,11 @@ namespace Ceras.SourceGenerator
 
             foreach (var m in members)
                 EmitMemberAccessors(sb, m, recvDecl, openTypes: false);
+
+            EmitCallbackAccessors(sb, callbacks, recvDecl);
         }
 
-        void EmitGenericHelper(StringBuilder sb, INamedTypeSymbol originalDef, List<SerializedMember> members, bool hasCtor)
+        void EmitGenericHelper(StringBuilder sb, INamedTypeSymbol originalDef, List<SerializedMember> members, bool hasCtor, List<CallbackInfo>? callbacks)
         {
             var ps = new List<ITypeParameterSymbol>();
             var args = new List<ITypeSymbol>();
@@ -173,8 +205,23 @@ namespace Ceras.SourceGenerator
             foreach (var m in members)
                 EmitMemberAccessors(sb, m, recvDecl, openTypes: true);
 
+            EmitCallbackAccessors(sb, callbacks, recvDecl);
+
             sb.AppendLine("        }");
             sb.AppendLine();
+        }
+
+        void EmitCallbackAccessors(StringBuilder sb, List<CallbackInfo>? callbacks, string recvDecl)
+        {
+            if (callbacks == null) return;
+
+            foreach (var cb in callbacks)
+            {
+                string args = cb.HasArgument ? ", " + cb.ArgumentTypeFqn + " arg" : "";
+                sb.AppendLine($"        [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = {QuoteString(cb.Method.Name)})]");
+                sb.AppendLine($"        internal static extern void {CallbackAccessorName(cb)}({recvDecl} instance{args});");
+                sb.AppendLine();
+            }
         }
 
         void EmitMemberAccessors(StringBuilder sb, SerializedMember m, string recvDecl, bool openTypes)
@@ -288,6 +335,34 @@ namespace Ceras.SourceGenerator
 
         /// <summary>Argument list (leading comma optional) for invoking the constructor accessor.</summary>
         public string CtorParameterModifier(IParameterSymbol p) => ParameterModifier(p);
+
+        // ------------------------------------------------------------------
+        // Deserialization callbacks
+        // ------------------------------------------------------------------
+
+        static string CallbackAccessorName(CallbackInfo cb) => cb.IsBefore ? "__ceras_cb_before" : "__ceras_cb_after";
+
+        /// <summary>
+        /// The prefix needed to reach the callback accessor from the generated formatter. Generic
+        /// declaring types place their accessors in the shared generic helper, just like members.
+        /// </summary>
+        public string CallbackCallTarget(CallbackInfo cb)
+        {
+            var decl = cb.Method.ContainingType;
+            if (IsGenericContext(decl))
+                return GenericHelperName(decl.OriginalDefinition) + TypeArgsList(decl) + ".";
+            return "";
+        }
+
+        /// <summary>Expression that invokes a deserialization callback on <paramref name="targetExpr"/>.</summary>
+        public string CallbackCallExpression(CallbackInfo cb, string targetExpr, string argumentExpr)
+        {
+            string target = CallbackCallTarget(cb);
+            string recv = ReceiverArg(cb.Method.ContainingType, targetExpr);
+            if (!cb.HasArgument)
+                return $"{target}{CallbackAccessorName(cb)}({recv})";
+            return $"{target}{CallbackAccessorName(cb)}({recv}, {argumentExpr})";
+        }
 
         // ------------------------------------------------------------------
         // Naming / helpers

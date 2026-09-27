@@ -563,6 +563,64 @@ namespace Ceras.SourceGenerator
             return GetBestConstructor(type, cerasConstructorAttr, members) != null;
         }
 
+        /// <summary>
+        /// Finds the deserialization callback of the requested kind. The search walks from the most
+        /// derived type up; the first declaring type that has a matching method wins, so a derived
+        /// declaration shadows a base one, while a private base callback is still found (the generated
+        /// reader invokes it through an UnsafeAccessor). Within one declaring type the parameterless
+        /// form is preferred over <c>(MigrationContext)</c> over <c>(CerasSerializer)</c>, matching the
+        /// runtime migration callback selection.
+        /// </summary>
+        public static CallbackInfo FindCallback(INamedTypeSymbol type, AttributeBag attrs, bool isBefore)
+        {
+            var attrType = isBefore ? attrs.OnBeforeDeserialize : attrs.OnAfterDeserialize;
+            if (attrType == null) return null;
+
+            for (var t = type; t != null && t.SpecialType != SpecialType.System_Object; t = t.BaseType)
+            {
+                CallbackInfo best = null;
+                int bestRank = int.MaxValue;
+
+                foreach (var member in t.GetMembers())
+                {
+                    if (member is not IMethodSymbol m) continue;
+                    if (m.IsStatic || !m.ReturnsVoid || m.IsGenericMethod) continue;
+                    if (!HasAttribute(m, attrType)) continue;
+
+                    var ps = m.Parameters;
+                    CallbackParameterKind kind;
+                    if (ps.Length == 0)
+                        kind = CallbackParameterKind.None;
+                    else if (ps.Length == 1 && attrs.MigrationContextType != null &&
+                             SymbolEqualityComparer.Default.Equals(ps[0].Type, attrs.MigrationContextType))
+                        kind = CallbackParameterKind.MigrationContext;
+                    else if (ps.Length == 1 && attrs.CerasSerializerType != null &&
+                             SymbolEqualityComparer.Default.Equals(ps[0].Type, attrs.CerasSerializerType))
+                        kind = CallbackParameterKind.Serializer;
+                    else
+                        continue;
+
+                    int rank = CallbackRank(kind);
+                    if (best == null || rank < bestRank)
+                    {
+                        best = new CallbackInfo(m, isBefore, kind);
+                        bestRank = rank;
+                    }
+                }
+
+                if (best != null) return best;
+            }
+
+            return null;
+        }
+
+        static int CallbackRank(CallbackParameterKind kind) => kind switch
+        {
+            CallbackParameterKind.None => 0,
+            CallbackParameterKind.MigrationContext => 1,
+            _ => 2,
+        };
+
         // --------------------------------------------------------------------------------------------
         // Unsupported constructor-dependent immutable cycles (TODO Phase 3.2).
         //

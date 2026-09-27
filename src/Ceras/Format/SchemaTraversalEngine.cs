@@ -48,6 +48,34 @@ namespace Ceras.Format
                 _oldById.TryAdd(s.TypeId, s);
 
             _plans = MigrationPlanBuilder.BuildAll(oldSchemas, _registry);
+
+            // Pre-build the callback invokers. The migration context is identical for every instance
+            // of a type, so it is constructed once per plan rather than once per object.
+            foreach (var plan in _plans.Values)
+            {
+                var callbackContext = new MigrationContext(
+                    true,
+                    _robustVersion,
+                    CollectSkippedFields(plan),
+                    new HashSet<string>(plan.AddedFieldNames ?? Array.Empty<string>(), StringComparer.Ordinal));
+                plan.BeforeInvoker = MakeInvoker(plan.OnBeforeDeserialize, plan.OnBeforeDeserializeArgument, callbackContext);
+                plan.AfterInvoker = MakeInvoker(plan.OnAfterDeserialize, plan.OnAfterDeserializeArgument, callbackContext);
+            }
+        }
+
+        static Action<CerasSerializer, object> MakeInvoker(MethodInfo method, CallbackArgumentKind kind, MigrationContext context)
+        {
+            if (method == null) return null;
+
+            switch (kind)
+            {
+                case CallbackArgumentKind.Serializer:
+                    return (ceras, target) => method.Invoke(target, new object[] { ceras });
+                case CallbackArgumentKind.MigrationContext:
+                    return (ceras, target) => method.Invoke(target, new object[] { context });
+                default:
+                    return (ceras, target) => method.Invoke(target, null);
+            }
         }
 
         // ── Public entry point ────────────────────────────────────────────────
@@ -329,10 +357,16 @@ namespace Ceras.Format
                 object structObj = existingObject ?? CreateInstance(currentType);
                 if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = structObj;
 
+                FireBeforeCallback(structObj, plan);
+
                 if (TryReadCustomFormatter(currentType, ref structObj, ref reader))
+                {
+                    FireAfterCallbackInline(structObj, plan);
                     return structObj;
+                }
 
                 ReadAndApplyFields(oldSchema, plan, structObj, ref reader);
+                FireAfterCallbackInline(structObj, plan);
                 return structObj;
             }
 
@@ -346,18 +380,17 @@ namespace Ceras.Format
                     ctor.Invoke(obj, null);
             }
 
+            FireBeforeCallback(obj, plan);
+
             if (TryReadCustomFormatter(currentType, ref obj, ref reader))
             {
-                if (plan != null && plan.OnAfterDeserialize != null && obj != null)
-                    FireCallback(obj, plan, plan.AddedFieldNames, CollectSkippedFields(plan));
+                EnqueueAfterCallback(obj, plan);
                 return obj;
             }
 
             ReadAndApplyFields(oldSchema, plan, obj, ref reader);
 
-            if (plan != null && plan.OnAfterDeserialize != null && obj != null)
-                FireCallback(obj, plan, plan.AddedFieldNames, CollectSkippedFields(plan));
-
+            EnqueueAfterCallback(obj, plan);
             return obj;
         }
 
@@ -398,10 +431,16 @@ namespace Ceras.Format
                 object structObj = existingObject ?? CreateInstance(currentType);
                 if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = structObj;
 
+                FireBeforeCallback(structObj, plan);
+
                 if (TryReadCustomFormatter(currentType, ref structObj, ref reader))
+                {
+                    FireAfterCallbackInline(structObj, plan);
                     return structObj;
+                }
 
                 ReadAndApplyFields(oldSchema, plan, structObj, ref reader);
+                FireAfterCallbackInline(structObj, plan);
                 return structObj;
             }
 
@@ -415,10 +454,17 @@ namespace Ceras.Format
                     ctor.Invoke(obj, null);
             }
 
+            FireBeforeCallback(obj, plan);
+
             if (TryReadCustomFormatter(currentType, ref obj, ref reader))
+            {
+                EnqueueAfterCallback(obj, plan);
                 return obj;
+            }
 
             ReadAndApplyFields(oldSchema, plan, obj, ref reader);
+
+            EnqueueAfterCallback(obj, plan);
             return obj;
         }
 
@@ -891,22 +937,31 @@ namespace Ceras.Format
         static HashSet<string> CollectSkippedFields(TypeMigrationPlan plan)
         {
             var set = new HashSet<string>(StringComparer.Ordinal);
+            if (plan.Mappings == null) return set;
             foreach (var m in plan.Mappings) if (m.NewField == null && m.OldField != null) set.Add(m.OldField.StableName);
             return set;
         }
 
-        void FireCallback(object obj, TypeMigrationPlan plan, string[] addedFields, HashSet<string> skippedFields)
+        void FireBeforeCallback(object obj, TypeMigrationPlan plan)
         {
-            if (plan.OnAfterDeserialize == null) return;
+            if (obj == null || plan?.BeforeInvoker == null) return;
+            plan.BeforeInvoker(_serializer, obj);
+        }
 
-            if (plan.OnAfterDeserialize.GetParameters().Length == 0)
-            {
-                plan.OnAfterDeserialize.Invoke(obj, null);
-                return;
-            }
+        /// <summary>
+        /// Defers the post-deserialization callback until the whole root graph is populated. Used for
+        /// reference types; value types invoke it inline because a boxed struct copy cannot be deferred.
+        /// </summary>
+        void EnqueueAfterCallback(object obj, TypeMigrationPlan plan)
+        {
+            if (obj == null || plan?.AfterInvoker == null) return;
+            _serializer.EnqueueDeserializeCallback(obj, plan.AfterInvoker);
+        }
 
-            var ctx = new MigrationContext(true, _robustVersion, skippedFields, new HashSet<string>(addedFields ?? Array.Empty<string>(), StringComparer.Ordinal));
-            plan.OnAfterDeserialize.Invoke(obj, new object[] { ctx });
+        void FireAfterCallbackInline(object obj, TypeMigrationPlan plan)
+        {
+            if (obj == null || plan?.AfterInvoker == null) return;
+            plan.AfterInvoker(_serializer, obj);
         }
 
         bool TryReadCustomFormatter(Type type, ref object obj, ref SequenceReader<byte> reader)

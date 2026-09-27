@@ -21,11 +21,19 @@ namespace Ceras.SourceGenerator {
 			string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 			string formatterName = MakeFormatterClassName(type);
 			var bestCtor = type.IsReferenceType ? GetBestConstructor(type, attrs.CerasConstructor, members) : null;
-			var accessors = new AccessorEmitter(compilation, context.ReportDiagnostic, type, members, bestCtor);
+			var onBefore = MemberExplorer.FindCallback(type, attrs, isBefore: true);
+			var onAfter = MemberExplorer.FindCallback(type, attrs, isBefore: false);
+			var callbacks = new List<CallbackInfo>();
+			if (onBefore != null) callbacks.Add(onBefore);
+			if (onAfter != null) callbacks.Add(onAfter);
+			bool needsCerasField = type.IsReferenceType
+				|| (onBefore != null && onBefore.ParameterKind == CallbackParameterKind.Serializer)
+				|| (onAfter != null && onAfter.ParameterKind == CallbackParameterKind.Serializer);
+			var accessors = new AccessorEmitter(compilation, context.ReportDiagnostic, type, members, bestCtor, callbacks.Count > 0 ? callbacks : null);
 
 			sb.AppendLine($"    internal sealed class {formatterName} : global::Ceras.Formatters.FormatterBase<{typeFqn}>");
 			sb.AppendLine("    {");
-			if (type.IsReferenceType)
+			if (needsCerasField)
 				sb.AppendLine("        global::Ceras.CerasSerializer _ceras;");
 			sb.AppendLine();
 
@@ -136,6 +144,10 @@ namespace Ceras.SourceGenerator {
 					sb.AppendLine("                }");
 				}
 
+				if (onBefore != null) {
+					sb.AppendLine($"                {accessors.CallbackCallExpression(onBefore, "value", CallbackArgument(onBefore, "_ceras"))};");
+				}
+
 				var bestCtorForMapping = bestCtor;
 
 				// Read all members into locals first (to support constructors with parameters and arbitrary field order)
@@ -210,7 +222,25 @@ namespace Ceras.SourceGenerator {
 					// But for consistency and to handle readonly fields (via UnsafeAccessor), we write it anyway.
 					accessors.WriteMemberSet(sb, m, "value", localName, 16);
 				}
+
+				if (onAfter != null) {
+					if (type.IsReferenceType) {
+						// Defer graph-inspecting work until the whole root graph is populated.
+						sb.AppendLine("                _ceras.EnqueueDeserializeCallback(value, __ceras_cb_after_invoke);");
+					}
+					else {
+						// A boxed struct copy cannot be deferred; run it once the value is fully read.
+						sb.AppendLine($"                {accessors.CallbackCallExpression(onAfter, "value", CallbackArgument(onAfter, "_ceras"))};");
+					}
+				}
 				sb.AppendLine("        }");
+			}
+
+			if (onAfter != null && type.IsReferenceType) {
+				string call = accessors.CallbackCallExpression(onAfter, "__target", CallbackArgument(onAfter, "__ceras"));
+				sb.AppendLine("        static readonly global::System.Action<global::Ceras.CerasSerializer, object> __ceras_cb_after_invoke =");
+				sb.AppendLine($"            static (__ceras, __target) => {call};");
+				sb.AppendLine();
 			}
 
 			// --- Access Helpers (UnsafeAccessor / direct access) ---
@@ -241,6 +271,17 @@ namespace Ceras.SourceGenerator {
 
 			return FormatLiteral(value);
 		}
+
+		/// <summary>
+		/// The extra argument a deserialization callback receives on the matching-layout generated
+		/// path: the serializer itself, or <see cref="MigrationContext.None"/> (no migration happened).
+		/// </summary>
+		public static string CallbackArgument(CallbackInfo cb, string serializerExpr) => cb.ParameterKind switch
+		{
+			CallbackParameterKind.Serializer => serializerExpr,
+			CallbackParameterKind.MigrationContext => "global::Ceras.Format.MigrationContext.None",
+			_ => "null",
+		};
 
 		static string FormatLiteral(object value) {
 			switch (value) {

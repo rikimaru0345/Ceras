@@ -207,12 +207,14 @@ namespace Ceras
 			EnterRecursive(RecursionMode.Deserialization);
 			try
 			{
+				InstanceData.DeserializeCallbacks = null;
 				GetFormatter<T>().Deserialize(ref reader, ref value);
+				FlushDeserializeCallbacks();
 				InstanceData.TypeCache.ResetDeserializationCache();
 				InstanceData.ObjectCache.ClearDeserializationCache();
 				InstanceData.EncounteredSchemaTypes.Clear();
 			}
-			finally { LeaveRecursive(RecursionMode.Deserialization); }
+			finally { InstanceData.DeserializeCallbacks = null; LeaveRecursive(RecursionMode.Deserialization); }
 		}
 
 		public void SetCurrentObject(object value)
@@ -241,6 +243,42 @@ namespace Ceras
 			bool fresh = InstanceData.CurrentObjectIsNew;
 			InstanceData.CurrentObjectIsNew = false;
 			return fresh;
+		}
+
+		// ── Deferred deserialization callbacks ──────────────────────────────────────────────
+		// Graph-inspecting [OnAfterDeserialize] callbacks must run only once the whole root graph is
+		// populated (parent/sibling/shared/cyclic references resolvable). Readers enqueue the target
+		// and its invoker instead of firing immediately; the top-level Deserialize / robust Load flushes
+		// the queue after the read completes. Types without callbacks never touch the (lazily created)
+		// queue, so the matching-layout fast path pays nothing for them.
+
+		/// <summary>
+		/// Enqueues a deferred post-deserialization callback for <paramref name="target"/>. Called by
+		/// generated readers (and by the migration interpreter) that found an <c>[OnAfterDeserialize]</c>
+		/// callback on the type they just read.
+		/// </summary>
+		public void EnqueueDeserializeCallback(object target, Action<CerasSerializer, object> callback)
+		{
+			if (callback == null) return;
+			(InstanceData.DeserializeCallbacks ??= new List<DeserializeCallback>()).Add(new DeserializeCallback(target, callback));
+		}
+
+		/// <summary>Runs and clears the deferred post-deserialization callbacks in insertion order.</summary>
+		internal void FlushDeserializeCallbacks()
+		{
+			var callbacks = InstanceData.DeserializeCallbacks;
+			if (callbacks == null) return;
+
+			InstanceData.DeserializeCallbacks = null;
+			for (int i = 0; i < callbacks.Count; i++)
+				callbacks[i].Callback(this, callbacks[i].Target);
+		}
+
+		internal readonly struct DeserializeCallback
+		{
+			public readonly object Target;
+			public readonly Action<CerasSerializer, object> Callback;
+			public DeserializeCallback(object target, Action<CerasSerializer, object> callback) { Target = target; Callback = callback; }
 		}
 
 		public class FixedArrayBufferWriter : IBufferWriter<byte>
@@ -517,6 +555,7 @@ namespace Ceras
 		public object UserContext;
 		public HashSet<Type> EncounteredSchemaTypes;
 		public bool CurrentObjectIsNew;
+		public List<CerasSerializer.DeserializeCallback> DeserializeCallbacks;
 
 		// Fixup context for circular references in [CerasConstructor]
 

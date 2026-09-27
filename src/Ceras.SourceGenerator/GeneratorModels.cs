@@ -12,12 +12,20 @@ namespace Ceras.SourceGenerator
         public readonly INamedTypeSymbol? SerializedAs;
         public readonly INamedTypeSymbol? CerasSerializable;
         public readonly INamedTypeSymbol? CerasConstructor;
+        public readonly INamedTypeSymbol? OnBeforeDeserialize;
+        public readonly INamedTypeSymbol? OnAfterDeserialize;
+        public readonly INamedTypeSymbol? CerasSerializerType;
+        public readonly INamedTypeSymbol? MigrationContextType;
 
         public AttributeBag(
             INamedTypeSymbol? include, INamedTypeSymbol? exclude, 
             INamedTypeSymbol? previousName, INamedTypeSymbol? previousTypeName, INamedTypeSymbol? serializedAs,
             INamedTypeSymbol? cerasSerializable,
-            INamedTypeSymbol? cerasConstructor)
+            INamedTypeSymbol? cerasConstructor,
+            INamedTypeSymbol? onBeforeDeserialize = null,
+            INamedTypeSymbol? onAfterDeserialize = null,
+            INamedTypeSymbol? cerasSerializerType = null,
+            INamedTypeSymbol? migrationContextType = null)
         {
             Include = include;
             Exclude = exclude;
@@ -26,7 +34,47 @@ namespace Ceras.SourceGenerator
             SerializedAs = serializedAs;
             CerasSerializable = cerasSerializable;
             CerasConstructor = cerasConstructor;
+            OnBeforeDeserialize = onBeforeDeserialize;
+            OnAfterDeserialize = onAfterDeserialize;
+            CerasSerializerType = cerasSerializerType;
+            MigrationContextType = migrationContextType;
         }
+    }
+
+    /// <summary>The supported parameter shape of a deserialization callback.</summary>
+    internal enum CallbackParameterKind
+    {
+        /// <summary><c>void M()</c></summary>
+        None = 0,
+        /// <summary><c>void M(CerasSerializer)</c> — access to the serializer / user context.</summary>
+        Serializer = 1,
+        /// <summary><c>void M(MigrationContext)</c> — describes what the migration skipped/added.</summary>
+        MigrationContext = 2,
+    }
+
+    /// <summary>
+    /// A discovered <c>[OnBeforeDeserialize]</c> / <c>[OnAfterDeserialize]</c> method together
+    /// with the argument shape the generated reader must pass it.
+    /// </summary>
+    internal sealed class CallbackInfo
+    {
+        public readonly IMethodSymbol Method;
+        public readonly bool IsBefore;
+        public readonly CallbackParameterKind ParameterKind;
+
+        public CallbackInfo(IMethodSymbol method, bool isBefore, CallbackParameterKind parameterKind)
+        {
+            Method = method;
+            IsBefore = isBefore;
+            ParameterKind = parameterKind;
+        }
+
+        public bool HasArgument => ParameterKind != CallbackParameterKind.None;
+
+        /// <summary>The fully-qualified parameter type when the callback takes one.</summary>
+        public string ArgumentTypeFqn => Method.Parameters.Length == 1
+            ? Method.Parameters[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+            : null;
     }
 
     [Flags]

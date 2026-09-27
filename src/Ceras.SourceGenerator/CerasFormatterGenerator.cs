@@ -77,10 +77,16 @@ namespace Ceras.SourceGenerator
             var previousTypeAttr = compilation.GetTypeByMetadataName(PreviousTypeNameFqn);
             var serializedAsAttr = compilation.GetTypeByMetadataName(SerializedAsFqn);
             var cerasConstructorAttr = compilation.GetTypeByMetadataName(CerasConstructorFqn);
+            var onBeforeDeserializeAttr = compilation.GetTypeByMetadataName(OnBeforeDeserializeFqn);
+            var onAfterDeserializeAttr = compilation.GetTypeByMetadataName(OnAfterDeserializeFqn);
+            var cerasSerializerType = compilation.GetTypeByMetadataName(CerasSerializerFqn);
+            var migrationContextType = compilation.GetTypeByMetadataName(MigrationContextFqn);
 
 			var attrBag = new AttributeBag(includeAttr, excludeAttr,
 				previousNameAttr, previousTypeAttr, serializedAsAttr,
-                cerasSerializableAttr, cerasConstructorAttr);
+                cerasSerializableAttr, cerasConstructorAttr,
+                onBeforeDeserializeAttr, onAfterDeserializeAttr,
+                cerasSerializerType, migrationContextType);
 
             var blacklistPatterns = new List<string>();
             foreach (var attr in compilation.Assembly.GetAttributes())

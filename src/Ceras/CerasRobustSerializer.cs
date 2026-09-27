@@ -286,10 +286,14 @@ namespace Ceras
             try
             {
                 var engine = new SchemaTraversalEngine(fileSchemas, payloadTable, robustVersion, this);
+                InstanceData.DeserializeCallbacks = null;
                 value = engine.ReadRoot<T>(ref reader, value);
+                // Deferred [OnAfterDeserialize] callbacks run once the whole graph is populated.
+                FlushDeserializeCallbacks();
             }
             finally
             {
+                InstanceData.DeserializeCallbacks = null;
                 RobustContext.End();
             }
         }

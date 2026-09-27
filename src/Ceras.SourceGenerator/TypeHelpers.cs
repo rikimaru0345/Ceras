@@ -16,6 +16,10 @@ namespace Ceras.SourceGenerator {
 		public const string ExcludeFromDiscoveryFqn = "Ceras.ExcludeAttribute";
 		public const string BlacklistFqn = "Ceras.CerasGeneratorBlacklistAttribute";
 		public const string CerasConstructorFqn = "Ceras.CerasConstructorAttribute";
+		public const string OnBeforeDeserializeFqn = "Ceras.OnBeforeDeserializeAttribute";
+		public const string OnAfterDeserializeFqn = "Ceras.OnAfterDeserializeAttribute";
+		public const string CerasSerializerFqn = "Ceras.CerasSerializer";
+		public const string MigrationContextFqn = "Ceras.Format.MigrationContext";
 
 		// --- Naming ---
 		public static readonly SymbolDisplayFormat FullyQualifiedNoGlobal = new(
