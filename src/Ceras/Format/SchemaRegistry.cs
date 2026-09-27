@@ -436,56 +436,69 @@ namespace Ceras.Format
 				return false;
 			}
 
+            // Steps 1-3 consult the registry's own maps, so they run under the lock. Step 4 walks every
+            // loaded assembly, which must not happen under it (0.8.14): the bake holds the same lock and
+            // calls this, so a scan here would serialise the whole process behind one name lookup.
             lock (_lock)
             {
                 // 1. Registered types are keyed by their canonical stable name. This covers generated
                 //    closed generics and (after bake) structural arrays/collections.
                 if (_byStableName.TryGetValue(stableName, out var e)) { type = e.Type; return true; }
-
-                // 2. Assembly-qualified CLR names resolve directly. This is the legacy/old-save shape
-                //    (Type.FullName for closed generics) and genuine external type names.
-                type = Type.GetType(stableName);
-                if (type != null) return true;
-
-                // 3. Canonical names of closed generics / arrays / pointers that are not registered yet
-                //    (e.g. a structural collection discovered while baking the schema). Definitions are
-                //    resolved from the framework or loaded assemblies.
-                if (TypeIdentity.TryParseCanonicalName(stableName, ResolveDefinitionNameLocked, out type))
-                    return true;
-
-                // 4. Last resort for genuinely-external/old names: an unqualified, non-canonical
-                //    Type.FullName or a definition name. Bounded scan of loaded assemblies.
-                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    type = assembly.GetType(stableName);
-                    if (type != null) return true;
-                }
-
-                type = null;
-                return false;
             }
+
+            // 2. Assembly-qualified CLR names resolve directly. This is the legacy/old-save shape
+            //    (Type.FullName for closed generics) and genuine external type names.
+            type = Type.GetType(stableName);
+            if (type != null) return true;
+
+            // 3. Canonical names of closed generics / arrays / pointers that are not registered yet
+            //    (e.g. a structural collection discovered while baking the schema). Definitions are
+            //    resolved from the framework or loaded assemblies.
+            if (TypeIdentity.TryParseCanonicalName(stableName, ResolveDefinitionName, out type))
+                return true;
+
+            // 4. Last resort for genuinely-external/old names: an unqualified, non-canonical
+            //    Type.FullName or a definition name. Bounded scan of loaded assemblies, unlocked.
+            type = ScanLoadedAssemblies(stableName);
+            return type != null;
         }
 
         /// <summary>
-        /// Resolves a generic/array element *definition* name (no arguments) to a <see cref="Type"/>
-        /// while <see cref="_lock"/> is held. Used only by canonical-name parsing on cold paths.
+        /// Looks a plain CLR name up in the loaded assemblies. Deliberately lock-free: it does not read
+        /// the registry, and a miss is not a correctness problem for the caller (a name that is absent
+        /// here is absent from the registry too, and <see cref="TryResolveType"/> is a cold path).
         /// </summary>
-        Type ResolveDefinitionNameLocked(string definitionName)
+        static Type ScanLoadedAssemblies(string name)
         {
-            if (string.IsNullOrEmpty(definitionName)) return null;
-
-            if (_byStableName.TryGetValue(definitionName, out var e)) return e.Type;
-
-            var type = Type.GetType(definitionName);
-            if (type != null) return type;
+            if (string.IsNullOrEmpty(name)) return null;
 
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
-                type = assembly.GetType(definitionName);
+                var type = assembly.GetType(name);
                 if (type != null) return type;
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Resolves a generic/array element *definition* name (no arguments) to a <see cref="Type"/>.
+        /// Used only by canonical-name parsing on cold paths, and called without <see cref="_lock"/> held
+        /// so the assembly scan cannot stall the registry (0.8.14).
+        /// </summary>
+        Type ResolveDefinitionName(string definitionName)
+        {
+            if (string.IsNullOrEmpty(definitionName)) return null;
+
+            lock (_lock)
+            {
+                if (_byStableName.TryGetValue(definitionName, out var e)) return e.Type;
+            }
+
+            var type = Type.GetType(definitionName);
+            if (type != null) return type;
+
+            return ScanLoadedAssemblies(definitionName);
         }
 
         /// <summary>Enumerates all registered entries in registration order.</summary>

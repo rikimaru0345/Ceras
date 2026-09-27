@@ -508,11 +508,15 @@ namespace Ceras.Format
             int  shift  = 0;
             while (true)
             {
-                if (!reader.TryRead(out byte b)) throw new InvalidOperationException("End of sequence");
+                if (!reader.TryRead(out byte b))
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        "Corrupt data: a length or count field runs past the end of the buffer (truncated payload).");
                 result |= (uint)(b & 0x7F) << shift;
                 if ((b & 0x80) == 0) return result;
                 shift += 7;
-                if (shift >= 35) throw new InvalidOperationException("LEB128 too long");
+                if (shift >= 35)
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        "Corrupt data: a length or count field is not a valid LEB128 (more than 5 bytes).");
             }
         }
 
@@ -537,24 +541,43 @@ namespace Ceras.Format
             writer.Advance(byteCount);
         }
 
-        internal static string ReadInlineString(ref SequenceReader<byte> reader)
+        /// <summary>
+        /// Reads a length-prefixed UTF-8 string. <paramref name="maxByteCount"/> is the caller's
+        /// configured limit: the declared length is checked against it *before* anything is allocated,
+        /// and against the bytes that actually remain, so a corrupt or hostile length can neither pick
+        /// an allocation size nor run the reader past the end of the buffer.
+        /// </summary>
+        internal static string ReadInlineString(ref SequenceReader<byte> reader, int maxByteCount = int.MaxValue)
         {
             uint byteCount = ReadLeb128(ref reader);
             if (byteCount == 0) return string.Empty;
-            if (reader.UnreadSpan.Length >= byteCount)
+
+            // uint -> int is only safe once the value is known to fit, which is what the limit gives us.
+            if (byteCount > (uint)maxByteCount)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt data: a string of {byteCount} bytes exceeds the configured limit of {maxByteCount} bytes.");
+
+            int length = (int)byteCount;
+            if (reader.Remaining < length)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt data: a string declares {length} bytes but only {reader.Remaining} remain (truncated payload).");
+
+            if (reader.UnreadSpan.Length >= length)
             {
-                var s = Encoding.UTF8.GetString(reader.UnreadSpan.Slice(0, (int)byteCount));
-                reader.Advance((int)byteCount);
+                var s = Encoding.UTF8.GetString(reader.UnreadSpan.Slice(0, length));
+                reader.Advance(length);
                 return s;
             }
             else
             {
-                byte[] temp = ArrayPool<byte>.Shared.Rent((int)byteCount);
+                byte[] temp = ArrayPool<byte>.Shared.Rent(length);
                 try
                 {
-                    reader.TryCopyTo(temp.AsSpan(0, (int)byteCount));
-                    var s = Encoding.UTF8.GetString(temp, 0, (int)byteCount);
-                    reader.Advance((int)byteCount);
+                    if (!reader.TryCopyTo(temp.AsSpan(0, length)))
+                        throw new Ceras.Exceptions.CerasDataCorruptionException(
+                            "Corrupt data: a string could not be copied out of the buffer (truncated payload).");
+                    var s = Encoding.UTF8.GetString(temp, 0, length);
+                    reader.Advance(length);
                     return s;
                 }
                 finally { ArrayPool<byte>.Shared.Return(temp); }

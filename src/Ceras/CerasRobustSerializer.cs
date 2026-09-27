@@ -226,26 +226,21 @@ namespace Ceras
 
             var payloadStrings = new StringInternTable();
 
-            RobustContext.BeginWrite(payloadStrings, typeToId);
+            // Scoped: a nested operation (a callback that saves) gets its own context and restores this
+            // one on the way out, instead of overwriting it.
+            using var writeScope = RobustContext.BeginWrite(payloadStrings, typeToId);
 
             if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
                 Ceras.Helpers.ObjectCache.BeginSerializeTrace();
 
-            try
-            {
-                var writer = new ArrayBufferWriter<byte>();
-                SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
-                Serialize(writer, rootObject);
+            var writer = new ArrayBufferWriter<byte>();
+            SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
+            Serialize(writer, rootObject);
 
-                var data = writer.WrittenSpan;
-                SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
-                data.CopyTo(buffer.AsSpan(offset));
-                offset += data.Length;
-            }
-            finally
-            {
-                RobustContext.End();
-            }
+            var written = writer.WrittenSpan;
+            SerializerBinary.EnsureCapacity(ref buffer, offset, written.Length);
+            written.CopyTo(buffer.AsSpan(offset));
+            offset += written.Length;
 
             int stringTableStart = payloadStrings.Flush(ref buffer, ref offset, _config.StringTableCompression);
             RobustHeader.FinalizeHeader(buffer, offset, (byte)_config.StringTableCompression, schemaStringOffset, dataStart, stringTableStart, schemaFingerprint);
@@ -304,7 +299,11 @@ namespace Ceras
             int schemaStringOffset = (int)schemaStringOffsetL;
 
             var compression = (StringTableCompression)compressionByte;
-            var payloadTable = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset, compression);
+
+            // Both regions are bounded by the configured limits *before* they are decoded: an entry
+            // length cannot pick an allocation, and a compressed region cannot expand without limit.
+            var payloadTable = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset,
+                compression, _config.SizeLimits.MaxStringLength, _config.SizeLimits.MaxStringTableSize);
 
             // Pin the declared set: the manifest is finite, so this can only verify.
             EnsureRootDeclared(registry, typeof(T));
@@ -330,14 +329,9 @@ namespace Ceras
                 int storedRootId = (int)SchemaSection.ReadLeb128(ref reader); // root type id
                 ValidateStoredRootType(storedRootId, typeof(T), idToType, registry, fingerprintMatched: true);
 
-                RobustContext.BeginRead(payloadTable, idToType);
-                try
+                using (RobustContext.BeginRead(payloadTable, idToType, _config.SizeLimits.MaxStringLength))
                 {
                     Deserialize(ref reader, ref value);
-                }
-                finally
-                {
-                    RobustContext.End();
                 }
                 return;
             }
@@ -346,7 +340,8 @@ namespace Ceras
             if (Ceras.Helpers.ObjectCache.DebugTraceEnabled) Console.WriteLine($"[CerasRobust] Fingerprint mismatch! File: {schemaFingerprint:X16}, Current: {currentFingerprint:X16}. Using SchemaTraversalEngine (slow path).");
 
             var schemaStrings = StringTable.Load(data, (int)schemaStringOffset,
-                (int)dataSectionOffset - (int)schemaStringOffset, StringTableCompression.Disabled);
+                (int)dataSectionOffset - (int)schemaStringOffset, StringTableCompression.Disabled,
+                _config.SizeLimits.MaxStringLength, _config.SizeLimits.MaxStringTableSize);
 
             int schemaLength = (int)schemaStringOffset - RobustHeader.Size;
             var schemaSeq = new ReadOnlySequence<byte>(data, RobustHeader.Size, schemaLength);
@@ -358,19 +353,21 @@ namespace Ceras
             int storedSlowRootId = (int)SchemaSection.ReadLeb128(ref reader); // root type id
             ValidateStoredRootType(storedSlowRootId, typeof(T), slowIdToType, registry, fingerprintMatched: false);
 
-            RobustContext.BeginRead(payloadTable, slowIdToType);
             try
             {
-                var engine = new SchemaTraversalEngine(fileSchemas, payloadTable, robustVersion, this);
-                InstanceData.DeserializeCallbacks = null;
-                value = engine.ReadRoot<T>(ref reader, value);
-                // Deferred [OnAfterDeserialize] callbacks run once the whole graph is populated.
-                FlushDeserializeCallbacks();
+                using (RobustContext.BeginRead(payloadTable, slowIdToType, _config.SizeLimits.MaxStringLength))
+                {
+                    var engine = new SchemaTraversalEngine(fileSchemas, payloadTable, robustVersion, this);
+                    InstanceData.DeserializeCallbacks = null;
+                    value = engine.ReadRoot<T>(ref reader, value);
+                    // Deferred [OnAfterDeserialize] callbacks run once the whole graph is populated.
+                    FlushDeserializeCallbacks();
+                }
             }
             finally
             {
+                // A failed or abandoned load must not leave callbacks queued for the next one.
                 InstanceData.DeserializeCallbacks = null;
-                RobustContext.End();
             }
         }
 
@@ -654,17 +651,28 @@ namespace Ceras
             if (data == null || data.Length < RobustHeader.Size)
                 return "// Invalid or empty data";
 
-            uint version = data[4];
+            // Validate the header like a load does, instead of only reading the version byte. Without
+            // this a corrupt buffer produced a raw ArgumentOutOfRangeException from the long -> int
+            // truncations below, while every neighbouring API reports a clean message (0.8.14). The
+            // version mismatch stays a message rather than an exception, because that is the one case
+            // a caller legitimately wants to *see* rather than have thrown at it.
+            RobustHeader.Validate(data);
+            uint version = data[RobustHeader.FormatVersionOffset];
             if (version != FormatVersion)
                 return $"// Format version mismatch. File: {version}, Library: {FormatVersion}";
 
             RobustHeader.Read(data, out _, out byte flags, out long schemaStringOffsetL,
                 out long dataSectionOffset, out long stringTableOffset, out ulong schemaFingerprint);
 
+            // Validate() has bounded both offsets by the data length and ordered them, so the narrowing
+            // conversions below cannot overflow.
             int schemaStringOffset = (int)schemaStringOffsetL;
+            int dataSectionOffsetI = (int)dataSectionOffset;
 
-            var schemaStrings = StringTable.Load(data, (int)schemaStringOffset,
-                (int)dataSectionOffset - (int)schemaStringOffset, StringTableCompression.Disabled);
+            // No config here (this is a static diagnostic), so the table itself is read unbounded; the
+            // per-entry and truncation checks inside StringTable.Load still apply.
+            var schemaStrings = StringTable.Load(data, schemaStringOffset,
+                dataSectionOffsetI - schemaStringOffset, StringTableCompression.Disabled);
 
             int schemaOffset = RobustHeader.Size;
             var sequence = new System.Buffers.ReadOnlySequence<byte>(data, schemaOffset, (int)schemaStringOffset - schemaOffset);

@@ -59,11 +59,23 @@ namespace Ceras
                 return;
             }
 
-            UtcTicks = DateTime.TryParse(utcIso8601, System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.RoundtripKind | System.Globalization.DateTimeStyles.AdjustToUniversal,
-                out var parsed)
-                ? parsed.Ticks
-                : 0;
+            if (!DateTime.TryParse(utcIso8601, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                    out var parsed))
+            {
+                // 0.8.14: this used to map an unparseable value to 0, i.e. "unknown build", so an MSBuild
+                // typo (a missing quote, a wrong format) silently disabled the newer-build gate for a
+                // release while the attribute was still present. That is a build-configuration mistake,
+                // not a runtime condition, so it fails here - at load of the owning assembly - where the
+                // cause is still obvious.
+                throw new ArgumentException(
+                    $"'{utcIso8601}' is not a valid ISO-8601 UTC timestamp, so it cannot be used as a CerasBuildTimestamp. " +
+                    "Pass UTC ticks as a number, or an ISO-8601 UTC string such as 2026-09-27T00:00:00.0000000Z " +
+                    "(MSBuild: $([System.DateTime]::UtcNow.ToString(\"o\"))). To declare the build as unknown, omit the attribute " +
+                    "entirely instead of passing an unparseable value.", nameof(utcIso8601));
+            }
+
+            UtcTicks = parsed.Ticks;
         }
     }
 
@@ -86,12 +98,12 @@ namespace Ceras
             return attr != null && attr.UtcTicks > 0 ? attr.UtcTicks : 0;
         }
 
-        /// <summary>
-        /// The producer build timestamp (UTC ticks) declared by the calling assembly, or 0 when unknown.
-        /// </summary>
-        public static long ProducerBuildTimestamp => GetProducerBuildTimestamp(Assembly.GetCallingAssembly());
-
-        /// <summary>True when the calling assembly declares a known producer build timestamp.</summary>
-        public static bool ProducerBuildTimestampKnown => ProducerBuildTimestamp > 0;
+        // There is deliberately no `ProducerBuildTimestamp` convenience property built on
+        // Assembly.GetCallingAssembly(): that call reports the assembly of the method that called the
+        // *current* method, so the answer changes if the compiler inlines this accessor into its caller
+        // (and it is exactly the frame-skipping problem already recorded against the serializer
+        // constructors). A wrapper cannot fix it - the assembly has to be passed explicitly, which is
+        // what GetProducerBuildTimestamp(Assembly) does. The old property and its `Known` companion were
+        // unused inside the library and are gone rather than left as a trap.
     }
 }

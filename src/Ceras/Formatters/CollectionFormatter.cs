@@ -65,6 +65,9 @@ namespace Ceras.Formatters
         IFormatter<TItem[,,]>,
         IFormatter<TItem[,,,]>
     {
+        /// <summary>The CLR's own array rank limit; a declared rank above it cannot be allocated.</summary>
+        const int MaxRank = 32;
+
         readonly uint _maxCount;
         readonly IFormatter<TItem> _itemFormatter;
 
@@ -88,16 +91,41 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref Array baseAr)
         {
-            int dimensions = (int)SerializerBinary.ReadUInt32(ref reader);
+            uint dimensionsU = SerializerBinary.ReadUInt32(ref reader);
+            if (dimensionsU == 0 || dimensionsU > MaxRank)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt data: a multidimensional array declares {dimensionsU} dimensions (allowed: 1-{MaxRank}).");
+
+            int dimensions = (int)dimensionsU;
             var dimensionSizes = new int[dimensions];
             int count = 1;
             for (int d = 0; d < dimensions; d++)
             {
-                dimensionSizes[d] = (int)SerializerBinary.ReadUInt32(ref reader);
-                count *= dimensionSizes[d];
+                uint sizeU = SerializerBinary.ReadUInt32(ref reader);
+                if (sizeU > int.MaxValue)
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        $"Corrupt data: dimension {d} of a multidimensional array declares {sizeU} elements.");
+
+                // Checked: the old `count *= size` overflowed *before* the limit was compared, so a
+                // crafted pair of dimensions could wrap to a small positive number and pass
+                // SizeLimits.MaxArraySize, then drive a huge allocation here and in Array.CreateInstance.
+                try
+                {
+                    count = checked(count * (int)sizeU);
+                }
+                catch (OverflowException e)
+                {
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        "Corrupt data: the element count of a multidimensional array overflows a 32-bit int.", e);
+                }
+
+                if (count > _maxCount)
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        $"Corrupt data: a multidimensional array of {count} elements exceeds the configured limit of {_maxCount}.");
+
+                dimensionSizes[d] = (int)sizeU;
             }
 
-            if (count > _maxCount) throw new InvalidOperationException("Max count exceeded");
             baseAr = Array.CreateInstance(typeof(TItem), dimensionSizes);
 
             var indices = new int[dimensions];

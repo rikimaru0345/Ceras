@@ -328,7 +328,7 @@ namespace Ceras
                 return val;
             }
             Span<byte> temp = stackalloc byte[16];
-            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            if (!reader.TryCopyTo(temp)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
             reader.Advance(16);
             return Unsafe.ReadUnaligned<Guid>(ref MemoryMarshal.GetReference(temp));
         }
@@ -436,7 +436,7 @@ namespace Ceras
             }
             else
             {
-                if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+                if (!reader.TryCopyTo(temp)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
                 reader.Advance(16);
                 bits[0] = BinaryPrimitives.ReadInt32LittleEndian(temp);
                 bits[1] = BinaryPrimitives.ReadInt32LittleEndian(temp.Slice(4));
@@ -492,7 +492,7 @@ namespace Ceras
         public static byte ReadByte(ref SequenceReader<byte> reader)
         {
             if (!reader.TryRead(out byte b))
-                throw new InvalidOperationException("End of sequence");
+                throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
             return b;
         }
 
@@ -534,7 +534,7 @@ namespace Ceras
                 return val;
             }
             Span<byte> temp = stackalloc byte[2];
-            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            if (!reader.TryCopyTo(temp)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
             reader.Advance(2);
             return BinaryPrimitives.ReadInt16LittleEndian(temp);
         }
@@ -549,7 +549,7 @@ namespace Ceras
                 return val;
             }
             Span<byte> temp = stackalloc byte[2];
-            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            if (!reader.TryCopyTo(temp)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
             reader.Advance(2);
             return BinaryPrimitives.ReadUInt16LittleEndian(temp);
         }
@@ -586,7 +586,7 @@ namespace Ceras
                 return val;
             }
             Span<byte> temp = stackalloc byte[4];
-            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            if (!reader.TryCopyTo(temp)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
             reader.Advance(4);
             return BinaryPrimitives.ReadInt32LittleEndian(temp);
         }
@@ -615,7 +615,7 @@ namespace Ceras
                 return val;
             }
             Span<byte> temp = stackalloc byte[4];
-            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            if (!reader.TryCopyTo(temp)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
             reader.Advance(4);
             return BinaryPrimitives.ReadUInt32LittleEndian(temp);
         }
@@ -658,7 +658,7 @@ namespace Ceras
                 return val;
             }
             Span<byte> temp = stackalloc byte[8];
-            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            if (!reader.TryCopyTo(temp)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
             reader.Advance(8);
             return BinaryPrimitives.ReadInt64LittleEndian(temp);
         }
@@ -673,7 +673,7 @@ namespace Ceras
                 return val;
             }
             Span<byte> temp = stackalloc byte[8];
-            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            if (!reader.TryCopyTo(temp)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
             reader.Advance(8);
             return BinaryPrimitives.ReadUInt64LittleEndian(temp);
         }
@@ -711,7 +711,7 @@ namespace Ceras
                 return val;
             }
             Span<byte> temp = stackalloc byte[4];
-            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            if (!reader.TryCopyTo(temp)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
             reader.Advance(4);
             return BinaryPrimitives.ReadSingleLittleEndian(temp);
         }
@@ -740,7 +740,7 @@ namespace Ceras
                 return val;
             }
             Span<byte> temp = stackalloc byte[8];
-            if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+            if (!reader.TryCopyTo(temp)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
             reader.Advance(8);
             return BinaryPrimitives.ReadDoubleLittleEndian(temp);
         }

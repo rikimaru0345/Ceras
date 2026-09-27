@@ -246,21 +246,24 @@ namespace Ceras.Test
         // ── ReadString — bounds checking ──────────────────────────────────────
 
         [Fact]
-        public void ReadString_OutOfRange_Throws()
+        public void ReadString_OutOfRange_Is_Reported_As_Corruption()
         {
             var table = new string[] { null, "only" }; // index 0=null, 1="only"
             var writer = new System.Buffers.ArrayBufferWriter<byte>();
             SerializerBinary.WriteUInt32Fixed(writer, 99); // out of range
             var reader = new System.Buffers.SequenceReader<byte>(new System.Buffers.ReadOnlySequence<byte>(writer.WrittenMemory));
-            
+
+            // An index the table does not contain is corrupt *data*, not a decoder bug, so it surfaces as
+            // CerasDataCorruptionException like every other malformed-save rejection (0.8.8).
+            // (Not Assert.Throws: a SequenceReader is a ref struct, so it cannot be captured by a lambda.)
             try
             {
                 StringTable.ReadString(ref reader, table);
                 Assert.Fail("Should have thrown");
             }
-            catch (InvalidOperationException ex)
+            catch (Ceras.Exceptions.CerasDataCorruptionException ex)
             {
-                Assert.Equal("String index out of range", ex.Message);
+                Assert.Contains("99", ex.Message, StringComparison.Ordinal);
             }
         }
 

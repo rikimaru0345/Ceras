@@ -30,6 +30,12 @@ namespace Ceras.Format
                 return;
             }
 
+            // 0.8.7: SizeLimits.MaxStringLength used to be inert in the robust format, because the custom
+            // formatter replaced the size-limited one. There is nothing to check here: the payload carries a
+            // table *index*, not a length, and the index was just bounds-checked. The limit is enforced where
+            // the length is actually known - the string table's entry decode - which is also where the
+            // string's bytes are allocated, so it is enforced before the allocation.
+
             var table = RobustContext.StringTable;
             if (table == null) throw new InvalidOperationException("RobustContext not active");
 

@@ -33,7 +33,7 @@ namespace Ceras.Formatters
             else
             {
                 Span<byte> temp = stackalloc byte[_size];
-                if (!reader.TryCopyTo(temp)) throw new InvalidOperationException("End of sequence");
+                if (!reader.TryCopyTo(temp)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
                 value = Unsafe.ReadUnaligned<T>(ref MemoryMarshal.GetReference(temp));
                 reader.Advance(_size);
             }
@@ -90,7 +90,7 @@ namespace Ceras.Formatters
             }
             else
             {
-                if (!reader.TryCopyTo(destSpan)) throw new InvalidOperationException("End of sequence");
+                if (!reader.TryCopyTo(destSpan)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
                 reader.Advance(totalSize);
             }
         }

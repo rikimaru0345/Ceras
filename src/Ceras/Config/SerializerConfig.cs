@@ -143,7 +143,9 @@ namespace Ceras
 		internal override void Seal()
 		{
 			base.Seal();
-			_robustConfig.Locked = true;
+			// (This used to also set RobustConfig.Locked, which nothing ever read: either it was meant to
+			// guard something that does not exist, or it is dead. The sealed state that *is* consulted is
+			// SizeLimits/CerasConfig's own, set by base.Seal().)
 			// The schema registry is deliberately NOT sealed here: sealing bakes the schema and must
 			// happen once the declared set (including the root type) is known, at the first use of the
 			// robust serializer. Sealing at construction would bake an empty schema (TODO Phase 3.3).
@@ -152,7 +154,6 @@ namespace Ceras
 
 	internal class RobustConfig
 	{
-		public bool Locked;
 		public StringTableCompression StringTableCompression = StringTableCompression.Deflate;
 		public readonly SchemaRegistry SchemaRegistry = new SchemaRegistry();
 	}

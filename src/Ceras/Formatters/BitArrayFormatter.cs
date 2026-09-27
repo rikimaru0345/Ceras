@@ -24,7 +24,7 @@ namespace Ceras.Formatters
             int length = SerializerBinary.ReadInt32(ref reader);
             int byteCount = (length + 7) / 8;
             byte[] bytes = new byte[byteCount];
-            if (!reader.TryCopyTo(bytes)) throw new InvalidOperationException("End of sequence");
+            if (!reader.TryCopyTo(bytes)) throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt data: the save ended before a value could be read (truncated payload).");
             reader.Advance(byteCount);
             value = new BitArray(bytes);
             value.Length = length;

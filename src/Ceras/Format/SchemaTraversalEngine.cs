@@ -25,7 +25,7 @@ namespace Ceras.Format
         readonly uint                                  _robustVersion;
         readonly CerasSerializer                       _serializer;
         readonly SchemaRegistry                        _registry;
-        readonly ITypeBinder                           _typeBinder = new SimpleTypeBinder();
+        readonly ITypeBinder                           _typeBinder;
         readonly List<object>                          _objectCache = new();
         readonly uint                                  _maxCollectionSize;
 
@@ -40,6 +40,12 @@ namespace Ceras.Format
             _oldByName       = oldSchemas;
             _stringTable     = stringTable;
             _robustVersion   = robustVersion;
+
+            // 0.8.6: this used to be a fresh SimpleTypeBinder while CerasRobustSerializer resolves the same
+            // file's type ids with Config.TypeBinder, so a configured binder was honoured by one half of the
+            // interpreter and ignored by the other - the same name could resolve to two different types in
+            // one Load. Take the configured one.
+            _typeBinder = serializer?.Config?.TypeBinder ?? new SimpleTypeBinder();
             _serializer      = serializer;
             _registry        = ((CerasRobustConfig)serializer.Config).SchemaRegistry;
             _maxCollectionSize = serializer.Config.SizeLimits.MaxCollectionSize;
@@ -298,8 +304,17 @@ namespace Ceras.Format
         {
             int marker = SerializerBinary.ReadUInt32Bias(ref reader, RefBias);
             if (marker == RefNull) return null;
-            if (marker >= 0) {
-                return marker < _objectCache.Count ? _objectCache[marker] : null;
+            if (marker >= 0)
+            {
+                // 0.8.5: an index past the end of the identity cache is a corrupt/oversized marker. It used
+                // to decode as a legitimate null, which is the one value a caller cannot tell apart from a
+                // real null - and it desynchronised nothing, so the rest of the graph decoded "fine".
+                if (marker >= _objectCache.Count)
+                    throw new Ceras.Exceptions.CerasDataCorruptionException(
+                        $"Corrupt data: a back-reference points at object {marker}, but only {_objectCache.Count} " +
+                        "objects have been read so far.");
+
+                return _objectCache[marker];
             }
 
             if (marker == RefInlineType)
@@ -327,39 +342,52 @@ namespace Ceras.Format
 
             if (typeId == FullNameMarker)
             {
+                // 0.8.5: this used to allocate an uninitialized instance, run the parameterless ctor and
+                // return it *without consuming a single payload byte* - silent data loss for the object
+                // plus a stream desync for everything after it. A name that resolves to a type the
+                // current manifest describes is still readable (it is a real, described type); anything
+                // else is rejected, because this engine cannot know how the bytes that follow are laid
+                // out and guessing would corrupt the rest of the graph.
                 string typeName = ReadStringFromTable(ref reader);
-                Type type = _typeBinder.GetTypeFromBase(typeName);
+                Type type = ResolveFullName(typeName);
                 if (type == null)
+                    throw new Ceras.Exceptions.CerasSchemaException(
+                        $"The save names the type '{typeName}' for a full-name reference, but it does not resolve in this " +
+                        "application. A reference to an undescribed type cannot be read: the bytes that follow are laid out by " +
+                        "that type's own formatter, and this engine has no schema for it.");
+
+                if (_registry.TryGetId(type, out int actualId) && _oldById.TryGetValue(actualId, out var registeredSchema))
                 {
-                    return null;
+                    var obj = ReadUserTypeInstance(registeredSchema, targetType, ref reader, cacheIndex, existingObject);
+                    _objectCache[cacheIndex] = obj;
+                    return obj;
                 }
 
-                // Is it a registered type?
-                if (_registry.TryGetId(type, out int actualId))
-                {
-                    if (_oldById.TryGetValue(actualId, out var registeredSchema))
-                    {
-                        var obj2 = ReadUserTypeInstance(registeredSchema, targetType, ref reader, cacheIndex, existingObject);
-                        _objectCache[cacheIndex] = obj2;
-                        return obj2;
-                    }
-                }
-
-                // If not registered, we can still try to deserialize it if it's a simple type,
-                // but for now let's just create an uninitialized object if it's a class.
-                object obj = existingObject ?? RuntimeHelpers.GetUninitializedObject(type);
-                _objectCache[cacheIndex] = obj;
-
-                if (existingObject == null) {
-                    var ctor = type.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
-                    if (ctor != null)
-                        ctor.Invoke(obj, null);
-                }
-
-                return obj;
+                throw new Ceras.Exceptions.CerasSchemaException(
+                    $"The save references '{TypeIdentity.GetCanonicalName(type)}' by full name, but that type is not part of the " +
+                    "current context's manifest, so its payload cannot be decoded. Declare it in the context " +
+                    "([CerasContext]/[CerasKnownType]) and rebuild; loading the save as a type that is merely structurally similar " +
+                    "would desynchronise the rest of the graph.");
             }
 
             return ReadUserTypeDirect(typeId, targetType, ref reader, cacheIndex, existingObject);
+        }
+
+        /// <summary>
+        /// Resolves a type named by a full-name reference, through the configured binder. A binder reports
+        /// "no such type" either by returning null or by throwing (SimpleTypeBinder throws), so both are
+        /// normalized to null and the caller decides what an unresolvable name means.
+        /// </summary>
+        Type ResolveFullName(string typeName)
+        {
+            try
+            {
+                return _typeBinder.GetTypeFromBase(typeName);
+            }
+            catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException)
+            {
+                return null;
+            }
         }
 
         object ReadUserTypeByStableName(string stableName, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
@@ -1491,11 +1519,14 @@ namespace Ceras.Format
 
             if (typeId == FullNameMarker)
             {
-                ReadStringFromTable(ref reader); // skip name
-                // What follows? If it's a polymorphic object, we don't know how to skip it without a schema!
-                // But FullNameMarker is only used for non-robust types.
-                // For now we just hope it has no fields or we'll get out of sync.
-                return;
+                // 0.8.5: the old skip branch "hoped it has no fields", which desynchronised the stream
+                // for everything after an undescribed full-name reference. The read path now rejects the
+                // same bytes, so the skip path must too: skipping a value it cannot account for would
+                // silently produce a wrong result instead of an error.
+                string typeName = ReadStringFromTable(ref reader);
+                throw new Ceras.Exceptions.CerasSchemaException(
+                    $"The save references '{typeName}' by full name at a position that has to be skipped, but that type is not part " +
+                    "of the current context's manifest, so its payload cannot be accounted for. Declare it in the context and rebuild.");
             }
 
             if (_oldById.TryGetValue(typeId, out var oldSchema))

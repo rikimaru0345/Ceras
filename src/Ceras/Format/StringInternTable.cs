@@ -72,11 +72,22 @@ namespace Ceras.Format
             // A string-table index is a fixed 4-byte field in both regions (payload: written by
             // RobustStringFormatter; schema: written by SchemaSection.WriteInternedString).
             uint index = SerializerBinary.ReadUInt32Fixed(ref reader);
-            if (index >= (uint)table.Length) throw new InvalidOperationException("String index out of range");
+            if (index >= (uint)table.Length)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt data: string-table index {index} is outside the table ({table.Length} entries).");
             return table[index];
         }
 
-        public static string[] Load(byte[] data, int offset, int length, StringTableCompression compression = StringTableCompression.Disabled)
+        /// <summary>
+        /// Decodes a string-table region. <paramref name="maxStringLength"/> bounds each entry and
+        /// <paramref name="maxDecompressedSize"/> bounds the Deflate output, so neither an entry length
+        /// nor a small compressed region can pick an unbounded allocation. Both are checked before the
+        /// allocation they bound.
+        /// </summary>
+        public static string[] Load(byte[] data, int offset, int length,
+            StringTableCompression compression = StringTableCompression.Disabled,
+            uint maxStringLength = uint.MaxValue,
+            long maxDecompressedSize = long.MaxValue)
         {
             if (offset < 0 || length < 0 || (long)offset + length > data.Length)
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
@@ -86,15 +97,30 @@ namespace Ceras.Format
 
             if (compression == StringTableCompression.Deflate)
             {
+                // Bounded expansion: DeflateStream.CopyTo would take an unbounded output buffer, so a
+                // small compressed region could expand until the process died (a zip bomb). Copy in
+                // bounded blocks and stop as soon as the cap is passed.
+                const int blockSize = 64 * 1024;
                 try
                 {
                     using var ms = new MemoryStream(data, offset, length);
                     using var deflate = new DeflateStream(ms, CompressionMode.Decompress);
                     using var decompressedMs = new MemoryStream();
-                    deflate.CopyTo(decompressedMs);
-                    var decompressed = decompressedMs.ToArray();
-                    sequence = new ReadOnlySequence<byte>(decompressed);
+                    var block = new byte[blockSize];
+                    long total = 0;
+                    int read;
+                    while ((read = deflate.Read(block, 0, block.Length)) > 0)
+                    {
+                        total += read;
+                        if (total > maxDecompressedSize)
+                            throw new Ceras.Exceptions.CerasDataCorruptionException(
+                                $"Corrupt string table: the compressed region at [{offset}, {offset + length}) expands past the " +
+                                $"configured limit of {maxDecompressedSize} bytes.");
+                        decompressedMs.Write(block, 0, read);
+                    }
+                    sequence = new ReadOnlySequence<byte>(decompressedMs.ToArray());
                 }
+                catch (Ceras.Exceptions.CerasDataCorruptionException) { throw; }
                 catch (Exception e) when (e is InvalidDataException or IOException or ArgumentException)
                 {
                     // The region does not hold a decompressible stream — a corrupt or mis-offset table.
@@ -121,9 +147,11 @@ namespace Ceras.Format
             var table = new string[count + 1];
             table[0] = null;
 
+            // Bounded per entry, so one declared length cannot pick the allocation.
+            int maxEntryBytes = maxStringLength > int.MaxValue ? int.MaxValue : (int)maxStringLength;
             for (uint i = 1; i <= count; i++)
             {
-                string current = SchemaSection.ReadInlineString(ref reader);
+                string current = SchemaSection.ReadInlineString(ref reader, maxEntryBytes);
                 table[i] = current;
             }
 

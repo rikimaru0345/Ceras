@@ -33,6 +33,21 @@ namespace Ceras
 
 		uint _maxCollectionSize = uint.MaxValue;
 		public uint MaxCollectionSize { get => _maxCollectionSize; set { ThrowIfSealed(); _maxCollectionSize = value; } }
+
+		long _maxStringTableSize = long.MaxValue;
+
+		/// <summary>
+		/// The largest decoded string-table region a load accepts, in bytes. Applies to the region as it
+		/// is read, so a <see cref="StringTableCompression.Deflate"/> region is bounded by its
+		/// <em>decompressed</em> size: a small compressed payload cannot expand without limit. Defaults
+		/// to <see cref="long.MaxValue"/>, i.e. the previous unbounded behaviour. Set it when
+		/// deserializing untrusted data.
+		/// </summary>
+		public long MaxStringTableSize
+		{
+			get => _maxStringTableSize;
+			set { ThrowIfSealed(); if (value < 0) throw new ArgumentOutOfRangeException(nameof(value)); _maxStringTableSize = value; }
+		}
 	}
 
 	/// <summary>
