@@ -17,24 +17,10 @@ namespace Ceras.Test
         static int Add2(int x) => x + 2;
 
 
-        [Fact(Skip = "Parameterized constructors are no longer supported")]
+        [Fact]
         public void TestDirectPoolingMethods()
         {
             var pool = new InstancePoolTest();
-
-            // Test: Ctor with argument
-            {
-                CerasRawConfig config = new CerasRawConfig();
-
-                config.ConfigType<Person>()
-                      // Select ctor, not delegate
-                      .ConstructBy(() => new Person("name"));
-
-                var clone = DoRoundTripTest(config);
-                Assert.True(clone != null);
-                Assert.StartsWith("riki", clone.Name);
-                Assert.EndsWith(Person.CtorSuffix, clone.Name);
-            }
 
             // Test: Manual config
             {
@@ -105,35 +91,68 @@ namespace Ceras.Test
                 Assert.True(ReferenceEquals(clone, referenceCapturedByLambda));
             }
 
-            // Test: Construct from instance-pool, with parameter
-            {
-                CerasRawConfig config = new CerasRawConfig();
-
-                config.ConfigType<Person>()
-                      // Use instance + method selection
-                      .ConstructBy(pool, () => pool.CreatePersonWithName("abc"));
-
-                var clone = DoRoundTripTest(config);
-                Assert.True(clone != null);
-                Assert.StartsWith("riki", clone.Name);
-                Assert.True(pool.IsFromPool(clone));
-            }
-
-            // Test: Construct from static-pool, with parameter
-            {
-                CerasRawConfig config = new CerasRawConfig();
-
-                config.ConfigType<Person>()
-                      // Use instance + method selection
-                      .ConstructBy(() => StaticPoolTest.CreatePersonWithName("abc"));
-
-                var clone = DoRoundTripTest(config);
-                Assert.True(clone != null);
-                Assert.StartsWith("riki", clone.Name);
-                Assert.True(StaticPoolTest.IsFromPool(clone));
-            }
+            // Parameterized constructors and factory methods are a separate, deliberately
+            // unsupported case (they used to rely on the removed fixup system); see
+            // ParameterizedConstruction_IsRejectedActionably below.
         }
-        
+
+        /// <summary>
+        /// The legacy fixup system that used to map stream values into constructor/factory parameters
+        /// was removed, so a parameterized construction selection made through the runtime
+        /// configuration (<c>ConstructBy(() =&gt; new Person("name"))</c> or a factory method that takes
+        /// an argument) can no longer be honored. This is the precise, deliberate unsupported case; it
+        /// must fail loudly with actionable guidance rather than silently constructing with default
+        /// arguments. Parameterized construction on the generated reader path is supported separately
+        /// through <c>[CerasConstructor]</c> (see <c>ConstructorReuseTests</c>), so this is not a
+        /// blanket "constructors are unsupported" claim.
+        /// </summary>
+        [Fact]
+        public void ParameterizedConstruction_IsRejectedActionably()
+        {
+            // Parameterized CLR constructor selected from an expression.
+            AssertUnsupported("Parameterized constructors",
+                config => config.ConfigType<Person>().ConstructBy(() => new Person("name")));
+
+            // Parameterized static factory method.
+            AssertUnsupported("Factory methods with parameters",
+                config => config.ConfigType<Person>().ConstructBy(() => StaticPoolTest.CreatePersonWithName("abc")));
+
+            // Parameterized instance factory method.
+            var pool = new InstancePoolTest();
+            AssertUnsupported("Factory methods with parameters",
+                config => config.ConfigType<Person>().ConstructBy(pool, () => pool.CreatePersonWithName("abc")));
+        }
+
+        /// <summary>
+        /// Exercises an unsupported construction selection end-to-end (serialize) and asserts the
+        /// actionable inner exception. The runtime formatter is created through the reflection
+        /// fallback, which invokes the formatter constructor via <see cref="System.Reflection"/>; that
+        /// wraps the deliberate <see cref="NotSupportedException"/> in a
+        /// <see cref="System.Reflection.TargetInvocationException"/>, so the chain is unwrapped here.
+        /// </summary>
+        static void AssertUnsupported(string expectedMessage, Action<CerasRawConfig> configure)
+        {
+            var config = new CerasRawConfig();
+            configure(config);
+
+            var ceras = new CerasFastSerializer(config);
+
+            var p = new Person { Name = "riki" };
+            var thrown = Assert.ThrowsAny<Exception>(() => ceras.Serialize(p));
+
+            var notSupported = Unwrap<NotSupportedException>(thrown);
+            Assert.NotNull(notSupported);
+            Assert.Contains(expectedMessage, notSupported.Message);
+        }
+
+        static T Unwrap<T>(Exception ex) where T : Exception
+        {
+            for (var current = ex; current != null; current = current.InnerException)
+                if (current is T match)
+                    return match;
+            return null;
+        }
+
         static Person DoRoundTripTest(CerasRawConfig config, string name = "riki")
         {
             var ceras = new CerasFastSerializer(config);

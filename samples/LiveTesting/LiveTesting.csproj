@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Ceras\Ceras.csproj" />
+    <ProjectReference Include="..\..\samples\LiveTesting.Benchmarks\LiveTesting.Benchmarks.csproj" />
     <ProjectReference Include="..\..\tests\Ceras.Test\Ceras.Test.csproj" />
     <PackageReference Include="AgileObjects.ReadableExpressions" Version="2.1.1" />
     <PackageReference Include="BenchmarkDotNet" Version="0.13.12" />

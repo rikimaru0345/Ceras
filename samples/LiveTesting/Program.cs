@@ -328,7 +328,13 @@ namespace LiveTesting
         {
             if (args.Length > 0 && args[0] == "--roadmap-quick")
             {
-                RoadmapBenchmarks.RunQuick();
+                LiveTesting.Benchmarks.RoadmapBenchmarks.RunQuick();
+                return;
+            }
+
+            if (args.Length > 0 && args[0] == "--roadmap-bench")
+            {
+                LiveTesting.Benchmarks.RoadmapBenchmarks.RunBenchmarkDotNet();
                 return;
             }
 
