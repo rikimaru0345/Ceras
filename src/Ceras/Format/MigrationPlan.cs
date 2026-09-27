@@ -246,6 +246,7 @@ namespace Ceras.Format
             {
                 if (m.GetCustomAttribute<OnAfterDeserializeAttribute>() == null) continue;
                 var ps = m.GetParameters();
+                if (ps.Length == 0) return m;
                 if (ps.Length == 1 && ps[0].ParameterType == typeof(MigrationContext))
                     return m;
             }

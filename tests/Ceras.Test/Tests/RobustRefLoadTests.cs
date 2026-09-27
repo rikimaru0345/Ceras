@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Xunit;
 using Ceras;
+using Ceras.Generated;
 using Ceras.Helpers;
 using Ceras.Format;
 
@@ -9,10 +10,12 @@ namespace Ceras.Test
 {
     public class RobustRefLoadTests : TestBase
     {
+        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+
         [Fact]
         public void LoadRef_FastPath()
         {
-            var robust = new CerasRobustSerializer();
+            var robust = Generated();
 
             var original = new RefLoadData { Name = "Original", Value = 123 };
             var data = robust.Save(original, 1);
@@ -27,7 +30,7 @@ namespace Ceras.Test
         [Fact]
         public void LoadRef_SlowPath()
         {
-            var robust = new CerasRobustSerializer();
+            var robust = Generated();
 
             var original = new RefLoadData { Name = "Original", Value = 123 };
             var data = robust.Save(original, 1);
@@ -46,7 +49,7 @@ namespace Ceras.Test
         [Fact]
         public void LoadRef_List_SlowPath()
         {
-            var robust = new CerasRobustSerializer();
+            var robust = Generated();
 
             var original = new List<int> { 1, 2, 3 };
             var data = robust.Save(original, 1);

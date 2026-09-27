@@ -1,6 +1,7 @@
 using Ceras;
 using Ceras.Format;
 using Ceras.Helpers;
+using Ceras.Generated;
 using System;
 using System.Collections.Generic;
 using Xunit;
@@ -16,7 +17,7 @@ namespace Ceras.Test
 			var robust = new CerasRobustSerializer(config =>
 			{
 				config.AllowReflectionFallback = true;
-
+				config.UseGeneratedFormatters();
 			});
 
 			// 2. Create data with some field

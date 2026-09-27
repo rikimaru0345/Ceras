@@ -293,14 +293,14 @@ namespace Ceras.Format
 
             if (TryReadCustomFormatter(currentType, ref obj, ref reader))
             {
-                if (plan != null && plan.HasChanges && plan.OnAfterDeserialize != null && obj != null)
+                if (plan != null && plan.OnAfterDeserialize != null && obj != null)
                     FireCallback(obj, plan, plan.AddedFieldNames, CollectSkippedFields(plan));
                 return obj;
             }
 
             ReadAndApplyFields(oldSchema, plan, obj, ref reader);
 
-            if (plan != null && plan.HasChanges && plan.OnAfterDeserialize != null && obj != null)
+            if (plan != null && plan.OnAfterDeserialize != null && obj != null)
                 FireCallback(obj, plan, plan.AddedFieldNames, CollectSkippedFields(plan));
 
             return obj;
@@ -331,6 +331,7 @@ namespace Ceras.Format
             if (oldSchema.DefinitionTypeId == WellKnownTypes.HashSet) return ReadHashSet(oldSchema, targetType, ref reader, cacheIndex, existingObject);
             if (oldSchema.DefinitionTypeId == WellKnownTypes.Queue) return ReadQueue(oldSchema, targetType, ref reader, cacheIndex, existingObject);
             if (oldSchema.DefinitionTypeId == WellKnownTypes.Stack) return ReadStack(oldSchema, targetType, ref reader, cacheIndex, existingObject);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.KeyValuePair) return ReadKeyValuePair(oldSchema, targetType, ref reader, cacheIndex, existingObject);
 
             // Arbitrary generic class or struct
             _plans.TryGetValue(oldSchema.StableName, out var plan);
@@ -363,6 +364,28 @@ namespace Ceras.Format
 
             ReadAndApplyFields(oldSchema, plan, obj, ref reader);
             return obj;
+        }
+
+        object ReadKeyValuePair(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
+        {
+            Type keyType = targetType != null && targetType.IsGenericType ? targetType.GetGenericArguments()[0] : null;
+            Type valType = targetType != null && targetType.IsGenericType ? targetType.GetGenericArguments()[1] : null;
+            int? oldKeyTid = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+            int? oldValTid = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
+
+            if (keyType == null || valType == null || oldKeyTid == null || oldValTid == null)
+            {
+                SkipValue(oldKeyTid ?? WellKnownTypes.Object, ref reader);
+                SkipValue(oldValTid ?? WellKnownTypes.Object, ref reader);
+                return null;
+            }
+
+            var key = ReadValue(oldKeyTid.Value, keyType, ref reader);
+            var val = ReadValue(oldValTid.Value, valType, ref reader);
+            object kvp = Activator.CreateInstance(targetType, key, val);
+            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = kvp;
+            else _objectCache.Add(kvp);
+            return kvp;
         }
 
         object ReadArray(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
@@ -749,6 +772,13 @@ namespace Ceras.Format
         void FireCallback(object obj, TypeMigrationPlan plan, string[] addedFields, HashSet<string> skippedFields)
         {
             if (plan.OnAfterDeserialize == null) return;
+
+            if (plan.OnAfterDeserialize.GetParameters().Length == 0)
+            {
+                plan.OnAfterDeserialize.Invoke(obj, null);
+                return;
+            }
+
             var ctx = new MigrationContext(true, _robustVersion, skippedFields, new HashSet<string>(addedFields ?? Array.Empty<string>(), StringComparer.Ordinal));
             plan.OnAfterDeserialize.Invoke(obj, new object[] { ctx });
         }

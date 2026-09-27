@@ -3,6 +3,7 @@ using System;
 using Xunit;
 using Ceras;
 using Ceras.Format;
+using Ceras.Generated;
 
 namespace Ceras.Test
 {
@@ -21,6 +22,7 @@ namespace Ceras.Test
 
     public class StructAutoPropBug : TestBase
     {
+        [CerasSerializable]
         public class Container
         {
             public CostItem Cost;
@@ -29,7 +31,11 @@ namespace Ceras.Test
         [Fact]
         public void StructWithAutoProps_RobustSerialization_FailsWithoutFix()
         {
-            var robust = new CerasRobustSerializer(config => config.AllowReflectionFallback = true);
+            var robust = new CerasRobustSerializer(config =>
+            {
+                config.AllowReflectionFallback = true;
+                config.UseGeneratedFormatters();
+            });
 
             var original = new Container
             {

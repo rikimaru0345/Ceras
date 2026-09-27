@@ -57,13 +57,14 @@ namespace Ceras.SourceGenerator
 
                         if (hasExclude) continue;
 
-                        // Hard-banned types (delegates, enumerators, reflection, blacklisted) can never round-trip.
-                        // Exception: if the type was explicitly registered with [CerasSerializable] (e.g. via
-                        // assembly-level [CerasSerializable<Vector2I>]), it overrides a wildcard blacklist pattern.
+                        // Hard-banned types (delegates, enumerators, reflection) can never round-trip
+                        // and are skipped. The generator blacklist only prevents formatter *generation*
+                        // for those types; a field of a blacklisted type is still included and requires
+                        // a runtime custom formatter (a CERAS017 warning is emitted for engine objects).
                         bool isExplicitlyRegistered = explicitlyRegisteredTypes != null
                             && field.Type is INamedTypeSymbol fieldType
                             && explicitlyRegisteredTypes.Contains(fieldType);
-                        if (!isExplicitlyRegistered && IsBanned(field.Type, blacklistPatterns)) continue;
+                        if (!isExplicitlyRegistered && IsBanned(field.Type)) continue;
 
                         // Engine-object types (e.g. Godot.GodotObject subclasses) CAN be serialized
                         // when the user provides a custom formatter.  Include the field but emit a

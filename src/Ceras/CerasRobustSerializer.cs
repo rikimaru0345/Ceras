@@ -86,15 +86,17 @@ namespace Ceras
         {
             var registry = _config.SchemaRegistry;
 
-            // Register the root and its closure, then seal. After sealing the registry never grows
-            // and the schema bytes are the frozen baked schema (TODO Phase 3.3).
-            registry.TryGetId(typeof(T), out _);
+            // Declare the root (normally via the generated manifest) and seal. After sealing the
+            // registry never grows and the schema bytes are the frozen baked schema (TODO 2.6/3.3).
+            EnsureRootRegistered(registry, typeof(T));
             registry.Seal();
 
             if (!registry.TryGetBakedSchema(out var schemaBytes, out var schemaStrings, out var typeToId, out _, out var schemaFingerprint))
                 throw new InvalidOperationException("Schema was sealed but not baked.");
 
             int rootTypeId = GetTypeId(typeof(T), registry);
+            if (rootTypeId == WellKnownTypes.Null)
+                throw UndeclaredType(typeof(T));
 
             var buffer = new byte[4096];
             int offset = 0;
@@ -185,9 +187,12 @@ namespace Ceras
             var payloadTable = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset, compression);
 
             // Pin the declared set; no post-seal growth.
-            registry.TryGetId(typeof(T), out _);
+            EnsureRootRegistered(registry, typeof(T));
             registry.Seal();
             ulong currentFingerprint = registry.ComputeFingerprint();
+
+            if (GetTypeId(typeof(T), registry) == WellKnownTypes.Null)
+                throw UndeclaredType(typeof(T));
 
             var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, (int)stringTableOffset - (int)dataSectionOffset);
             var reader = new SequenceReader<byte>(dataSeq);
@@ -349,6 +354,25 @@ namespace Ceras
             if (registry.TryGetId(type, out id)) return id;
             return WellKnownTypes.Null;
         }
+
+        /// <summary>
+        /// Declares the root type before sealing. Generated types are already registered by the
+        /// manifest; arrays and built-in collections (which the generator skips) are registered
+        /// structurally. Undeclared user types are left unregistered and rejected by the caller.
+        /// </summary>
+        static void EnsureRootRegistered(SchemaRegistry registry, Type type)
+        {
+            if (registry.TryGetId(type, out _)) return;
+            if (WellKnownTypes.IsWellKnown(type)) return;
+            if (SchemaRegistry.TryBuildStructuralSchema(type, out var info))
+                registry.Register(type, info);
+        }
+
+        static Ceras.Exceptions.CerasException UndeclaredType(Type type) =>
+            new Ceras.Exceptions.CerasException(
+                $"Type '{type.FullName}' is not declared in this serialization context. " +
+                $"Add [CerasSerializable] to it, or declare it with [assembly: CerasKnownType<...>], " +
+                $"so it is part of the generated manifest, then call UseGeneratedFormatters() before creating the serializer.");
 
         struct NormalizedTypeSchema
         {

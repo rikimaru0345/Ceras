@@ -291,6 +291,7 @@ namespace Ceras.Format
                 "System.Collections.Generic.Queue`1" => WellKnownTypes.Queue,
                 "System.Collections.Generic.Stack`1" => WellKnownTypes.Stack,
                 "System.Nullable`1" => WellKnownTypes.Nullable,
+                "System.Collections.Generic.KeyValuePair`2" => WellKnownTypes.KeyValuePair,
                 "System.Tuple`1" => WellKnownTypes.Tuple1,
                 "System.Tuple`2" => WellKnownTypes.Tuple2,
                 "System.Tuple`3" => WellKnownTypes.Tuple3,

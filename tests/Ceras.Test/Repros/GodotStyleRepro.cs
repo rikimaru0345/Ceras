@@ -1,5 +1,6 @@
 using Ceras;
 using Ceras.Formatters;
+using Ceras.Generated;
 using System;
 using System.Buffers;
 using Xunit;
@@ -96,10 +97,12 @@ namespace ReproGame
         }
     }
 
-    public class GodotStyleRepro
+    public class GodotStyleRepro : Ceras.Test.TestBase
     {
         static CerasRobustSerializer MakeSerializer() => new CerasRobustSerializer(config =>
         {
+            config.AllowReflectionFallback = true;
+            config.UseGeneratedFormatters();
             config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
         });
 
@@ -130,14 +133,19 @@ namespace ReproGame
             Assert.NotNull(robustCloneFresh.Curve);
             Assert.Equal(3, robustCloneFresh.Curve.Points.Length);
 
-            // Robust Slow Path (force fingerprint mismatch by adding a dummy type)
+            // Robust Slow Path (force fingerprint mismatch on a copy)
             var robust2 = new CerasRobustSerializer(config =>
             {
+                config.AllowReflectionFallback = true;
+                config.UseGeneratedFormatters();
                 config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
-                config.ConfigType<DummyType>();
             });
 
-            var robustCloneSlow = robust2.Load<RailSegment>(robustData, 1);
+            var slowData = (byte[])robustData.Clone();
+            slowData[13] ^= 0xFF;
+            FixRobustChecksum(slowData);
+
+            var robustCloneSlow = robust2.Load<RailSegment>(slowData, 1);
             Assert.NotNull(robustCloneSlow.Curve);
             Assert.Equal(3, robustCloneSlow.Curve.Points.Length);
         }

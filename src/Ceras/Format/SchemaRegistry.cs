@@ -9,7 +9,10 @@ namespace Ceras.Format
 {
     /// <summary>
     /// Runtime registry of all robust-serializable types.
-    /// Populated during startup by <c>RobustFormatters.UseRobustFormatters(config)</c>.
+    /// Populated during startup by <c>RobustFormatters.UseRobustFormatters(config)</c>. The generated
+    /// manifest is authoritative: the registry does not discover or build schemas for undeclared
+    /// types (TODO Phase 2.5/2.6). Only explicit declarations and structural BCL shapes (arrays and
+    /// built-in collections) are accepted.
     /// </summary>
     public sealed class SchemaRegistry
     {
@@ -76,18 +79,16 @@ namespace Ceras.Format
         }
 
 		/// <summary>
-		/// Freezes the current set of registered types as the "declared" schema.
-		/// Only types registered before this call contribute to the fingerprint.
-		/// Subsequent registrations (e.g. discovered generic instantiations) are
-		/// included in the schema block but do not change the fingerprint.
+		/// Freezes the current set of registered types as the "declared" schema and bakes the schema
+		/// bytes. Registrations after this point are rejected, so there is no save-time registry growth
+		/// or discovery-graph walk.
 		/// </summary>
 		public void Seal() {
 			lock (_lock) {
 				if (IsSealed) return;
 
-				// Bake the schema first (this may reflectively complete field-type entries that are
-				// only discoverable by walking), then freeze the declared set. After this point no
-				// registrations are accepted and Save/Load never walk the registry again.
+				// Bake the schema (this may add structural field-type entries such as arrays and
+				// built-in collections), then freeze the declared set.
 				BakeLocked();
 
 				_sealedWatermark = _nextId;
@@ -130,8 +131,9 @@ namespace Ceras.Format
 
 		/// <summary>
 		/// Called by the generated <c>RobustFormatters.UseRobustFormatters</c> for every
-		/// robust-serializable type.
-		/// Safe to call multiple times with the same type (idempotent).
+		/// robust-serializable type. Safe to call multiple times with the same type (idempotent).
+		/// A <c>null</c> <paramref name="info"/> declares the type structurally/minimally; it never
+		/// walks CLR fields.
 		/// </summary>
 		public void Register(Type type, SchemaTypeInfo info)
         {
@@ -150,7 +152,7 @@ namespace Ceras.Format
                 if (info == null)
                 {
                     if (WellKnownTypes.IsWellKnown(type)) return;
-                    info = CreateSchemaForUserType(type);
+                    info = BuildDeclaredSchema(type);
                 }
 
                 var entry = new Entry { Id = _nextId++, Info = info, Type = type };
@@ -166,59 +168,17 @@ namespace Ceras.Format
             }
         }
 
-        // ── Lookup ────────────────────────────────────────────────────────────
-
-        public bool TryGetId(Type type, out int id)
+        /// <summary>
+        /// Builds the schema for an explicitly declared type that has no generated schema. Structural
+        /// for arrays and built-in collections; enum metadata for enums; an empty declaration
+        /// otherwise. Never enumerates CLR fields (TODO Phase 2.5).
+        /// </summary>
+        static SchemaTypeInfo BuildDeclaredSchema(Type type)
         {
-            lock (_lock)
-            {
-                if (_byType.TryGetValue(type, out var e)) { id = e.Id; return true; }
+            if (TryBuildStructuralSchema(type, out var structural))
+                return structural;
 
-				// Automatic registration for types encountered at runtime (e.g. generic instantiations).
-				// Pre-seal only: after sealing, the baked schema is frozen and the registry never grows.
-				if (!IsSealed && type != null && !WellKnownTypes.IsWellKnown(type))
-                {
-                    EnsureRegisteredRecursive(type);
-                    if (_byType.TryGetValue(type, out e)) { id = e.Id; return true; }
-                }
-
-                id = -1;
-                return false;
-            }
-        }
-
-        void EnsureRegisteredRecursive(Type type)
-        {
-            // Never grow the registry after it has been sealed (TODO Phase 3.3).
-            if (IsSealed) return;
-
-            if (type == null || WellKnownTypes.IsWellKnown(type) || _byType.ContainsKey(type))
-                return;
-
-            if (type.IsGenericType && !type.IsGenericTypeDefinition)
-            {
-                // Register arguments first
-                foreach (var arg in type.GetGenericArguments())
-                    EnsureRegisteredRecursive(arg);
-
-                // Create and register schema for this instantiation
-                var info = CreateSchemaForGeneric(type);
-                Register(type, info);
-            }
-            else
-            {
-                // Non-generic types can be registered dynamically (pre-seal). This is required for
-                // types that only appear as schema field-type metadata (SchemaSection.ResolveId) or as
-                // runtime-discovered values. Their schema is derived reflectively at that point.
-                Register(type, null);
-            }
-        }
-        static SchemaTypeInfo CreateSchemaForUserType(Type type)
-        {
-            // Reflection fallback for types without a generated schema. Names must remain
-            // FullName-based (binder-resolvable); generated user types get canonical names from
-            // the source generator (Phase 2.3). Retired once generated manifests are authoritative (2.5).
-            string typeFullName = type.FullName ?? type.Name;
+            string typeName = type.FullName ?? type.Name;
 
             if (type.IsEnum)
             {
@@ -227,13 +187,12 @@ namespace Ceras.Format
                 var enumValues = new SchemaEnumValueInfo[names.Length];
                 for (int i = 0; i < names.Length; i++)
                 {
-                    var val = values.GetValue(i);
-                    long longVal = Convert.ToInt64(val);
+                    long longVal = Convert.ToInt64(values.GetValue(i));
                     enumValues[i] = new SchemaEnumValueInfo(names[i], longVal);
                 }
 
                 return new SchemaTypeInfo(
-                    stableName: typeFullName,
+                    stableName: typeName,
                     previousTypeNames: Array.Empty<string>(),
                     kind: SchemaTypeKind.Enum,
                     fields: null,
@@ -242,68 +201,45 @@ namespace Ceras.Format
                     underlyingTypeName: Enum.GetUnderlyingType(type).FullName);
             }
 
-            // Simple description for types that weren't source-generated but need to be robustly handled.
-            // We use the full name as the stable name to avoid collisions.
-            var fields = new List<(FieldInfo field, SchemaFieldInfo info)>();
-            foreach (var f in type.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
-            {
-                if (f.GetCustomAttribute<ExcludeAttribute>() != null) continue;
-                if (f.GetCustomAttribute<NonSerializedAttribute>() != null) continue;
-
-                if (BannedTypes.IsBanned(f.FieldType))
-                {
-                    if (f.GetCustomAttribute<IncludeAttribute>() == null)
-                    {
-                        continue;
-                    }
-                }
-
-                var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
-                string stableName = sa?.Name ?? f.Name;
-                if (sa == null && stableName.StartsWith("<") && stableName.EndsWith(">k__BackingField"))
-                    stableName = stableName.Substring(1, stableName.Length - 17);
-
-                string fieldTypeName = f.FieldType.FullName ?? f.FieldType.Name;
-
-				bool isMonomorphic = f.FieldType.IsValueType || f.FieldType.IsSealed;
-
-                fields.Add((f, new SchemaFieldInfo(stableName, new string[0], fieldTypeName, isMonomorphic)));
-            }
-
-            // Sort fields to match CerasSerializer's order
-            fields.Sort((a, b) => {
-                var x = a.field;
-                var y = b.field;
-                var xKey = (x.FieldType.FullName ?? x.FieldType.Name) + x.Name + (x.DeclaringType.FullName ?? x.DeclaringType.Name) + "f";
-                var yKey = (y.FieldType.FullName ?? y.FieldType.Name) + y.Name + (y.DeclaringType.FullName ?? y.DeclaringType.Name) + "f";
-                return string.Compare(xKey, yKey, StringComparison.Ordinal);
-            });
-
             return new SchemaTypeInfo(
-                stableName: typeFullName,
+                stableName: typeName,
                 previousTypeNames: Array.Empty<string>(),
                 kind: type.IsValueType ? SchemaTypeKind.Struct : SchemaTypeKind.Class,
-                fields: fields.Select(f => f.info).ToArray(),
+                fields: Array.Empty<SchemaFieldInfo>(),
                 fixedByteSize: 0);
         }
 
-        static SchemaTypeInfo CreateSchemaForGeneric(Type type)
+        /// <summary>
+        /// Structural schema for arrays and built-in collections (definition + ordered argument type
+        /// names). These are valid as roots/fields even though the generator skips them. Returns false
+        /// for every other type (which must be declared via the generated manifest).
+        /// </summary>
+        public static bool TryBuildStructuralSchema(Type type, out SchemaTypeInfo info)
         {
-            string typeFullName = type.FullName ?? type.Name;
-            var def = type.GetGenericTypeDefinition();
-            var args = type.GetGenericArguments();
-            var argNames = new string[args.Length];
-            for (int i = 0; i < args.Length; i++)
+            if (type.IsArray)
             {
-                argNames[i] = args[i].FullName ?? args[i].Name;
+                var element = type.GetElementType();
+                info = new SchemaTypeInfo(
+                    stableName: type.FullName ?? type.Name,
+                    previousTypeNames: Array.Empty<string>(),
+                    kind: SchemaTypeKind.GenericInstantiation,
+                    fields: Array.Empty<SchemaFieldInfo>(),
+                    fixedByteSize: 0,
+                    enumValues: null,
+                    underlyingTypeName: typeof(Array).FullName,
+                    argTypeNames: new[] { element.FullName ?? element.Name });
+                return true;
             }
 
-            // Built-in collections have an explicit, structural shape: encode definition + ordered
-            // argument type names and do NOT reflect their CLR internals (TODO Phase 3.1/3.3).
-            if (WellKnownTypes.IsWellKnownCollectionDefinition(type))
+            if (WellKnownTypes.IsWellKnownCollectionDefinition(type) || WellKnownTypes.IsWellKnownStructuralValueType(type))
             {
-                return new SchemaTypeInfo(
-                    stableName: typeFullName,
+                var def = type.GetGenericTypeDefinition();
+                var args = type.GetGenericArguments();
+                var argNames = new string[args.Length];
+                for (int i = 0; i < args.Length; i++) argNames[i] = args[i].FullName ?? args[i].Name;
+
+                info = new SchemaTypeInfo(
+                    stableName: type.FullName ?? type.Name,
                     previousTypeNames: Array.Empty<string>(),
                     kind: SchemaTypeKind.GenericInstantiation,
                     fields: Array.Empty<SchemaFieldInfo>(),
@@ -311,49 +247,26 @@ namespace Ceras.Format
                     enumValues: null,
                     underlyingTypeName: def.FullName ?? def.Name,
                     argTypeNames: argNames);
+                return true;
             }
 
-            var fields = new List<(FieldInfo field, SchemaFieldInfo info)>();
-            foreach (var f in type.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
+            info = null;
+            return false;
+        }
+
+        // ── Lookup ────────────────────────────────────────────────────────────
+
+        public bool TryGetId(Type type, out int id)
+        {
+            lock (_lock)
             {
-                if (f.GetCustomAttribute<ExcludeAttribute>() != null) continue;
-                if (f.GetCustomAttribute<NonSerializedAttribute>() != null) continue;
+                if (_byType.TryGetValue(type, out var e)) { id = e.Id; return true; }
 
-                if (BannedTypes.IsBanned(f.FieldType))
-                {
-                    if (f.GetCustomAttribute<IncludeAttribute>() == null) continue;
-                }
-
-                var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
-                string stableName = sa?.Name ?? f.Name;
-                if (sa == null && stableName.StartsWith("<") && stableName.EndsWith(">k__BackingField"))
-                    stableName = stableName.Substring(1, stableName.Length - 17);
-
-                string fieldTypeName = f.FieldType.FullName ?? f.FieldType.Name;
-
-                bool isMonomorphic = f.FieldType.IsValueType || f.FieldType.IsSealed;
-
-                fields.Add((f, new SchemaFieldInfo(stableName, new string[0], fieldTypeName, isMonomorphic)));
+                // No runtime auto-registration (TODO Phase 2.5/2.6): the generated manifest is
+                // authoritative. Undeclared types are rejected by the caller with guidance.
+                id = -1;
+                return false;
             }
-
-            // Sort fields to match CerasSerializer's order
-            fields.Sort((a, b) => {
-                var x = a.field;
-                var y = b.field;
-                var xKey = (x.FieldType.FullName ?? x.FieldType.Name) + x.Name + (x.DeclaringType.FullName ?? x.DeclaringType.Name) + "f";
-                var yKey = (y.FieldType.FullName ?? y.FieldType.Name) + y.Name + (y.DeclaringType.FullName ?? y.DeclaringType.Name) + "f";
-                return string.Compare(xKey, yKey, StringComparison.Ordinal);
-            });
-
-            return new SchemaTypeInfo(
-                stableName: typeFullName,
-                previousTypeNames: Array.Empty<string>(),
-                kind: SchemaTypeKind.GenericInstantiation,
-                fields: fields.Select(f => f.info).ToArray(),
-                fixedByteSize: 0,
-                enumValues: null,
-                underlyingTypeName: def.FullName ?? def.Name,
-                argTypeNames: argNames);
         }
 
         public bool TryGetInfo(Type type, out SchemaTypeInfo info)
@@ -368,7 +281,8 @@ namespace Ceras.Format
 
         /// <summary>
         /// Resolves a stable name (or previous type name) to the current registered <see cref="Type"/>.
-        /// Used by the migration engine when reading old schema sections.
+        /// Used by the migration engine when reading old schema sections. Types absent from the current
+        /// build resolve to null and are interpreted without being registered (TODO Phase 2.6).
         /// </summary>
         public bool TryResolveType(string stableName, out Type type)
         {
@@ -382,18 +296,21 @@ namespace Ceras.Format
             {
                 if (_byStableName.TryGetValue(stableName, out var e)) { type = e.Type; return true; }
 
-				type = Type.GetType(stableName);
-				if (type != null) return true;
+                // Assembly-qualified names (from field-type metadata) resolve directly.
+                type = Type.GetType(stableName);
+                if (type != null) return true;
 
-				// Fallback: search all assemblies for a type with this name.
-				// This is slow, but only happens once per unknown type during schema write/read.
-				// TODO: can we find a better way? maybe while iterating save all types? hmm, no that'd take even longer
-				foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies()) {
-					type = assembly.GetType(stableName);
-					if (type != null) return true;
-				}
+                // Last resort: field-type metadata emitted by the generator uses Type.FullName, which
+                // is not assembly-qualified. A bounded scan of loaded assemblies is still required to
+                // resolve those (retiring this needs resolvable type identities from the generator;
+                // see TODO Phase 2.5 / review-later).
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    type = assembly.GetType(stableName);
+                    if (type != null) return true;
+                }
 
-				type = null;
+                type = null;
                 return false;
             }
         }
@@ -415,10 +332,8 @@ namespace Ceras.Format
 		// ── Fingerprint ───────────────────────────────────────────────────────
 
 		/// <summary>
-		/// Computes a stable fingerprint over all registered schemas.
-		/// Cached after the first call. Invalidated whenever a new type is registered.
-		/// If <see cref="Seal()"/> has been called, only types registered before the seal
-		/// contribute to the fingerprint.
+		/// Computes a stable fingerprint over all registered schemas. Cached after the first call;
+		/// invalidated whenever a new type is registered.
 		/// </summary>
 		public ulong ComputeFingerprint()
         {
@@ -434,7 +349,6 @@ namespace Ceras.Format
                 var sorted = new List<Entry>(_byType.Count);
                 foreach (var e in _byType.Values) {
 					// If sealed, only fingerprint entries below the watermark.
-					// This way we exclude discovered generic instantiations.
 					if (_sealedWatermark != -1 && e.Id >= _sealedWatermark)
 						continue;
 

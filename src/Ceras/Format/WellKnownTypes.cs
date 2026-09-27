@@ -57,7 +57,8 @@ namespace Ceras.Format
         public const int TimeSpan = 38;  // 8 bytes
         public const int Guid     = 39;  // 16 bytes
         public const int Type     = 40;  // System.Type
-        // 41–127 reserved for future well-known types
+        public const int KeyValuePair = 41; // System.Collections.Generic.KeyValuePair<K,V>
+        // 42–127 reserved for future well-known types
         public const int UserTypeBase = 128;
 
         // ── Fixed byte sizes (0 = variable or not applicable) ─────────────────
@@ -94,6 +95,7 @@ namespace Ceras.Format
             [typeof(Queue<>)]       = Queue,
             [typeof(Stack<>)]       = Stack,
             [typeof(Nullable<>)]    = Nullable,
+            [typeof(KeyValuePair<,>)] = KeyValuePair,
         };
 
         static readonly Dictionary<Type, int> TupleDefToId = new()
@@ -179,6 +181,18 @@ namespace Ceras.Format
                 || def == typeof(HashSet<>)
                 || def == typeof(Queue<>)
                 || def == typeof(Stack<>);
+        }
+
+        /// <summary>
+        /// True for BCL value types with a fixed, built-in element layout (currently
+        /// <see cref="KeyValuePair{TKey,TValue}"/>): definition + ordered argument type IDs, no
+        /// reflected CLR fields.
+        /// </summary>
+        public static bool IsWellKnownStructuralValueType(Type type)
+        {
+            if (type == null || !type.IsGenericType) return false;
+            var def = type.IsGenericTypeDefinition ? type : type.GetGenericTypeDefinition();
+            return def == typeof(KeyValuePair<,>);
         }
 
         public static bool TryGetType(int id, out Type type)

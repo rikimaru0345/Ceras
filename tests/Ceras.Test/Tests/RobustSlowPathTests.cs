@@ -2,6 +2,7 @@ using System;
 using Xunit;
 using Ceras;
 using Ceras.Format;
+using Ceras.Generated;
 
 namespace Ceras.Test
 {
@@ -21,25 +22,26 @@ namespace Ceras.Test
     [CerasSerializable]
     public class Dummy2 { public int X; }
 
-    public class RobustSlowPathTests
+    public class RobustSlowPathTests : TestBase
     {
         [Fact]
         public void SlowPath_Fires_Callbacks_Even_Without_Changes()
         {
-            var robust1 = new CerasRobustSerializer(config => config.AllowReflectionFallback = true);
-
-            var original = new CallbackType { Value = 42 };
-            var data = robust1.Save(original, 1);
-
-            // Trigger mismatch by loading with a different config (extra type → different fingerprint)
-            var robust2 = new CerasRobustSerializer(config =>
+            var robust = new CerasRobustSerializer(config =>
             {
                 config.AllowReflectionFallback = true;
-                config.ConfigType<Dummy2>().ConstructByUninitialized();
+                config.UseGeneratedFormatters();
             });
 
-            var result = robust2.Load<CallbackType>(data, 1);
-            
+            var original = new CallbackType { Value = 42 };
+            var data = robust.Save(original, 1);
+
+            // Force the interpreter/slow path via a fingerprint mismatch.
+            data[13] ^= 0xFF;
+            FixRobustChecksum(data);
+
+            var result = robust.Load<CallbackType>(data, 1);
+
             Assert.Equal(42, result.Value);
             Assert.True(result.CallbackCalled, "Callback should be called in slow path even if no changes to the type occurred");
         }

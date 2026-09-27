@@ -12,6 +12,7 @@ namespace Ceras.Test
 {
     public class AssemblyNameBug : TestBase
     {
+        [CerasSerializable]
         public class Container
         {
             public object Any;

@@ -5,6 +5,8 @@ using Ceras;
 using Ceras.Format;
 using Ceras.Generated;
 
+[assembly: Ceras.CerasKnownType<Ceras.Test.RobustGenerics.GenericPair<int, string>>]
+
 namespace Ceras.Test.RobustGenerics
 {
     // 1. Explicitly registered interface

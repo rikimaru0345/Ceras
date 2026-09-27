@@ -3,6 +3,8 @@ using Xunit;
 using Ceras;
 using Ceras.Generated;
 
+[assembly: Ceras.CerasKnownType<Ceras.Test.Pair<int, string>>]
+
 namespace Ceras.Test {
 	[CerasSerializable]
 	public interface ICombatEntity {
