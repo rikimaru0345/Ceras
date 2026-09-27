@@ -155,15 +155,26 @@ namespace Ceras.Formatters {
 
 			entry.SerializeDispatcher = CreateSpecificSerializerDispatcher(type, formatter);
 			entry.DeserializeDispatcher = CreateSpecificDeserializerDispatcher(type, formatter);
-			
-			if (_ceras.IsFormatterConstructedInstance(type))
-				// A formatter-constructed type is built by its own formatter, so there is no constructor
-				// to call here: the placeholder hands back null and the dispatcher fills the instance in.
-				// The call sites cast the result to T (a reference type), where null is a legal value.
-				entry.Constructor = () => null!;
-			else
-				entry.Constructor = _ceras.Config.GetTypeConfigForClosedType(type, false).TypeConstruction.GetRefFormatterConstructor();
-			
+
+			// Which construction builds a fresh instance:
+			//   * a construction the application selected for this type is always honored. It exists
+			//     precisely to replace the allocation — a pool, a factory handing out recycled
+			//     instances — so it wins even over a generated formatter that would otherwise build the
+			//     instance itself.
+			//   * a construction Ceras picked by itself is honored only when nothing else builds the
+			//     instance. Letting the default take that job away from generated code would silently
+			//     change what every generated formatter does (a robust context's default is "uninitialized",
+			//     which would skip the constructor the generated formatter was written to run).
+			// The migration interpreter mirrors this in Format.CurrentObjectFactory.
+			var typeConfig = _ceras.Config.GetTypeConfigForClosedType(type, false);
+			// The placeholder hands back null: a formatter-constructed type is built by its own formatter,
+			// so there is no constructor to call here and the dispatcher fills the instance in. The call
+			// sites cast the result to T (a reference type), where null is a legal value, so the
+			// null-forgiving operator is used rather than pretending Func<object> cannot return null.
+			entry.Constructor = _ceras.IsFormatterConstructedInstance(type) && !typeConfig.IsConstructionExplicit
+				? () => null!
+				: typeConfig.TypeConstruction.GetRefFormatterConstructor();
+
 			return entry;
 		}
 

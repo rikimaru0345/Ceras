@@ -27,19 +27,49 @@
 
 		//
 		// Settings
+		bool _isConstructionExplicit;
+
 		protected TypeConstruction _typeConstruction; // null = invalid
 		public TypeConstruction TypeConstruction
 		{
 			get => _typeConstruction;
 			set
 			{
-				ThrowIfSealed();
-				_typeConstruction = value;
-				if (value != null)
-				{
-					TypeConstruction.TypeConfig = this;
-					TypeConstruction.VerifyReturnType();
-				}
+				AssignConstruction(value);
+				_isConstructionExplicit = true;
+			}
+		}
+
+		/// <summary>
+		/// True when the application selected the construction for this type (<c>ConstructBy(...)</c>,
+		/// <c>ConstructByUninitialized()</c>, a <c>TypeConstruction</c> instance, or an assignment from an
+		/// <c>OnConfigNewType</c> callback) rather than Ceras having picked the library default.
+		/// <para>
+		/// The readers need the difference. A generated (or custom) formatter builds the instance of a
+		/// generated type itself, so the reference wrapper normally ignores the construction — otherwise
+		/// Ceras' own default would silently take that job away from the generated code. An explicit
+		/// selection is the opposite: it exists precisely to replace that allocation (a pool, a factory
+		/// that hands out recycled instances), so it is honored even then. See
+		/// <c>Formatters.ReferenceFormatter&lt;T&gt;</c> and <c>Format.CurrentObjectFactory</c>.
+		/// </para>
+		/// </summary>
+		internal bool IsConstructionExplicit => _isConstructionExplicit;
+
+		/// <summary>
+		/// The construction Ceras picked for this type by itself (see <see cref="TypeConfigDefaults"/>).
+		/// Assigned without marking the selection explicit, so "nobody configured anything" stays
+		/// distinguishable from "somebody configured exactly this".
+		/// </summary>
+		internal void SetDefaultTypeConstruction(TypeConstruction construction) => AssignConstruction(construction);
+
+		void AssignConstruction(TypeConstruction value)
+		{
+			ThrowIfSealed();
+			_typeConstruction = value;
+			if (value != null)
+			{
+				TypeConstruction.TypeConfig = this;
+				TypeConstruction.VerifyReturnType();
 			}
 		}
 		internal Dictionary<ParameterInfo, MemberInfo> ParameterMap;

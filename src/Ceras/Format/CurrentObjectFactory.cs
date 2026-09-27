@@ -51,17 +51,131 @@ namespace Ceras.Format
             => type != null && !type.IsArray && WellKnownTypes.IsCollectionFormatterShape(type);
 
         /// <summary>
-        /// Allocates a reference-typed instance the way the generated reader does when no constructor
-        /// arguments are involved: uninitialized, then the parameterless constructor when the type has
-        /// one, so field initializers run and the object is fully initialized before its members are
-        /// assigned. A configured <see cref="TypeConstruction"/> (a factory or a pool) is deliberately not
-        /// consulted here — routing reference types through it is TODO 0.8.11, and doing it now would
-        /// change reuse/pooling semantics as a side effect of this contract.
+        /// The instance for a *fresh* reference-typed value (there is none to reuse), built the way the
+        /// generated reader's reference wrapper builds it: the configured construction when one applies
+        /// (<see cref="TryConfiguredConstruction"/>), otherwise the allocation the type's own generated
+        /// formatter performs for a value it is handed as null.
         /// </summary>
-        public object? CreateReference(Type? type)
+        public object? CreateReference(Type? declaredType, Type? currentType)
         {
-            if (type == null) return null;
+            if (currentType == null) return null;
+            return TryConfiguredConstruction(declaredType, currentType) ?? AllocateLikeOwnFormatter(currentType);
+        }
 
+        /// <summary>
+        /// The instance for a fresh reference type whose members are about to be passed to a parameterized
+        /// <c>[CerasConstructor]</c>. The configured construction still supplies the instance when it applies
+        /// (the generated reader hands that same instance to the generated formatter, which then invokes the
+        /// constructor on it); when none does, the instance is uninitialized, because the generated formatter
+        /// allocates that way for a type with a parameterized constructor. Either way the caller registers it
+        /// before the constructor runs, so a cycle through a constructor parameter resolves.
+        /// </summary>
+        public object? CreateWithConstructorArguments(Type? declaredType, Type? currentType)
+        {
+            if (currentType == null) return null;
+            return TryConfiguredConstruction(declaredType, currentType) ?? RuntimeHelpers.GetUninitializedObject(currentType);
+        }
+
+        /// <summary>
+        /// The configured construction's instance, or null when it does not supply one.
+        /// <para>
+        /// This mirrors <c>ReferenceFormatter&lt;T&gt;.GetOrCreateEntry</c>: a construction the
+        /// <em>application</em> selected always applies — it exists precisely to replace the allocation —
+        /// while Ceras' own default applies only when nothing else builds the instance, so it cannot
+        /// silently take that job away from generated code.
+        /// </para>
+        /// </summary>
+        object? TryConfiguredConstruction(Type? declaredType, Type currentType)
+        {
+            var typeConfig = _serializer.Config.GetTypeConfigForClosedType(currentType, false);
+            if (!UsesConfiguredConstruction(declaredType, currentType, typeConfig)) return null;
+
+            var constructed = InvokeConfiguredConstruction(currentType, typeConfig);
+            return constructed == null ? null : VerifyConstructedInstance(currentType, constructed);
+        }
+
+        bool UsesConfiguredConstruction(Type? declaredType, Type currentType, TypeConfig typeConfig)
+        {
+            if (typeConfig.IsConstructionExplicit) return true;                        // a user selection
+            if (!OwnFormatterBuildsInstance(currentType, typeConfig)) return true;    // nothing else builds it
+
+            // The one shape whose wrapper asks unconditionally: a slot declared as its own sealed type is read
+            // through ReferenceFormatter_KnownSealedType<T>, which has no such check. "Declared as itself" is
+            // what identifies it — a polymorphic slot holding a sealed type goes through ReferenceFormatter<T>.
+            // The exclusions mirror the wrapper choice: System.Type is served by its own formatter, and object
+            // is sealed as far as IsSealed reports but is a polymorphic slot, never a sealed one.
+            return declaredType == currentType
+                && declaredType != typeof(object)
+                && declaredType.IsSealed
+                && !typeof(Type).IsAssignableFrom(declaredType);
+        }
+
+        /// <summary>
+        /// Whether the type's own formatter builds the instance — the interpreter's mirror of
+        /// <c>CerasSerializer.IsFormatterConstructedInstance</c>: an abstract type, one of the
+        /// formatter-constructed well-known types, or one with a custom formatter (in a robust context every
+        /// generated formatter, because a generated manifest registers it as the type's custom formatter).
+        /// </summary>
+        static bool OwnFormatterBuildsInstance(Type type, TypeConfig typeConfig)
+            => CerasSerializer.IsFormatterConstructed(type) || typeConfig.CustomFormatter != null;
+
+        /// <summary>
+        /// Asks the configured construction for the instance, or null when it produces none. A selection that
+        /// takes arguments is refused exactly as the generated reader refuses it — the arguments would have
+        /// come from the removed fixup system — so both readers report the same unsupported case.
+        /// (Parameterized construction is supported through <c>[CerasConstructor]</c>, which is handled before
+        /// this is ever reached.)
+        /// </summary>
+        static object? InvokeConfiguredConstruction(Type type, TypeConfig typeConfig)
+        {
+            var construction = typeConfig.TypeConstruction;
+            if (construction == null) return null;
+
+            var ctor = construction.GetRefFormatterConstructor();
+            if (ctor == null) return null;
+
+            try
+            {
+                return ctor();
+            }
+            catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException)
+            {
+                // The configured construction is application code, so its failure is the load's failure. Name
+                // the type and unwrap the reflection layer, as the generated reader's would produce too.
+                var cause = e is TargetInvocationException { InnerException: { } inner } ? inner : e;
+                throw new Exceptions.CerasSchemaException(
+                    $"The configured construction ({construction.GetType().Name}) of '{TypeIdentity.GetCanonicalName(type)}' threw " +
+                    $"while migrating a save: {cause.GetType().Name}: {cause.Message}", cause);
+            }
+        }
+
+        /// <summary>
+        /// Rejects an instance the configured construction returned that is not the type being read. The
+        /// generated reader fails on the same instance (it casts the result to the declared type), so the
+        /// interpreter must not store it either. A wrong <em>declared</em> return type never gets this far —
+        /// the configuration rejects it when it is set — so this guards the remaining ways a wrong-typed
+        /// instance can appear (a factory whose result depends on runtime state, an assignment from an
+        /// <c>OnConfigNewType</c> callback).
+        /// </summary>
+        static object VerifyConstructedInstance(Type type, object instance)
+        {
+            if (type.IsInstanceOfType(instance)) return instance;
+
+            throw new Exceptions.CerasSchemaException(
+                $"The configured construction of '{TypeIdentity.GetCanonicalName(type)}' returned a " +
+                $"'{TypeIdentity.GetCanonicalNameOrUnknown(instance.GetType())}', which is not a '{TypeIdentity.GetCanonicalName(type)}'. " +
+                "The construction selection has to produce an instance of the type it is configured for " +
+                "(config.ConfigType<T>().ConstructBy(...)).");
+        }
+
+        /// <summary>
+        /// The allocation the type's own generated formatter performs for a value it is handed as null:
+        /// uninitialized, then the parameterless constructor when the type has one — a plain call when it
+        /// is accessible, reflection when it is not (the generated formatter uses an unsafe accessor).
+        /// Field initializers therefore run, and the object is initialized before its members are assigned.
+        /// </summary>
+        static object AllocateLikeOwnFormatter(Type type)
+        {
             var obj = RuntimeHelpers.GetUninitializedObject(type);
             var parameterless = type.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
             if (parameterless != null)
