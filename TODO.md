@@ -114,23 +114,6 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   arguments can still fail or desync in skip/read paths. Validate or reject that
   malformed shape consistently; setting bool's fixed width to one is safe but not
   a substitute for schema validation.
-- **Custom formatter/schema mismatch on migration.** Investigate whether overriding a
-  generated formatter can leave a structural schema in the file while writing opaque
-  bytes. **Reproduced with separate historical writer/reader builds and a valid CRC:**
-  removing such a field can silently corrupt following fields, and the fingerprint
-  does not include formatter selection. **Decision:** temporarily reject user custom
-  formatters in robust contexts with an actionable error; keep them in raw contexts.
-  Do not keep accepting old experimental files whose fingerprint falsely matches:
-  advance the experimental format version and deliberately update golden fixtures if
-  needed. Restore robust custom formatters after Milestone 1 adds truthful opaque
-  schema/formatter-selection metadata; migration must still refuse unframed opaque
-  values it cannot consume. Opaque framing remains deferred. **Guard design:** use
-  generated-formatter/schema identity from the baked manifest, not a new public
-  `SetGeneratedFormatter` self-attestation. Refuse doctored schemas rather than using
-  them to force tests through the interpreter; force a fingerprint mismatch instead.
-  `SchemaRegistry.Register` is public and can deliberately register a lying schema
-  today; full validation of writer bytes against an authoritative layout belongs to
-  Milestone 1, not an assertion that the temporary guard is unforgeable.
 - **Detect trailing migration payload bytes.** After interpreting a root, assert that
   the declared data section was consumed exactly. A mismatched schema can otherwise
   leave bytes silently unread; reject it with a typed, actionable error. This is a
@@ -162,7 +145,12 @@ context after seal or parse the schema on a matching-layout load.
   file schema during Milestone 1, before the old-data graph, so an old file can be
   decoded without consulting a missing historical CLR type. This deliberately changes
   the experimental format and requires reviewed fixture/fingerprint updates; first
-  extract byte-preserving shared rules and pin existing payload bytes.
+  extract byte-preserving shared rules and pin existing payload bytes. The v4 temporary
+  guard refuses user custom formatters in robust contexts (raw contexts still permit
+  them), but `SchemaRegistry.Register` can still deliberately register a lying schema,
+  and reinterpret/reflection/resolver formatters may write bytes that no schema
+  describes. Verify writer selection against the authoritative layout; the
+  manifest-coupled guard is not an unforgeable proof of schema truth.
 - Split generator context registration/discovery from source emission as the layout
   model settles. `CerasFormatterGenerator.cs` and `RobustCodeEmitter.cs` still mirror
   some type/encoding decisions; converge on one canonical helper rather than
