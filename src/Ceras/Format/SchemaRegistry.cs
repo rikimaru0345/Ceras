@@ -174,8 +174,9 @@ namespace Ceras.Format
             {
                 if (_byType.TryGetValue(type, out var e)) { id = e.Id; return true; }
 
-				// Automatic registration for types encountered at runtime (e.g. generic instantiations)
-				if (type != null && !WellKnownTypes.IsWellKnown(type))
+				// Automatic registration for types encountered at runtime (e.g. generic instantiations).
+				// Pre-seal only: after sealing, the baked schema is frozen and the registry never grows.
+				if (!IsSealed && type != null && !WellKnownTypes.IsWellKnown(type))
                 {
                     EnsureRegisteredRecursive(type);
                     if (_byType.TryGetValue(type, out e)) { id = e.Id; return true; }
@@ -188,8 +189,7 @@ namespace Ceras.Format
 
         void EnsureRegisteredRecursive(Type type)
         {
-            // Never grow the registry after it has been sealed (TODO Phase 3.3). Undeclared types
-            // are rejected by the caller/robust type formatter with a clear error.
+            // Never grow the registry after it has been sealed (TODO Phase 3.3).
             if (IsSealed) return;
 
             if (type == null || WellKnownTypes.IsWellKnown(type) || _byType.ContainsKey(type))
@@ -207,18 +207,12 @@ namespace Ceras.Format
             }
             else
             {
-                // Non-generic types can be registered dynamically. This is required for types that only
-                // appear as schema field-type metadata (SchemaSection.ResolveId) or as runtime-discovered
-                // values (e.g. a concrete type first seen during a save). Their formatter/schema is derived
-                // reflectively at that point and is therefore self-consistent within the run.
-                //
-                // Exception: open generic type definitions (e.g. IEnumerable<>, IDictionary<,>) are only
-                // referenced for schema field-type metadata by SchemaSection.ResolveId, never as actual
-                // values in the data stream — so dynamic registration is fine.
+                // Non-generic types can be registered dynamically (pre-seal). This is required for
+                // types that only appear as schema field-type metadata (SchemaSection.ResolveId) or as
+                // runtime-discovered values. Their schema is derived reflectively at that point.
                 Register(type, null);
             }
         }
-
         static SchemaTypeInfo CreateSchemaForUserType(Type type)
         {
             // Reflection fallback for types without a generated schema. Names must remain
