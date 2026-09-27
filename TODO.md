@@ -123,7 +123,11 @@ schemas, header codec, and separate schema/payload string tables. Never grow a
 context after seal or parse the schema on a matching-layout load.
 
 - Derive writer, reader, schema encoding, fingerprint and migration decoder from one
-  explicit layout model; document reference and value grammar without old CLR types.
+  explicit layout model. Record reference representation and payload grammar in the
+  file schema during Milestone 1, before the old-data graph, so an old file can be
+  decoded without consulting a missing historical CLR type. This deliberately changes
+  the experimental format and requires reviewed fixture/fingerprint updates; first
+  extract byte-preserving shared rules and pin existing payload bytes.
 - Split generator context registration/discovery from source emission as the layout
   model settles. `CerasFormatterGenerator.cs` and `RobustCodeEmitter.cs` still mirror
   some type/encoding decisions; converge on one canonical helper rather than
