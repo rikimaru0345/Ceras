@@ -96,12 +96,6 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   cannot load even when the generic's shape migrates. Expand the alias for each
   closed instantiation or match open aliases structurally, with a version-separated
   test and no loose text-prefix matching of unrelated generic definitions.
-- **Enum stable-name migration.** Confirmed silent wrong value on rename/renumber:
-  generated and declared enum schemas record the C# name rather than the wire
-  `[CerasStableName]`, while migration matches that attribute. Emit the stable wire
-  name in both schemas and also recognize the current C# name when reading old files.
-  An older file containing a *previous* C# name still needs an explicit
-  `[PreviousName]` alias; test both generations of files.
 - **System-namespace discovery.** Confirmed: user-defined `System.*` types are
   wrongly skipped by the generator; framework types such as Uri, Version and
   BigInteger are admitted at compile time but rejected at the first robust Save
