@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using Ceras;
 using Ceras.Format;
 using Xunit;
@@ -12,45 +10,64 @@ namespace Ceras.Test
     public class InterningTestPotion
     {
         public string Label;
+        public string Label2;
     }
 
     public class RobustInterningVerificationTests : TestBase
     {
+        /// <summary>
+        /// Phase 3.3 two-region format: schema strings live in their own region (between the schema
+        /// bytes and the data section) and are NOT shared with the payload string table. Payload
+        /// strings still intern within the payload table.
+        /// </summary>
         [Fact]
-        public void SharedStringTable_InternsAcrossSections()
+        public void SchemaStrings_And_PayloadStrings_AreSeparateRegions()
         {
             var robust = new CerasRobustSerializer(config =>
             {
                 config.AllowReflectionFallback = true;
-                // Must disable compression for this obviously
                 config.StringTableCompression = StringTableCompression.Disabled;
 
-
-                // Force schema generation and registration
                 var info = new SchemaTypeInfo(
                     stableName: "SharedString",
                     previousTypeNames: Array.Empty<string>(),
                     kind: SchemaTypeKind.Class,
-                    fields: new[] { new SchemaFieldInfo("Label", Array.Empty<string>(), "System.String", true) },
+                    fields: new[]
+                    {
+                        new SchemaFieldInfo("Label", Array.Empty<string>(), "System.String", true),
+                        new SchemaFieldInfo("Label2", Array.Empty<string>(), "System.String", true),
+                    },
                     fixedByteSize: 0);
                 config.SchemaRegistry.Register(typeof(InterningTestPotion), info);
             });
 
-			var p = new InterningTestPotion { Label = "SharedString" };
+            var p = new InterningTestPotion { Label = "PayloadValueX", Label2 = "PayloadValueX" };
+            byte[] data = robust.Save(p, 1);
 
-			byte[] data = robust.Save(p, 1);
+            uint schemaStrOff = BitConverter.ToUInt32(data, 9);
+            long dataOff = BitConverter.ToInt64(data, 22);
+            long strOff = BitConverter.ToInt64(data, 30);
 
-			// "SharedString" should appear exactly ONCE in the entire binary
-			// because it's shared between the Schema (StableName) and the Data (Label field).
-			int count = CountOccurrences(data, "SharedString");
-            Assert.Equal(1, count);
+            // Region ordering: header | schema bytes | schema strings | data | payload strings.
+            Assert.True(schemaStrOff >= RobustHeader.Size);
+            Assert.True(schemaStrOff <= dataOff);
+            Assert.True(dataOff <= strOff);
+            Assert.True(strOff <= data.Length);
+
+            // The schema stable name appears only inside the schema string region.
+            Assert.Equal(1, CountOccurrencesInRange(data, "SharedString", (int)schemaStrOff, (int)dataOff));
+            Assert.Equal(0, CountOccurrencesInRange(data, "SharedString", (int)strOff, data.Length));
+
+            // The payload string is interned once (two fields, same value) and only in the payload table.
+            Assert.Equal(0, CountOccurrencesInRange(data, "PayloadValueX", RobustHeader.Size, (int)dataOff));
+            Assert.Equal(1, CountOccurrencesInRange(data, "PayloadValueX", (int)strOff, data.Length));
         }
 
-        static int CountOccurrences(byte[] data, string target)
+        static int CountOccurrencesInRange(byte[] data, string target, int start, int endExclusive)
         {
             byte[] targetBytes = System.Text.Encoding.UTF8.GetBytes(target);
             int count = 0;
-            for (int i = 0; i <= data.Length - targetBytes.Length; i++)
+            for (int i = start; i <= endExclusive - targetBytes.Length; i++)
             {
                 bool match = true;
                 for (int j = 0; j < targetBytes.Length; j++)

@@ -27,6 +27,34 @@ namespace Ceras.Format
 		ulong? _fingerprint = null;
 		readonly object _lock = new();
 
+		// Frozen schema (baked once, at seal). The happy path uses this directly and never parses
+		// the file schema nor decodes schema metadata names (TODO Phase 3.3).
+		byte[] _bakedSchemaBytes;
+		byte[] _bakedSchemaStringsBytes;
+		ulong _bakedFingerprint;
+		Dictionary<Type, int> _bakedTypeToId;
+		Dictionary<int, Type> _bakedIdToType;
+
+		/// <summary>True once the schema has been baked and frozen.</summary>
+		public bool HasBakedSchema => _bakedSchemaBytes != null;
+
+		/// <summary>
+		/// Returns the frozen schema region: the schema bytes (containing indices into the schema
+		/// string table) and the schema string table bytes. Deterministic for a given registered set.
+		/// </summary>
+		public bool TryGetBakedSchema(out byte[] schemaBytes, out byte[] schemaStrings, out Dictionary<Type, int> typeToId, out Dictionary<int, Type> idToType, out ulong fingerprint)
+		{
+			lock (_lock)
+			{
+				schemaBytes = _bakedSchemaBytes;
+				schemaStrings = _bakedSchemaStringsBytes;
+				typeToId = _bakedTypeToId;
+				idToType = _bakedIdToType;
+				fingerprint = _bakedFingerprint;
+				return _bakedSchemaBytes != null;
+			}
+		}
+
         /// <summary>
         /// Clears all registered types. Internal use only.
         /// </summary>
@@ -39,6 +67,11 @@ namespace Ceras.Format
                 _nextId = WellKnownTypes.UserTypeBase;
 				_sealedWatermark = -1;
 				_fingerprint = null;
+				_bakedSchemaBytes = null;
+				_bakedSchemaStringsBytes = null;
+				_bakedTypeToId = null;
+				_bakedIdToType = null;
+				_bakedFingerprint = 0;
             }
         }
 
@@ -51,9 +84,44 @@ namespace Ceras.Format
 		public void Seal() {
 			lock (_lock) {
 				if (IsSealed) return;
+
+				// Bake the schema first (this may reflectively complete field-type entries that are
+				// only discoverable by walking), then freeze the declared set. After this point no
+				// registrations are accepted and Save/Load never walk the registry again.
+				BakeLocked();
+
 				_sealedWatermark = _nextId;
 				_fingerprint = null; // force recompute
+				_bakedFingerprint = ComputeFingerprintLocked();
 			}
+		}
+
+		void BakeLocked()
+		{
+			var schemaStrings = new StringInternTable();
+
+			byte[] schemaBuf = new byte[1024];
+			int schemaOff = 0;
+			_bakedTypeToId = SchemaSection.Write(ref schemaBuf, ref schemaOff, this, schemaStrings);
+
+			byte[] strBuf = new byte[256];
+			int strOff = 0;
+			schemaStrings.Flush(ref strBuf, ref strOff, StringTableCompression.Disabled);
+
+			_bakedSchemaBytes = new byte[schemaOff];
+			Array.Copy(schemaBuf, _bakedSchemaBytes, schemaOff);
+			_bakedSchemaStringsBytes = new byte[strOff];
+			Array.Copy(strBuf, _bakedSchemaStringsBytes, strOff);
+			_bakedIdToType = BuildIdToTypeLocked();
+		}
+
+		Dictionary<int, Type> BuildIdToTypeLocked()
+		{
+			var map = new Dictionary<int, Type>();
+			for (int i = 0; i < 128; i++)
+				if (WellKnownTypes.TryGetType(i, out var wk)) map[i] = wk;
+			foreach (var e in _byType.Values) map[e.Id] = e.Type;
+			return map;
 		}
 
 		public bool IsSealed => _sealedWatermark != -1;
@@ -73,6 +141,11 @@ namespace Ceras.Format
             {
                 if (_byType.ContainsKey(type))
                     return; // idempotent
+
+                if (IsSealed)
+                    throw new InvalidOperationException(
+                        $"Cannot register type '{type.FullName}' after the schema has been sealed. " +
+                        $"Declare it with [CerasSerializable] or [CerasKnownType] so it is part of the generated manifest.");
 
                 if (info == null)
                 {
@@ -115,6 +188,10 @@ namespace Ceras.Format
 
         void EnsureRegisteredRecursive(Type type)
         {
+            // Never grow the registry after it has been sealed (TODO Phase 3.3). Undeclared types
+            // are rejected by the caller/robust type formatter with a clear error.
+            if (IsSealed) return;
+
             if (type == null || WellKnownTypes.IsWellKnown(type) || _byType.ContainsKey(type))
                 return;
 
@@ -352,7 +429,11 @@ namespace Ceras.Format
 		public ulong ComputeFingerprint()
         {
             lock (_lock)
-            {
+                return ComputeFingerprintLocked();
+        }
+
+        ulong ComputeFingerprintLocked()
+        {
                 if (_fingerprint.HasValue)
                     return _fingerprint.Value;
 
@@ -397,8 +478,7 @@ namespace Ceras.Format
 
                 _fingerprint = ((ulong)h1 << 32) | h2;
                 return _fingerprint.Value;
-			}
-		}
+        }
 
         static uint Hash(string s)
         {

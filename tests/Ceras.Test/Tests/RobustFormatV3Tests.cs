@@ -1,0 +1,81 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Xunit;
+using Ceras;
+using Ceras.Generated;
+
+namespace Ceras.Test.RobustV3
+{
+    [CerasSerializable]
+    public class V3Model
+    {
+        public int Id;
+        public string Name;
+        public List<int> Values = new();
+    }
+
+    /// <summary>
+    /// Phase 3.3: two-region format and frozen schema.
+    /// </summary>
+    public class RobustFormatV3Tests : TestBase
+    {
+        static CerasRobustSerializer Generated() => new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+
+        [Fact]
+        public void FastPath_SkipsSchemaParsing_OnFingerprintMatch()
+        {
+            var model = new V3Model { Id = 7, Name = "keep", Values = { 1, 2, 3 } };
+            var bytes = Generated().Save(model, 1);
+
+            uint schemaStrOff = BitConverter.ToUInt32(bytes, 9);
+            Assert.True(schemaStrOff > RobustHeader.Size);
+
+            // Destroy the schema bytes but keep the fingerprint matching. The happy path must not
+            // parse the schema at all, so the load still succeeds.
+            for (int i = RobustHeader.Size; i < schemaStrOff; i++)
+                bytes[i] = 0;
+            FixRobustChecksum(bytes);
+
+            var clone = Generated().Load<V3Model>(bytes, 1);
+            Assert.Equal(7, clone.Id);
+            Assert.Equal("keep", clone.Name);
+            Assert.Equal(new[] { 1, 2, 3 }, clone.Values);
+        }
+
+        [Fact]
+        public void Save_DoesNotGrowRegistry_AfterSeal()
+        {
+            var robust = Generated();
+            var model = new V3Model { Id = 1, Name = "x", Values = { 1 } };
+
+            robust.Save(model, 1);
+            Assert.True(robust.Config.SchemaRegistry.HasBakedSchema);
+
+            int countAfterFirst = robust.Config.SchemaRegistry.All().Count();
+            robust.Save(model, 1);
+            int countAfterSecond = robust.Config.SchemaRegistry.All().Count();
+
+            Assert.Equal(countAfterFirst, countAfterSecond);
+        }
+
+        [Fact]
+        public void Header_CarriesSchemaStringOffset_AndSurvivesRoundTrip()
+        {
+            var model = new V3Model { Id = 2, Name = "y", Values = { 9 } };
+            var bytes = Generated().Save(model, 1);
+
+            uint schemaStrOff = BitConverter.ToUInt32(bytes, 9);
+            long dataOff = BitConverter.ToInt64(bytes, 22);
+            long strOff = BitConverter.ToInt64(bytes, 30);
+
+            Assert.InRange(schemaStrOff, (uint)RobustHeader.Size, (uint)dataOff);
+            Assert.InRange((long)schemaStrOff, 0, dataOff);
+            Assert.True(dataOff <= strOff);
+            Assert.Equal(3, bytes[4]); // FormatVersion
+
+            var clone = Generated().Load<V3Model>(bytes, 1);
+            Assert.Equal(9, clone.Values[0]);
+        }
+    }
+}

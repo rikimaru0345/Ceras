@@ -22,6 +22,8 @@ namespace Ceras
         public byte FormatVersion;
         [System.Runtime.InteropServices.FieldOffset(5)]
         public uint GameVersion;
+        [System.Runtime.InteropServices.FieldOffset(9)]
+        public uint SchemaStringOffset;   // start of the schema string table (end of schema bytes)
         [System.Runtime.InteropServices.FieldOffset(13)]
         public ulong Fingerprint;
         [System.Runtime.InteropServices.FieldOffset(21)]
@@ -40,7 +42,9 @@ namespace Ceras
 
     public sealed class CerasRobustSerializer : CerasSerializer
     {
-        public const int FormatVersion = 2;
+        // v3: two-region string handling — the schema strings live in their own region so the happy
+        // path can skip schema/metadata decoding entirely (TODO Phase 3.3).
+        public const int FormatVersion = 3;
 
         internal readonly CerasRobustConfig _config;
 
@@ -81,14 +85,14 @@ namespace Ceras
         public byte[] Save<T>(T rootObject, uint robustVersion)
         {
             var registry = _config.SchemaRegistry;
-            var internTable = new StringInternTable();
 
-            // Ensure the root type is registered so we can resolve its schema
+            // Register the root and its closure, then seal. After sealing the registry never grows
+            // and the schema bytes are the frozen baked schema (TODO Phase 3.3).
             registry.TryGetId(typeof(T), out _);
-
-            // Ensure the registry is sealed so that discovered generic instantiations
-            // don't affect the fingerprint.
             registry.Seal();
+
+            if (!registry.TryGetBakedSchema(out var schemaBytes, out var schemaStrings, out var typeToId, out _, out var schemaFingerprint))
+                throw new InvalidOperationException("Schema was sealed but not baked.");
 
             int rootTypeId = GetTypeId(typeof(T), registry);
 
@@ -97,13 +101,22 @@ namespace Ceras
 
             WriteHeaderPlaceholder(ref buffer, ref offset, robustVersion);
 
-            ulong schemaFingerprint = registry.ComputeFingerprint();
+            // Schema region: [schema bytes][schema string table]. The schema string table is separate
+            // from the payload string table so skipping schema interpretation never decodes metadata names.
+            SerializerBinary.EnsureCapacity(ref buffer, offset, schemaBytes.Length);
+            schemaBytes.CopyTo(buffer.AsSpan(offset));
+            offset += schemaBytes.Length;
 
-            var typeToId = SchemaSection.Write(ref buffer, ref offset, registry, internTable);
+            int schemaStringOffset = offset;
+            SerializerBinary.EnsureCapacity(ref buffer, offset, schemaStrings.Length);
+            schemaStrings.CopyTo(buffer.AsSpan(offset));
+            offset += schemaStrings.Length;
 
             int dataStart = offset;
 
-            RobustContext.BeginWrite(internTable, typeToId);
+            var payloadStrings = new StringInternTable();
+
+            RobustContext.BeginWrite(payloadStrings, typeToId);
 
             if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
                 Ceras.Helpers.ObjectCache.BeginSerializeTrace();
@@ -124,8 +137,8 @@ namespace Ceras
                 RobustContext.End();
             }
 
-            int stringTableStart = internTable.Flush(ref buffer, ref offset, _config.StringTableCompression);
-            PatchHeader(buffer, offset, robustVersion, dataStart, stringTableStart, schemaFingerprint, (byte)_config.StringTableCompression);
+            int stringTableStart = payloadStrings.Flush(ref buffer, ref offset, _config.StringTableCompression);
+            PatchHeader(buffer, offset, robustVersion, schemaStringOffset, dataStart, stringTableStart, schemaFingerprint, (byte)_config.StringTableCompression);
             return buffer[..offset];
         }
 
@@ -143,12 +156,6 @@ namespace Ceras
 
             var registry = _config.SchemaRegistry;
 
-            // Ensure the root type is registered so we can resolve its schema
-            registry.TryGetId(typeof(T), out _);
-
-            // Ensure the registry is sealed before we start registering anything (like discovered generic instantiations)
-            registry.Seal();
-
             // Check magic "CERA"
             if (data[0] != (byte)'C' || data[1] != (byte)'E' || data[2] != (byte)'R' || data[3] != (byte)'A')
                 throw new Ceras.Exceptions.CerasDataCorruptionException("Invalid magic. The provided data does not appear to be a Ceras-serialized block.");
@@ -161,6 +168,7 @@ namespace Ceras
             if (robustVersion > currentRobustVersion)
                 throw new Ceras.Exceptions.CerasRobustVersionException($"Attempted to load data from a newer application version ({robustVersion}) than the current version ({currentRobustVersion}).", robustVersion, currentRobustVersion);
 
+            uint schemaStringOffset = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(9));
             ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(13));
             byte compressionByte = data[21];
             long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(22));
@@ -174,18 +182,74 @@ namespace Ceras
                     $"CRC mismatch: the saved data is corrupted or truncated (stored 0x{storedCrc:X8}, computed 0x{computedCrc:X8}).");
 
             var compression = (StringTableCompression)compressionByte;
-            var table = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset, compression);
+            var payloadTable = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset, compression);
+
+            // Pin the declared set; no post-seal growth.
+            registry.TryGetId(typeof(T), out _);
+            registry.Seal();
             ulong currentFingerprint = registry.ComputeFingerprint();
 
-            int schemaOffset = RobustHeader.Size;
-            var sequence = new ReadOnlySequence<byte>(data, schemaOffset, (int)dataSectionOffset - schemaOffset);
-            var schemaReader = new SequenceReader<byte>(sequence);
-            var fileSchemas = SchemaSection.Read(ref schemaReader, table);
+            var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, (int)stringTableOffset - (int)dataSectionOffset);
+            var reader = new SequenceReader<byte>(dataSeq);
 
+            if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
+                Ceras.Helpers.ObjectCache.BeginDeserializeTrace();
+
+            // Happy path: matching layout fingerprint. Use the baked manifest for id -> type
+            // resolution and skip parsing the schema and decoding any metadata names entirely.
+            if (schemaFingerprint == currentFingerprint)
+            {
+                if (!registry.TryGetBakedSchema(out _, out _, out _, out var idToType, out _))
+                    throw new InvalidOperationException("Schema was sealed but not baked.");
+
+                RobustContext.BeginRead(payloadTable, idToType);
+                try
+                {
+                    SchemaSection.ReadLeb128(ref reader); // root type id
+                    Deserialize(ref reader, ref value);
+                }
+                finally
+                {
+                    RobustContext.End();
+                }
+                return;
+            }
+
+            // Slow path: parse the schema region (schema bytes + its own string table) and interpret.
+            if (Ceras.Helpers.ObjectCache.DebugTraceEnabled) Console.WriteLine($"[CerasRobust] Fingerprint mismatch! File: {schemaFingerprint:X16}, Current: {currentFingerprint:X16}. Using SchemaTraversalEngine (slow path).");
+
+            var schemaStrings = StringTable.Load(data, (int)schemaStringOffset,
+                (int)dataSectionOffset - (int)schemaStringOffset, StringTableCompression.Disabled);
+
+            int schemaLength = (int)schemaStringOffset - RobustHeader.Size;
+            var schemaSeq = new ReadOnlySequence<byte>(data, RobustHeader.Size, schemaLength);
+            var schemaReader = new SequenceReader<byte>(schemaSeq);
+            var fileSchemas = SchemaSection.Read(ref schemaReader, schemaStrings);
+
+            var slowIdToType = BuildIdToType(fileSchemas, registry, Config.TypeBinder);
+
+            RobustContext.BeginRead(payloadTable, slowIdToType);
+            try
+            {
+                SchemaSection.ReadLeb128(ref reader); // root type id
+                var engine = new SchemaTraversalEngine(fileSchemas, payloadTable, robustVersion, this);
+                value = engine.ReadRoot<T>(ref reader, value);
+            }
+            finally
+            {
+                RobustContext.End();
+            }
+        }
+
+        /// <summary>
+        /// Resolves every type referenced by a file's schema section to a CLR <see cref="Type"/>
+        /// (used only by the migration/interpreter slow path).
+        /// </summary>
+        static Dictionary<int, Type> BuildIdToType(Dictionary<string, OldTypeSchema> fileSchemas, SchemaRegistry registry, ITypeBinder typeBinder)
+        {
             var idToType = new Dictionary<int, Type>();
             for (int i = 0; i < 128; i++) if (WellKnownTypes.TryGetType(i, out var wkType)) idToType[i] = wkType;
 
-            var typeBinder = Config.TypeBinder;
             var schemasById = new Dictionary<int, OldTypeSchema>();
             foreach (var s in fileSchemas.Values) schemasById.TryAdd(s.TypeId, s);
 
@@ -248,32 +312,7 @@ namespace Ceras
                 }
             }
 
-            if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
-                Ceras.Helpers.ObjectCache.BeginDeserializeTrace();
-
-            RobustContext.BeginRead(table, idToType);
-
-            try
-            {
-                var dataSeq = new ReadOnlySequence<byte>(data, (int)dataSectionOffset, (int)stringTableOffset - (int)dataSectionOffset);
-                var reader = new SequenceReader<byte>(dataSeq);
-                uint rootTypeId = SchemaSection.ReadLeb128(ref reader);
-
-                if (schemaFingerprint != currentFingerprint)
-                {
-                    if (Ceras.Helpers.ObjectCache.DebugTraceEnabled) Console.WriteLine($"[CerasRobust] Fingerprint mismatch! File: {schemaFingerprint:X16}, Current: {currentFingerprint:X16}. Using SchemaTraversalEngine (slow path).");
-                    var engine = new SchemaTraversalEngine(fileSchemas, table, robustVersion, this);
-                    value = engine.ReadRoot<T>(ref reader, value);
-                    return;
-                }
-
-                if (Ceras.Helpers.ObjectCache.DebugTraceEnabled) Console.WriteLine($"[CerasRobust] Fingerprints match ({currentFingerprint:X16}). Using CerasSerializer (fast path).");
-                Deserialize(ref reader, ref value);
-            }
-            finally
-            {
-                RobustContext.End();
-            }
+            return idToType;
         }
 
         static void WriteHeaderPlaceholder(ref byte[] buffer, ref int offset, uint robustVersion)
@@ -291,8 +330,9 @@ namespace Ceras
             offset += RobustHeader.Size;
         }
 
-        static void PatchHeader(byte[] buffer, int totalLength, uint robustVersion, long dataSectionOffset, long stringTableOffset, ulong schemaFingerprint, byte flags)
+        static void PatchHeader(byte[] buffer, int totalLength, uint robustVersion, int schemaStringOffset, long dataSectionOffset, long stringTableOffset, ulong schemaFingerprint, byte flags)
         {
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(9), (uint)schemaStringOffset);
             BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(13), schemaFingerprint);
             buffer[21] = flags;
             BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(22), dataSectionOffset);
@@ -421,15 +461,17 @@ namespace Ceras
 
             ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(13));
             byte flags = data[21];
+            uint schemaStringOffset = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(9));
             long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(22));
             long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(30));
 
-            var table = StringTable.Load(data, (int)stringTableOffset, data.Length - (int)stringTableOffset, (StringTableCompression)flags);
+            var schemaStrings = StringTable.Load(data, (int)schemaStringOffset,
+                (int)dataSectionOffset - (int)schemaStringOffset, StringTableCompression.Disabled);
 
             int schemaOffset = RobustHeader.Size;
-            var sequence = new System.Buffers.ReadOnlySequence<byte>(data, schemaOffset, (int)dataSectionOffset - schemaOffset);
+            var sequence = new System.Buffers.ReadOnlySequence<byte>(data, schemaOffset, (int)schemaStringOffset - schemaOffset);
             var schemaReader = new System.Buffers.SequenceReader<byte>(sequence);
-            var fileSchemas = SchemaSection.Read(ref schemaReader, table);
+            var fileSchemas = SchemaSection.Read(ref schemaReader, schemaStrings);
 
             var sb = new StringBuilder();
             sb.AppendLine($"// File fingerprint: {schemaFingerprint:X16}");
