@@ -254,29 +254,50 @@ namespace Ceras.Format
                 return null;
             }
             
+            _plans.TryGetValue(oldSchema.StableName, out var plan);
+            var currentType = plan?.CurrentType ?? targetType;
+
             if (oldSchema.Kind == SchemaTypeKind.Enum)
-            {
-                _plans.TryGetValue(oldSchema.StableName, out var plan);
                 return ReadEnumValue(oldSchema, targetType, plan, ref reader);
-            }
 
-            // If it's a struct, it has no reference marker.
-            if (oldSchema.Kind == SchemaTypeKind.Struct)
-            {
+            // One decision, shared with the skipper: a struct, an enum and a value-typed closed generic are
+            // written inline; everything else is behind a reference marker.
+            if (!CarriesReferenceMarker(oldSchema, currentType))
                 return ReadUserTypeDirect(typeId, targetType, ref reader, null, existingObject);
-            }
 
-            if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
-            {
-                _plans.TryGetValue(oldSchema.StableName, out var plan);
-                Type currentType = plan?.CurrentType ?? targetType;
-
-                if (currentType != null && currentType.IsValueType && currentType != typeof(object))
-                    return ReadUserTypeDirect(typeId, targetType, ref reader, null, existingObject);
-            }
-
-            // If it's a class or interface, it HAS a reference marker.
             return ReadPolymorphicValue(typeId, targetType, ref reader, existingObject);
+        }
+
+        /// <summary>
+        /// Whether a value of this type carries a reference marker. <para>
+        /// This is the decision the reader and the skipper must agree on first, because getting it wrong
+        /// shifts the whole rest of the save: a marker read where a count was written (or the reverse)
+        /// turns every following field into garbage. It is answered from the file's schema kind, refined
+        /// by the <em>current</em> CLR type, because the marker is the writer's reference wrapper's doing —
+        /// a <c>List&lt;T&gt;</c> member is written through that wrapper (marker, then count, then elements)
+        /// while the same type as a built-in collection payload is not. Answering it from the file's
+        /// definition id alone gets that backwards, which is what this predicate exists to prevent.
+        /// </para>
+        /// </summary>
+        bool CarriesReferenceMarker(OldTypeSchema old, Type currentType)
+        {
+            switch (old.Kind)
+            {
+                // A struct and an enum are written inline: no marker, and a struct may not even be nullable.
+                case SchemaTypeKind.Struct:
+                case SchemaTypeKind.Enum:
+                    return false;
+
+                case SchemaTypeKind.GenericInstantiation:
+                    // A closed generic maps to a value type (a KeyValuePair, a tuple, a Nullable): written
+                    // inline. A collection, an array or anything mapped to a reference type goes through the
+                    // reference wrapper.
+                    return currentType == null || !currentType.IsValueType;
+
+                default:
+                    // A class or interface is always behind a reference.
+                    return true;
+            }
         }
 
         object ReadUserTypeDirect(int typeId, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
@@ -828,6 +849,96 @@ namespace Ceras.Format
             || definitionTypeId == WellKnownTypes.Stack;
 
         /// <summary>
+        /// What a file's schema entry says the payload of a generic instantiation is, once it is known that
+        /// there is no reference marker in front of it. The file's definition id decides this, never the
+        /// current CLR type: a rename, a re-assigned id or a changed shape must still decode by the layout
+        /// the writer used, and the current type only supplies the CLR types to decode into.
+        /// <para>
+        /// Written once for both directions. The skipper used to re-derive the same grammar from a different
+        /// question — "is the current type a value type?", then "is the definition id a dictionary?" — so a
+        /// shape could be read one way and skipped another.
+        /// </para>
+        /// </summary>
+        enum PayloadShape
+        {
+            /// <summary>Not one of the described structural shapes.</summary>
+            Unknown,
+
+            Array,
+            KeyValuePair,
+            Nullable,
+            Tuple,
+
+            /// <summary>An explicit count followed by that many elements.</summary>
+            Elements,
+
+            /// <summary>An explicit count followed by that many key/value entries.</summary>
+            Entries,
+        }
+
+        /// <summary>Classifies a file's generic instantiation. Reads no payload.</summary>
+        static PayloadShape ClassifyPayload(OldTypeSchema old)
+        {
+            int definition = old.DefinitionTypeId;
+
+            if (definition == WellKnownTypes.Array) return PayloadShape.Array;
+            if (definition == WellKnownTypes.KeyValuePair) return PayloadShape.KeyValuePair;
+            if (definition == WellKnownTypes.Nullable) return PayloadShape.Nullable;
+            if (WellKnownTypes.IsTupleDefinition(definition)) return PayloadShape.Tuple;
+            if (definition == WellKnownTypes.Dictionary) return PayloadShape.Entries;
+            if (definition == WellKnownTypes.List || definition == WellKnownTypes.HashSet
+                || definition == WellKnownTypes.Queue || definition == WellKnownTypes.Stack) return PayloadShape.Elements;
+
+            return PayloadShape.Unknown;
+        }
+
+        /// <summary>True when the file describes this id as an array instantiation.</summary>
+        bool IsArrayPayload(int typeId)
+            => _file.TryGetById(typeId, out var schema)
+            && schema.Kind == SchemaTypeKind.GenericInstantiation
+            && schema.DefinitionTypeId == WellKnownTypes.Array;
+
+        /// <summary>The file's schema for an id, or an empty placeholder when the file did not describe it.</summary>
+        OldTypeSchema SkipSchemaOf(int typeId)
+            => _file.TryGetById(typeId, out var schema) ? schema : EmptySchema;
+
+        static readonly OldTypeSchema EmptySchema = new OldTypeSchema(
+            0, "", Array.Empty<string>(), SchemaTypeKind.Class, Array.Empty<OldFieldSchema>(), 0, 0, null, null);
+
+        /// <summary>The old type's argument id at <paramref name="index"/>, or null when it did not record one.</summary>
+        static int? ArgId(OldTypeSchema old, int index)
+            => old.ArgTypeIds != null && old.ArgTypeIds.Length > index ? (int?)old.ArgTypeIds[index] : null;
+
+        /// <summary>
+        /// Accounts for a collection payload: an explicit count (biased, <c>-1</c> for null) followed by that
+        /// many elements or key/value entries. One implementation for every shape, so the count's meaning and
+        /// its bound cannot drift between them.
+        /// </summary>
+        void SkipCollectionPayload(PayloadShape shape, OldTypeSchema old, ref SequenceReader<byte> reader)
+        {
+            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
+            if (count == -1) return;                          // a null collection
+            if (count < 0 || count > _maxCollectionSize)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt save: a collection declares {count} elements, outside the configured maximum of {_maxCollectionSize}.");
+
+            if (shape == PayloadShape.Entries)
+            {
+                int? keyId = ArgId(old, 0);
+                int? valueId = ArgId(old, 1);
+                for (int i = 0; i < count; i++)
+                {
+                    if (keyId.HasValue) SkipValue(keyId.Value, ref reader);
+                    if (valueId.HasValue) SkipValue(valueId.Value, ref reader);
+                }
+            }
+            else
+            {
+                SkipElements((uint)count, ArgId(old, 0), ref reader);
+            }
+        }
+
+        /// <summary>
         /// The single collection reader. The file's definition id decides the <em>payload</em> (an explicit
         /// count plus elements/entries, exactly like <c>CollectionFormatter</c>/<c>QueueFormatter</c>/
         /// <c>StackFormatter</c> write), while the current type supplies the CLR element/key/value types
@@ -1079,50 +1190,44 @@ namespace Ceras.Format
                 case SchemaTypeKind.Class: SkipPolymorphicValue(typeId, ref reader); break;
                 case SchemaTypeKind.Enum: SkipEnumValue(oldSchema, ref reader); break;
                 case SchemaTypeKind.GenericInstantiation:
-                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Nullable)
-                    {
-                        if (SerializerBinary.ReadByte(ref reader) != 0)
-                        {
-                            int? innerId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                            if (innerId.HasValue) SkipValue(innerId.Value, ref reader);
-                        }
-                        break;
-                    }
-
-                    if (WellKnownTypes.IsTupleDefinition(oldSchema.DefinitionTypeId))
-                    {
-                        foreach (var argId in oldSchema.ArgTypeIds) SkipValue(argId, ref reader);
-                        break;
-                    }
-
+                {
                     _plans.TryGetValue(oldSchema.StableName, out var plan);
-                    if (plan?.CurrentType != null && plan.CurrentType.IsValueType)
-                    {
-                        if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)
-                        {
-                            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
-                            if (count == -1) return;
-                            int? kId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                            int? vId = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
-                            for (int i = 0; i < count; i++) { if (kId.HasValue) SkipValue(kId.Value, ref reader); if (vId.HasValue) SkipValue(vId.Value, ref reader); }
-                        }
-                        else if (oldSchema.DefinitionTypeId != 0)
-                        {
-                            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
-                            if (count == -1) return;
-                            int? elemTypeId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
-                            SkipElements((uint)count, elemTypeId, ref reader);
-                        }
-                        else
-                        {
-                            foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, ref reader);
-                        }
-                    }
-                    else
+                    var currentType = plan?.CurrentType;
+
+                    // The same two shared decisions the reader makes, in the same order: is there a marker,
+                    // and if not, what is the payload?
+                    if (CarriesReferenceMarker(oldSchema, currentType))
                     {
                         SkipPolymorphicValue(typeId, ref reader);
+                        break;
+                    }
+
+                    switch (ClassifyPayload(oldSchema))
+                    {
+                        case PayloadShape.Nullable:
+                            if (SerializerBinary.ReadByte(ref reader) != 0)
+                            {
+                                int? innerId = ArgId(oldSchema, 0);
+                                if (innerId.HasValue) SkipValue(innerId.Value, ref reader);
+                            }
+                            break;
+
+                        case PayloadShape.Tuple:
+                            foreach (var argId in oldSchema.ArgTypeIds) SkipValue(argId, ref reader);
+                            break;
+
+                        case PayloadShape.Array:
+                        case PayloadShape.Elements:
+                        case PayloadShape.Entries:
+                            SkipCollectionPayload(ClassifyPayload(oldSchema), oldSchema, ref reader);
+                            break;
+
+                        default:
+                            foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, ref reader);
+                            break;
                     }
                     break;
+                }
             }
         }
 
@@ -1263,7 +1368,13 @@ namespace Ceras.Format
             foreach (var mapping in mappings)
             {
                 if (mapping.NewField == null) {
-                    SkipValue(mapping.OldField.TypeId, ref reader);
+                    // The mirror of the array exception below: an array-typed member is written by
+                    // ArrayFormatter with no reference marker, so a *removed* one has to be skipped the same
+                    // way. Without this the skip reads a marker where the writer wrote a count.
+                    if (mapping.NewField == null && IsArrayPayload(mapping.OldField.TypeId))
+                        SkipCollectionPayload(PayloadShape.Array, SkipSchemaOf(mapping.OldField.TypeId), ref reader);
+                    else
+                        SkipValue(mapping.OldField.TypeId, ref reader);
                 }
                 else
                 {

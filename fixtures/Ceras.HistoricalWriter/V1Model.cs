@@ -116,6 +116,15 @@ namespace Ceras.HistoricalWriter.V1
         public List<Player> Players;
         public Player Main;
         public Settings Stats;
+
+        /// <summary>
+        /// A field the current model does not have, of a <em>reference-typed</em> collection. Its payload is
+        /// an explicit count plus elements, but a collection is a reference, so a skipper that asks "is the
+        /// current type a value type?" instead of "what does the file's definition id say?" reads a reference
+        /// marker where the writer wrote a count - and every field after this one decodes as garbage.
+        /// </summary>
+        public List<int> Retired;
+
         public int[] Slots;
         public Dictionary<string, int> Scores;
         public Mode Difficulty;

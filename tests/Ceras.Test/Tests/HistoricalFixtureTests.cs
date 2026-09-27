@@ -225,6 +225,23 @@ namespace Ceras.Test.HistoricalFixtures
         }
 
         [Fact]
+        public void A_Removed_Collection_Field_Leaves_The_FIELds_After_It_Aligned()
+        {
+            // v1 wrote a List<int> field the current model does not have, immediately before Slots. A removed
+            // field is consumed rather than decoded, which is where the read/skip grammar has to agree: a
+            // collection payload is a marker, then an explicit count, then the elements, and getting any of
+            // those wrong shifts everything after it. The Mono flag in the schema means "no type tag", not
+            // "no reference marker" - the marker is still there for a reference-typed value.
+            var game = Reader().Load<SaveGame>(Fixture("SaveGame.bin"), 1);
+
+            Assert.Equal(new[] { 1, 2, 3, 4, 5 }, game.Slots);
+            Assert.Equal(100, game.Scores["Ayla"]);
+            Assert.Equal(250, game.Scores["Bryn"]);
+            Assert.Equal("chapter-2", game.Chapter);
+            Assert.Equal(2, game.Players.Count);
+        }
+
+        [Fact]
         public void A_Value_Whose_Enum_Member_Was_Deleted_Keeps_Its_Number()
         {
             // v1 wrote Mode.Removed; the current enum has no such member. The number has to survive: an
