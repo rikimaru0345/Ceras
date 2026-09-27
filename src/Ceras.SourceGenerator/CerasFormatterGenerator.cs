@@ -209,13 +209,37 @@ namespace Ceras.SourceGenerator
 
             // 3. Discover each context independently; keep the first discovery path per type for the
             //    (context-independent) discovery diagnostics.
+            //
+            //    Member discovery reports member-level diagnostics (CERAS001/008/009/016/017, ...) as a
+            //    side effect of building the member list. Discovery, the fail-early pass, and the
+            //    emission loop would each invoke it, so a shared cache is used here: every type's
+            //    members are discovered exactly once, which both reports each member diagnostic exactly
+            //    once and avoids redundant work (see the `## Review later` entry on duplicate
+            //    diagnostics).
             var results = new Dictionary<INamedTypeSymbol, TypeDiscoveryResult>(SymbolEqualityComparer.Default);
             var contextTypes = new SortedDictionary<string, List<INamedTypeSymbol>>(StringComparer.Ordinal);
+            var memberCache = new Dictionary<INamedTypeSymbol, List<SerializedMember>>(SymbolEqualityComparer.Default);
+            var discoveryDiagnostics = new List<Diagnostic>();
+
+            List<SerializedMember> DiscoverCached(INamedTypeSymbol t)
+            {
+                if (!memberCache.TryGetValue(t, out var cached))
+                {
+                    // Route member diagnostics through a buffer so they can be reported once, after the
+                    // whole discovery phase, rather than immediately per discovery pass. The explicit
+                    // registration filter is not known yet at discovery time and does not affect the
+                    // member list shape used during discovery/emission.
+                    cached = MemberExplorer.DiscoverMembers(context, t, attrBag, blacklistPatterns, null, discoveryDiagnostics);
+                    memberCache[t] = cached;
+                }
+                return cached;
+            }
 
             foreach (var kv in contextRoots)
             {
                 var discovered = DiscoveryEngine.DiscoverAllTypes(
-                    context, compilation, kv.Value.ToImmutableArray(), attrBag, excludeFromDiscoveryAttr, blacklistPatterns);
+                    context, compilation, kv.Value.ToImmutableArray(), attrBag, excludeFromDiscoveryAttr, blacklistPatterns,
+                    memberCache, discoveryDiagnostics);
 
                 var contextMembers = new List<INamedTypeSymbol>(discovered.Count);
                 foreach (var discoveredType in discovered)
@@ -227,6 +251,9 @@ namespace Ceras.SourceGenerator
 
                 contextTypes[kv.Key] = contextMembers;
             }
+
+            foreach (var diagnostic in discoveryDiagnostics)
+                context.ReportDiagnostic(diagnostic);
 
             var finalTypes = results.Keys.ToImmutableArray();
             var finalTypesSet = new HashSet<INamedTypeSymbol>(finalTypes, SymbolEqualityComparer.Default);
@@ -287,14 +314,6 @@ namespace Ceras.SourceGenerator
             //   * noFormatterReason       - why a skipped discovered type has no formatter (CASE B);
             // and reports any generated-name collision instead of letting it explode later.
             // ------------------------------------------------------------------------------------
-            var memberCache = new Dictionary<INamedTypeSymbol, List<SerializedMember>>(SymbolEqualityComparer.Default);
-            List<SerializedMember> DiscoverCached(INamedTypeSymbol t)
-            {
-                if (!memberCache.TryGetValue(t, out var cached))
-                    memberCache[t] = cached = MemberExplorer.DiscoverMembers(context, t, attrBag, blacklistPatterns, finalTypesSet);
-                return cached;
-            }
-
             var generatedFormatterTypes = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
             var nonConstructableTypes = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
             var noFormatterReason = new Dictionary<INamedTypeSymbol, string>(SymbolEqualityComparer.Default);
@@ -365,6 +384,75 @@ namespace Ceras.SourceGenerator
                 generatedFormatterTypes.Add(type);
             }
 
+            // ------------------------------------------------------------------------------------
+            // Minimal registrations for referenced-but-not-generated types.
+            //
+            // The generated manifest must be complete enough to bake the schema without runtime
+            // auto-registration (TODO Phase 3.4). A member can reference a concrete type that is
+            // intentionally not part of the closure: blacklisted/engine types (e.g. a GodotObject
+            // subclass with a user-provided custom formatter) or external types served by the
+            // reflection fallback. Such a type is not discovered, so it gets no generated schema;
+            // without a minimal declaration the bake would fail to resolve the field type id.
+            // The field's formatter is still the runtime/custom one; only the schema placeholder is
+            // emitted here, exactly like the interface/abstract placeholders below.
+            // ------------------------------------------------------------------------------------
+            var minimalTypeCache = new Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>>(SymbolEqualityComparer.Default);
+
+            List<INamedTypeSymbol> CollectMinimalTypes(INamedTypeSymbol type)
+            {
+                if (minimalTypeCache.TryGetValue(type, out var cached)) return cached;
+
+                var found = new List<INamedTypeSymbol>();
+                var seen = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+
+                foreach (var m in DiscoverCached(type))
+                    Walk(m.Type);
+
+                minimalTypeCache[type] = found;
+                return found;
+
+                void Walk(ITypeSymbol symbol)
+                {
+                    switch (symbol)
+                    {
+                        case IArrayTypeSymbol arr:
+                            Walk(arr.ElementType);
+                            return;
+                        case IPointerTypeSymbol ptr:
+                            Walk(ptr.PointedAtType);
+                            return;
+                        case ITypeParameterSymbol:
+                            return;
+                        case INamedTypeSymbol named:
+                            // Walk generic arguments first (e.g. List<BlacklistedType>).
+                            if (named.IsGenericType)
+                                foreach (var arg in named.TypeArguments) Walk(arg);
+
+                            if (IsWellKnownType(named)) return;      // System.* primitives/collections
+                            if (IsOpenType(named)) return;           // closed types only
+                            if (MemberExplorer.IsCollectionType(named)) return;
+                            if (named.TypeKind == TypeKind.Enum) return; // runtime derives enum schemas
+                            if (named.IsAbstract || named.TypeKind == TypeKind.Interface) return; // registered by the discovered loop
+                            if (finalTypesSet.Contains(named)) return; // already has a generated/managed schema
+                            if (seen.Add(named)) found.Add(named);
+                            return;
+                    }
+                }
+            }
+
+            var contextMinimalTypes = new SortedDictionary<string, List<INamedTypeSymbol>>(StringComparer.Ordinal);
+            foreach (var kv in contextTypes)
+            {
+                var set = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+                var list = new List<INamedTypeSymbol>();
+                foreach (var type in kv.Value)
+                    foreach (var minimal in CollectMinimalTypes(type))
+                        if (set.Add(minimal)) list.Add(minimal);
+
+                list.Sort((a, b) => string.Compare(GetRobustName(a), GetRobustName(b), StringComparison.Ordinal));
+                contextMinimalTypes[kv.Key] = list;
+            }
+
             // 1. Generate the 'UseRobustFormatters' file: one registration entry point per context.
             var sbUse = new StringBuilder();
             sbUse.AppendLine("// <auto-generated/>");
@@ -410,7 +498,7 @@ namespace Ceras.SourceGenerator
             {
                 sbUse.AppendLine($"                case {QuoteLiteral(contextName)}:");
                 sbUse.AppendLine("                {");
-                sbUse.Append(BuildContextRegistrationBody(contextTypes[contextName], generatedFormatterTypes));
+                sbUse.Append(BuildContextRegistrationBody(contextTypes[contextName], contextMinimalTypes[contextName], generatedFormatterTypes));
                 sbUse.AppendLine("                    break;");
                 sbUse.AppendLine("                }");
             }
@@ -559,6 +647,7 @@ namespace Ceras.SourceGenerator
         /// </summary>
         static string BuildContextRegistrationBody(
             List<INamedTypeSymbol> contextTypes,
+            List<INamedTypeSymbol> minimalTypes,
             HashSet<INamedTypeSymbol> generatedFormatterTypes)
         {
             var ordered = contextTypes
@@ -585,13 +674,11 @@ namespace Ceras.SourceGenerator
                 usesRobustConfig = true;
             }
 
-            // Register discovered interface and abstract types with minimal schemas.
-            // These types have no formatters but may appear as generic type arguments in
-            // serialized collections (e.g. List<ILogicalEntity>). Without pre-registration
-            // they get dynamically assigned IDs during serialization AFTER SchemaSection.Write
-            // has already run, so their IDs are never written to the schema section.
-            // On load, RobustContext.IdToType cannot resolve those IDs → null type →
-            // "Failed to deserialize generic argument 0 for type 'List`1'".
+            // Register referenced-but-not-generated types and discovered interface/abstract types with
+            // minimal schemas. These types have no generated formatters but may appear as fields or as
+            // generic type arguments in serialized collections (e.g. List<ILogicalEntity>) or as members
+            // served by a user-provided custom formatter (e.g. a blacklisted engine object). Without
+            // pre-registration the bake cannot resolve their type ids (TODO Phase 3.4).
             foreach (var type in ordered)
             {
                 if (type.TypeKind != TypeKind.Interface && !type.IsAbstract) continue;
@@ -599,16 +686,17 @@ namespace Ceras.SourceGenerator
                 if (IsWellKnownType(type)) continue;
                 if (type.TypeParameters.Length > 0) continue; // open generics: closed instantiations are handled at runtime
 
-                string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                string stableName = GetRobustName(type);
-                body.AppendLine($"                    if (robustConfig != null)");
-                body.AppendLine($"                        robustConfig.SchemaRegistry.Register(typeof({typeFqn}),");
-                body.AppendLine($"                            new global::Ceras.Format.SchemaTypeInfo(");
-                body.AppendLine($"                                stableName: {QuoteString(stableName)},");
-                body.AppendLine($"                                previousTypeNames: global::System.Array.Empty<string>(),");
-                body.AppendLine($"                                kind: global::Ceras.Format.SchemaTypeKind.Class,");
-                body.AppendLine($"                                fields: global::System.Array.Empty<global::Ceras.Format.SchemaFieldInfo>(),");
-                body.AppendLine($"                                fixedByteSize: 0));");
+                AppendMinimalRegistration(body, type, isStruct: false);
+                usesRobustConfig = true;
+            }
+
+            // Referenced-but-not-generated concrete types (blacklisted/engine/external), collected from
+            // the members of this context's types. They are intentionally absent from the closure and
+            // receive no generated formatter, but the schema still needs a placeholder declaration so a
+            // field can reference their type id without relying on runtime auto-registration.
+            foreach (var type in minimalTypes)
+            {
+                AppendMinimalRegistration(body, type, isStruct: type.IsValueType);
                 usesRobustConfig = true;
             }
 
@@ -616,6 +704,29 @@ namespace Ceras.SourceGenerator
                 body.Insert(0, "                    var robustConfig = config as global::Ceras.CerasRobustConfig;\n");
 
             return body.ToString();
+        }
+
+        /// <summary>
+        /// Emits a minimal, field-less <see cref="SchemaTypeInfo"/> registration for a type that has no
+        /// generated formatter. The type's bytes are produced by a custom/reflection formatter, so the
+        /// schema entry exists only to assign a deterministic type id and stable name for the bake.
+        /// </summary>
+        static void AppendMinimalRegistration(StringBuilder body, INamedTypeSymbol type, bool isStruct)
+        {
+            string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            string stableName = GetRobustName(type);
+            string kindExpr = isStruct
+                ? "global::Ceras.Format.SchemaTypeKind.Struct"
+                : "global::Ceras.Format.SchemaTypeKind.Class";
+
+            body.AppendLine($"                    if (robustConfig != null)");
+            body.AppendLine($"                        robustConfig.SchemaRegistry.Register(typeof({typeFqn}),");
+            body.AppendLine($"                            new global::Ceras.Format.SchemaTypeInfo(");
+            body.AppendLine($"                                stableName: {QuoteString(stableName)},");
+            body.AppendLine($"                                previousTypeNames: global::System.Array.Empty<string>(),");
+            body.AppendLine($"                                kind: {kindExpr},");
+            body.AppendLine($"                                fields: global::System.Array.Empty<global::Ceras.Format.SchemaFieldInfo>(),");
+            body.AppendLine($"                                fixedByteSize: 0));");
         }
 
         static void AppendGeneratedHeader(StringBuilder sb)

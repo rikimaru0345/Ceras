@@ -17,6 +17,11 @@ namespace Ceras.Test.Generator
     {
         static IReadOnlyList<string> RunGeneratorDiagnosticIds(string source)
         {
+            return RunGeneratorDiagnostics(source).Select(d => d.Id).Distinct().ToList();
+        }
+
+        static IReadOnlyList<Diagnostic> RunGeneratorDiagnostics(string source)
+        {
             var refs = AppDomain.CurrentDomain.GetAssemblies()
                 .Where(a => !a.IsDynamic && !string.IsNullOrEmpty(a.Location))
                 .Select(a => (MetadataReference)MetadataReference.CreateFromFile(a.Location))
@@ -38,8 +43,6 @@ namespace Ceras.Test.Generator
 
             return ran.GetRunResult().Results
                 .SelectMany(r => r.Diagnostics)
-                .Select(d => d.Id)
-                .Distinct()
                 .ToList();
         }
 
@@ -369,6 +372,49 @@ namespace T
 
             var ids = RunGeneratorDiagnosticIds(source);
             Assert.DoesNotContain("CERAS025", ids);
+        }
+
+        // ----------------------------------------------------------------------------------------
+        // Member diagnostics (persisted by MemberExplorer during discovery) must be reported exactly
+        // once per build, not once per discovery/fail-early/emission pass (see the `## Review later`
+        // entry on duplicate diagnostics). CERAS016 fires for an implicitly-declared polymorphic
+        // member, and CERAS001 for a [CerasSerializable] type with no serializable members.
+        // ----------------------------------------------------------------------------------------
+        [Fact]
+        public void MemberDiagnostic_IsReportedOnce_NotOncePerPass()
+        {
+            const string source = @"
+using Ceras;
+namespace T
+{
+    public interface IPolymorphic { }
+
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class Root
+    {
+        public IPolymorphic Member;
+    }
+}";
+
+            var diagnostics = RunGeneratorDiagnostics(source);
+            Assert.Equal(1, diagnostics.Count(d => d.Id == "CERAS016"));
+        }
+
+        [Fact]
+        public void NoSerializableMembersDiagnostic_IsReportedOnce()
+        {
+            const string source = @"
+using Ceras;
+namespace T
+{
+    [CerasContext(""Tests"")]
+    [CerasSerializable]
+    public class Empty { }
+}";
+
+            var diagnostics = RunGeneratorDiagnostics(source);
+            Assert.Equal(1, diagnostics.Count(d => d.Id == "CERAS001"));
         }
     }
 }

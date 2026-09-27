@@ -88,15 +88,16 @@ namespace Ceras.Format
 
                 if (info.Kind == SchemaTypeKind.Enum)
                 {
-                    ResolveIdForDiscovery(info.UnderlyingTypeName, typeToId, discoveryQueue, registry);
+                    ResolveIdForDiscovery(info.UnderlyingTypeName, typeToId, discoveryQueue, registry, info.StableName, "enum underlying type");
                     if (info.EnumValues != null)
                         foreach (var ev in info.EnumValues) internTable.GetIndex(ev.Name);
                 }
                 else if (info.Kind == SchemaTypeKind.GenericInstantiation)
                 {
-                    ResolveIdForDiscovery(info.UnderlyingTypeName, typeToId, discoveryQueue, registry);
+                    ResolveIdForDiscovery(info.UnderlyingTypeName, typeToId, discoveryQueue, registry, info.StableName, "generic definition");
                     if (info.ArgTypeNames != null)
-                        foreach (var argName in info.ArgTypeNames) ResolveIdForDiscovery(argName, typeToId, discoveryQueue, registry);
+                        for (int i = 0; i < info.ArgTypeNames.Length; i++)
+                            ResolveIdForDiscovery(info.ArgTypeNames[i], typeToId, discoveryQueue, registry, info.StableName, $"generic argument {i}");
                     
                     if (info.Fields != null)
                     {
@@ -105,7 +106,7 @@ namespace Ceras.Format
                             internTable.GetIndex(field.StableName);
                             if (field.PreviousNames != null)
                                 foreach (var pn in field.PreviousNames) internTable.GetIndex(pn);
-                            ResolveIdForDiscovery(field.TypeName, typeToId, discoveryQueue, registry);
+                            ResolveIdForDiscovery(field.TypeName, typeToId, discoveryQueue, registry, info.StableName, $"field '{field.StableName}'");
                         }
                     }
                 }
@@ -118,7 +119,7 @@ namespace Ceras.Format
                             foreach (var pn in field.PreviousNames) internTable.GetIndex(pn);
                         
                         // Discover the field type!
-                        var fieldId = ResolveIdForDiscovery(field.TypeName, typeToId, discoveryQueue, registry);
+                        var fieldId = ResolveIdForDiscovery(field.TypeName, typeToId, discoveryQueue, registry, info.StableName, $"field '{field.StableName}'");
                     }
                 }
             }
@@ -153,8 +154,7 @@ namespace Ceras.Format
                 switch (info.Kind)
                 {
                     case SchemaTypeKind.Enum:
-                        int underlyingId = ResolveId(info.UnderlyingTypeName, typeToId, queue, registry);
-                        if (underlyingId == WellKnownTypes.Null) underlyingId = WellKnownTypes.Int32;
+                        int underlyingId = ResolveId(info.UnderlyingTypeName, typeToId, queue, registry, info.StableName, "enum underlying type");
                         WriteLeb128(entryWriter, (uint)underlyingId);
                         WriteLeb128(entryWriter, (uint)(info.EnumValues?.Length ?? 0));
                         if (info.EnumValues != null)
@@ -169,12 +169,12 @@ namespace Ceras.Format
                         break;
 
                     case SchemaTypeKind.GenericInstantiation:
-                        int defId = ResolveId(info.UnderlyingTypeName, typeToId, queue, registry);
+                        int defId = ResolveId(info.UnderlyingTypeName, typeToId, queue, registry, info.StableName, "generic definition");
                         WriteLeb128(entryWriter, (uint)defId);
                         WriteLeb128(entryWriter, (uint)(info.ArgTypeNames?.Length ?? 0));
                         if (info.ArgTypeNames != null)
-                            foreach (var argName in info.ArgTypeNames)
-                                WriteLeb128(entryWriter, (uint)ResolveId(argName, typeToId, queue, registry));
+                            for (int i = 0; i < info.ArgTypeNames.Length; i++)
+                                WriteLeb128(entryWriter, (uint)ResolveId(info.ArgTypeNames[i], typeToId, queue, registry, info.StableName, $"generic argument {i}"));
                         
                         goto case SchemaTypeKind.Class;
 
@@ -191,7 +191,7 @@ namespace Ceras.Format
                                     foreach (var pn in field.PreviousNames)
                                         WriteInternedString(entryWriter, pn, internTable);
 
-                                int fieldTypeId = ResolveId(field.TypeName, typeToId, queue, registry);
+                                int fieldTypeId = ResolveId(field.TypeName, typeToId, queue, registry, info.StableName, $"field '{field.StableName}'");
                                 WriteLeb128(entryWriter, (uint)fieldTypeId);
                                 entryWriter.GetSpan(1)[0] = (byte)(field.IsMonomorphic ? 1 : 0);
                                 entryWriter.Advance(1);
@@ -214,50 +214,113 @@ namespace Ceras.Format
             return typeToId;
         }
 
-        static int ResolveId(string clrName, Dictionary<Type, int> typeToId, Queue<(Type, int, SchemaTypeInfo)> queue, SchemaRegistry registry)
+        /// <summary>
+        /// Resolves a canonical field/argument type name to a schema type id during baking.
+        /// <para>
+        /// Fail loud (TODO Phase 3.4): a name that cannot be resolved, or that resolves to a CLR type
+        /// which is neither registered nor a supported structural/built-in shape, is a
+        /// declaration/identity bug and must not silently degrade to an empty schema or the null
+        /// type. The hard error names the declaring type, the field/position, and the unresolved
+        /// identity, and surfaces from <see cref="SchemaRegistry.Seal"/> (bake time), never mid-save.
+        /// </para>
+        /// </summary>
+        static int ResolveId(string clrName, Dictionary<Type, int> typeToId, Queue<(Type, int, SchemaTypeInfo)> queue, SchemaRegistry registry,
+            string declaringTypeName, string memberDescription)
         {
-            if (clrName == null) return WellKnownTypes.Null;
+            if (clrName == null)
+                throw new Ceras.Exceptions.CerasSchemaException(
+                    $"Cannot bake the schema for type '{declaringTypeName}': its {memberDescription} has a null type name. " +
+                    "This is a declaration/identity bug; recompile so the generator emits a canonical type name.");
+
             int wk = ResolveWellKnownId(clrName);
             if (wk >= 0) return wk;
 
-            if (!registry.TryResolveType(clrName, out var type))
+            if (!registry.TryResolveType(clrName, out var type) || type == null)
             {
-                // Fallback: try to resolve the type manually
+                // Fallback: try to resolve the type manually (legacy/assembly-qualified shapes).
                 type = Type.GetType(clrName);
             }
 
-            if (type != null)
+            if (type == null)
+                throw new Ceras.Exceptions.CerasSchemaException(
+                    $"Cannot bake the schema for type '{declaringTypeName}': its {memberDescription} uses the type name '{clrName}', " +
+                    "which does not resolve to any CLR type in this build. This is a declaration/identity bug: make sure the type " +
+                    "still exists and is declared in this compilation (with [CerasSerializable]/[CerasContext] or CerasKnownType), then rebuild.");
+
+            if (!registry.TryGetId(type, out int id))
             {
-                if (registry.TryGetId(type, out int id))
-                {
-                    if (!typeToId.ContainsKey(type))
-                    {
-                        typeToId[type] = id;
-                        if (registry.TryGetInfo(type, out var info))
-                            queue.Enqueue((type, id, info));
-                    }
-                    return id;
-                }
-                else
-                {
-                    // Type found but not registered yet (e.g. discovered via field)
-                    // Trigger registration now.
-                    registry.Register(type, null);
-                    if (registry.TryGetId(type, out id))
-                    {
-                        typeToId[type] = id;
-                        if (registry.TryGetInfo(type, out var info))
-                            queue.Enqueue((type, id, info));
-                        return id;
-                    }
-                }
+                if (!CanAutoRegister(type))
+                    throw new Ceras.Exceptions.CerasSchemaException(
+                        $"Cannot bake the schema for type '{declaringTypeName}': its {memberDescription} is of type '{clrName}', " +
+                        "but that type is not part of the selected serialization context's manifest (and it is not a supported " +
+                        "structural/BCL type). Declare the type with [CerasSerializable]/[CerasContext(\"name\")], make it reachable " +
+                        "from a context root, or declare it with [assembly: CerasKnownType<...>], then rebuild.");
+
+                // Structural BCL shapes (arrays, built-in collections, KeyValuePair, tuples, Nullable)
+                // are intentionally skipped by the generator and registered structurally on first use.
+                registry.Register(type, null);
+                if (!registry.TryGetId(type, out id))
+                    throw new Ceras.Exceptions.CerasSchemaException(
+                        $"Cannot bake the schema for type '{declaringTypeName}': its {memberDescription} is of type '{clrName}', " +
+                        "but registering that structural type did not produce a schema type id. This is an internal Ceras bug.");
             }
-            return WellKnownTypes.Null;
+
+            if (!typeToId.ContainsKey(type))
+            {
+                typeToId[type] = id;
+                if (registry.TryGetInfo(type, out var info))
+                    queue.Enqueue((type, id, info));
+            }
+            return id;
         }
 
-        static int ResolveIdForDiscovery(string clrName, Dictionary<Type, int> typeToId, Queue<(Type, int, SchemaTypeInfo)> queue, SchemaRegistry registry)
+        /// <summary>
+        /// True for the built-in shapes the generator deliberately does not emit formatters/schemas for:
+        /// well-known primitives, arrays, the built-in collections and <c>KeyValuePair</c> (structural
+        /// schemas), and closed instantiations of the other reserved generic definitions
+        /// (<c>Nullable&lt;&gt;</c>, <c>Tuple&lt;&gt;</c>, <c>ValueTuple&lt;&gt;</c>). Everything else must be
+        /// declared in the generated manifest (TODO Phase 2.5/3.4).
+        /// </summary>
+        static bool CanAutoRegister(Type type)
         {
-            return ResolveId(clrName, typeToId, queue, registry);
+            if (type == null) return false;
+            if (WellKnownTypes.IsWellKnown(type)) return true;
+            if (SchemaRegistry.TryBuildStructuralSchema(type, out _)) return true;
+            if (type.IsGenericType && !type.IsGenericTypeDefinition &&
+                WellKnownTypes.TryGetId(type.GetGenericTypeDefinition(), out _)) return true;
+            if (IsCollectionLike(type)) return true;
+            // Enum schemas are fully derivable from CLR metadata at runtime, so an enum that the
+            // generator skipped (e.g. blacklisted) can still be declared structurally.
+            if (type.IsEnum) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Mirrors the generator's <c>MemberExplorer.IsCollectionType</c>: a collection subclass such as
+        /// <c>MyList&lt;T&gt; : List&lt;T&gt;</c> is intentionally served by the built-in
+        /// <c>CollectionFormatter</c> and receives no generated schema, so it may be registered
+        /// structurally on first use. Without this, the fail-loud bake check would reject a legitimate
+        /// built-in-formatter shape.
+        /// </summary>
+        static bool IsCollectionLike(Type type)
+        {
+            if (typeof(System.Collections.ICollection).IsAssignableFrom(type)) return true;
+            if (typeof(System.Collections.IDictionary).IsAssignableFrom(type)) return true;
+            foreach (var iface in type.GetInterfaces())
+            {
+                if (!iface.IsGenericType) continue;
+                var def = iface.GetGenericTypeDefinition();
+                if (def == typeof(System.Collections.Generic.ICollection<>) ||
+                    def == typeof(System.Collections.Generic.IDictionary<,>))
+                    return true;
+            }
+            return false;
+        }
+
+        static int ResolveIdForDiscovery(string clrName, Dictionary<Type, int> typeToId, Queue<(Type, int, SchemaTypeInfo)> queue, SchemaRegistry registry,
+            string declaringTypeName, string memberDescription)
+        {
+            return ResolveId(clrName, typeToId, queue, registry, declaringTypeName, memberDescription);
         }
 
         static int ResolveWellKnownId(string typeName)

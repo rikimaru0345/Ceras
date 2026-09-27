@@ -16,7 +16,9 @@ namespace Ceras.SourceGenerator
             ImmutableArray<INamedTypeSymbol> types,
             AttributeBag attrs,
             INamedTypeSymbol? excludeFromDiscoveryAttr,
-            List<string> blacklistPatterns)
+            List<string> blacklistPatterns,
+            Dictionary<INamedTypeSymbol, List<SerializedMember>>? memberCache = null,
+            List<Diagnostic>? diagnosticSink = null)
         {
             var results = new Dictionary<INamedTypeSymbol, TypeDiscoveryResult>(SymbolEqualityComparer.Default);
             var queue = new Queue<INamedTypeSymbol>();
@@ -64,8 +66,20 @@ namespace Ceras.SourceGenerator
                     // Skip types we shouldn't explore further (primitives, well-knowns)
                     if (!IsWellKnownType(currentType))
                     {
-                        // Discover members of current type
-                        var members = DiscoverMembers(context, currentType, attrs, blacklistPatterns);
+                        // Discover members of current type. A shared cache (and diagnostic sink) is
+                        // used across the discovery, fail-early, and emission passes so member
+                        // diagnostics are reported exactly once per build.
+                        List<SerializedMember> members;
+                        if (memberCache != null && memberCache.TryGetValue(currentType, out var cachedMembers))
+                        {
+                            members = cachedMembers;
+                        }
+                        else
+                        {
+                            members = DiscoverMembers(context, currentType, attrs, blacklistPatterns, null, diagnosticSink);
+                            memberCache?.Add(currentType, members);
+                        }
+
                         foreach (var m in members)
                         {
                             ExploreType(m.Type, currentType, currentResult.DiscoveryPath);

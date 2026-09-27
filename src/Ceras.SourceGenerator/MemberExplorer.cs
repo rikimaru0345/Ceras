@@ -10,7 +10,7 @@ namespace Ceras.SourceGenerator
 {
     internal static class MemberExplorer
     {
-        public static List<SerializedMember> DiscoverMembers(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs, List<string>? blacklistPatterns = null, HashSet<INamedTypeSymbol>? explicitlyRegisteredTypes = null)
+        public static List<SerializedMember> DiscoverMembers(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs, List<string>? blacklistPatterns = null, HashSet<INamedTypeSymbol>? explicitlyRegisteredTypes = null, List<Diagnostic>? diagnosticSink = null)
         {
             var members = new List<SerializedMember>();
             // Tracks stable names already claimed by backing fields in more-derived types.
@@ -76,7 +76,7 @@ namespace Ceras.SourceGenerator
                             string typeName = field.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
                             string containingTypeName = type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
                             var location = (associatedProp?.Locations.FirstOrDefault() ?? field.Locations.FirstOrDefault());
-                            context.ReportDiagnostic(Diagnostic.Create(
+                            ReportMemberDiagnostic(diagnosticSink, Diagnostic.Create(
                                 Diag.EngineObjectNeedsCustomFormatter,
                                 location,
                                 memberName, containingTypeName, typeName));
@@ -180,6 +180,15 @@ namespace Ceras.SourceGenerator
             });
 
             return members;
+        }
+
+        /// <summary>
+        /// Routes a member-level diagnostic either to the compilation (default) or to a buffer so the
+        /// caller can defer and de-duplicate it (see the duplicate-diagnostics cleanup).
+        /// </summary>
+        static void ReportMemberDiagnostic(List<Diagnostic>? sink, Diagnostic diagnostic)
+        {
+            sink?.Add(diagnostic);
         }
 
         public static bool IsCollectionType(ITypeSymbol type)
