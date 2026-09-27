@@ -13,31 +13,70 @@ namespace Ceras
     /// Robust serialization for persistent storage (robust formats, databases).
     /// Always includes a schema header for version tolerance and migration.
     /// </summary>
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit, Pack = 1, Size = 42)]
-    internal struct RobustHeader
+    /// <summary>
+    /// Explicit codec for the robust file header (TODO Phase 3.3). All multi-byte fields are
+    /// little-endian. Layout (Size = 56):
+    /// 0 magic "CERA" | 4 format version | 5 flags | 6 reserved (2) | 8 game version |
+    /// 12 producer build timestamp | 20 schema string offset | 28 data section offset |
+    /// 36 payload string table offset | 44 layout fingerprint | 52 CRC32.
+    /// </summary>
+    internal static class RobustHeader
     {
-        [System.Runtime.InteropServices.FieldOffset(0)]
-        public uint Magic;
-        [System.Runtime.InteropServices.FieldOffset(4)]
-        public byte FormatVersion;
-        [System.Runtime.InteropServices.FieldOffset(5)]
-        public uint GameVersion;
-        [System.Runtime.InteropServices.FieldOffset(9)]
-        public uint SchemaStringOffset;   // start of the schema string table (end of schema bytes)
-        [System.Runtime.InteropServices.FieldOffset(13)]
-        public ulong Fingerprint;
-        [System.Runtime.InteropServices.FieldOffset(21)]
-        public byte Flags;
-        [System.Runtime.InteropServices.FieldOffset(22)]
-        public long DataSectionOffset;
-        [System.Runtime.InteropServices.FieldOffset(30)]
-        public long StringTableOffset;
-        [System.Runtime.InteropServices.FieldOffset(38)]
-        public uint Checksum;
-
-        public const int Size = 42;
-        public const int ChecksumOffset = 38;
+        public const int MagicOffset = 0;
+        public const int FormatVersionOffset = 4;
+        public const int FlagsOffset = 5;
+        public const int GameVersionOffset = 8;
+        public const int BuildTimestampOffset = 12;
+        public const int SchemaStringOffsetOffset = 20;
+        public const int DataSectionOffsetOffset = 28;
+        public const int StringTableOffsetOffset = 36;
+        public const int FingerprintOffset = 44;
+        public const int ChecksumOffset = 52;
         public const int ChecksumSize = 4;
+
+        public const int Size = 56;
+
+        public static void WritePlaceholder(ref byte[] buffer, ref int offset, uint formatVersion, uint gameVersion, long buildTimestamp)
+        {
+            SerializerBinary.EnsureCapacity(ref buffer, offset, Size);
+            buffer.AsSpan(offset, Size).Clear();
+
+            buffer[offset + MagicOffset + 0] = (byte)'C';
+            buffer[offset + MagicOffset + 1] = (byte)'E';
+            buffer[offset + MagicOffset + 2] = (byte)'R';
+            buffer[offset + MagicOffset + 3] = (byte)'A';
+            buffer[offset + FormatVersionOffset] = (byte)formatVersion;
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(offset + GameVersionOffset), gameVersion);
+            BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(offset + BuildTimestampOffset), buildTimestamp);
+            offset += Size;
+        }
+
+        public static void FinalizeHeader(byte[] buffer, int totalLength, byte flags,
+            long schemaStringOffset, long dataSectionOffset, long stringTableOffset, ulong fingerprint)
+        {
+            buffer[FlagsOffset] = flags;
+            BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(SchemaStringOffsetOffset), schemaStringOffset);
+            BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(DataSectionOffsetOffset), dataSectionOffset);
+            BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(StringTableOffsetOffset), stringTableOffset);
+            BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(FingerprintOffset), fingerprint);
+
+            BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(ChecksumOffset), 0);
+            uint crc = Ceras.Helpers.HashHelpers.CalculateCrc32WithZeroedRange(
+                buffer.AsSpan(0, totalLength), ChecksumOffset, ChecksumSize);
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(ChecksumOffset), crc);
+        }
+
+        public static void Read(byte[] data,
+            out long buildTimestamp, out byte flags, out long schemaStringOffset,
+            out long dataSectionOffset, out long stringTableOffset, out ulong fingerprint)
+        {
+            buildTimestamp = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(BuildTimestampOffset));
+            flags = data[FlagsOffset];
+            schemaStringOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(SchemaStringOffsetOffset));
+            dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(DataSectionOffsetOffset));
+            stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(StringTableOffsetOffset));
+            fingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(FingerprintOffset));
+        }
     }
 
     public sealed class CerasRobustSerializer : CerasSerializer
@@ -101,7 +140,7 @@ namespace Ceras
             var buffer = new byte[4096];
             int offset = 0;
 
-            WriteHeaderPlaceholder(ref buffer, ref offset, robustVersion);
+            RobustHeader.WritePlaceholder(ref buffer, ref offset, FormatVersion, robustVersion, _config.BuildTimestamp);
 
             // Schema region: [schema bytes][schema string table]. The schema string table is separate
             // from the payload string table so skipping schema interpretation never decodes metadata names.
@@ -140,7 +179,7 @@ namespace Ceras
             }
 
             int stringTableStart = payloadStrings.Flush(ref buffer, ref offset, _config.StringTableCompression);
-            PatchHeader(buffer, offset, robustVersion, schemaStringOffset, dataStart, stringTableStart, schemaFingerprint, (byte)_config.StringTableCompression);
+            RobustHeader.FinalizeHeader(buffer, offset, (byte)_config.StringTableCompression, schemaStringOffset, dataStart, stringTableStart, schemaFingerprint);
             return buffer[..offset];
         }
 
@@ -166,15 +205,20 @@ namespace Ceras
             if (version != FormatVersion)
                 throw new Ceras.Exceptions.CerasVersionMismatchException($"Format version mismatch. File version {version} is not compatible with library version {FormatVersion}.", version, FormatVersion);
 
-            uint robustVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(5));
+            uint robustVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(RobustHeader.GameVersionOffset));
             if (robustVersion > currentRobustVersion)
                 throw new Ceras.Exceptions.CerasRobustVersionException($"Attempted to load data from a newer application version ({robustVersion}) than the current version ({currentRobustVersion}).", robustVersion, currentRobustVersion);
 
-            uint schemaStringOffset = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(9));
-            ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(13));
-            byte compressionByte = data[21];
-            long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(22));
-            long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(30));
+            RobustHeader.Read(data, out long buildTimestamp, out byte compressionByte,
+                out long schemaStringOffsetL, out long dataSectionOffset, out long stringTableOffset, out ulong schemaFingerprint);
+
+            // Reject saves from a newer build before decoding the payload, even when layouts match.
+            if (_config.BuildTimestamp > 0 && buildTimestamp > _config.BuildTimestamp)
+                throw new Ceras.Exceptions.CerasException(
+                    $"The save was produced by a newer build (timestamp {buildTimestamp}) than the current build " +
+                    $"({_config.BuildTimestamp}). Update the application before loading this save.");
+
+            int schemaStringOffset = (int)schemaStringOffsetL;
 
             uint storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(RobustHeader.ChecksumOffset));
             uint computedCrc = Ceras.Helpers.HashHelpers.CalculateCrc32WithZeroedRange(
@@ -320,34 +364,6 @@ namespace Ceras
             return idToType;
         }
 
-        static void WriteHeaderPlaceholder(ref byte[] buffer, ref int offset, uint robustVersion)
-        {
-            SerializerBinary.EnsureCapacity(ref buffer, offset, RobustHeader.Size);
-            // Clear header space
-            buffer.AsSpan(offset, RobustHeader.Size).Clear();
-
-            buffer[offset + 0] = (byte)'C';
-            buffer[offset + 1] = (byte)'E';
-            buffer[offset + 2] = (byte)'R';
-            buffer[offset + 3] = (byte)'A';
-            buffer[offset + 4] = (byte)FormatVersion;
-            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(offset + 5), robustVersion);
-            offset += RobustHeader.Size;
-        }
-
-        static void PatchHeader(byte[] buffer, int totalLength, uint robustVersion, int schemaStringOffset, long dataSectionOffset, long stringTableOffset, ulong schemaFingerprint, byte flags)
-        {
-            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(9), (uint)schemaStringOffset);
-            BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(13), schemaFingerprint);
-            buffer[21] = flags;
-            BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(22), dataSectionOffset);
-            BinaryPrimitives.WriteInt64LittleEndian(buffer.AsSpan(30), stringTableOffset);
-            BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(RobustHeader.ChecksumOffset), 0);
-            uint crc = Ceras.Helpers.HashHelpers.CalculateCrc32WithZeroedRange(
-                buffer.AsSpan(0, totalLength), RobustHeader.ChecksumOffset, RobustHeader.ChecksumSize);
-            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(RobustHeader.ChecksumOffset), crc);
-        }
-
         static int GetTypeId(Type type, SchemaRegistry registry)
         {
             if (WellKnownTypes.TryGetId(type, out int id)) return id;
@@ -483,11 +499,10 @@ namespace Ceras
             if (version != FormatVersion)
                 return $"// Format version mismatch. File: {version}, Library: {FormatVersion}";
 
-            ulong schemaFingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(13));
-            byte flags = data[21];
-            uint schemaStringOffset = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(9));
-            long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(22));
-            long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(30));
+            RobustHeader.Read(data, out _, out byte flags, out long schemaStringOffsetL,
+                out long dataSectionOffset, out long stringTableOffset, out ulong schemaFingerprint);
+
+            int schemaStringOffset = (int)schemaStringOffsetL;
 
             var schemaStrings = StringTable.Load(data, (int)schemaStringOffset,
                 (int)dataSectionOffset - (int)schemaStringOffset, StringTableCompression.Disabled);
@@ -499,7 +514,7 @@ namespace Ceras
 
             var sb = new StringBuilder();
             sb.AppendLine($"// File fingerprint: {schemaFingerprint:X16}");
-            uint gameVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(5));
+            uint gameVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(RobustHeader.GameVersionOffset));
             sb.AppendLine($"// Game version: {gameVersion}");
             sb.AppendLine($"// Type count: {fileSchemas.Count}");
             sb.AppendLine();

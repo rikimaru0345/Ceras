@@ -44,9 +44,9 @@ namespace Ceras.Test
             var p = new InterningTestPotion { Label = "PayloadValueX", Label2 = "PayloadValueX" };
             byte[] data = robust.Save(p, 1);
 
-            uint schemaStrOff = BitConverter.ToUInt32(data, 9);
-            long dataOff = BitConverter.ToInt64(data, 22);
-            long strOff = BitConverter.ToInt64(data, 30);
+            long schemaStrOff = BitConverter.ToInt64(data, RobustHeader.SchemaStringOffsetOffset);
+            long dataOff = BitConverter.ToInt64(data, RobustHeader.DataSectionOffsetOffset);
+            long strOff = BitConverter.ToInt64(data, RobustHeader.StringTableOffsetOffset);
 
             // Region ordering: header | schema bytes | schema strings | data | payload strings.
             Assert.True(schemaStrOff >= RobustHeader.Size);

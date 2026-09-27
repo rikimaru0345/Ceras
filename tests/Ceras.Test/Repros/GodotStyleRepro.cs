@@ -142,7 +142,7 @@ namespace ReproGame
             });
 
             var slowData = (byte[])robustData.Clone();
-            slowData[13] ^= 0xFF;
+            slowData[RobustHeader.FingerprintOffset] ^= 0xFF;
             FixRobustChecksum(slowData);
 
             var robustCloneSlow = robust2.Load<RailSegment>(slowData, 1);

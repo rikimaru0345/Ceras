@@ -223,7 +223,7 @@ namespace Ceras.Test
             var data = ceras.Save(container, 1);
 
             // 2. Load with schema change to force SchemaTraversalEngine
-            data[13] ^= 0xFF;
+            data[RobustHeader.FingerprintOffset] ^= 0xFF;
             FixRobustChecksum(data);
             var clone = ceras.Load<RobustContainer>(data, 1);
 
@@ -252,7 +252,7 @@ namespace Ceras.Test
             var data = ceras.Save(container, 1);
 
             // 2. Load with schema change to force SchemaTraversalEngine
-            data[13] ^= 0xFF;
+            data[RobustHeader.FingerprintOffset] ^= 0xFF;
             FixRobustChecksum(data);
             var clone = ceras.Load<GenericStructContainer>(data, 1);
 

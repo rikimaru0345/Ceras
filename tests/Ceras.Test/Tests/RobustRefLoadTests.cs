@@ -36,7 +36,7 @@ namespace Ceras.Test
             var data = robust.Save(original, 1);
 
             // Force slow path by changing fingerprint
-            data[13] ^= 0xFF;
+            data[RobustHeader.FingerprintOffset] ^= 0xFF;
             FixRobustChecksum(data);
 
             var existing = new RefLoadData { Name = "Existing", Value = 0 };
@@ -55,7 +55,7 @@ namespace Ceras.Test
             var data = robust.Save(original, 1);
 
             // Force slow path by changing fingerprint
-            data[13] ^= 0xFF;
+            data[RobustHeader.FingerprintOffset] ^= 0xFF;
             FixRobustChecksum(data);
 
             var existing = new List<int> { 9, 8, 7, 6 };

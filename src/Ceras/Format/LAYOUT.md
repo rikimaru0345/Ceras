@@ -9,19 +9,22 @@ migration interpreter must share. It is little-endian only; fixed-width primitiv
 header | schema bytes | schema string table | data section | payload string table
 ```
 
-The header is a fixed 42-byte little-endian record:
+The header is a fixed 56-byte little-endian record written by one explicit codec
+(`RobustHeader`):
 
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 4 | magic `CERA` |
 | 4 | 1 | format version (currently 3) |
-| 5 | 4 | game/app version (`robustVersion`) |
-| 9 | 4 | schema string table offset (end of schema bytes) |
-| 13 | 8 | deterministic layout fingerprint |
-| 21 | 1 | payload string-table compression flags |
-| 22 | 8 | data section offset |
-| 30 | 8 | payload string table offset |
-| 38 | 4 | CRC32 (computed with these 4 bytes zeroed) |
+| 5 | 1 | payload string-table compression flags |
+| 6 | 2 | reserved |
+| 8 | 4 | game/app version (`robustVersion`) |
+| 12 | 8 | producer build timestamp (UTC ticks; 0 = unknown) |
+| 20 | 8 | schema string table offset (end of schema bytes) |
+| 28 | 8 | data section offset |
+| 36 | 8 | payload string table offset |
+| 44 | 8 | deterministic layout fingerprint |
+| 52 | 4 | CRC32 (computed with these 4 bytes zeroed) |
 
 - The schema (bytes + its own string table) is **baked once** when the declared set is sealed, in
   deterministic order by type ID, and is reused by every `Save`. There is no save-time registry
@@ -29,8 +32,8 @@ The header is a fixed 42-byte little-endian record:
 - Schema strings and payload strings live in **separate** regions and use independent indices, so
   the happy path can skip schema interpretation without decoding any metadata names.
 - The layout fingerprint is deterministic over the declared layout and is independent of the
-  producer-build timestamp; the timestamp is carried separately (reserved for the compatibility
-  gate) and rejects newer builds even when layouts match.
+  producer build timestamp. Loading rejects a save whose build timestamp is newer than the current
+  build (when the current build timestamp is known) before decoding the payload.
 
 
 ## Type identity

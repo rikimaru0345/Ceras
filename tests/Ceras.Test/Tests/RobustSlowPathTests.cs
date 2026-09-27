@@ -37,7 +37,7 @@ namespace Ceras.Test
             var data = robust.Save(original, 1);
 
             // Force the interpreter/slow path via a fingerprint mismatch.
-            data[13] ^= 0xFF;
+            data[RobustHeader.FingerprintOffset] ^= 0xFF;
             FixRobustChecksum(data);
 
             var result = robust.Load<CallbackType>(data, 1);

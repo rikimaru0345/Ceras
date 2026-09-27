@@ -92,7 +92,7 @@ namespace Ceras.Test
             Assert.Equal(1, robustOccurrences);
 
             // 3. Position check: String data should be at the very end of Robust blob
-            long stringTableOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(robustBlob.AsSpan(30));
+            long stringTableOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(robustBlob.AsSpan(RobustHeader.StringTableOffsetOffset));
             int firstMatchIdx = IndexOf(robustBlob, stringBytes);
             Assert.True(firstMatchIdx >= stringTableOff, $"String data should be in the table at the end. Match at {firstMatchIdx}, Table starts at {stringTableOff}");
         }

@@ -31,6 +31,19 @@ namespace Ceras
 		/// </summary>
 		public SchemaRegistry SchemaRegistry => _robustConfig.SchemaRegistry;
 
+		long _buildTimestamp;
+
+		/// <summary>
+		/// Producer build timestamp (UTC ticks) embedded once per owning build/context in every robust
+		/// save. Loading a save whose timestamp is newer than the current build is rejected before the
+		/// payload is decoded, even when layouts match. 0 = unknown (no check).
+		/// </summary>
+		public long BuildTimestamp
+		{
+			get => _buildTimestamp;
+			set { ThrowIfSealed(); _buildTimestamp = value; }
+		}
+
 		/// <summary>
 		/// Compression applied to the string intern table embedded in each save file.
 		/// <para>Default: Deflate</para>

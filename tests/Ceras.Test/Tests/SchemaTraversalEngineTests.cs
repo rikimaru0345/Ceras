@@ -27,7 +27,7 @@ namespace Ceras.Test
 			// 3. To trigger SchemaTraversalEngine, we need a schema mismatch.
 			// A simpler way: Load automatically uses SchemaTraversalEngine IF the fingerprints don't match.
 			// We can fake a fingerprint mismatch by patching the data.
-			data[13] ^= 0xFF; // Flip a byte in the fingerprint
+			data[RobustHeader.FingerprintOffset] ^= 0xFF; // Flip a byte in the fingerprint
 			FixRobustChecksum(data);
 
 			CtorTestModel.CtorCalled = false;

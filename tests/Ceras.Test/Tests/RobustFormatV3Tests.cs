@@ -28,7 +28,7 @@ namespace Ceras.Test.RobustV3
             var model = new V3Model { Id = 7, Name = "keep", Values = { 1, 2, 3 } };
             var bytes = Generated().Save(model, 1);
 
-            uint schemaStrOff = BitConverter.ToUInt32(bytes, 9);
+            long schemaStrOff = BitConverter.ToInt64(bytes, RobustHeader.SchemaStringOffsetOffset);
             Assert.True(schemaStrOff > RobustHeader.Size);
 
             // Destroy the schema bytes but keep the fingerprint matching. The happy path must not
@@ -60,17 +60,36 @@ namespace Ceras.Test.RobustV3
         }
 
         [Fact]
+        public void NewerBuildTimestamp_IsRejected_BeforePayloadDecode()
+        {
+            var writer = new CerasRobustSerializer(c => { c.UseGeneratedFormatters(); c.BuildTimestamp = 200; });
+            var bytes = writer.Save(new V3Model { Id = 3, Name = "ts", Values = { 1 } }, 1);
+
+            var older = new CerasRobustSerializer(c => { c.UseGeneratedFormatters(); c.BuildTimestamp = 100; });
+            Assert.Throws<Ceras.Exceptions.CerasException>(() => older.Load<V3Model>(bytes, 1));
+
+            var sameBuild = new CerasRobustSerializer(c => { c.UseGeneratedFormatters(); c.BuildTimestamp = 200; });
+            Assert.NotNull(sameBuild.Load<V3Model>(bytes, 1));
+
+            var newerBuild = new CerasRobustSerializer(c => { c.UseGeneratedFormatters(); c.BuildTimestamp = 300; });
+            Assert.NotNull(newerBuild.Load<V3Model>(bytes, 1));
+
+            // Unknown current build timestamp -> no gate.
+            var unknown = new CerasRobustSerializer(c => c.UseGeneratedFormatters());
+            Assert.NotNull(unknown.Load<V3Model>(bytes, 1));
+        }
+
+        [Fact]
         public void Header_CarriesSchemaStringOffset_AndSurvivesRoundTrip()
         {
             var model = new V3Model { Id = 2, Name = "y", Values = { 9 } };
             var bytes = Generated().Save(model, 1);
 
-            uint schemaStrOff = BitConverter.ToUInt32(bytes, 9);
-            long dataOff = BitConverter.ToInt64(bytes, 22);
-            long strOff = BitConverter.ToInt64(bytes, 30);
+            long schemaStrOff = BitConverter.ToInt64(bytes, RobustHeader.SchemaStringOffsetOffset);
+            long dataOff = BitConverter.ToInt64(bytes, RobustHeader.DataSectionOffsetOffset);
+            long strOff = BitConverter.ToInt64(bytes, RobustHeader.StringTableOffsetOffset);
 
-            Assert.InRange(schemaStrOff, (uint)RobustHeader.Size, (uint)dataOff);
-            Assert.InRange((long)schemaStrOff, 0, dataOff);
+            Assert.InRange(schemaStrOff, (long)RobustHeader.Size, dataOff);
             Assert.True(dataOff <= strOff);
             Assert.Equal(3, bytes[4]); // FormatVersion
 
