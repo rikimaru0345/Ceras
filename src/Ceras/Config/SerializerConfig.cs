@@ -51,7 +51,17 @@ namespace Ceras
 		public StringTableCompression StringTableCompression
 		{
 			get => _robustConfig.StringTableCompression;
-			set => _robustConfig.StringTableCompression = value;
+			set
+			{
+				// This setting is deliberately treated as non-layout-affecting: it selects a per-save
+				// header/compression flag and the loader reads that flag back from the file, so it does
+				// not participate in the layout fingerprint. It is still sealed, for the same reason as
+				// BuildTimestamp and the size limits: a serializer instance must not silently change how
+				// it writes bytes after construction. The seal check runs before the assignment, so even
+				// a same-value no-op throws, matching the other setters' semantics.
+				ThrowIfSealed();
+				_robustConfig.StringTableCompression = value;
+			}
 		}
 
 		internal override void Seal()

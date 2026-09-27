@@ -112,6 +112,14 @@ namespace Ceras
 			if (config != null && !config.Claim(this)) throw new CerasException("The provided config is already in use by another CerasSerializer. Create a new config instance for each serializer.");
 			Config = config ?? new CerasRawConfig();
 
+			// Seal the config before resolving any formatter. A config subclass may install standalone
+			// custom formatters (and finalize size limits / the type binder) from its Seal() override;
+			// resolving the string/Type formatters first would cache their pre-seal values, so a formatter
+			// supplied during sealing would be silently ignored (TODO "Review later": sealing gap).
+			// Sealing first also makes OnResolveFormatter callbacks added during sealing visible to the
+			// resolver list captured just below.
+			Config.Seal();
+
 			TypeBinder = Config.TypeBinder;
 			_userResolvers = Config.OnResolveFormatter.ToArray();
 			_resolvers.Add(new PrimitiveResolver(this));
@@ -150,8 +158,6 @@ namespace Ceras
 
 			_instanceDataPool = new NoLockFactoryPool<InstanceData>(() => new InstanceData { ObjectCache = new ObjectCache(Config.ObjectCacheComparer), TypeCache = new TypeCache(Array.Empty<Type>()), EncounteredSchemaTypes = new HashSet<Type>() });
 			InstanceData = _instanceDataPool.RentObject();
-
-			Config.Seal();
 
 			void SetFormatters(Type type, IFormatter specific, IFormatter reference) { var meta = GetTypeMetaData(type); meta.SpecificFormatter = specific; meta.ReferenceFormatter = reference; }
 		}
