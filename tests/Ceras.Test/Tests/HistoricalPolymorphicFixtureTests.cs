@@ -390,6 +390,16 @@ namespace Ceras.Test.HistoricalPolymorphicFixtures
                 (Action<object>)(o => { var q = Assert.IsType<Queue<Queue<int>>>(o); Assert.Equal(new[] { 6, 7 }, q.ElementAt(0).ToArray()); Assert.Empty(q.ElementAt(1)); }) };
         }
 
+        /// <summary>The label a matching-layout case's slot must carry, so the table above cannot drift.</summary>
+        static string LabelFor(object slot) => slot switch
+        {
+            List<List<int>> => "nested list",
+            int[][] => "jagged",
+            Dictionary<string, int[][]> => "dict of jagged",
+            Queue<Queue<int>> => "queue of queue",
+            _ => slot.GetType().Name,      // an unlisted shape fails the assertion above, which is the point
+        };
+
         [Theory]
         [MemberData(nameof(MatchingLayoutCases))]
         public void A_Matching_Layout_Reads_The_Same_Values_Through_Both_Readers(
@@ -399,6 +409,10 @@ namespace Ceras.Test.HistoricalPolymorphicFixtures
             // read by the generated fast path and again by the interpreter with the fingerprint flipped.
             var writer = Current();
             var bytes = writer.Save(new Crate { Slot = slot, Marker = Sentinel }, 1);
+
+            // The label is asserted against the value rather than merely carried along, so a row whose label
+            // and slot disagree is caught here, and a failure below names the shape from either side.
+            Assert.Equal(name, LabelFor(slot));
 
             foreach (var crate in new[] { writer.Load<Crate>(bytes, 1), writer.Load<Crate>(SlowPath(bytes), 1) })
             {
@@ -434,58 +448,56 @@ namespace Ceras.Test.HistoricalPolymorphicFixtures
         public static IEnumerable<object[]> MalformedTypeValues()
         {
             // Ids 43-126 are reserved and unassigned; a tag there used to consume nothing at all.
-            yield return new object[] { "a reserved, unassigned well-known id",
-                Tagged(WellKnownTypes.DateTimeOffset + 1),
+            yield return new object[] { Tagged(WellKnownTypes.DateTimeOffset + 1),
                 typeof(CerasDataCorruptionException), "no type is assigned to it" };
 
             // A generic argument and an element type are not optional, so null nested is a corrupt field.
-            yield return new object[] { "a null nested argument", ListOf(WellKnownTypes.Null),
+            yield return new object[] { ListOf(WellKnownTypes.Null),
                 typeof(CerasDataCorruptionException), "is null" };
 
             // The largest well-known arity is 7 (the tuple family): bounded by the definition, not the bytes.
-            yield return new object[] { "an argument count no definition can take", ListWithArgCount(200),
+            yield return new object[] { ListWithArgCount(200),
                 typeof(CerasDataCorruptionException), "takes 8" };
 
             // Eight is within every arity, so this is the *bytes left* bound, which also sizes an array.
-            yield return new object[] { "an argument count past the end of the payload", ListWithArgCount(8),
+            yield return new object[] { ListWithArgCount(8),
                 typeof(CerasDataCorruptionException), "bytes remain" };
 
             // A full name is not an identity: it cannot say how many bytes the payload occupies.
-            yield return new object[] { "a full name where an argument identity is needed", ListOf(127),
+            yield return new object[] { ListOf(127),
                 typeof(CerasDataCorruptionException), "full name" };
 
             // A tag is written only when declared != runtime type, and nothing derives from object.
-            yield return new object[] { "System.Object as a type tag",
-                Tagged(WellKnownTypes.Object),
+            yield return new object[] { Tagged(WellKnownTypes.Object),
                 typeof(CerasDataCorruptionException), "System.Object" };
 
             // A type id is never negative: the LEB128 is five bytes wide, and a value above int.MaxValue
             // cast to int is a negative id, which would then read as a small well-known type.
-            yield return new object[] { "a tag above int.MaxValue",
-                (Action<IBufferWriter<byte>>)(w =>
+            yield return new object[] { (Action<IBufferWriter<byte>>)(w =>
                     { foreach (byte b in new byte[] { 0x80, 0x80, 0x80, 0x80, 0x08 }) { w.GetSpan(1)[0] = b; w.Advance(1); } }),
                 typeof(CerasDataCorruptionException), "is not a type id" };
 
             // A tag at or above the manifest base is a schema id, and only the file's schema section says
             // how such a payload is written.
-            yield return new object[] { "a manifest id the file does not describe",
-                Tagged(9999),
+            yield return new object[] { Tagged(9999),
                 typeof(CerasSchemaException), "9999" };
 
             // The same one level in: a List whose element is a type id nothing describes.
-            yield return new object[] { "an argument identity the file does not describe", ListOf(9999),
+            yield return new object[] { ListOf(9999),
                 typeof(CerasSchemaException), "9999" };
         }
 
         [Theory]
         [MemberData(nameof(MalformedTypeValues))]
         public void A_Type_Value_The_Decoder_Cannot_Account_For_Is_Refused(
-            string why, Action<IBufferWriter<byte>> writeTypeValue, Type exception, string expected)
+            Action<IBufferWriter<byte>> writeTypeValue, Type exception, string expected)
         {
-            // `why` is the case's own description, carried in the theory's arguments so a failure names the
-            // shape rather than an index; the assertions are on the exception type and its message.
             byte[] File() => FileWithSlotPayload(writeTypeValue, extraSlotSchemas: null);
             var error = Record.Exception(() => Reader().Load<Crate>(File(), 1));
+
+            // The null check is the real one: a decoder that quietly accepted an unaccountable type value
+            // would leave `error` null and desynchronise everything after it. `expected` then has to be a
+            // fragment only this refusal's message contains, so it identifies the case on failure.
             Assert.NotNull(error);
             Assert.IsType(exception, error);          // the exact type: these two are different contracts
             Assert.Contains(expected, error.Message);
