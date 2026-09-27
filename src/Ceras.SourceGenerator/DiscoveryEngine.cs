@@ -64,7 +64,7 @@ namespace Ceras.SourceGenerator
                 if (isInstantiable)
                 {
                     // Skip types we shouldn't explore further (primitives, well-knowns)
-                    if (!IsWellKnownType(currentType))
+                    if (!IsWellKnownType(currentType, attrs))
                     {
                         // Discover members of current type. A shared cache (and diagnostic sink) is
                         // used across the discovery, fail-early, and emission passes so member
@@ -90,7 +90,7 @@ namespace Ceras.SourceGenerator
                 // SUBTYPE DISCOVERY
                 // If it's something we should find subtypes for (interfaces, abstract classes, or polymorphic classes)
                 // We only care about subtypes if it's not sealed and not a primitive/well-known
-                if (!currentType.IsSealed && currentType.TypeKind != TypeKind.Enum && !IsWellKnownType(currentType))
+                if (!currentType.IsSealed && currentType.TypeKind != TypeKind.Enum && !IsWellKnownType(currentType, attrs))
                 {
                     foreach (var candidate in allTypes)
                     {
@@ -151,7 +151,7 @@ namespace Ceras.SourceGenerator
                         if (IsFastPrimitive(named)) return;
 
                         // Stop at System types (Collections, etc) - they should use built-in resolvers
-                        if (IsWellKnownType(named)) return;
+                        if (IsWellKnownType(named, attrs)) return;
 
                         // Check if we already have it
                         if (results.ContainsKey(named)) return;

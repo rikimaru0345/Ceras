@@ -297,7 +297,12 @@ namespace Ceras.Format
                 $"Cannot bake the schema for type '{declaringTypeName}': its {memberDescription} is of type '{clrName}', " +
                 "but that type is not part of the selected serialization context's manifest (and it is not a supported " +
                 "structural/BCL type). Declare the type with [CerasSerializable]/[CerasContext(\"name\")], make it reachable " +
-                "from a context root, or declare it with [assembly: CerasKnownType<...>], then rebuild.");
+                "from a context root, or declare it with [assembly: CerasKnownType<...>], then rebuild. " +
+                "A type from another assembly that Ceras has no built-in representation for — a framework type such as " +
+                "System.Uri, System.Version or System.Numerics.BigInteger — is a different case: no declaration and no custom " +
+                "IFormatter<T> in a robust context can make it serializable, so store a serializable form of the value instead " +
+                "(a string, a byte[], another type the format describes), exclude the member, or use the reflection-based " +
+                "CerasSerializer. The source generator reports that case at compile time (CERAS029), long before the first Save.");
         }
 
         /// <summary>

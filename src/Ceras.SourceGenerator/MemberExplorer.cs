@@ -82,6 +82,32 @@ namespace Ceras.SourceGenerator
                             && explicitlyRegisteredTypes.Contains(fieldType);
                         if (!isExplicitlyRegistered && IsBanned(field.Type)) continue;
 
+                        // A type the robust format has no built-in representation for, that is neither
+                        // declared in this compilation nor marked serializable by its author, and lives in a
+                        // System.* namespace (e.g. System.Uri, System.Numerics.BigInteger). The generator
+                        // used to claim such a type "uses a built-in formatter" and leave it out of the
+                        // manifest, so the build succeeded and the first robust Save failed at the bake with
+                        // advice (declare it, add [CerasKnownType], register a custom formatter) that cannot
+                        // work for a type the format cannot describe. Report it here, at the member, and drop
+                        // the member so the rest of the generated file still compiles.
+                        //
+                        // A banned type is left alone whatever its own reporting decides to be — the two
+                        // questions are independent, and banned types are being given their own diagnostic.
+                        var unsupportedType = IsBanned(field.Type) ? null : FindUnsupportedFrameworkType(field.Type, attrs);
+                        if (unsupportedType != null)
+                        {
+                            string memberName = associatedProp?.Name ?? field.Name;
+                            string typeName = field.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            string containingTypeName = type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            string unsupportedName = unsupportedType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            var location = (associatedProp?.Locations.FirstOrDefault() ?? field.Locations.FirstOrDefault());
+                            ReportMemberDiagnostic(diagnosticSink, Diagnostic.Create(
+                                Diag.UnsupportedFrameworkMemberType,
+                                location,
+                                memberName, containingTypeName, typeName, unsupportedName));
+                            continue;
+                        }
+
                         // Engine-object types (e.g. Godot.GodotObject subclasses) CAN be serialized
                         // when the user provides a custom formatter.  Include the field but emit a
                         // warning so the user knows a formatter is required.  Silently dropping the

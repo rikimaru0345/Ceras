@@ -182,6 +182,20 @@ namespace Ceras.SourceGenerator
 
                 if (target == null) continue;
 
+                // A declaration cannot make a framework type the format cannot describe serializable: it
+                // would be registered as a well-known type and then rejected by the bake with advice that
+                // cannot work. Report it where the declaration is written instead.
+                var unsupportedTarget = FindUnsupportedFrameworkType(target, attrBag);
+                if (unsupportedTarget != null)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        Diag.UnsupportedFrameworkTypeDeclaration,
+                        attr.ApplicationSyntaxReference?.GetSyntax()?.GetLocation() ?? Location.None,
+                        target.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                        unsupportedTarget.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
+                    continue;
+                }
+
                 if (string.IsNullOrWhiteSpace(contextName))
                 {
                     // No context given: apply to every declared context.
@@ -273,7 +287,7 @@ namespace Ceras.SourceGenerator
             foreach (var type in finalTypes)
             {
                 if (IsOpenType(type)) continue;
-                if (IsWellKnownType(type) || MemberExplorer.IsCollectionType(type)) continue;
+                if (IsWellKnownType(type, attrBag) || MemberExplorer.IsCollectionType(type)) continue;
                 string stable = RobustCodeEmitter.GetStableTypeName(type, cerasSerializableAttr);
                 if (stableNameOwners.TryGetValue(stable, out var prev))
                 {
@@ -355,7 +369,7 @@ namespace Ceras.SourceGenerator
             {
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) { noFormatterReason[type] = "it is an interface or abstract type"; continue; }
                 if (IsOpenType(type)) { noFormatterReason[type] = "it is an open generic definition"; continue; }
-                if (IsWellKnownType(type)) { noFormatterReason[type] = "it uses a built-in formatter"; continue; }
+                if (IsWellKnownType(type, attrBag)) { noFormatterReason[type] = "it uses a built-in formatter"; continue; }
                 // IsCollectionFormatterType is a strict subset of this check (it calls IsCollectionType
                 // as its first condition), so one branch covers both cases.
                 if (MemberExplorer.IsCollectionType(type)) { noFormatterReason[type] = "it is handled by the built-in collection formatter"; continue; }
@@ -466,7 +480,7 @@ namespace Ceras.SourceGenerator
                             if (named.IsGenericType)
                                 foreach (var arg in named.TypeArguments) Walk(arg);
 
-                            if (IsWellKnownType(named)) return;      // System.* primitives/collections
+                            if (IsWellKnownType(named, attrBag)) return;   // System.* primitives/collections
                             if (IsOpenType(named)) return;           // closed types only
                             if (MemberExplorer.IsCollectionType(named)) return;
                             if (named.TypeKind == TypeKind.Enum) return; // runtime derives enum schemas
@@ -557,7 +571,7 @@ namespace Ceras.SourceGenerator
             {
                 sbUse.AppendLine($"                case {QuoteLiteral(contextName)}:");
                 sbUse.AppendLine("                {");
-                sbUse.Append(BuildContextRegistrationBody(contextTypes[contextName], contextMinimalTypes[contextName], generatedFormatterTypes, declaredStructuralRoots[contextName]));
+                sbUse.Append(BuildContextRegistrationBody(contextTypes[contextName], contextMinimalTypes[contextName], generatedFormatterTypes, declaredStructuralRoots[contextName], attrBag));
                 sbUse.AppendLine("                    break;");
                 sbUse.AppendLine("                }");
             }
@@ -629,7 +643,7 @@ namespace Ceras.SourceGenerator
                     var coreType = UnwrapCollectionsAndNullable(compilation, m.Type);
                     if (coreType == null) continue;
                     if (coreType.TypeKind != TypeKind.Interface && !coreType.IsAbstract) continue;
-                    if (IsWellKnownOrBanned(coreType)) continue;
+                    if (IsWellKnownOrBanned(coreType, attrBag)) continue;
 
                     var memberLocation = type.Locations.FirstOrDefault();
                     var memberDisplay  = m.Name;
@@ -708,7 +722,8 @@ namespace Ceras.SourceGenerator
             List<INamedTypeSymbol> contextTypes,
             List<INamedTypeSymbol> minimalTypes,
             HashSet<INamedTypeSymbol> generatedFormatterTypes,
-            List<INamedTypeSymbol> declaredStructuralRoots)
+            List<INamedTypeSymbol> declaredStructuralRoots,
+            AttributeBag attrBag)
         {
             var ordered = contextTypes
                 .OrderBy(GetRobustName, StringComparer.Ordinal)
@@ -760,7 +775,7 @@ namespace Ceras.SourceGenerator
             {
                 if (type.TypeKind != TypeKind.Interface && !type.IsAbstract) continue;
                 if (type.IsSealed) continue; // static classes (abstract+sealed) have no instances
-                if (IsWellKnownType(type)) continue;
+                if (IsWellKnownType(type, attrBag)) continue;
                 if (type.TypeParameters.Length > 0) continue; // open generics: closed instantiations are handled at runtime
 
                 AppendMinimalRegistration(body, type, isStruct: false);
@@ -788,6 +803,12 @@ namespace Ceras.SourceGenerator
         /// <c>SchemaRegistry.TryBuildStructuralSchema</c> derives at runtime: a built-in closed
         /// collection (or a collection subclass), <c>KeyValuePair</c>, a tuple, and an enum. Arrays
         /// cannot appear here because an assembly-level declaration can only name a type.
+        /// <para>
+        /// The generic shapes are matched by the definition identity the runtime reserves a well-known
+        /// id for, so a user type that merely lives in a <c>System.*</c> namespace (and is therefore
+        /// discovered as an ordinary type needing a generated formatter) is not mistaken for one, and
+        /// neither is an eight-argument <c>ValueTuple</c>, which has no reserved id.
+        /// </para>
         /// </summary>
         static bool IsStructuralRootShape(INamedTypeSymbol type)
         {
@@ -797,13 +818,9 @@ namespace Ceras.SourceGenerator
             if (MemberExplorer.IsCollectionFormatterType(type)) return true;
             if (type.IsUnboundGenericType || !type.IsGenericType) return false;
 
-            var def = type.OriginalDefinition;
-            var metadataName = def.MetadataName;   // "KeyValuePair`2", "ValueTuple`2", "Tuple`2"
-            if (!metadataName.StartsWith("KeyValuePair`") &&
-                !metadataName.StartsWith("ValueTuple`") &&
-                !metadataName.StartsWith("Tuple`")) return false;
-
-            return def.ContainingNamespace?.ToDisplayString() == "System";
+            var definitionId = GetDefinitionId(type.OriginalDefinition);   // "KeyValuePair`2", "ValueTuple`2", "Tuple`2"
+            return definitionId == "System.Collections.Generic.KeyValuePair`2"
+                || IsTupleDefinition(definitionId);
         }
 
         /// <summary>

@@ -460,7 +460,7 @@ namespace Ceras.SourceGenerator {
 
 			referencedType = named;
 			if (type.IsValueType) return true;
-			return discoveredTypes.Contains(named) && !IsWellKnownType(named) && !IsCollectionType(named);
+			return discoveredTypes.Contains(named) && !IsWellKnownType(named, attrs) && !IsCollectionType(named);
 		}
 
 		static string GetConcreteFormatterType(ITypeSymbol type, bool isMonomorphic, AttributeBag attrs) {

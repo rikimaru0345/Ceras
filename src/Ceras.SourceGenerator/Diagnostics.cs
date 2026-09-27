@@ -219,5 +219,21 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor UnsupportedFrameworkMemberType = new(
+            id: "CERAS029",
+            title: "Member type has no built-in representation in the robust format",
+            messageFormat: "Member '{0}' in '{1}' has type '{2}', which the robust format has no built-in representation for. '{3}' is not declared in this compilation and carries no [CerasSerializable] attribute, so the generator treats it as a framework type from a System.* namespace and can give it neither a formatter nor a schema. No declaration ([CerasSerializable]/[CerasContext]/[CerasKnownType<...>]) and no custom IFormatter<T> can make it serializable in a robust context. If it is your own type from another assembly, mark it [CerasSerializable]; otherwise store a serializable form of the value instead (a string, a byte[], or another type the format describes), mark the member [Exclude], or keep the type out of every [CerasContext] if you only use the reflection-based CerasSerializer",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor UnsupportedFrameworkTypeDeclaration = new(
+            id: "CERAS030",
+            title: "Declaration names a type the robust format cannot describe",
+            messageFormat: "The assembly-level declaration names '{0}', which the robust format has no built-in representation for. '{1}' is not declared in this compilation and carries no [CerasSerializable] attribute, so the generator treats it as a framework type from a System.* namespace; declaring it cannot give it a schema and no custom IFormatter<T> can write it in a robust context. If it is your own type from another assembly, mark it [CerasSerializable] and declare that instead; otherwise declare a root shape the format does describe (a one-dimensional array, a built-in collection, KeyValuePair, a tuple or an enum), or remove the declaration",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }
