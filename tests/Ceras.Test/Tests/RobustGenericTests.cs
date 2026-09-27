@@ -119,21 +119,26 @@ namespace Ceras.Test.RobustGenerics
             };
 
             uint version = 1;
-            // First serializer with DummyForMismatch (Fingerprint F1)
+            // Writer serializer with DummyForMismatch (Fingerprint F1).
             var s1 = CreateSerializer();
             s1.Config.SchemaRegistry.Register(typeof(DummyForMismatch), null);
             var bytes = s1.Save(model, version);
+            ulong writerFingerprint = s1.Config.SchemaRegistry.ComputeFingerprint();
 
-            // 1. Normal (Fresh)
-            var loaded = CreateSerializer().Load<UnregisteredListModel>(bytes, version);
+            // 1. Fresh reader WITHOUT DummyForMismatch. Its sealed fingerprint (F2) genuinely differs,
+            //    so this load takes the interpreter path; the dummy registration is what forces it.
+            var reader1 = CreateSerializer();
+            var loaded = reader1.Load<UnregisteredListModel>(bytes, version);
+            Assert.NotEqual(writerFingerprint, reader1.Config.SchemaRegistry.ComputeFingerprint());
             Assert.Equal("Secret", loaded.Items[0].Data);
 
-            // 2. Traversal
+            // 2. Same serializer, registry cleared and repopulated without DummyForMismatch.
             var serializer = CreateSerializer();
             serializer.Config.SchemaRegistry.InternalClear();
             serializer.Config.UseGeneratedFormatters();
             // No DummyForMismatch here!
             var loaded2 = serializer.Load<UnregisteredListModel>(bytes, version);
+            Assert.NotEqual(writerFingerprint, serializer.Config.SchemaRegistry.ComputeFingerprint());
             Assert.Equal("Secret", loaded2.Items[0].Data);
         }
 
@@ -150,17 +155,21 @@ namespace Ceras.Test.RobustGenerics
             var s1 = CreateSerializer();
             s1.Config.SchemaRegistry.Register(typeof(DummyForMismatch), null);
             var bytes = s1.Save(model, version);
+            ulong writerFingerprint = s1.Config.SchemaRegistry.ComputeFingerprint();
 
-            // 1. Normal
-            var loaded = CreateSerializer().Load<StatusModel>(bytes, version);
+            // 1. Fresh reader without the dummy: fingerprint differs -> interpreter path.
+            var reader1 = CreateSerializer();
+            var loaded = reader1.Load<StatusModel>(bytes, version);
+            Assert.NotEqual(writerFingerprint, reader1.Config.SchemaRegistry.ComputeFingerprint());
             Assert.Equal(Status.Active, loaded.CurrentStatus);
             Assert.Equal(2, loaded.History.Count);
 
-            // 2. Traversal
+            // 2. Same serializer, registry cleared and repopulated without the dummy.
             var serializer = CreateSerializer();
             serializer.Config.SchemaRegistry.InternalClear();
             serializer.Config.UseGeneratedFormatters();
             var loaded2 = serializer.Load<StatusModel>(bytes, version);
+            Assert.NotEqual(writerFingerprint, serializer.Config.SchemaRegistry.ComputeFingerprint());
             Assert.Equal(Status.Active, loaded2.CurrentStatus);
         }
 
@@ -173,16 +182,20 @@ namespace Ceras.Test.RobustGenerics
             var s1 = CreateSerializer();
             s1.Config.SchemaRegistry.Register(typeof(DummyForMismatch), null);
             var bytes = s1.Save(model, version);
+            ulong writerFingerprint = s1.Config.SchemaRegistry.ComputeFingerprint();
 
-            // 1. Normal
-            var loaded = CreateSerializer().Load<GenericPair<int, string>>(bytes, version);
+            // 1. Fresh reader without the dummy: fingerprint differs -> interpreter path.
+            var reader1 = CreateSerializer();
+            var loaded = reader1.Load<GenericPair<int, string>>(bytes, version);
+            Assert.NotEqual(writerFingerprint, reader1.Config.SchemaRegistry.ComputeFingerprint());
             Assert.Equal(42, loaded.Item1);
 
-            // 2. Traversal
+            // 2. Same serializer, registry cleared and repopulated without the dummy.
             var serializer = CreateSerializer();
             serializer.Config.SchemaRegistry.InternalClear();
             serializer.Config.UseGeneratedFormatters();
             var loaded2 = serializer.Load<GenericPair<int, string>>(bytes, version);
+            Assert.NotEqual(writerFingerprint, serializer.Config.SchemaRegistry.ComputeFingerprint());
             Assert.Equal(42, loaded2.Item1);
         }
 

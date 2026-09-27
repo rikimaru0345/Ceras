@@ -73,6 +73,7 @@ namespace Ceras.Test {
 
 			uint version = 1;
 			var bytes = robust.Save(chunk, version);
+			ulong writerFingerprint = robust.Config.SchemaRegistry.ComputeFingerprint();
 
 			// Force fingerprint mismatch: clear registry and re-populate WITHOUT DummyForMismatch.
 			robust.Config.SchemaRegistry.InternalClear();
@@ -80,6 +81,7 @@ namespace Ceras.Test {
 			// We DO NOT register DummyForMismatch here, so the fingerprint (F2) will differ from F1.
 
 			var loadedChunk = robust.Load<MapChunk>(bytes, version);
+			Assert.NotEqual(writerFingerprint, robust.Config.SchemaRegistry.ComputeFingerprint());
 
 			Assert.NotNull(loadedChunk);
 			Assert.Single(loadedChunk.Entities);
@@ -100,17 +102,21 @@ namespace Ceras.Test {
 
 			uint version = 1;
 			var bytes = robust.Save(pair, version);
+			ulong writerFingerprint = robust.Config.SchemaRegistry.ComputeFingerprint();
 
-			// 1. Normal roundtrip (Fast path)
+			// 1. Normal roundtrip (Fast path): the same registry (DummyForMismatch still registered)
+			//    reproduces the writer fingerprint, so this genuinely uses the generated reader.
 			var loadedPair = robust.Load<Pair<int, string>>(bytes, version);
+			Assert.Equal(writerFingerprint, robust.Config.SchemaRegistry.ComputeFingerprint());
 			Assert.Equal(42, loadedPair.Item1);
 			Assert.Equal("Hello", loadedPair.Item2);
 
-			// 2. Traversal roundtrip (Fingerprint mismatch)
+			// 2. Traversal roundtrip (fingerprint mismatch): clear and repopulate without the dummy.
 			robust.Config.SchemaRegistry.InternalClear();
 			robust.Config.UseGeneratedFormatters();
 			// We DO NOT register DummyForMismatch here, so the fingerprint will mismatch.
 			var loadedPair2 = robust.Load<Pair<int, string>>(bytes, version);
+			Assert.NotEqual(writerFingerprint, robust.Config.SchemaRegistry.ComputeFingerprint());
 			Assert.Equal(42, loadedPair2.Item1);
 			Assert.Equal("Hello", loadedPair2.Item2);
 		}
