@@ -94,7 +94,10 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   `List<T>`/`Dictionary<K,V>` subclass through a wrapping constructor, but the generated
   matching-layout collection formatter still calls `Activator.CreateInstance` without
   arguments. Either support the admitted shape on both paths or reject it at bake time
-  with a useful diagnostic; pin the same type through both reader paths.
+  with a useful diagnostic; pin the same type through both reader paths. A separate
+  `ReadOnlyCollection<T>` subclass is also admitted structurally but the dedicated
+  formatter constructs the base wrapper, and `ReferenceFormatter` fails with a bare
+  `ArgumentNullException("method")` on Save; reject or support this variant too.
 - **Queue/Stack migration count mismatch.** Confirmed with separate writer/reader
   builds: Queue/Stack writers use an un-biased fixed Int32 count, but the migration
   interpreter reads a biased varint, silently corrupting subsequent fields on both
