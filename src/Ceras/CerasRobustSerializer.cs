@@ -251,10 +251,12 @@ namespace Ceras
                 if (!registry.TryGetBakedSchema(out _, out _, out _, out var idToType, out _))
                     throw new InvalidOperationException("Schema was sealed but not baked.");
 
+                int storedRootId = (int)SchemaSection.ReadLeb128(ref reader); // root type id
+                ValidateStoredRootType(storedRootId, typeof(T), idToType, registry);
+
                 RobustContext.BeginRead(payloadTable, idToType);
                 try
                 {
-                    SchemaSection.ReadLeb128(ref reader); // root type id
                     Deserialize(ref reader, ref value);
                 }
                 finally
@@ -277,10 +279,12 @@ namespace Ceras
 
             var slowIdToType = BuildIdToType(fileSchemas, registry, Config.TypeBinder);
 
+            int storedSlowRootId = (int)SchemaSection.ReadLeb128(ref reader); // root type id
+            ValidateStoredRootType(storedSlowRootId, typeof(T), slowIdToType, registry);
+
             RobustContext.BeginRead(payloadTable, slowIdToType);
             try
             {
-                SchemaSection.ReadLeb128(ref reader); // root type id
                 var engine = new SchemaTraversalEngine(fileSchemas, payloadTable, robustVersion, this);
                 value = engine.ReadRoot<T>(ref reader, value);
             }
@@ -369,6 +373,36 @@ namespace Ceras
             if (WellKnownTypes.TryGetId(type, out int id)) return id;
             if (registry.TryGetId(type, out id)) return id;
             return WellKnownTypes.Null;
+        }
+
+        /// <summary>
+        /// The data section starts with the declared root type id. Loading must honor it: parsing the
+        /// payload as a different, unrelated declared type would silently misread the layout. Exact
+        /// matches are always accepted; assignment-compatible base/derived roots are accepted so that
+        /// legitimate polymorphic roots keep working. Anything else is rejected with an actionable error.
+        /// </summary>
+        static void ValidateStoredRootType(int storedRootId, Type requestedType, Dictionary<int, Type> idToType, SchemaRegistry registry)
+        {
+            if (storedRootId == GetTypeId(requestedType, registry))
+                return;
+
+            Type storedType = null;
+            idToType?.TryGetValue(storedRootId, out storedType);
+
+            if (storedType != null &&
+                (storedType == requestedType ||
+                 requestedType.IsAssignableFrom(storedType) ||
+                 storedType.IsAssignableFrom(requestedType)))
+                return;
+
+            string storedDescription = storedType != null
+                ? $"'{storedType.FullName}'"
+                : $"type id {storedRootId} (which is not declared in this context)";
+
+            throw new Ceras.Exceptions.CerasSchemaException(
+                $"The saved data's root type {storedDescription} does not match the requested load type " +
+                $"'{requestedType.FullName}'. Load the save with its declared root type (or an assignment-compatible " +
+                $"base/derived type); loading it as an unrelated type would silently misread the payload.");
         }
 
         /// <summary>
