@@ -235,10 +235,8 @@ namespace Ceras.SourceGenerator
                 if (!memberCache.TryGetValue(t, out var cached))
                 {
                     // Route member diagnostics through a buffer so they can be reported once, after the
-                    // whole discovery phase, rather than immediately per discovery pass. The explicit
-                    // registration filter is not known yet at discovery time and does not affect the
-                    // member list shape used during discovery/emission.
-                    cached = MemberExplorer.DiscoverMembers(context, t, attrBag, blacklistPatterns, null, discoveryDiagnostics);
+                    // whole discovery phase, rather than immediately per discovery pass.
+                    cached = MemberExplorer.DiscoverMembers(context, t, attrBag, blacklistPatterns, discoveryDiagnostics);
                     memberCache[t] = cached;
                 }
                 return cached;

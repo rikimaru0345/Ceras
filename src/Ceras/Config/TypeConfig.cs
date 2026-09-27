@@ -222,6 +222,49 @@
 		}
 
 		/// <summary>
+		/// Runtime counterpart of the generator's CERAS031 diagnosis, for types that have no
+		/// generated formatter (reflection fallback / external types).
+		/// <para>
+		/// A member whose declared type is a banned <em>shape</em> (a delegate, an enumerator,
+		/// reflection metadata, a native engine object, ...) cannot be written: the member used to
+		/// be dropped from the schema, so saving succeeded and loading produced a
+		/// <c>null</c>/default where real data had been. Now that it is not in the schema, a
+		/// formatter is not even built for it, so this is reported here - at the point where Ceras
+		/// takes responsibility for the members of the type - instead of silently producing a lossy
+		/// save.
+		/// </para>
+		/// <para>
+		/// Only shape bans are diagnosed. A member of a type that carries <c>[Exclude]</c> is still
+		/// simply absent from the schema, because that is what the attribute means, and a member the
+		/// user excluded with <c>[Exclude]</c>/<see cref="SerializationOverride.ForceSkip"/> (or
+		/// dropped via <c>[NonSerialized]</c>) is the documented way to keep such a member out of
+		/// the payload. Registering a custom formatter for the member's type does <em>not</em>
+		/// count: the member never reaches a formatter, and Ceras cannot tell whether an arbitrary
+		/// formatter would restore the value.
+		/// </para>
+		/// </summary>
+		internal void VerifyNoBannedMemberShapes(bool isStatic)
+		{
+			foreach (var member in _allMembers)
+			{
+				if (MemberIsStatic(member.Member) != isStatic) continue;
+				if (member.IsExcludedByUser) continue;
+				if (!BannedTypes.IsBannedShape(member.MemberType, out var reason)) continue;
+
+				throw new BannedTypeException(
+					$"Member '{member.DisplayName}' of type '{Type.FriendlyName(true)}' has the type '{member.MemberType.FriendlyName(true)}', " +
+					$"which Ceras cannot serialize. Leaving the member out of the payload would save fine and load it back as null, " +
+					$"so Ceras refuses to do it. Add [Exclude] to the member (or call ConfigType<{Type.FriendlyName()}>.ConfigField/ConfigProperty(\"{member.DisplayName}\").Exclude()) " +
+					$"if it is intentionally not serialized, or replace it with a representation Ceras can write " +
+					$"(for a delegate: store the target and the method identity yourself and re-attach it in an [OnAfterDeserialize] callback). " +
+					$"Reason this type is banned: \"{reason}\".");
+			}
+		}
+
+		static bool MemberIsStatic(MemberInfo member)
+			=> member is FieldInfo f ? f.IsStatic : ((PropertyInfo)member).GetAccessors(true)[0].IsStatic;
+
+		/// <summary>
 		/// Runtime counterpart of the generator's CERAS026 diagnosis, for types that have no
 		/// generated formatter (reflection fallback / external types). A constructor-dependent
 		/// immutable cycle cannot be constructed: a readonly member participates in a cycle but the
@@ -596,6 +639,27 @@
 
 
 		/// <summary>
+		/// True when the user has explicitly taken this member out of serialization
+		/// (<c>[Exclude]</c>, <c>Exclude()</c>, <see cref="SerializationOverride.ForceSkip"/>, or a
+		/// callback that skipped it). This is the one way a member whose type cannot be serialized
+		/// may still be absent from the payload - see <see cref="TypeConfig.VerifyNoBannedMemberShapes"/>.
+		/// <para>
+		/// Deliberately independent of the ban itself: a banned type would also make
+		/// <see cref="ComputeFinalInclusionFast"/> return false, and that must not count as the
+		/// user's decision.
+		/// </para>
+		/// </summary>
+		internal bool IsExcludedByUser
+			=> _serializationOverride == SerializationOverride.ForceSkip
+			   || (HasNonSerializedAttribute && TypeConfig.Config.RespectNonSerializedAttribute);
+
+		/// <summary>
+		/// How to refer to this member in a message: the property name for an auto-property's
+		/// backing field, the field name otherwise.
+		/// </summary>
+		internal string DisplayName => AssociatedProperty?.Name ?? Member.Name;
+
+		/// <summary>
 		/// Determine whether or not this member is included when serializing/deserializing.
 		/// </summary>
 		/// <returns>true when the member will be serialized/deserialized</returns>
@@ -611,8 +675,12 @@
 				return new InclusionExclusionResult(_serializationOverride == SerializationOverride.ForceInclude, _explicitInclusionReason);
 
 			// Banned types
-			if (BannedTypes.IsBanned(MemberType))
-				return new InclusionExclusionResult(false, $"The type '{MemberType.FriendlyName(true)}' is banned from serialization by default and the member has no [Include] attribute.");
+			if (BannedTypes.IsBannedShape(MemberType, out var banReason))
+				return new InclusionExclusionResult(false, $"The type '{MemberType.FriendlyName(true)}' cannot be serialized at all ({banReason}), so the member is left out. That is an error unless the member is marked [Exclude]: see TypeConfig.VerifyNoBannedMemberShapes.");
+
+			// A type the user excluded on purpose: its members are simply not part of the schema.
+			if (BannedTypes.IsExcludedType(MemberType))
+				return new InclusionExclusionResult(false, $"The type '{MemberType.FriendlyName(true)}' is marked with [Exclude], so it is not serialized and neither are its members.");
 
 			// [NonSerialized]
 			if (HasNonSerializedAttribute && TypeConfig.Config.RespectNonSerializedAttribute)

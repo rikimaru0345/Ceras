@@ -291,11 +291,32 @@ The above are just examples. Some shapes are out of scope however they are used 
   metadata (`MethodInfo`, `PropertyInfo`, `Assembly`, ...), enumerators and engine-native objects
   (anything under a `UnityEngine.Object`-style base) are **banned**.
 
-  > **Known bug, not intended behaviour.** Today a banned type is *silently excluded*: a member whose
-  > type is banned is dropped from the payload and comes back `null`/default with no error, and a
-  > banned runtime value in a reference slot is written as `null`. A custom `IFormatter<T>` does not
-  > override the ban, and `[Include]` forces inclusion but then fails at load. This is scheduled to
-  > become a hard error; do not rely on it, and assert on a round-trip if it matters.
+  > **A banned type is an error, not a skip.** A member whose type is banned is reported as
+  > `CERAS031` by the source generator, and at bake time as a `BannedTypeException` (a
+  > `CerasException`) for types served by the reflection fallback — the error names the member, the
+  > type and the reason, instead of dropping the member so it loads back as `null`. A banned value
+  > that reaches a reference or `Type` slot at runtime (an `object` member holding a delegate or a
+  > `PropertyInfo`, a `Type` member holding `typeof(Action)`, a `typeof(List<Func<int>>)` whose
+  > argument is banned) is likewise rejected on `Save` by name, rather than written as `null`.
+  > Mark the member `[Exclude]` to say that it is intentionally not serialized, or replace it with
+  > a representation Ceras can write (for a delegate: store the target and the method identity and
+  > re-attach it in an `[OnAfterDeserialize]` callback).
+  >
+  > A custom `IFormatter<T>` for the **member's** type does *not* lift the ban: the member never
+  > reaches a formatter, and Ceras cannot tell whether an arbitrary formatter would restore the
+  > value. A custom formatter (or resolver) for the **containing** type is a supported replacement —
+  > it owns every byte of that type — and the members are not walked at all.
+  >
+  > `[Exclude]` is a decision about a *declaration*, not a licence to lose values. A member marked
+  > `[Exclude]`, and a member whose type is marked `[Exclude]`, are both absent from the payload, and
+  > that absence is reported (`GenerateSerializationDebugReport` names the member and the reason).
+  > A *value* of an excluded type reaching an `object` or `Type` slot is a different thing — the slot
+  > never asked for that — and is rejected on `Save` like any other unserializable value.
+  >
+  > This is a behaviour change: a member that used to vanish now fails the build (`CERAS031`) or the
+  > first `Save`, and a save written by an older build that omitted such a member is no longer
+  > produced. Nothing on the wire changed for types that had no banned member — the member was
+  > already excluded from the schema — so existing saves of unaffected types still load.
 
 - If your robust save must serialize types that only exist at runtime. A robust context has a
   **finite** manifest baked at the first `Save`/`Load`; a type that is not in it is an error, not a
@@ -336,10 +357,11 @@ This replaces the old external AotGenerator tool and works automatically — no 
 >
 > **Unity/IL2CPP is deferred and unverified** (see TODO.md). `src/Ceras.UnityAddon` still exists in
 > the solution but contains no formatter code, and the package is not tagged for Unity. Native Unity
-> objects are on the banned-type list, so a member of that type is excluded from the payload rather
-> than written — the silent-exclusion bug described below. The intended editor/export integration
-> target is Godot; exercising `samples/GodotIntegration` in editor play, across assembly reload and
-> in an export is still open work.
+> objects are on the banned-type list, so a member of that type cannot be written and is now a hard
+> error (`CERAS031`, or `BannedTypeException` for a reflection-fallback type) rather than a silent
+> omission — mark it `[Exclude]`. The intended editor/export integration target is Godot; exercising
+> `samples/GodotIntegration` in editor play, across assembly reload and in an export is still open
+> work.
 
 > **Breaking change (generator diagnostics):** shapes the generator cannot access — currently a
 > member whose *type* generated code cannot name (e.g. a private nested type) — now report

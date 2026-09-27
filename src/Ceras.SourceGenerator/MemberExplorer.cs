@@ -10,7 +10,7 @@ namespace Ceras.SourceGenerator
 {
     internal static class MemberExplorer
     {
-        public static List<SerializedMember> DiscoverMembers(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs, List<string>? blacklistPatterns = null, HashSet<INamedTypeSymbol>? explicitlyRegisteredTypes = null, List<Diagnostic>? diagnosticSink = null)
+        public static List<SerializedMember> DiscoverMembers(SourceProductionContext context, INamedTypeSymbol type, AttributeBag attrs, List<string>? blacklistPatterns = null, List<Diagnostic>? diagnosticSink = null)
         {
             var members = new List<SerializedMember>();
             // Tracks stable names already claimed by backing fields in more-derived types.
@@ -73,14 +73,31 @@ namespace Ceras.SourceGenerator
                             continue;
                         }
 
-                        // Hard-banned types (delegates, enumerators, reflection) can never round-trip
-                        // and are skipped. The generator blacklist only prevents formatter *generation*
-                        // for those types; a field of a blacklisted type is still included and requires
-                        // a runtime custom formatter (a CERAS017 warning is emitted for engine objects).
-                        bool isExplicitlyRegistered = explicitlyRegisteredTypes != null
-                            && field.Type is INamedTypeSymbol fieldType
-                            && explicitlyRegisteredTypes.Contains(fieldType);
-                        if (!isExplicitlyRegistered && IsBanned(field.Type)) continue;
+                        // Hard-banned types (delegates, enumerators, reflection) can never round-trip.
+                        // Skipping the member used to be the only outcome: the payload simply did not
+                        // contain it, so the save succeeded and the loaded value came back null with
+                        // nothing to explain it. That silent loss is the bug, so it is reported and the
+                        // member is still left out (the build fails either way, and emitting code for a
+                        // member that cannot be written would only produce a second, worse error).
+                        //
+                        // The generator blacklist only prevents formatter *generation* for those types;
+                        // a field of a blacklisted type is still included and requires a runtime custom
+                        // formatter (a CERAS017 warning is emitted for engine objects). Neither it nor
+                        // an explicit [CerasSerializable<T>] registration lifts a ban - declaring a type
+                        // says "this type is part of my graph", which cannot make a shape writable - and
+                        // a custom formatter is not accepted as a way out either. See the diagnostic.
+                        if (IsBanned(field.Type))
+                        {
+                            string bannedMemberName = associatedProp?.Name ?? field.Name;
+                            string bannedTypeName = field.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            string bannedDeclaringTypeName = type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            var bannedLocation = (associatedProp?.Locations.FirstOrDefault() ?? field.Locations.FirstOrDefault());
+                            ReportMemberDiagnostic(diagnosticSink, Diagnostic.Create(
+                                Diag.BannedMemberType,
+                                bannedLocation,
+                                bannedMemberName, bannedDeclaringTypeName, bannedTypeName));
+                            continue;
+                        }
 
                         // Engine-object types (e.g. Godot.GodotObject subclasses) CAN be serialized
                         // when the user provides a custom formatter.  Include the field but emit a
@@ -279,6 +296,14 @@ namespace Ceras.SourceGenerator
         /// Hard ban: types that can NEVER round-trip regardless of formatters.
         /// Delegates carry method references; enumerators are ephemeral; reflection
         /// metadata is not restorable.  These are skipped unconditionally.
+        /// <para>
+        /// Without <paramref name="blacklistPatterns"/> this is exactly the shape ban the runtime
+        /// applies (see <c>BannedTypes.IsBannedShape</c>) and it is the *only* reason a member is
+        /// reported: a member of a type the user marked <c>[Exclude]</c> was already handled above
+        /// (the type is not serialized at all, which is what the attribute asks for) and a type that
+        /// merely matches the user's generator blacklist is not a ban, it only means "no generated
+        /// formatter for this type".
+        /// </para>
         /// </summary>
         public static bool IsBanned(ITypeSymbol type, List<string>? blacklistPatterns = null)
         {

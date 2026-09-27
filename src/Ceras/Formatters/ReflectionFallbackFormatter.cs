@@ -41,6 +41,11 @@ namespace Ceras.Formatters
             
             var typeConfig = _ceras.Config.GetTypeConfig(type, isStatic);
             typeConfig!.VerifyConstructionMethod();
+            // Before anything is resolved for the members: a member whose type cannot be serialized
+            // at all (delegate, enumerator, reflection metadata, ...) used to be dropped here and
+            // come back as null. Reported first, because it is the root cause of anything that would
+            // otherwise fail further down while resolving that member's formatter.
+            typeConfig.VerifyNoBannedMemberShapes(isStatic);
             _factory = typeConfig.TypeConstruction.GetRefFormatterConstructor();
 
             // Structs with only auto-properties cannot be serialized using reflection

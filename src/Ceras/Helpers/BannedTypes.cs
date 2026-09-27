@@ -16,6 +16,19 @@ namespace Ceras.Formatters
     //
     // There is only once place where we can be 100% sure that every type will eventually pass through: the type meta data entries
     // so that's where we're calling it from
+    //
+    // A ban has two unrelated sources and they are deliberately kept apart, because only one of
+    // them is a mistake Ceras has to complain about:
+    //
+    //   * A shape ban - the *shape* has no wire representation at all (a delegate, an enumerator,
+    //     reflection metadata, ...). Neither a member of that type nor a value of that type can be
+    //     written, so dropping it produced a save that looked fine and came back null. See
+    //     <see cref="IsBannedShape(Type, out string)"/>.
+    //   * A [Exclude] attribute on the type itself. That is the user's own decision that the
+    //     type is not for serialization, so a *member* of such a type is still simply not part
+    //     of the schema (that is what the attribute asks for). A *value* of such a type in a
+    //     reference slot is still an error: the slot says nothing about it, and writing null
+    //     would silently lose the value.
     static class BannedTypes
     {
         struct BannedType
@@ -64,7 +77,7 @@ namespace Ceras.Formatters
 
         static BannedTypes()
         {
-            BanBase(typeof(System.Collections.IEnumerator), "Enumerators are potentially infinite, and also most likely have no way to be instantiated at deserialization-time. If you think this is a mistake, report it as a github issue or provide a custom IFormatter for this case.");
+            BanBase(typeof(System.Collections.IEnumerator), "Enumerators are potentially infinite, and also most likely have no way to be instantiated at deserialization-time. If you think this is a mistake, report it as a github issue.");
 
             // Delegates/Actions/Funcs/Events
             BanBase(typeof(Delegate), "Serialization of delegates, actions, functions, or events is not supported by default. These types contain internal state and references to methods that cannot be reliably restored.");
@@ -126,7 +139,43 @@ namespace Ceras.Formatters
 
         internal static bool IsBanned(Type type) => IsBanned(type, out _);
 
-        static bool IsBanned(Type type, out BannedType foundBan)
+        /// <summary>
+        /// True when the type is banned because of its *shape* (delegate, enumerator, reflection
+        /// metadata, exploit-prone framework type, native engine object) and not merely because it
+        /// carries <c>[Exclude]</c>. Only a shape ban makes a member an error: a member of a type
+        /// the user excluded on purpose is simply absent from the payload, which is exactly what
+        /// the attribute asked for.
+        /// </summary>
+        internal static bool IsBannedShape(Type type, out string reason)
+        {
+            if (TryGetBannedShape(type, out var ban))
+            {
+                reason = ban.BanReason;
+                return true;
+            }
+
+            reason = null!;
+            return false;
+        }
+
+        /// <inheritdoc cref="IsBanned(Type)"/>
+        internal static bool TryGetBanned(Type type, out string reason)
+        {
+            if (IsBanned(type, out var ban))
+            {
+                reason = ban.BanReason;
+                return true;
+            }
+
+            reason = null!;
+            return false;
+        }
+
+        /// <summary>
+        /// The shape ban only - no <c>[Exclude]</c> scan, so the caller decides what a
+        /// user-excluded type means for it.
+        /// </summary>
+        static bool TryGetBannedShape(Type type, out BannedType foundBan)
         {
             for (var i = 0; i < _bannedTypes.Count; i++)
             {
@@ -188,14 +237,36 @@ namespace Ceras.Formatters
                 }
             }
 
-            // Check for [Exclude] attribute on the type itself
+            foundBan = default;
+            return false;
+        }
+
+        /// <summary>
+        /// True when the type itself carries <c>[Exclude]</c>, i.e. the user declared that this type
+        /// is not for serialization. A member of such a type is legitimately absent from the
+        /// payload; that is not an error (see <see cref="IsBannedShape(Type, out string)"/>).
+        /// </summary>
+        internal static bool IsExcludedType(Type type)
+        {
             foreach (var attr in type.GetCustomAttributes(true))
             {
                 if (attr.GetType().FullName == "Ceras.ExcludeAttribute")
-                {
-                    foundBan = new BannedType(type, "The type is explicitly marked with [Exclude].", false);
                     return true;
-                }
+            }
+
+            return false;
+        }
+
+        static bool IsBanned(Type type, out BannedType foundBan)
+        {
+            if (TryGetBannedShape(type, out foundBan))
+                return true;
+
+            // Check for [Exclude] attribute on the type itself
+            if (IsExcludedType(type))
+            {
+                foundBan = new BannedType(type, "The type is explicitly marked with [Exclude].", false);
+                return true;
             }
 
             foundBan = default;
@@ -209,9 +280,28 @@ namespace Ceras.Formatters
         }
     }
 
-    class BannedTypeException : Exception
+    /// <summary>
+    /// Thrown when a value or a member would have been written as <c>null</c> because its type is
+    /// banned, but losing it silently is not an option.
+    /// <para>There are two situations, and both used to produce a file that looked fine and came
+    /// back with a <c>null</c> where real data had been:</para>
+    /// <list type="bullet">
+    /// <item><description>a member whose declared type is banned (a delegate, an enumerator,
+    /// reflection metadata, ...), which used to be dropped from the schema;</description></item>
+    /// <item><description>a runtime value of a banned type reaching a reference or <see cref="Type"/>
+    /// slot, which used to be written as a null marker.</description></item>
+    /// </list>
+    /// <para>The fix is always the same: keep the value out of the payload on purpose
+    /// (<c>[Exclude]</c> the member) or give it a representation Ceras can write.</para>
+    /// </summary>
+    public class BannedTypeException : Exceptions.CerasException
     {
         public BannedTypeException(string message) : base(message)
+        {
+
+        }
+
+        public BannedTypeException(string message, Exception inner) : base(message, inner)
         {
 
         }
