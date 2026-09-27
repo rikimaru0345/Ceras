@@ -251,12 +251,8 @@ namespace Ceras.Format
 
             if (!registry.TryGetId(type, out int id))
             {
-                if (!CanAutoRegister(type))
-                    throw new Ceras.Exceptions.CerasSchemaException(
-                        $"Cannot bake the schema for type '{declaringTypeName}': its {memberDescription} is of type '{clrName}', " +
-                        "but that type is not part of the selected serialization context's manifest (and it is not a supported " +
-                        "structural/BCL type). Declare the type with [CerasSerializable]/[CerasContext(\"name\")], make it reachable " +
-                        "from a context root, or declare it with [assembly: CerasKnownType<...>], then rebuild.");
+                if (!TryGetAutoRegistration(type, out var rejection))
+                    throw UndescribableMemberType(type, clrName, declaringTypeName, memberDescription, rejection);
 
                 // Structural BCL shapes (arrays, built-in collections, KeyValuePair, tuples, Nullable)
                 // are intentionally skipped by the generator and registered structurally on first use.
@@ -277,31 +273,92 @@ namespace Ceras.Format
         }
 
         /// <summary>
+        /// The bake-time error for a member (or argument) type that is neither declared in the context's
+        /// manifest nor describable structurally.
+        /// <para>
+        /// A collection shape Ceras writes but cannot describe gets the reason it cannot be described
+        /// (<see cref="WellKnownTypes.DescribeCollectionShapeRejection"/>); every other type is an
+        /// ordinary undeclared type, where the only fix is to declare it. Reporting from here rather than
+        /// from the predicate is deliberate: this is the only layer that knows which declaring type and
+        /// member reached the unsupported shape, so it is the only place the error can name them.
+        /// </para>
+        /// </summary>
+        static Ceras.Exceptions.CerasSchemaException UndescribableMemberType(
+            Type type, string clrName, string declaringTypeName, string memberDescription, CollectionShapeRejection rejection)
+        {
+            // The reason sentence already names the type, so only the context it was reached through is
+            // added here.
+            if (rejection != CollectionShapeRejection.None)
+                return new Ceras.Exceptions.CerasSchemaException(
+                    $"Cannot bake the schema for type '{declaringTypeName}': its {memberDescription} is of a type Ceras cannot describe. " +
+                    WellKnownTypes.DescribeCollectionShapeRejection(type, rejection));
+
+            return new Ceras.Exceptions.CerasSchemaException(
+                $"Cannot bake the schema for type '{declaringTypeName}': its {memberDescription} is of type '{clrName}', " +
+                "but that type is not part of the selected serialization context's manifest (and it is not a supported " +
+                "structural/BCL type). Declare the type with [CerasSerializable]/[CerasContext(\"name\")], make it reachable " +
+                "from a context root, or declare it with [assembly: CerasKnownType<...>], then rebuild.");
+        }
+
+        /// <summary>
         /// True for the built-in shapes the generator deliberately does not emit formatters/schemas for:
         /// well-known primitives, one-dimensional arrays, the built-in collections and
         /// <c>KeyValuePair</c> (structural schemas), closed instantiations of the other reserved generic
         /// definitions, collection subclasses served by the built-in collection formatter, and enums.
         /// Everything else must be declared in the generated manifest (TODO Phase 2.5/3.4).
+        /// <para>
+        /// A pure predicate — it never throws. A collection shape Ceras writes but cannot describe comes
+        /// back as <paramref name="rejection"/>, and <see cref="ResolveId"/> turns that into the
+        /// <c>CerasSchemaException</c> that names the declaring type and member. (The one exception is
+        /// <see cref="SchemaRegistry.TryBuildStructuralSchema"/>, the bake's own fail-loud entry point, which
+        /// raises for the shapes the format cannot represent at all — a multidimensional array, and the
+        /// <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> subclass this predicate reports first.)
+        /// </para>
         /// </summary>
-        static bool CanAutoRegister(Type type)
+        static bool TryGetAutoRegistration(Type type, out CollectionShapeRejection rejection)
         {
-            if (type == null) return false;
-            if (WellKnownTypes.IsWellKnown(type)) return true;
-            if (SchemaRegistry.TryBuildStructuralSchema(type, out _)) return true;
+            if (type == null)
+            {
+                rejection = CollectionShapeRejection.None;
+                return false;
+            }
+
+            if (WellKnownTypes.IsWellKnown(type))
+            {
+                rejection = CollectionShapeRejection.None;
+                return true;
+            }
+
+            // Classified before the structural bake, and not after it: the bake rejects exactly the shapes
+            // a collection classification reports a reason for (a Queue<>/Stack<> subclass), and an error
+            // that names neither the declaring type nor the member is not actionable. Collection
+            // subclasses that *are* describable are picked up below by the bake's own structural schema.
+            WellKnownTypes.TryResolveCollectionShape(type, out _, out _, out rejection);
+            if (rejection != CollectionShapeRejection.None)
+                return false;
+
+            if (SchemaRegistry.TryBuildStructuralSchema(type, out _))
+            {
+                rejection = CollectionShapeRejection.None;
+                return true;
+            }
+
             if (type.IsGenericType && !type.IsGenericTypeDefinition &&
-                WellKnownTypes.TryGetId(type.GetGenericTypeDefinition(), out _)) return true;
-            // Collection subclasses are described as their underlying collection payload (see
-            // SchemaRegistry.TryBuildStructuralSchema); reject an undescribable one loudly instead of
-            // admitting it with an empty class schema.
-            if (WellKnownTypes.TryResolveCollectionShape(type, out _, out _)) return true;
-            if (type is { IsArray: false } && WellKnownTypes.IsCollectionFormatterShape(type))
-                throw new Ceras.Exceptions.CerasSchemaException(
-                    $"The collection type '{TypeIdentity.GetCanonicalName(type)}' is handled by the built-in collection formatter, but Ceras " +
-                    "cannot infer a single element/key/value type to describe it with. Give it a concrete " +
-                    "ICollection<T> or IDictionary<K,V> implementation, or provide a custom formatter.");
+                WellKnownTypes.TryGetId(type.GetGenericTypeDefinition(), out _))
+            {
+                rejection = CollectionShapeRejection.None;
+                return true;
+            }
+
             // Enum schemas are fully derivable from CLR metadata at runtime, so an enum that the
             // generator skipped (e.g. blacklisted) can still be declared structurally.
-            if (type.IsEnum) return true;
+            if (type.IsEnum)
+            {
+                rejection = CollectionShapeRejection.None;
+                return true;
+            }
+
+            // Not a collection shape Ceras rejects on its own account: an ordinary undeclared type.
             return false;
         }
 

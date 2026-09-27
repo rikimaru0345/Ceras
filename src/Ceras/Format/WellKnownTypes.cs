@@ -4,6 +4,43 @@ using System.Collections.Generic;
 namespace Ceras.Format
 {
     /// <summary>
+    /// Why a type has no describable <c>(definition, ordered arguments)</c> collection shape, as
+    /// reported by <see cref="WellKnownTypes.TryResolveCollectionShape"/>.
+    /// <para>
+    /// This exists so the predicate can be asked about every type without throwing: the callers that act
+    /// on the answer live at three different layers, and each of them reports the failure in its own
+    /// terms (a bake names the declaring type and member, the migration decoder names the file's stable
+    /// name), while this is the single place that decides <em>what</em> the reason is.
+    /// </para>
+    /// </summary>
+    enum CollectionShapeRejection
+    {
+        /// <summary>
+        /// Nothing shape-specific is wrong: the type resolved to a collection shape, or it is not a
+        /// collection shape at all (not a collection, an array — described as <c>T[]</c> by its own
+        /// structural schema — or null). A caller that needs a sentence for a bare
+        /// <c>false</c> gets the general "not a collection shape" one from
+        /// <see cref="WellKnownTypes.DescribeCollectionShapeRejection"/>.
+        /// </summary>
+        None,
+
+        /// <summary>
+        /// A <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> subclass. The built-in <c>QueueFormatter</c> and
+        /// <c>StackFormatter</c> construct the exact built-in type, so they lose the subclass, while
+        /// <c>CollectionFormatter</c> needs an <c>Add</c> method that <c>Queue</c>/<c>Stack</c> do not
+        /// have — so no Ceras formatter can round-trip the shape at all. Ceras refuses it loudly rather
+        /// than describing a payload it cannot write or read.
+        /// </summary>
+        UnsupportedQueueOrStack,
+
+        /// <summary>
+        /// A collection the built-in collection formatter does serve, but whose single element/key/value
+        /// type cannot be inferred, so no definition plus ordered arguments can describe its payload.
+        /// </summary>
+        UninferrableElementType,
+    }
+
+    /// <summary>
     /// Type IDs 0–127 are permanently reserved for well-known .NET types.
     /// These IDs never appear in the schema section — both writer and reader
     /// know them at compile time via this class.
@@ -223,7 +260,7 @@ namespace Ceras.Format
         /// (mirrors <c>MemberExplorer.IsCollectionType</c>).
         /// <para>
         /// A collection subclass whose element/key/value types cannot be inferred cannot be described and
-        /// must be rejected before saving; use <see cref="TryResolveCollectionShape"/> for that.
+        /// must be rejected before saving; <see cref="TryResolveCollectionShape"/> says why.
         /// </para>
         /// </summary>
         public static bool IsCollectionFormatterShape(Type type)
@@ -253,12 +290,26 @@ namespace Ceras.Format
         /// </list>
         /// The result is used both for the structural schema and by the migration interpreter, so a
         /// collection subclass round-trips instead of decoding as an empty ordinary object.
+        /// <para>
+        /// A shape Ceras writes but cannot describe is an <b>answer</b>, not an exception: the rejection
+        /// comes back as <paramref name="rejection"/> (see <see cref="CollectionShapeRejection"/> and
+        /// <see cref="DescribeCollectionShapeRejection"/>) and each caller decides how to report it, with
+        /// the context only it has — the bake knows the declaring type and the member that reached it, the
+        /// decoder knows the name the file used. This predicate therefore never throws, and a caller can
+        /// ask it about any type without having to guard the call.
+        /// </para>
         /// </summary>
-        public static bool TryResolveCollectionShape(Type? type, out Type? definition, out Type[]? args)
+        public static bool TryResolveCollectionShape(Type? type, out Type? definition, out Type[]? args, out CollectionShapeRejection rejection)
         {
             definition = null;
             args = null;
-            if (type == null || type.IsArray) return false;
+            if (type == null || type.IsArray)
+            {
+                // An array is described as `T[]` by its own structural schema (see SchemaRegistry), never
+                // as a collection shape, so there is nothing to reject here.
+                rejection = CollectionShapeRejection.None;
+                return false;
+            }
 
             if (type.IsGenericType && !type.IsGenericTypeDefinition)
             {
@@ -267,6 +318,7 @@ namespace Ceras.Format
                 {
                     definition = ownDef;
                     args = type.GetGenericArguments();
+                    rejection = CollectionShapeRejection.None;
                     return true;
                 }
             }
@@ -276,6 +328,7 @@ namespace Ceras.Format
             {
                 definition = typeof(Dictionary<,>);
                 args = dictItf.GetGenericArguments();
+                rejection = CollectionShapeRejection.None;
                 return true;
             }
 
@@ -286,6 +339,7 @@ namespace Ceras.Format
             {
                 definition = typeof(HashSet<>);
                 args = setBase.GetGenericArguments();
+                rejection = CollectionShapeRejection.None;
                 return true;
             }
 
@@ -294,19 +348,61 @@ namespace Ceras.Format
             {
                 definition = typeof(List<>);
                 args = collectionItf.GetGenericArguments();
+                rejection = CollectionShapeRejection.None;
                 return true;
             }
 
             // Queue<>/Stack<> subclasses are NOT supported: the built-in QueueFormatter/StackFormatter
             // construct the exact built-in type (losing the subclass) and CollectionFormatter needs an
-            // 'Add' method that Queue/Stack do not have. Reject them loudly instead of admitting a shape
-            // that cannot round-trip.
+            // 'Add' method that Queue/Stack do not have. A shape that cannot round-trip is reported, not
+            // admitted (and not thrown from here — see the remarks above).
             if (FindBase(type, typeof(Queue<>)) != null || FindBase(type, typeof(Stack<>)) != null)
-                throw new Ceras.Exceptions.CerasSchemaException(
-                    $"The collection type '{TypeIdentity.GetCanonicalName(type)}' derives from Queue<>/Stack<> and is not supported by Ceras. " +
-                    "Use the built-in Queue<>/Stack<> directly, or expose the queue/stack contents through an ICollection<T> member.");
+            {
+                rejection = CollectionShapeRejection.UnsupportedQueueOrStack;
+                return false;
+            }
 
+            // A shape the built-in collection formatter does serve, but with no single element/key/value
+            // type to describe its payload with. Every remaining branch above is a *concrete* element
+            // type, so reaching this point with a collection shape means the type is undescribable.
+            if (IsCollectionFormatterShape(type))
+            {
+                rejection = CollectionShapeRejection.UninferrableElementType;
+                return false;
+            }
+
+            rejection = CollectionShapeRejection.None;
             return false;
+        }
+
+        /// <summary>
+        /// The actionable reason <paramref name="type"/> has no describable collection shape: what is
+        /// wrong with it, and what to use instead.
+        /// <para>
+        /// One implementation for every fail-loud site (the bake in <c>SchemaRegistry</c>, the bake-time
+        /// member resolution in <c>SchemaSection</c>, and the migration decoder in
+        /// <c>SchemaTraversalEngine</c>), so the same defect cannot be described two different ways
+        /// depending on which layer noticed it.
+        /// </para>
+        /// </summary>
+        public static string DescribeCollectionShapeRejection(Type? type, CollectionShapeRejection rejection)
+        {
+            string name = TypeIdentity.GetCanonicalNameOrUnknown(type);
+            return rejection switch
+            {
+                CollectionShapeRejection.UnsupportedQueueOrStack =>
+                    $"The collection type '{name}' derives from Queue<>/Stack<> and is not supported by Ceras. " +
+                    "Use the built-in Queue<>/Stack<> directly, or expose the queue/stack contents through an ICollection<T> member.",
+
+                CollectionShapeRejection.UninferrableElementType =>
+                    $"The collection type '{name}' is handled by the built-in collection formatter, but Ceras cannot infer a " +
+                    "single element/key/value type to describe it with. Give it a concrete ICollection<T> or IDictionary<K,V> " +
+                    "implementation, or provide a custom formatter.",
+
+                _ =>  // None: no shape-specific defect to explain; this is the general fallback.
+                    $"'{name}' is not a collection shape Ceras describes: it is not a built-in collection, a collection " +
+                    "subclass, or a shape the built-in collection formatter serves.",
+            };
         }
 
         /// <summary>Finds the closed <paramref name="openGeneric"/> in <paramref name="type"/>'s base chain (concrete classes only).</summary>

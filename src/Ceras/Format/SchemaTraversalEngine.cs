@@ -878,11 +878,6 @@ namespace Ceras.Format
         }
 
         /// <summary>
-        /// True when the type is a concrete collection written by the built-in collection
-        /// formatter (a built-in collection, a collection subclass, or a Queue/Stack), i.e. it should be
-        /// read through <see cref="ReadCollectionShape"/> rather than as an ordinary field-based object.
-        /// </summary>
-        /// <summary>
         /// Rejects the saves written before the format learned to describe collection and tuple shapes
         /// structurally. Those files record such a value as an ordinary class schema with <b>no fields</b>
         /// (the shape's payload was never described), while the bytes are a count plus elements. Reading
@@ -1017,13 +1012,22 @@ namespace Ceras.Format
         /// and the instance to fill. Using the file's identity for the layout and the current type for the
         /// CLR side means a rename, an id reassignment or a changed shape still decodes by shape rather
         /// than by id.
+        /// <para>
+        /// A collection shape the current build cannot describe is refused here, before a single payload
+        /// byte is consumed: the file's count says how many bytes follow, and reading on with no way to
+        /// put the elements anywhere would desynchronize the rest of the save. It is a
+        /// <see cref="Ceras.Exceptions.CerasSchemaException"/> and not a corruption error because the bytes
+        /// are irrelevant — it is the *current* type (this build's model) that has no describable shape,
+        /// so reporting the user's data as corrupt would send them looking in the wrong place.
+        /// </para>
         /// </summary>
         object? ReadCollectionShape(Type? currentType, Type? targetType, OldTypeSchema oldSchema, ref SequenceReader<byte> reader, int? cacheIndex, object? existingObject)
         {
-            if (!WellKnownTypes.TryResolveCollectionShape(currentType, out var shapeDef, out var shapeArgs))
+            if (!WellKnownTypes.TryResolveCollectionShape(currentType, out var shapeDef, out var shapeArgs, out var shapeRejection))
                 throw new Ceras.Exceptions.CerasSchemaException(
-                    $"Cannot decode collection type '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}': Ceras could not infer its element/key/value type. " +
-                    "Give the type a concrete ICollection<T>/IDictionary<K,V> implementation, or provide a custom formatter for it.");
+                    $"Cannot decode the collection the save file records as '{oldSchema.StableName}': its current type is one Ceras " +
+                    $"cannot describe, so the element count that follows cannot be read into anything and the rest of the save could not " +
+                    $"be read safely. {WellKnownTypes.DescribeCollectionShapeRejection(currentType, shapeRejection)}");
 
             if (!IsCollectionPayload(oldSchema.DefinitionTypeId))
                 throw new Ceras.Exceptions.CerasSchemaException(
