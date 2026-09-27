@@ -13,9 +13,11 @@ these real cross-version tests rather than a second reader of the current schema
 dotnet run --project fixtures/Ceras.HistoricalWriter -c Release -- --out tests/Ceras.Test/Fixtures/HistoricalV1
 ```
 
-The output is deterministic: the build timestamp is pinned to "unknown", so re-running with unchanged
-inputs produces identical bytes. **Every byte in the diff is a real change to what old saves look
-like** — if a regeneration produces a diff you did not expect, that is a finding, not noise.
+The output is deterministic: the build timestamp is pinned to "unknown" (`SetUnknownBuildTimestamp`),
+so re-running with unchanged inputs produces identical bytes — verified by regenerating all three
+fixtures and comparing SHA-256 against the checked-in files. **Every byte in the diff is a real
+change to what old saves look like** — if a regeneration produces a diff you did not expect, that is
+a finding, not noise.
 
 Ordinary CI never builds or runs this project; it only reads the checked-in files.
 
@@ -32,7 +34,11 @@ Ordinary CI never builds or runs this project; it only reads the checked-in file
 | Shared reference | `SaveGame.bin` | `Main` **is** `Players[0]` | one instance after loading |
 | Reference cycle | both | `main.Friend = buddy`, `buddy.Friend = main` | both directions restored |
 | Collection evolution | `SaveGame.bin` | 5 slots, 2 scores | lengths from the file, not from defaults |
-| Root other than the save | `PlayerCycle.bin` | `Player` as the root | loaded on its own |
+| Polymorphic member, renamed base and subtype | `SaveGame.bin` | v1's `Being` / `Monster` | current `Being` / `Monster` via `[PreviousTypeName]` |
+| Deleted enum member | `SaveGame.bin` | `Mode.Removed = 2` | no member to map to; the number `2` survives |
+| Removed field inside a fixed-width struct | `SaveGame.bin` | `Coord.X, Y, Z` | `Coord.X, Y` — exactly `Z`'s bytes skipped |
+| Nested collection shapes | `Inventory.bin` | `List<Coord>`, `Dictionary<string, Coord>`, `List<List<int>>` | all three rebuilt from the file |
+| Root other than the save | `PlayerCycle.bin`, `Inventory.bin` | `Player` / `Inventory` as the root | each loaded on its own |
 
 ## Changing a fixture
 

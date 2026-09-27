@@ -7,8 +7,8 @@ using Ceras.Formatters;
 namespace Ceras.Test
 {
     /// <summary>
-    /// TODO Phase 3.2: unsupported constructor-dependent immutable cycles are diagnosed instead of
-    /// silently producing a broken graph. The generator-side check (CERAS026) is covered by
+    /// Unsupported constructor-dependent immutable cycles are diagnosed instead of silently
+    /// producing a broken graph. The generator-side check (CERAS026) is covered by
     /// <c>GeneratorDiagnosticsTests</c>; this covers the runtime guard used for types that have no
     /// generated formatter (reflection fallback).
     /// </summary>

@@ -418,7 +418,7 @@ namespace T
         }
 
         // ----------------------------------------------------------------------------------------
-        // CERAS026 — unsupported constructor-dependent immutable cycle (TODO Phase 3.2).
+        // CERAS026 — unsupported constructor-dependent immutable cycle.
         //
         // Node has a readonly member that participates in a cycle (Node.Next -> Node), but the
         // selected constructor does not initialize it and there is no parameterless construction

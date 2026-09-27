@@ -15,8 +15,8 @@ namespace Ceras
     /// Always includes a schema header for version tolerance and migration.
     /// </summary>
     /// <summary>
-    /// Explicit codec for the robust file header (TODO Phase 3.3). All multi-byte fields are
-    /// little-endian. Layout (Size = 56):
+    /// Explicit codec for the robust file header, specified in Format/LAYOUT.md. All multi-byte
+    /// fields are little-endian. Layout (Size = 56):
     /// 0 magic "CERA" | 4 format version | 5 flags | 6 reserved (2) | 8 game version |
     /// 12 producer build timestamp | 20 schema string offset | 28 data section offset |
     /// 36 payload string table offset | 44 layout fingerprint | 52 CRC32.
@@ -140,7 +140,7 @@ namespace Ceras
     public sealed class CerasRobustSerializer : CerasSerializer
     {
         // v3: two-region string handling — the schema strings live in their own region so the happy
-        // path can skip schema/metadata decoding entirely (TODO Phase 3.3).
+        // path can skip schema/metadata decoding entirely.
         public const int FormatVersion = 3;
 
         internal readonly CerasRobustConfig _config;
@@ -192,10 +192,12 @@ namespace Ceras
         {
             var registry = _config.SchemaRegistry;
 
-            // Declare the root (normally via the generated manifest) and seal. The declared set is
-            // frozen here — except for structural roots (arrays, built-in collections) that no
-            // manifest can declare: those are added on first use and make Seal() re-bake the schema
-            // bytes and fingerprint (TODO 2.6/3.3).
+            // Declare the root (normally via the generated manifest) and seal. A context has one
+            // finite manifest: a root shape no manifest can describe (an array, a built-in closed
+            // collection, a tuple, an enum) has to be declared up front with DeclareRoot /
+            // [CerasKnownType], and this throws if it was not — nothing is added on first use.
+            // Seal() folds the pending declarations in and bakes; it is a no-op once sealed, and a
+            // later Register throws rather than re-baking. See Format/LAYOUT.md, "Envelope".
             EnsureRootDeclared(registry, typeof(T));
             registry.Seal();
 

@@ -189,8 +189,8 @@
 		}
 
 		/// <summary>
-		/// Runtime counterpart of the generator's CERAS026 diagnosis (TODO Phase 3.2), for types that
-		/// have no generated formatter (reflection fallback / external types). A constructor-dependent
+		/// Runtime counterpart of the generator's CERAS026 diagnosis, for types that have no
+		/// generated formatter (reflection fallback / external types). A constructor-dependent
 		/// immutable cycle cannot be constructed: a readonly member participates in a cycle but the
 		/// selected construction mode does not initialize it and there is no parameterless path, so the
 		/// member would silently deserialize as its default value. Fails with an actionable message

@@ -59,7 +59,11 @@ namespace Ceras.Test.Tests
             Assert.Equal(3.3f, clone2.ListField[0]);
         }
 
-        [Fact(Skip = "In-place custom collection population issue")]
+        // Pins the clear-before-populate contract for a custom collection formatter: the instance the
+        // constructor created is cleared and refilled in place, never appended to. (This used to be
+        // skipped as an open "in-place custom collection population" defect; the generated path now
+        // honours it, so the Skip label was stale.)
+        [Fact]
         public void CustomCollection_VerifyInPlaceCalls()
         {
             var config = CreateSgConfig();

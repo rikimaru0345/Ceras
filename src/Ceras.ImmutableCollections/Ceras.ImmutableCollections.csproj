@@ -5,7 +5,8 @@
     <IsPackable>true</IsPackable>
     <Title>Ceras extension for System.Collections.Immutable</Title>
     <Description>This package adds formatters for all the types in the System.Collections.Immutable namespace. For example ImmutableArray, ImmutableSet, ImmutableDictionary, ...</Description>
-    <PackageTags>utility, ceras, serialization, binary, serializer, formatter, unity, unity3d, network, networking, immutable</PackageTags>
+    <!-- 'unity, unity3d' removed: see the note in src/Ceras/Ceras.csproj. -->
+    <PackageTags>utility, ceras, serialization, binary, serializer, formatter, network, networking, immutable</PackageTags>
   </PropertyGroup>
 
   <!-- System.Collections.Immutable is included in the .NET 10 runtime -->

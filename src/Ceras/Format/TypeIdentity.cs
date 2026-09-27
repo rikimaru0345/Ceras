@@ -12,7 +12,7 @@ namespace Ceras.Format
     /// arguments first), arrays as <c>T[]</c>/<c>T[,]</c>, pointers as <c>T*</c>, and generic type
     /// parameters as <c>!ordinal</c>. Unlike <see cref="Type.FullName"/>, it never embeds assembly
     /// versions or public key tokens, so the same logical layout fingerprints identically across
-    /// .NET runtimes (TODO Phase 2.3 / 3.3).
+    /// .NET runtimes.
     /// </para>
     /// </summary>
     public static class TypeIdentity

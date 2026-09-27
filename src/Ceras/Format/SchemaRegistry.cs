@@ -11,8 +11,8 @@ namespace Ceras.Format
     /// Runtime registry of all robust-serializable types for one serialization context.
     /// Populated during startup by <c>RobustFormatters.UseRobustFormatters(config, context)</c>, which
     /// registers exactly one context's manifest. The generated manifest is authoritative: the registry
-    /// does not discover or build schemas for undeclared types (TODO Phase 2.5/2.6). Only explicit
-    /// declarations and structural BCL shapes (arrays and built-in collections) are accepted, and the
+    /// does not discover or build schemas for undeclared types. Only explicit declarations and
+    /// structural BCL shapes (arrays and built-in collections) are accepted, and the
     /// baked schema, deterministic IDs, and layout fingerprint are therefore per context.
     /// </summary>
     public sealed class SchemaRegistry
@@ -42,7 +42,7 @@ namespace Ceras.Format
 		readonly object _lock = new();
 
 		// Frozen schema (baked once, at seal). The happy path uses this directly and never parses
-		// the file schema nor decodes schema metadata names (TODO Phase 3.3).
+		// the file schema nor decodes schema metadata names.
 		byte[] _bakedSchemaBytes = null!;
 		byte[] _bakedSchemaStringsBytes = null!;
 		ulong _bakedFingerprint;
@@ -270,7 +270,7 @@ namespace Ceras.Format
         /// <summary>
         /// Builds the schema for an explicitly declared type that has no generated schema. Structural
         /// for arrays and built-in collections; enum metadata for enums; an empty declaration
-        /// otherwise. Never enumerates CLR fields (TODO Phase 2.5).
+        /// otherwise. Never enumerates CLR fields.
         /// </summary>
         static SchemaTypeInfo BuildDeclaredSchema(Type type)
         {
@@ -406,8 +406,8 @@ namespace Ceras.Format
             {
                 if (_byType.TryGetValue(type, out var e)) { id = e.Id; return true; }
 
-                // No runtime auto-registration (TODO Phase 2.5/2.6): the generated manifest is
-                // authoritative. Undeclared types are rejected by the caller with guidance.
+                // No runtime auto-registration: the generated manifest is authoritative.
+                // Undeclared types are rejected by the caller with guidance.
                 id = -1;
                 return false;
             }
@@ -426,7 +426,7 @@ namespace Ceras.Format
         /// <summary>
         /// Resolves a stable name (or previous type name) to the current registered <see cref="Type"/>.
         /// Used by the migration engine when reading old schema sections. Types absent from the current
-        /// build resolve to null and are interpreted without being registered (TODO Phase 2.6).
+        /// build resolve to null and are interpreted without being registered.
         /// </summary>
         public bool TryResolveType(string stableName, out Type type)
         {
@@ -547,7 +547,7 @@ namespace Ceras.Format
                 uint h1 = 0, h2 = 0x9e3779b9u;
 
                 // The wire format version is part of the contract: identical logical layouts must not
-                // fingerprint the same across incompatible formats (TODO Phase 3.3).
+                // fingerprint the same across incompatible formats.
                 h1 = Combine(h1, (uint)CerasRobustSerializer.FormatVersion);
 
                 foreach (var entry in sorted)

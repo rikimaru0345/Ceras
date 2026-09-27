@@ -11,7 +11,7 @@ using Ceras.Generated;
 namespace Ceras.Test.Contexts
 {
     // ---------------------------------------------------------------------------------------------
-    // Multi-context behavior (TODO Phase 2 "Contexts").
+    // Multi-context behavior.
     //
     // Two self-contained contexts with different roots. A type is registered only in the context(s)
     // it is a root of (or reachable from), so the two contexts have independent manifests, type-ID
