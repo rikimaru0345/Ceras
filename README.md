@@ -218,6 +218,19 @@ The resulting binary size is about the same as MessagePack-CSharp.
 > and the .NET 10 port, and it has not been regenerated — treat the numbers as indicative only, not
 > as a measurement of the current release.
 
+For the **current** code, the in-repository tool is
+[`samples/Ceras.Benchmarks`](samples/Ceras.Benchmarks/README.md). It measures the current
+robust save/load, isolated payload costs, small network messages, cold construction vs steady state,
+the migration path, and the per-section costs (CRC, schema, string table, payload copy):
+
+```sh
+dotnet run --project samples/Ceras.Benchmarks -c Release -- --roadmap-quick   # table + self-checks
+dotnet run --project samples/Ceras.Benchmarks -c Release -- --roadmap-bench   # BenchmarkDotNet
+```
+
+It runs the self-checks first and exits non-zero if any fails, so a number is never reported for a
+build that does not actually round-trip.
+
 I encourage you to not only try it yourself, but to also provide feedback about scenarios you had good and bad results with.
 
 Don't forget to tune the settings in `CerasConfig` for your specific situation.
