@@ -112,9 +112,7 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   `CS8603` at the last review). Make per-site contract/check/default decisions; no
   broad suppression. `Directory.Build.props` pins C# 14 while the generator overrides
   `LangVersion=latest`: pin the analyzer appropriately and audit generated C# against
-  the C# 14 consumer. Maintain zero dereference warnings. Baseline tests also report
-  `NU1902` for `Microsoft.Build.Tasks.Git 8.0.0` via SourceLink 8.0.0; upgrade the
-  build-only dependency to a non-vulnerable compatible release and verify packages.
+  the C# 14 consumer. Maintain zero dereference warnings.
 - **Roadmap and public claim drift.** Remove completed narratives from this file and
   stale `TODO Phase` comments, outdated expected-failure tests and package claims
   (`zero-allocations`, universal types, Unity/IL2CPP). Keep `Format/LAYOUT.md`, README,
