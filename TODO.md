@@ -62,17 +62,6 @@ claiming migration coverage. The fixtures in `fixtures/Ceras.HistoricalWriter` a
 in; reader tests must not reference the historical writer assembly. Do not infer
 cross-version compatibility from a fingerprint flip or a same-version roundtrip.
 
-- **Banned members must not disappear silently.** A serializable type with an
-  `Action`/delegate or other banned member currently saves it as an implicit omission;
-  even configuring a custom formatter does not rescue that member. **Decision:** an
-  included banned member is a hard, actionable generator/runtime error. Require an
-  explicit `[Exclude]` or a supported replacement representation; pin generated and
-  reflection paths and avoid turning an existing save into a silent null on load.
-  The LiveTesting audit also found banned *runtime values* through `object` and
-  `Type` slots silently become null (`ReferenceFormatter`/`TypeFormatter`); apply the
-  same fail-loud policy there. A banned generic `Type` argument currently reaches
-  `MakeGenericType` as null and leaks `ArgumentNullException`; diagnose at the
-  original rejected value instead, with a typed serializer error.
 - **Wrap-only user collection construction.** The migration reader can construct a
   `List<T>`/`Dictionary<K,V>` subclass through a wrapping constructor, but the generated
   matching-layout collection formatter still calls `Activator.CreateInstance` without
