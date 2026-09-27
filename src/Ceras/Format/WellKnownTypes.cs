@@ -53,7 +53,7 @@ namespace Ceras.Format
         public const int VTuple6 = 35;
         public const int VTuple7 = 36;
         // ── BCL structs ───────────────────────────────────────────────────────
-        public const int DateTime = 37;  // 8 bytes (Ticks)
+        public const int DateTime = 37;  // 8 bytes (DateTime.ToBinary: ticks + kind)
         public const int TimeSpan = 38;  // 8 bytes
         public const int Guid     = 39;  // 16 bytes
         public const int Type     = 40;  // System.Type
@@ -184,15 +184,16 @@ namespace Ceras.Format
         }
 
         /// <summary>
-        /// True for BCL value types with a fixed, built-in element layout (currently
-        /// <see cref="KeyValuePair{TKey,TValue}"/>): definition + ordered argument type IDs, no
-        /// reflected CLR fields.
+        /// True for BCL value types with a built-in element layout described as a definition plus
+        /// ordered argument type IDs, rather than reflected CLR fields:
+        /// <see cref="KeyValuePair{TKey,TValue}"/> (key then value) and
+        /// <see cref="Nullable{T}"/> (one presence byte, then the value when present).
         /// </summary>
         public static bool IsWellKnownStructuralValueType(Type type)
         {
             if (type == null || !type.IsGenericType) return false;
             var def = type.IsGenericTypeDefinition ? type : type.GetGenericTypeDefinition();
-            return def == typeof(KeyValuePair<,>);
+            return def == typeof(KeyValuePair<,>) || def == typeof(Nullable<>);
         }
 
         public static bool TryGetType(int id, out Type type)

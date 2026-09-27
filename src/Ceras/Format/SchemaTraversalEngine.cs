@@ -65,6 +65,17 @@ namespace Ceras.Format
 
         public T ReadRoot<T>(ref SequenceReader<byte> reader, T rootObject = default)
         {
+            // Roots are declared types, so the stored root id and this CLR type were already
+            // validated to match. Dispatch on the encoding shape rather than assuming every root
+            // is a user schema: well-known scalars/string/object/Type are never present in the
+            // file's schema section, so looking them up by stable name would silently return
+            // default (e.g. 0 for a saved int).
+            if (WellKnownTypes.TryGetId(typeof(T), out int wellKnownId))
+            {
+                object wk = ReadValue(wellKnownId, typeof(T), ref reader, rootObject);
+                return wk == null ? default : (T)wk;
+            }
+
             string stableName = ResolveOldStableName(typeof(T));
             object obj = ReadUserTypeByStableName(stableName, typeof(T), ref reader, rootObject);
             if (obj == null) return default;
@@ -116,24 +127,22 @@ namespace Ceras.Format
                     return ReadStringFromTable(ref reader);
                 }
                 case WellKnownTypes.DateTime:
-                    return new DateTime(SerializerBinary.ReadInt64Fixed(ref reader), DateTimeKind.Utc);
+                    // Matches SerializerBinary.WriteDateTime / DateTimeFormatter: the writer persists
+                    // DateTime.ToBinary() (ticks plus kind bits), so the interpreter must use FromBinary.
+                    // Treating the bits as raw ticks throws for Utc/Local values and loses the kind.
+                    return DateTime.FromBinary(SerializerBinary.ReadInt64Fixed(ref reader));
                 case WellKnownTypes.TimeSpan:
                     return new TimeSpan(SerializerBinary.ReadInt64Fixed(ref reader));
                 case WellKnownTypes.Guid:
                 {
                     byte[] b = new byte[16];
-                    reader.TryCopyTo(b);
+                    if (!reader.TryCopyTo(b))
+                        throw new InvalidOperationException("End of sequence while reading Guid");
                     reader.Advance(16);
                     return new Guid(b);
                 }
                 case WellKnownTypes.Type:
-                {
-                    uint id = SchemaSection.ReadLeb128(ref reader);
-                    if (id == WellKnownTypes.Null) return null;
-                    var idToType = RobustContext.IdToType;
-                    if (idToType != null && idToType.TryGetValue((int)id, out var t)) return t;
-                    return null;
-                }
+                    return ReadTypeValue(ref reader);
                 case WellKnownTypes.Object:
                     return ReadPolymorphicValue(WellKnownTypes.Object, targetType, ref reader, existingObject);
                 default:
@@ -144,6 +153,52 @@ namespace Ceras.Format
                     return null;
                 }
             }
+        }
+
+        /// <summary>
+        /// Decodes a <see cref="Type"/> value exactly like <c>RobustTypeFormatter.Deserialize</c>:
+        /// a well-known definition id is followed by its ordered argument types, and an array id by its
+        /// element type. Reconstructing the closed type is required both to return the right value and
+        /// to consume the argument bytes so the stream stays aligned.
+        /// </summary>
+        object ReadTypeValue(ref SequenceReader<byte> reader)
+        {
+            uint id = SchemaSection.ReadLeb128(ref reader);
+            if (id == WellKnownTypes.Null) return null;
+
+            if (id == FullNameMarker)
+            {
+                string typeName = ReadStringFromTable(ref reader);
+                return _typeBinder.GetTypeFromBase(typeName);
+            }
+
+            if (id == (uint)WellKnownTypes.Array)
+            {
+                Type element = (Type)ReadTypeValue(ref reader);
+                if (element == null) throw new InvalidOperationException("Array element type is null");
+                return element.MakeArrayType();
+            }
+
+            if (WellKnownTypes.TryGetType((int)id, out var wellKnown))
+            {
+                if (wellKnown.IsGenericTypeDefinition)
+                {
+                    uint argCount = SchemaSection.ReadLeb128(ref reader);
+                    var args = new Type[argCount];
+                    for (uint i = 0; i < argCount; i++)
+                    {
+                        args[i] = (Type)ReadTypeValue(ref reader);
+                        if (args[i] == null) throw new InvalidOperationException($"Generic argument {i} type is null");
+                    }
+                    return wellKnown.MakeGenericType(args);
+                }
+                return wellKnown;
+            }
+
+            var idToType = RobustContext.IdToType;
+            if (idToType != null && idToType.TryGetValue((int)id, out var resolved)) return resolved;
+
+            return null;
         }
 
         object ReadUserType(int typeId, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
@@ -332,6 +387,7 @@ namespace Ceras.Format
             if (oldSchema.DefinitionTypeId == WellKnownTypes.Queue) return ReadQueue(oldSchema, targetType, ref reader, cacheIndex, existingObject);
             if (oldSchema.DefinitionTypeId == WellKnownTypes.Stack) return ReadStack(oldSchema, targetType, ref reader, cacheIndex, existingObject);
             if (oldSchema.DefinitionTypeId == WellKnownTypes.KeyValuePair) return ReadKeyValuePair(oldSchema, targetType, ref reader, cacheIndex, existingObject);
+            if (oldSchema.DefinitionTypeId == WellKnownTypes.Nullable) return ReadNullable(oldSchema, targetType, ref reader);
 
             // Arbitrary generic class or struct
             _plans.TryGetValue(oldSchema.StableName, out var plan);
@@ -364,6 +420,29 @@ namespace Ceras.Format
 
             ReadAndApplyFields(oldSchema, plan, obj, ref reader);
             return obj;
+        }
+
+        /// <summary>
+        /// <see cref="Nullable{T}"/> layout: one presence byte, then the element value when present
+        /// (matching <c>NullableFormatter&lt;T&gt;</c>). Returns the boxed element value, or null.
+        /// </summary>
+        object ReadNullable(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader)
+        {
+            int hasValue = SerializerBinary.ReadByte(ref reader);
+            int? innerId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+
+            if (hasValue == 0)
+                return null;
+
+            Type innerType = targetType == null ? null : Nullable.GetUnderlyingType(targetType);
+            if (innerType == null || innerId == null)
+            {
+                // No current element representation: still consume the element to keep alignment.
+                if (innerId.HasValue) SkipValue(innerId.Value, ref reader);
+                return null;
+            }
+
+            return ReadValue(innerId.Value, innerType, ref reader);
         }
 
         object ReadKeyValuePair(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
@@ -594,9 +673,36 @@ namespace Ceras.Format
                 case WellKnownTypes.Int32: SerializerBinary.ReadInt32(ref reader); return;
                 case WellKnownTypes.UInt32: SerializerBinary.ReadUInt32(ref reader); return;
                 case WellKnownTypes.Object: SkipPolymorphicValue(WellKnownTypes.Object, ref reader); return;
+                case WellKnownTypes.Type: SkipTypeValue(ref reader); return;
                 default:
                     if (typeId >= WellKnownTypes.UserTypeBase) SkipUserType(typeId, ref reader);
                     return;
+            }
+        }
+
+        /// <summary>Skips a <see cref="Type"/> value written by <c>RobustTypeFormatter</c>.</summary>
+        void SkipTypeValue(ref SequenceReader<byte> reader)
+        {
+            uint id = SchemaSection.ReadLeb128(ref reader);
+            if (id == WellKnownTypes.Null) return;
+
+            if (id == FullNameMarker)
+            {
+                ReadStringFromTable(ref reader);
+                return;
+            }
+
+            if (id == (uint)WellKnownTypes.Array)
+            {
+                SkipTypeValue(ref reader);
+                return;
+            }
+
+            if (WellKnownTypes.TryGetType((int)id, out var wellKnown) && wellKnown.IsGenericTypeDefinition)
+            {
+                uint argCount = SchemaSection.ReadLeb128(ref reader);
+                for (uint i = 0; i < argCount; i++)
+                    SkipTypeValue(ref reader);
             }
         }
 
@@ -611,6 +717,16 @@ namespace Ceras.Format
                 case SchemaTypeKind.Class: SkipPolymorphicValue(typeId, ref reader); break;
                 case SchemaTypeKind.Enum: SkipEnumValue(oldSchema, ref reader); break;
                 case SchemaTypeKind.GenericInstantiation:
+                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Nullable)
+                    {
+                        if (SerializerBinary.ReadByte(ref reader) != 0)
+                        {
+                            int? innerId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+                            if (innerId.HasValue) SkipValue(innerId.Value, ref reader);
+                        }
+                        break;
+                    }
+
                     _plans.TryGetValue(oldSchema.StableName, out var plan);
                     if (plan?.CurrentType != null && plan.CurrentType.IsValueType)
                     {
@@ -671,6 +787,16 @@ namespace Ceras.Format
                 if (oldSchema.Kind == SchemaTypeKind.Enum) SkipEnumValue(oldSchema, ref reader);
                 else if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
                 {
+                    if (oldSchema.DefinitionTypeId == WellKnownTypes.Nullable)
+                    {
+                        if (SerializerBinary.ReadByte(ref reader) != 0)
+                        {
+                            int? innerId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
+                            if (innerId.HasValue) SkipValue(innerId.Value, ref reader);
+                        }
+                        return;
+                    }
+
                     int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
                     if (count == -1) return;
                     if (oldSchema.DefinitionTypeId == WellKnownTypes.Dictionary)

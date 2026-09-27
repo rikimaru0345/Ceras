@@ -77,8 +77,15 @@ namespace Ceras.SourceGenerator {
 					if (TypeHelpers.IsFastPrimitive(m.Type)) {
 						string writeMethod = GetPrimitiveWriteMethod(m.Type);
 						string valueExp = getAccess;
+						// The primitive Write* overloads take the integer width they write. Cast the
+						// member to that width so char/sbyte members compile and so the bytes match the
+						// formatter/interpreter readers (which already read back through a cast).
 						if (m.Type.SpecialType == SpecialType.System_Boolean)
 							valueExp = $"(byte)({valueExp} ? 1 : 0)";
+						else if (m.Type.SpecialType == SpecialType.System_SByte)
+							valueExp = $"(byte)({valueExp})";
+						else if (m.Type.SpecialType == SpecialType.System_Char)
+							valueExp = $"(short)({valueExp})";
 						sb.AppendLine($"            global::Ceras.SerializerBinary.{writeMethod}(writer, {valueExp});");
 					}
 					else {
@@ -381,6 +388,11 @@ namespace Ceras.SourceGenerator {
 			if (typeFqn == "global::System.DateTime") return "global::Ceras.Formatters.DateTimeFormatter";
 			if (typeFqn == "global::System.TimeSpan") return "global::Ceras.Formatters.TimeSpanFormatter";
 			if (typeFqn == "global::System.Guid") return "global::Ceras.Formatters.GuidFormatter";
+			// System.Type is written inline by the robust type formatter (it replaces BOTH the specific
+			// and reference formatter for System.Type in the serializer constructor). Naming a
+			// ReferenceFormatter<System.Type> here would make injection fail at runtime, so request the
+			// formatter interface and let injection supply the configured specific formatter.
+			if (typeFqn == "global::System.Type") return "global::Ceras.Formatters.IFormatter<global::System.Type>";
 
 			if (type is INamedTypeSymbol named && HasAttribute(named, attrs.CerasSerializable)) {
 				if (!named.IsAbstract && named.TypeKind != TypeKind.Interface) {

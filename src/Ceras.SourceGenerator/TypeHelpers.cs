@@ -106,6 +106,19 @@ namespace Ceras.SourceGenerator {
 
 		public static bool IsWellKnownType(ITypeSymbol type) {
 			if (type.SpecialType != SpecialType.None) return true; // primitives, string, object, …
+			return IsSystemNamespaceType(type);
+		}
+
+		/// <summary>
+		/// True when the type's containing namespace is <c>System</c> (or a sub-namespace). Constructed
+		/// generics are checked through their open definition, because a special-type alias such as
+		/// <c>int?</c> does not display as <c>System.Nullable&lt;int&gt;</c> and would otherwise be
+		/// mistaken for an ordinary user type and receive a bogus field-less placeholder schema.
+		/// </summary>
+		static bool IsSystemNamespaceType(ITypeSymbol type) {
+			if (type is INamedTypeSymbol named && named.IsGenericType)
+				type = named.OriginalDefinition;
+
 			var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 			return fqn.StartsWith("global::System.");
 		}
@@ -338,8 +351,7 @@ namespace Ceras.SourceGenerator {
 		/// </summary>
 		public static bool IsWellKnownOrBanned(INamedTypeSymbol type) {
 			if (type.SpecialType != SpecialType.None) return true; // primitives, string, object, …
-			var fqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-			return fqn.StartsWith("global::System.");
+			return IsSystemNamespaceType(type);
 		}
 
 		/// <summary>
