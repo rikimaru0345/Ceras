@@ -30,7 +30,33 @@ namespace Ceras.Test.HistoricalFixtures
         Highest = ulong.MaxValue,
     }
 
-    /// <summary>v1 called this <c>Settings</c>.</summary>
+    /// <summary>
+    /// v1's <c>Mode.Removed</c> is gone here, so a file holding that value has no member to map it to.
+    /// The raw number has to survive: an enum value that no longer has a name is still a number, and
+    /// inventing a default would silently change game state.
+    /// </summary>
+    [PreviousTypeName("Ceras.HistoricalWriter.V1.Mode")]
+    public enum Mode : int
+    {
+        Idle = 0,
+        Legacy = 1,
+    }
+
+    /// <summary>
+    /// A struct whose <c>Z</c> was removed. Pinning the skip of a removed field inside a *fixed-size*
+    /// value: the bytes are a fixed layout, so a wrong skip corrupts everything after it rather than
+    /// just losing a field.
+    /// </summary>
+    [CerasContext("HistoricalCurrent")]
+    [CerasSerializable]
+    [PreviousTypeName("Ceras.HistoricalWriter.V1.Coord")]
+    public struct Coord
+    {
+        public int X;
+        public int Y;
+    }
+
+    /// <summary>v1's settings type, renamed.</summary>
     [CerasContext("HistoricalCurrent")]
     [CerasSerializable]
     [PreviousTypeName("Ceras.HistoricalWriter.V1.Settings")]
@@ -64,11 +90,43 @@ namespace Ceras.Test.HistoricalFixtures
         public int Level;        // new in the current model: takes its declared default
     }
 
+    /// <summary>v1's <c>Creature</c>, the base of a polymorphic slot.</summary>
+    [CerasContext("HistoricalCurrent")]
+    [CerasSerializable]
+    [PreviousTypeName("Ceras.HistoricalWriter.V1.Creature")]
+    public class Being
+    {
+        public int HitPoints;
+    }
+
+    /// <summary>v1's <c>Monster</c>: the concrete type of a polymorphic slot, renamed.</summary>
+    [CerasContext("HistoricalCurrent")]
+    [CerasSerializable]
+    [PreviousTypeName("Ceras.HistoricalWriter.V1.Monster")]
+    public class Monster : Being
+    {
+        public string Species;
+    }
+
+    /// <summary>Fixed-size values inside collections, including a nested collection and a keyed one.</summary>
+    [CerasContext("HistoricalCurrent")]
+    [CerasSerializable]
+    [PreviousTypeName("Ceras.HistoricalWriter.V1.Inventory")]
+    public class Inventory
+    {
+        public List<Coord> Slots;
+        public Dictionary<string, Coord> Named;
+        public List<List<int>> Groups;
+    }
+
     [CerasContext("HistoricalCurrent")]
     [CerasSerializable]
     [PreviousTypeName("Ceras.HistoricalWriter.V1.SaveGame")]
     public class SaveGame
     {
+        // Deliberately *not* in v1's declaration order. v1 wrote Version, Chapter, Players, ...; if the
+        // reader followed this order instead of the file's schema, every field after the reordering point
+        // would come out wrong. The file's order is the only one that counts.
         public int Version;
         public List<Actor> Players;
 
@@ -80,6 +138,11 @@ namespace Ceras.Test.HistoricalFixtures
 
         public int[] Slots;
         public Dictionary<string, int> Scores;
+        public Mode Difficulty;
+
+        public string Chapter;   // v1 wrote this second; here it is declared last
+        public Inventory Bag;
+        public Being Owner;
     }
 
     /// <summary>
@@ -106,7 +169,7 @@ namespace Ceras.Test.HistoricalFixtures
         public void The_Fixtures_Exist_And_Are_Not_The_Current_Format()
         {
             // Sanity: the bytes really are an old file, so the migration path is what runs.
-            foreach (var name in new[] { "SaveGame.bin", "PlayerCycle.bin" })
+            foreach (var name in new[] { "SaveGame.bin", "PlayerCycle.bin", "Inventory.bin" })
             {
                 var bytes = Fixture(name);
                 Assert.NotEmpty(bytes);
@@ -145,6 +208,82 @@ namespace Ceras.Test.HistoricalFixtures
             Assert.Equal(new[] { 1, 2, 3, 4, 5 }, game.Slots);
             Assert.Equal(100, game.Scores["Ayla"]);
             Assert.Equal(250, game.Scores["Bryn"]);
+        }
+
+        [Fact]
+        public void Fields_Are_Read_In_The_Files_Order_Not_The_Current_Declaration_Order()
+        {
+            // v1 wrote Chapter second, between Version and Players. The current model declares it last, so
+            // a reader that followed the current member order would take Players' value for Chapter and
+            // desynchronise everything after it.
+            var game = Reader().Load<SaveGame>(Fixture("SaveGame.bin"), 1);
+
+            Assert.Equal(3, game.Version);
+            Assert.Equal("chapter-2", game.Chapter);
+            Assert.Equal(2, game.Players.Count);
+            Assert.Equal("Ayla", game.Players[0].Name);
+        }
+
+        [Fact]
+        public void A_Value_Whose_Enum_Member_Was_Deleted_Keeps_Its_Number()
+        {
+            // v1 wrote Mode.Removed; the current enum has no such member. The number has to survive: an
+            // enum value that lost its name is still that number, and defaulting it would silently change
+            // game state.
+            var game = Reader().Load<SaveGame>(Fixture("SaveGame.bin"), 1);
+
+            Assert.Equal(2, (int)game.Difficulty);
+        }
+
+        [Fact]
+        public void Fixed_Size_Values_Inside_Collections_Load_And_Skip_Removed_Fields()
+        {
+            var game = Reader().Load<SaveGame>(Fixture("SaveGame.bin"), 1);
+
+            // v1's Coord had X, Y and Z; the current one dropped Z, so its bytes have to be skipped
+            // inside a *fixed-width* layout - a wrong skip would corrupt the next coordinate.
+            Assert.Equal(2, game.Bag.Slots.Count);
+            Assert.Equal(1, game.Bag.Slots[0].X);
+            Assert.Equal(2, game.Bag.Slots[0].Y);
+            // The second coordinate is the real check: its bytes only line up if exactly Z's worth were
+            // skipped for the first one.
+            Assert.Equal(4, game.Bag.Slots[1].X);
+            Assert.Equal(5, game.Bag.Slots[1].Y);
+
+            Assert.Equal(7, game.Bag.Named["home"].X);
+            Assert.Equal(8, game.Bag.Named["home"].Y);
+
+            // A collection nested in a collection, including an empty inner one.
+            Assert.Equal(3, game.Bag.Groups.Count);
+            Assert.Equal(new[] { 1, 2 }, game.Bag.Groups[0]);
+            Assert.Empty(game.Bag.Groups[1]);
+            Assert.Equal(new[] { 3 }, game.Bag.Groups[2]);
+        }
+
+        [Fact]
+        public void A_Polymorphic_Slot_Resolves_A_Renamed_Concrete_Type()
+        {
+            var game = Reader().Load<SaveGame>(Fixture("SaveGame.bin"), 1);
+
+            // The file records v1's Monster; the current model calls it Monster too but through a
+            // [PreviousTypeName] alias, and it derives from the renamed Being.
+            var monster = Assert.IsType<Monster>(game.Owner);
+            Assert.Equal(17, monster.HitPoints);
+            Assert.Equal("slime", monster.Species);
+        }
+
+        [Fact]
+        public void The_Inventory_Loads_As_A_Root_Of_Its_Own()
+        {
+            // Not every boundary needs the save root, so the nested-collection paths are pinned
+            // independently too.
+            var inventory = Reader().Load<Inventory>(Fixture("Inventory.bin"), 1);
+
+            Assert.Equal(2, inventory.Slots.Count);
+            Assert.Equal(1, inventory.Slots[0].X);
+            Assert.Equal(3, inventory.Groups.Count);
+            Assert.Equal(new[] { 1, 2 }, inventory.Groups[0]);
+            Assert.Empty(inventory.Groups[1]);
         }
 
         [Fact]

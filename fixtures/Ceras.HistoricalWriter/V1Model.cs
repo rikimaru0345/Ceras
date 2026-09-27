@@ -13,11 +13,20 @@ using Ceras.Generated;
 
 namespace Ceras.HistoricalWriter.V1
 {
-    /// <summary>Unsigned enum: v1 spelled its top member <c>Max</c>.</summary>
+    /// <summary>Unsigned enum: v1 spelled its top member <c>Max</c>, and v1 had a member the current
+    /// model has deleted.</summary>
     public enum Rank : ulong
     {
         Recruit = 0,
         Max = ulong.MaxValue,
+    }
+
+    /// <summary>A second enum, to pin a value whose member no longer exists in the current model.</summary>
+    public enum Mode : int
+    {
+        Idle = 0,
+        Legacy = 1,
+        Removed = 2,
     }
 
     /// <summary>v1's settings type. Renamed to <c>GameSettings</c> in v2.</summary>
@@ -28,6 +37,19 @@ namespace Ceras.HistoricalWriter.V1
         public bool Fullscreen;
         public int Volume;
         public string Profile;
+    }
+
+    /// <summary>
+    /// A struct: fixed-width, and the current model drops one of its fields. Pinning the *skip* of a
+    /// removed field inside a fixed-size value is a different code path from a class field.
+    /// </summary>
+    [CerasContext("HistoricalV1")]
+    [CerasSerializable]
+    public struct Coord
+    {
+        public int X;
+        public int Y;
+        public int Z;
     }
 
     /// <summary>
@@ -54,6 +76,35 @@ namespace Ceras.HistoricalWriter.V1
     }
 
     /// <summary>
+    /// A polymorphic slot: <c>Owner</c> is declared as the base, so the file records the concrete type by
+    /// id. The current model renames <see cref="Creature"/> to <c>Monster</c>, which is only reachable
+    /// through the alias.
+    /// </summary>
+    [CerasContext("HistoricalV1")]
+    [CerasSerializable]
+    public class Creature
+    {
+        public int HitPoints;
+    }
+
+    [CerasContext("HistoricalV1")]
+    [CerasSerializable]
+    public class Monster : Creature
+    {
+        public string Species;
+    }
+
+    /// <summary>Nested collections of a fixed-size value type, plus a keyed one.</summary>
+    [CerasContext("HistoricalV1")]
+    [CerasSerializable]
+    public class Inventory
+    {
+        public List<Coord> Slots;
+        public Dictionary<string, Coord> Named;
+        public List<List<int>> Groups;
+    }
+
+    /// <summary>
     /// v1's save root. <c>Main</c> is the *same instance* as <c>Players[0]</c> (a shared reference),
     /// <c>Stats</c> is a renamed field, and the collections carry the counts v1 wrote.
     /// </summary>
@@ -67,5 +118,13 @@ namespace Ceras.HistoricalWriter.V1
         public Settings Stats;
         public int[] Slots;
         public Dictionary<string, int> Scores;
+        public Mode Difficulty;
+
+        /// <summary>A field v1 wrote between <c>Version</c> and <c>Players</c>: the current model
+        /// declares it *after* them, so the reader has to follow the file's order, not the current one.</summary>
+        public string Chapter;
+
+        public Inventory Bag;
+        public Creature Owner;
     }
 }

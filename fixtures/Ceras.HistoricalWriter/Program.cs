@@ -82,14 +82,31 @@ namespace Ceras.HistoricalWriter
             var game = new SaveGame
             {
                 Version = 3,
+                Chapter = "chapter-2",   // declared between Version and Players on purpose
                 Players = new List<Player> { main, buddy },
                 Main = main,            // same instance as Players[0]: must load back shared
                 Stats = new Settings { Fullscreen = true, Volume = 42, Profile = "default" },
                 Slots = new[] { 1, 2, 3, 4, 5 },
                 Scores = new Dictionary<string, int> { ["Ayla"] = 100, ["Bryn"] = 250 },
+                Difficulty = Mode.Removed,   // a member the current model has deleted
+
+                // Fixed-size values inside collections, including a nested collection and a keyed one.
+                Bag = new Inventory
+                {
+                    Slots = new List<Coord> { new Coord { X = 1, Y = 2, Z = 3 }, new Coord { X = 4, Y = 5, Z = 6 } },
+                    Named = new Dictionary<string, Coord> { ["home"] = new Coord { X = 7, Y = 8, Z = 9 } },
+                    Groups = new List<List<int>> { new List<int> { 1, 2 }, new List<int>(), new List<int> { 3 } },
+                },
+
+                // A polymorphic slot whose concrete type the current model renames.
+                Owner = new Monster { HitPoints = 17, Species = "slime" },
             };
 
             yield return ("SaveGame.bin", serializer.Save(game, 1));
+
+            // The same inventory as a root of its own, so the nested-collection paths do not depend on
+            // the save root being loadable.
+            yield return ("Inventory.bin", serializer.Save(game.Bag, 1));
 
             // The same player graph as a root of its own, so a load is not coupled to the save root.
             yield return ("PlayerCycle.bin", serializer.Save(main, 1));

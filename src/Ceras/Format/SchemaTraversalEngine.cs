@@ -18,15 +18,18 @@ namespace Ceras.Format
         const int RefNewValueSameType = Protocol.RefNewValueSameType;
         const int RefInlineType       = Protocol.RefInlineType;
 
-        readonly Dictionary<string, OldTypeSchema>     _oldByName;
-        readonly Dictionary<int, OldTypeSchema>        _oldById;
+        // The file's own schema, indexed by name and by the file's type id (FileSchemaView), and the
+        // old-to-current conversion plans built from it (MigrationPlanBuilder). Everything below reads
+        // the payload through those two, so neither the indexing nor the planning is duplicated here.
+        readonly FileSchemaView                        _file;
         readonly Dictionary<string, TypeMigrationPlan> _plans;
         readonly string[]                              _stringTable;
         readonly uint                                  _robustVersion;
         readonly CerasSerializer                       _serializer;
         readonly SchemaRegistry                        _registry;
         readonly ITypeBinder                           _typeBinder;
-        readonly List<object>                          _objectCache = new();
+        readonly IdentityCache                         _identity = new();
+        readonly CurrentObjectFactory                  _factory;
         readonly uint                                  _maxCollectionSize;
 
         const int FullNameMarker = 127;
@@ -37,7 +40,8 @@ namespace Ceras.Format
             uint                              robustVersion,
             CerasSerializer                   serializer)
         {
-            _oldByName       = oldSchemas;
+            _file            = new FileSchemaView(oldSchemas);
+            _factory         = new CurrentObjectFactory(serializer);
             _stringTable     = stringTable;
             _robustVersion   = robustVersion;
 
@@ -50,11 +54,7 @@ namespace Ceras.Format
             _registry        = ((CerasRobustConfig)serializer.Config).SchemaRegistry;
             _maxCollectionSize = serializer.Config.SizeLimits.MaxCollectionSize;
 
-            _oldById = new Dictionary<int, OldTypeSchema>();
-            foreach (var s in oldSchemas.Values)
-                _oldById.TryAdd(s.TypeId, s);
-
-            _plans = MigrationPlanBuilder.BuildAll(oldSchemas, _registry);
+            _plans = MigrationPlanBuilder.BuildAll(_file.ByName, _registry);
 
             // Pre-build the callback invokers. The migration context is identical for every instance
             // of a type, so it is constructed once per plan rather than once per object.
@@ -117,18 +117,7 @@ namespace Ceras.Format
             return (T)obj;
         }
 
-        string ResolveOldStableName(Type t)
-        {
-            if (_registry.TryGetInfo(t, out var info))
-            {
-                if (_oldByName.ContainsKey(info.StableName))
-                    return info.StableName;
-                foreach (var prev in info.PreviousTypeNames)
-                    if (_oldByName.ContainsKey(prev))
-                        return prev;
-            }
-			return TypeIdentity.GetCanonicalName(t);
-		}
+        string ResolveOldStableName(Type t) => _file.ResolveStableName(t, _registry);
 
         // ── Core dispatch ─────────────────────────────────────────────────────
 
@@ -261,7 +250,7 @@ namespace Ceras.Format
 
         object ReadUserType(int typeId, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
         {
-            if (!_oldById.TryGetValue(typeId, out var oldSchema)) {
+            if (!_file.TryGetById(typeId, out var oldSchema)) {
                 return null;
             }
             
@@ -292,7 +281,7 @@ namespace Ceras.Format
 
         object ReadUserTypeDirect(int typeId, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
-            if (!_oldById.TryGetValue(typeId, out var oldSchema)) return null;
+            if (!_file.TryGetById(typeId, out var oldSchema)) return null;
 
             if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
                 return ReadGenericInstantiation(oldSchema, targetType, ref reader, cacheIndex, existingObject);
@@ -306,15 +295,8 @@ namespace Ceras.Format
             if (marker == RefNull) return null;
             if (marker >= 0)
             {
-                // 0.8.5: an index past the end of the identity cache is a corrupt/oversized marker. It used
-                // to decode as a legitimate null, which is the one value a caller cannot tell apart from a
-                // real null - and it desynchronised nothing, so the rest of the graph decoded "fine".
-                if (marker >= _objectCache.Count)
-                    throw new Ceras.Exceptions.CerasDataCorruptionException(
-                        $"Corrupt data: a back-reference points at object {marker}, but only {_objectCache.Count} " +
-                        "objects have been read so far.");
-
-                return _objectCache[marker];
+                // 0.8.5: an index past the end of the identity cache is a corrupt/oversized marker, not a null.
+                return _identity.Resolve(marker);
             }
 
             if (marker == RefInlineType)
@@ -330,13 +312,13 @@ namespace Ceras.Format
             else
                 throw new Ceras.Exceptions.CerasException($"Invalid reference marker {marker}");
 
-            int cacheIndex = _objectCache.Count;
-            _objectCache.Add(existingObject);
+            // The slot is reserved before the payload is read, so a cycle back into this object resolves.
+            int cacheIndex = _identity.Reserve(existingObject);
 
             if (typeId < WellKnownTypes.UserTypeBase && typeId != FullNameMarker)
             {
                 var value = ReadValue(typeId, targetType, ref reader, existingObject);
-                _objectCache[cacheIndex] = value;
+                _identity.Publish(cacheIndex, value);
                 return value;
             }
 
@@ -356,10 +338,10 @@ namespace Ceras.Format
                         "application. A reference to an undescribed type cannot be read: the bytes that follow are laid out by " +
                         "that type's own formatter, and this engine has no schema for it.");
 
-                if (_registry.TryGetId(type, out int actualId) && _oldById.TryGetValue(actualId, out var registeredSchema))
+                if (_registry.TryGetId(type, out int actualId) && _file.TryGetById(actualId, out var registeredSchema))
                 {
                     var obj = ReadUserTypeInstance(registeredSchema, targetType, ref reader, cacheIndex, existingObject);
-                    _objectCache[cacheIndex] = obj;
+                    _identity.Publish(cacheIndex, obj);
                     return obj;
                 }
 
@@ -392,7 +374,7 @@ namespace Ceras.Format
 
         object ReadUserTypeByStableName(string stableName, Type targetType, ref SequenceReader<byte> reader, object existingObject = null)
         {
-            if (stableName != null && _oldByName.TryGetValue(stableName, out var oldSchema))
+            if (stableName != null && _file.TryGetByName(stableName, out var oldSchema))
             {
                 return ReadUserType(oldSchema.TypeId, targetType, ref reader, existingObject);
             }
@@ -408,13 +390,13 @@ namespace Ceras.Format
 
             // Reuse is only valid for an exact runtime-type match; a subtype/supertype mismatch must
             // allocate a new instance (matching the generated reference wrapper).
-            if (existingObject != null && !IsExactType(existingObject, currentType))
+            if (existingObject != null && !CurrentObjectFactory.IsExactType(existingObject, currentType))
                 existingObject = null;
 
             if (oldSchema.Kind == SchemaTypeKind.Struct || (currentType != null && currentType.IsValueType))
             {
-                object structObj = existingObject ?? CreateInstance(currentType);
-                if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = structObj;
+                object structObj = existingObject ?? _factory.CreateInstance(currentType);
+                _identity.Publish(cacheIndex, structObj);
 
                 FireBeforeCallback(structObj, plan);
 
@@ -456,14 +438,14 @@ namespace Ceras.Format
         {
             // A reused instance is never re-constructed: no constructor, no field initializers.
             var ctorArgs = existingObject == null
-                ? ResolveConstructorArguments(currentType, plan)
+                ? CtorArgumentPlanBuilder.Resolve(currentType, plan)
                 : null;
 
             object obj = ctorArgs != null
                 ? RuntimeHelpers.GetUninitializedObject(currentType)
-                : existingObject ?? CreateReference(currentType);
+                : existingObject ?? _factory.CreateReference(currentType);
 
-            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = obj;
+            _identity.Publish(cacheIndex, obj);
 
             FireBeforeCallback(obj, plan);
 
@@ -496,7 +478,7 @@ namespace Ceras.Format
                     // the payload's field order so the cause can be found.
                     throw new Ceras.Exceptions.CerasSchemaException(
                         $"The [CerasConstructor] of '{TypeIdentity.GetCanonicalName(currentType)}' threw while migrating a save " +
-                        $"(payload fields: {DescribeOldFields(plan)}): {e.InnerException.GetType().Name}: {e.InnerException.Message}",
+                        $"(payload fields: {CtorArgumentPlanBuilder.DescribeOldFields(plan)}): {e.InnerException.GetType().Name}: {e.InnerException.Message}",
                         e.InnerException);
                 }
 
@@ -510,312 +492,6 @@ namespace Ceras.Format
 
             EnqueueAfterCallback(obj, plan);
             return obj;
-        }
-
-        static string DescribeOldFields(TypeMigrationPlan plan)
-        {
-            if (plan?.Mappings == null || plan.Mappings.Length == 0) return "none";
-            return string.Join(", ", plan.Mappings.Select(m => m.OldField?.StableName).Where(n => n != null));
-        }
-
-        /// <summary>
-        /// Resolves how a type's <c>[CerasConstructor]</c> gets its values while migrating, or null when the
-        /// type needs none. The selection order is the generator's (<c>GetBestConstructor</c>): an explicit
-        /// <c>[CerasConstructor]</c>, then a parameterless constructor, then the constructor with the most
-        /// parameters the serialized members can satisfy — so both readers pick the same constructor for
-        /// the same type. Resolved once per type per load and cached on the migration plan.
-        /// </summary>
-        static CtorArgumentPlan ResolveConstructorArguments(Type type, TypeMigrationPlan plan)
-        {
-            if (plan == null) return null;
-            if (!plan.CtorArgsResolved)
-            {
-                plan.CtorArgsResolved = true;
-                plan.CtorArgs = BuildConstructorArgumentPlan(type, plan);
-            }
-            return plan.CtorArgs;
-        }
-
-        static CtorArgumentPlan BuildConstructorArgumentPlan(Type type, TypeMigrationPlan plan)
-        {
-            // A value type never takes a [CerasConstructor] on the generated path (the generator only looks
-            // for one on reference types), and an interface/abstract type has no instance to construct.
-            if (type == null || type.IsValueType || type.IsAbstract || type.IsInterface) return null;
-            if (plan.Mappings == null) return null;
-
-            var members = new List<(FieldInfo Field, string StableName)>();
-            foreach (var mapping in plan.Mappings)
-            {
-                if (mapping.NewField == null) continue;
-                members.Add((mapping.NewField, StableNameOf(mapping.NewField)));
-            }
-            if (members.Count == 0) return null;
-
-            var constructors = type.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (constructors.Length == 0) return null;
-
-            var chosen = SelectConstructor(constructors, members);
-            // A parameterless constructor (or none at all) needs no arguments: the caller runs it as before.
-            if (chosen == null || chosen.GetParameters().Length == 0) return null;
-
-            var parameters = chosen.GetParameters();
-            var slotByField = new Dictionary<FieldInfo, int>();
-            var mapped = new bool[parameters.Length];
-
-            for (int i = 0; i < parameters.Length; i++)
-            {
-                var match = FindMemberForParameter(parameters[i], members);
-                if (match.Field == null) continue; // transient input: its declared default is passed
-
-                if (!slotByField.TryAdd(match.Field, i))
-                {
-                    throw new Ceras.Exceptions.CerasSchemaException(
-                        $"Cannot migrate '{TypeIdentity.GetCanonicalName(type)}': two parameters of its [CerasConstructor] both match the " +
-                        $"member '{match.StableName}'. This is a construction-mapping bug; rename one of them.");
-                }
-                mapped[i] = true;
-            }
-
-            return new CtorArgumentPlan(chosen, parameters, slotByField, mapped);
-        }
-
-        static ConstructorInfo SelectConstructor(ConstructorInfo[] constructors, List<(FieldInfo Field, string StableName)> members)
-        {
-            // 1. Explicit [CerasConstructor]
-            foreach (var ctor in constructors)
-            {
-                if (ctor.GetCustomAttribute<CerasConstructorAttribute>() != null) return ctor;
-            }
-
-            // 2. Parameterless (any accessibility) -> nothing to supply
-            foreach (var ctor in constructors)
-            {
-                if (ctor.GetParameters().Length == 0) return null;
-            }
-
-            // 3. Heuristic: the most parameters the serialized members can all satisfy (this is what lets a
-            //    primary-constructor type be constructed without the attribute).
-            foreach (var ctor in constructors.OrderByDescending(c => c.GetParameters().Length))
-            {
-                var parameters = ctor.GetParameters();
-                if (parameters.Length == 0) continue;
-
-                bool allMapped = true;
-                foreach (var parameter in parameters)
-                {
-                    if (FindMemberForParameter(parameter, members).Field == null) { allMapped = false; break; }
-                }
-                if (allMapped) return ctor;
-            }
-            return null;
-        }
-
-        static (FieldInfo Field, string StableName) FindMemberForParameter(ParameterInfo parameter, List<(FieldInfo Field, string StableName)> members)
-        {
-            string wanted = NormalizeName(parameter.Name);
-            if (wanted == null) return default;
-
-            foreach (var member in members)
-                if (NormalizeName(member.Field.Name) == wanted) return member;
-            foreach (var member in members)
-                if (NormalizeName(member.StableName) == wanted) return member;
-            return default;
-        }
-
-        /// <summary>Mirrors <c>TypeHelpers.NormalizeName</c> in the generator: lower-case, one leading underscore dropped.</summary>
-        static string NormalizeName(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return name;
-            var normalized = name.ToLowerInvariant();
-            if (normalized.StartsWith("_", StringComparison.Ordinal)) normalized = normalized.Substring(1);
-            return normalized;
-        }
-
-        /// <summary>The wire name of a field: <c>[CerasStableName]</c>, or the property name for an auto-property.</summary>
-        static string StableNameOf(FieldInfo field)
-        {
-            var stable = field.GetCustomAttribute<CerasStableNameAttribute>();
-            if (stable?.Name != null) return stable.Name;
-
-            var name = field.Name;
-            const string backingSuffix = ">k__BackingField";
-            if (name.StartsWith("<", StringComparison.Ordinal) && name.EndsWith(backingSuffix, StringComparison.Ordinal))
-                name = name.Substring(1, name.Length - backingSuffix.Length);
-            return name;
-        }
-
-        static bool IsExactType(object obj, Type type) => type != null && obj.GetType() == type;
-
-        /// <summary>
-        /// The instance handed back to the caller, plus the object whose member actually receives the
-        /// elements. They differ for a wrapped shape: <c>ReadOnlyCollection&lt;T&gt;</c> has no
-        /// <c>Add</c>, so its elements go into the backing <c>List&lt;T&gt;</c> that was passed to its
-        /// constructor while the wrapper itself is what the field receives.
-        /// </summary>
-        readonly struct CollectionFill
-        {
-            public readonly object Result;
-            public readonly object Target;
-
-            public CollectionFill(object result, object target)
-            {
-                Result = result;
-                Target = target;
-            }
-        }
-
-        /// <summary>
-        /// Produces the collection instance a collection payload is read into, in this order:
-        /// <list type="number">
-        /// <item>reuse <paramref name="existingObject"/> in place when it is the exact target type and
-        /// exposes a usable <c>clearMethodName</c> (never silently append instead);</item>
-        /// <item>otherwise construct the shape itself through its public parameterless constructor,
-        /// which preserves a collection subclass exactly;</item>
-        /// <item>otherwise build the built-in collection the shape describes and construct the shape from
-        /// it, which is how a shape with no parameterless constructor
-        /// (<c>ReadOnlyCollection&lt;T&gt;</c>(<c>IList&lt;T&gt;</c>),
-        /// <c>ReadOnlyDictionary&lt;K,V&gt;</c>(<c>IDictionary&lt;K,V&gt;</c>), a <c>List&lt;T&gt;</c> or
-        /// <c>Dictionary&lt;K,V&gt;</c> subclass behind a custom wrapper, …) is restored.</item>
-        /// </list>
-        /// A shape that satisfies none of those is rejected with an actionable schema error rather than
-        /// a raw reflection exception.
-        /// </summary>
-        CollectionFill CreateCollection(Type collectionType, Type backingDefinition, Type[] backingArgs,
-            object existingObject, string clearMethodName, string kind)
-        {
-            if (existingObject != null && IsExactType(existingObject, collectionType))
-            {
-                var clear = collectionType.GetMethod(clearMethodName, BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-                if (clear != null)
-                {
-                    clear.Invoke(existingObject, null);
-                    return new CollectionFill(existingObject, existingObject);
-                }
-            }
-
-            // The shape's own parameterless constructor: exact, and the only way a subclass keeps its type.
-            var defaultCtor = collectionType.GetConstructor(BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-            if (defaultCtor != null)
-            {
-                try
-                {
-                    var direct = defaultCtor.Invoke(null);
-                    if (direct != null)
-                        return new CollectionFill(direct, direct);
-                }
-                catch (TargetInvocationException e) when (e.InnerException != null)
-                {
-                    throw new Ceras.Exceptions.CerasSchemaException(
-                        $"The {kind} collection type '{TypeIdentity.GetCanonicalName(collectionType)}' threw from its parameterless constructor " +
-                        $"while a save was being migrated: {e.InnerException.Message}", e.InnerException);
-                }
-            }
-
-            // No parameterless constructor: build the built-in collection this shape describes and wrap it.
-            Type backingType = null;
-            if (backingDefinition != null && backingArgs != null && backingArgs.Length == backingDefinition.GetGenericArguments().Length
-                && Array.TrueForAll(backingArgs, a => a != null))
-            {
-                backingType = backingDefinition.MakeGenericType(backingArgs);
-            }
-
-            object backing = null;
-            if (backingType != null && backingType.GetConstructor(Type.EmptyTypes) != null)
-                backing = Activator.CreateInstance(backingType);
-
-            if (backing != null)
-            {
-                var wrappingCtor = FindWrappingConstructor(collectionType, backingType);
-                if (wrappingCtor != null)
-                {
-                    try
-                    {
-                        return new CollectionFill(wrappingCtor.Invoke(new[] { backing }), backing);
-                    }
-                    catch (TargetInvocationException e) when (e.InnerException != null)
-                    {
-                        throw new Ceras.Exceptions.CerasSchemaException(
-                            $"The {kind} collection type '{TypeIdentity.GetCanonicalName(collectionType)}' threw from its wrapping constructor " +
-                            $"while a save was being migrated: {e.InnerException.Message}", e.InnerException);
-                    }
-                }
-            }
-
-            throw new Ceras.Exceptions.CerasSchemaException(
-                $"Ceras cannot construct the {kind} collection type '{TypeIdentity.GetCanonicalName(collectionType)}' while migrating a save: it has " +
-                $"no public parameterless constructor and no constructor that accepts a {backingType?.Name ?? "matching built-in collection"}, " +
-                $"and it exposes no usable '{clearMethodName}' to refill. Give the type a public parameterless constructor (or a wrapping " +
-                "constructor Ceras can use), declare a custom formatter for it, or load the save with the build that wrote it.");
-        }
-
-        /// <summary>
-        /// Finds the public single-argument constructor through which <paramref name="collectionType"/>
-        /// can be built from the built-in collection <paramref name="backingType"/> (as
-        /// <c>ReadOnlyCollection&lt;T&gt;</c> wraps an <c>IList&lt;T&gt;</c>, and
-        /// <c>ReadOnlyDictionary&lt;K,V&gt;</c> an <c>IDictionary&lt;K,V&gt;</c>).
-        /// </summary>
-        static ConstructorInfo FindWrappingConstructor(Type collectionType, Type backingType)
-        {
-            var sources = new List<Type> { backingType };
-            var args = backingType.GetGenericArguments();
-            if (args.Length == 1)
-            {
-                sources.Add(typeof(IEnumerable<>).MakeGenericType(args));
-                sources.Add(typeof(ICollection<>).MakeGenericType(args));
-                sources.Add(typeof(IList<>).MakeGenericType(args));
-                sources.Add(typeof(IReadOnlyList<>).MakeGenericType(args));
-                sources.Add(typeof(IReadOnlyCollection<>).MakeGenericType(args));
-            }
-            else if (args.Length == 2)
-            {
-                sources.Add(typeof(IDictionary<,>).MakeGenericType(args));
-                sources.Add(typeof(IReadOnlyDictionary<,>).MakeGenericType(args));
-                sources.Add(typeof(IEnumerable<>).MakeGenericType(typeof(KeyValuePair<,>).MakeGenericType(args)));
-            }
-
-            foreach (var ctor in collectionType.GetConstructors(BindingFlags.Public | BindingFlags.Instance))
-            {
-                var parameters = ctor.GetParameters();
-                if (parameters.Length != 1) continue;
-                foreach (var source in sources)
-                {
-                    if (parameters[0].ParameterType.IsAssignableFrom(source))
-                        return ctor;
-                }
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// Resolves the member that adds one element to a collection shape: the non-generic
-        /// <see cref="System.Collections.IList.Add(object)"/> when the fill target exposes it, otherwise
-        /// the shape's own <c>Add(T)</c>/<c>Enqueue(T)</c>/<c>Push(T)</c> (which is also how
-        /// <c>CollectionFormatter</c> writes the shape), otherwise <c>Add(K,V)</c>.
-        /// </summary>
-        static Action<object, object> ResolveElementAdder(object fillTarget, Type elementType)
-        {
-            if (elementType != null && fillTarget is System.Collections.IList list)
-                return (target, value) => list.Add(value);
-
-            foreach (var name in new[] { "Add", "Enqueue", "Push" })
-            {
-                var add = fillTarget.GetType().GetMethod(name, new[] { elementType });
-                if (add != null)
-                    return (target, value) => add.Invoke(target, new[] { value });
-            }
-            return null;
-        }
-
-        static Action<object, object, object> ResolveEntryAdder(object fillTarget, Type keyType, Type valueType)
-        {
-            if (keyType != null && valueType != null && fillTarget is System.Collections.IDictionary dictionary)
-                return (target, key, value) => dictionary.Add(key, value);
-
-            var add = fillTarget.GetType().GetMethod("Add", new[] { keyType, valueType });
-            if (add != null)
-                return (target, key, value) => add.Invoke(target, new[] { key, value });
-
-            return null;
         }
 
         /// <summary>
@@ -841,52 +517,6 @@ namespace Ceras.Format
         }
 
 
-        /// <summary>
-        /// Allocates a reference-typed instance the way the generated reader does when no constructor
-        /// arguments are involved: uninitialized, then the parameterless constructor when the type has
-        /// one, so field initializers run and the object is fully initialized before its members are
-        /// assigned. A configured <see cref="TypeConstruction"/> (a factory or a pool) is deliberately not
-        /// consulted here — routing reference types through it is TODO 0.8.11, and doing it now would
-        /// change reuse/pooling semantics as a side effect of this contract.
-        /// </summary>
-        object CreateReference(Type type)
-        {
-            if (type == null) return null;
-
-            var obj = RuntimeHelpers.GetUninitializedObject(type);
-            var parameterless = type.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
-            if (parameterless != null)
-            {
-                try
-                {
-                    parameterless.Invoke(obj, null);
-                }
-                catch (TargetInvocationException e) when (e.InnerException != null)
-                {
-                    throw new Ceras.Exceptions.CerasSchemaException(
-                        $"The parameterless constructor of '{TypeIdentity.GetCanonicalName(type)}' threw while migrating a save: " +
-                        $"{e.InnerException.GetType().Name}: {e.InnerException.Message}", e.InnerException);
-                }
-            }
-            return obj;
-        }
-
-        object CreateInstance(Type type)
-        {
-            if (type == null) return null;
-            if (type.IsValueType) return Activator.CreateInstance(type);
-
-            var typeConfig = _serializer.Config.GetTypeConfig(type, false);
-            var tc = typeConfig.TypeConstruction;
-            if (tc != null && !tc.HasDataArguments && tc is not ConstructNull)
-            {
-                var ctor = tc.GetRefFormatterConstructor();
-                if (ctor != null) return ctor();
-            }
-
-            return RuntimeHelpers.GetUninitializedObject(type);
-        }
-
         object ReadGenericInstantiation(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
         {
             if (oldSchema.DefinitionTypeId == WellKnownTypes.Array) return ReadArray(oldSchema, targetType, ref reader, cacheIndex, existingObject);
@@ -906,7 +536,7 @@ namespace Ceras.Format
             // (ReadOnlyCollection<T>, ReadOnlyDictionary<K,V>) both bake the reserved definition id of the
             // built-in collection they are described as, so dispatching on that id first would pick a
             // reader for the wrong shape and then fail to construct the instance.
-            if (IsCollectionShape(currentType))
+            if (CurrentObjectFactory.IsCollectionShape(currentType))
                 return ReadCollectionShape(currentType, targetType, oldSchema, ref reader, cacheIndex, existingObject);
 
             // The file describes a collection payload, but this build has no concrete collection type for
@@ -915,13 +545,13 @@ namespace Ceras.Format
             if (IsCollectionPayload(oldSchema.DefinitionTypeId))
                 return ReadUnknownCollectionPayload(oldSchema, ref reader);
 
-            if (existingObject != null && !IsExactType(existingObject, currentType))
+            if (existingObject != null && !CurrentObjectFactory.IsExactType(existingObject, currentType))
                 existingObject = null;
 
             if (currentType != null && currentType.IsValueType)
             {
-                object structObj = existingObject ?? CreateInstance(currentType);
-                if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = structObj;
+                object structObj = existingObject ?? _factory.CreateInstance(currentType);
+                _identity.Publish(cacheIndex, structObj);
 
                 FireBeforeCallback(structObj, plan);
 
@@ -981,7 +611,7 @@ namespace Ceras.Format
             object kvp = Activator.CreateInstance(targetType, key, val);
             // KeyValuePair is a value type written with no reference marker and is never registered by
             // the writer, so only fill a slot the writer actually created.
-            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = kvp;
+            _identity.Publish(cacheIndex, kvp);
             return kvp;
         }
 
@@ -1014,7 +644,7 @@ namespace Ceras.Format
             if (!targetType.IsValueType)
             {
                 object tuple = RuntimeHelpers.GetUninitializedObject(targetType);
-                if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = tuple;
+                _identity.Publish(cacheIndex, tuple);
 
                 var itemFields = GetTupleItemFields(targetType);
                 for (int i = 0; i < count; i++)
@@ -1135,7 +765,7 @@ namespace Ceras.Format
             // Only fill an object-cache slot that the writer actually created. Monomorphic array
             // members are written by ArrayFormatter with no reference marker and are never
             // registered by the writer, so adding a slot here would shift every later back-reference.
-            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = arr;
+            _identity.Publish(cacheIndex, arr);
 
             var coerce = MigrationPlanBuilder.DetectCoercion(oldElemTypeId.Value, elementType);
 
@@ -1159,9 +789,6 @@ namespace Ceras.Format
         /// formatter (a built-in collection, a collection subclass, or a Queue/Stack), i.e. it should be
         /// read through <see cref="ReadCollectionShape"/> rather than as an ordinary field-based object.
         /// </summary>
-        static bool IsCollectionShape(Type type)
-            => type != null && !type.IsArray && WellKnownTypes.IsCollectionFormatterShape(type);
-
         /// <summary>
         /// Rejects the saves written before the format learned to describe collection and tuple shapes
         /// structurally. Those files record such a value as an ordinary class schema with <b>no fields</b>
@@ -1177,7 +804,7 @@ namespace Ceras.Format
             if (oldSchema.Fields == null || oldSchema.Fields.Length != 0) return;
             if (oldSchema.DefinitionTypeId != 0) return; // a definition id means it was described structurally
 
-            bool describableNow = IsCollectionShape(currentType)
+            bool describableNow = CurrentObjectFactory.IsCollectionShape(currentType)
                 || WellKnownTypes.IsWellKnownStructuralValueType(currentType);
 
             if (describableNow)
@@ -1281,11 +908,11 @@ namespace Ceras.Format
 
         object ReadListShape(Type currentType, Type elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
         {
-            var fill = CreateCollection(currentType, typeof(List<>), elementType == null ? null : new[] { elementType },
+            var fill = _factory.CreateCollection(currentType, typeof(List<>), elementType == null ? null : new[] { elementType },
                 existingObject, "Clear", "list");
             CacheCollection(fill, cacheIndex);
 
-            var add = ResolveElementAdder(fill.Target, elementType)
+            var add = CurrentObjectFactory.ResolveElementAdder(fill.Target, elementType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
                     $"Cannot refill the collection type '{TypeIdentity.GetCanonicalName(currentType)}' while migrating: it has no usable " +
                     $"'{elementType?.Name ?? "element"}' add method. Provide a custom formatter for it, or load the save with the build that wrote it.");
@@ -1303,11 +930,11 @@ namespace Ceras.Format
 
         object ReadDictionaryShape(Type currentType, Type keyType, Type valType, int? oldKeyId, int? oldValId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
         {
-            var fill = CreateCollection(currentType, typeof(Dictionary<,>), new[] { keyType, valType },
+            var fill = _factory.CreateCollection(currentType, typeof(Dictionary<,>), new[] { keyType, valType },
                 existingObject, "Clear", "dictionary");
             CacheCollection(fill, cacheIndex);
 
-            var add = ResolveEntryAdder(fill.Target, keyType, valType)
+            var add = CurrentObjectFactory.ResolveEntryAdder(fill.Target, keyType, valType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
                     $"Cannot refill the dictionary type '{TypeIdentity.GetCanonicalName(currentType)}' while migrating: it has no usable " +
                     $"'Add({keyType?.Name ?? "key"}, {valType?.Name ?? "value"})' method. Provide a custom formatter for it, or load the save " +
@@ -1326,11 +953,11 @@ namespace Ceras.Format
 
         object ReadHashSetShape(Type currentType, Type elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
         {
-            var fill = CreateCollection(currentType, typeof(HashSet<>), elementType == null ? null : new[] { elementType },
+            var fill = _factory.CreateCollection(currentType, typeof(HashSet<>), elementType == null ? null : new[] { elementType },
                 existingObject, "Clear", "set");
             CacheCollection(fill, cacheIndex);
 
-            var add = ResolveElementAdder(fill.Target, elementType)
+            var add = CurrentObjectFactory.ResolveElementAdder(fill.Target, elementType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
                     $"Cannot refill the set type '{TypeIdentity.GetCanonicalName(currentType)}' while migrating: it has no usable " +
                     $"'Add({elementType?.Name ?? "element"})' method.");
@@ -1346,11 +973,11 @@ namespace Ceras.Format
 
         object ReadQueueShape(Type currentType, Type elementType, int? oldElemId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object existingObject)
         {
-            var fill = CreateCollection(currentType, typeof(Queue<>), elementType == null ? null : new[] { elementType },
+            var fill = _factory.CreateCollection(currentType, typeof(Queue<>), elementType == null ? null : new[] { elementType },
                 existingObject, "Clear", "queue");
             CacheCollection(fill, cacheIndex);
 
-            var enqueue = ResolveElementAdder(fill.Target, elementType)
+            var enqueue = CurrentObjectFactory.ResolveElementAdder(fill.Target, elementType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
                     $"Cannot refill the queue type '{TypeIdentity.GetCanonicalName(currentType)}' while migrating: it has no usable " +
                     $"'Enqueue({elementType?.Name ?? "element"})' method.");
@@ -1374,11 +1001,11 @@ namespace Ceras.Format
                 values[i] = Coerce(val, coerce, elementType);
             }
 
-            var fill = CreateCollection(currentType, typeof(Stack<>), elementType == null ? null : new[] { elementType },
+            var fill = _factory.CreateCollection(currentType, typeof(Stack<>), elementType == null ? null : new[] { elementType },
                 existingObject, "Clear", "stack");
             CacheCollection(fill, cacheIndex);
 
-            var push = ResolveElementAdder(fill.Target, elementType)
+            var push = CurrentObjectFactory.ResolveElementAdder(fill.Target, elementType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
                     $"Cannot refill the stack type '{TypeIdentity.GetCanonicalName(currentType)}' while migrating: it has no usable " +
                     $"'Push({elementType?.Name ?? "element"})' method.");
@@ -1393,14 +1020,11 @@ namespace Ceras.Format
         /// and is never registered, so appending a slot here would shift every later back-reference onto
         /// the wrong object.
         /// </summary>
-        void CacheCollection(CollectionFill fill, int? cacheIndex)
-        {
-            if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = fill.Result;
-        }
+        void CacheCollection(CollectionFill fill, int? cacheIndex) => _identity.Publish(cacheIndex, fill.Result);
 
         void SkipValue(int typeId, ref SequenceReader<byte> reader)
         {
-            if (_oldById.TryGetValue(typeId, out var s) && s.FixedByteSize > 0) { reader.Advance(s.FixedByteSize); return; }
+            if (_file.TryGetById(typeId, out var s) && s.FixedByteSize > 0) { reader.Advance(s.FixedByteSize); return; }
             int fixedSize = WellKnownTypes.GetFixedSize(typeId);
             if (fixedSize > 0) { reader.Advance(fixedSize); return; }
 
@@ -1446,7 +1070,7 @@ namespace Ceras.Format
 
         void SkipUserType(int typeId, ref SequenceReader<byte> reader)
         {
-            if (!_oldById.TryGetValue(typeId, out var oldSchema)) return;
+            if (!_file.TryGetById(typeId, out var oldSchema)) return;
             if (oldSchema.FixedByteSize > 0) { reader.Advance(oldSchema.FixedByteSize); return; }
 
             switch (oldSchema.Kind)
@@ -1509,7 +1133,7 @@ namespace Ceras.Format
             if (marker == RefInlineType) { SkipValue(WellKnownTypes.Type, ref reader); return; }
 
             int typeId = marker == RefNewValue ? (int)SchemaSection.ReadLeb128(ref reader) : expectedTypeId;
-            _objectCache.Add(null); // Keep cache in sync for new value
+            _identity.Reserve(null); // keep the index space in sync with the writer's, without building anything
 
             if (typeId < WellKnownTypes.UserTypeBase && typeId != FullNameMarker)
             {
@@ -1529,7 +1153,7 @@ namespace Ceras.Format
                     "of the current context's manifest, so its payload cannot be accounted for. Declare it in the context and rebuild.");
             }
 
-            if (_oldById.TryGetValue(typeId, out var oldSchema))
+            if (_file.TryGetById(typeId, out var oldSchema))
             {
                 if (oldSchema.Kind == SchemaTypeKind.Enum) SkipEnumValue(oldSchema, ref reader);
                 else if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation)
@@ -1654,7 +1278,7 @@ namespace Ceras.Format
                     // array reader instead of the polymorphic path.
                     object value;
                     if (mapping.NewField.FieldType.IsArray &&
-                        _oldById.TryGetValue(mapping.OldField.TypeId, out var fieldSchema) &&
+                        _file.TryGetById(mapping.OldField.TypeId, out var fieldSchema) &&
                         fieldSchema.Kind == SchemaTypeKind.GenericInstantiation &&
                         fieldSchema.DefinitionTypeId == WellKnownTypes.Array)
                     {
