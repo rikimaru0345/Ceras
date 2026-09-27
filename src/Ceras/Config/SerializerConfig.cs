@@ -32,16 +32,56 @@ namespace Ceras
 		public SchemaRegistry SchemaRegistry => _robustConfig.SchemaRegistry;
 
 		long _buildTimestamp;
+		bool _buildTimestampSet;
+		System.Reflection.Assembly _owningAssembly;
+
+		/// <summary>
+		/// The assembly whose <see cref="CerasBuildTimestampAttribute"/> supplies the default producer
+		/// build timestamp (the assembly that created the serializer). Set by the serializer constructor.
+		/// </summary>
+		internal void SetOwningAssembly(System.Reflection.Assembly assembly) => _owningAssembly = assembly;
 
 		/// <summary>
 		/// Producer build timestamp (UTC ticks) embedded once per owning build/context in every robust
 		/// save. Loading a save whose timestamp is newer than the current build is rejected before the
-		/// payload is decoded, even when layouts match. 0 = unknown (no check).
+		/// payload is decoded, even when layouts match.
+		///
+		/// <para>
+		/// The supported source is the assembly-level <see cref="CerasBuildTimestampAttribute"/>
+		/// (see <see cref="BuildInfo"/>): it is baked in once per build, so this property defaults to it
+		/// and does <b>not</b> derive a value from serializer construction or save time. Assign it
+		/// explicitly only for tests or unusual hosting. A value of 0 means <b>unknown</b>: Ceras writes
+		/// 0 and performs no build-ordering check; see <see cref="BuildTimestampKnown"/>.
+		/// </para>
 		/// </summary>
 		public long BuildTimestamp
 		{
-			get => _buildTimestamp;
-			set { ThrowIfSealed(); _buildTimestamp = value; }
+			get
+			{
+				if (_buildTimestampSet) return _buildTimestamp;
+				return BuildInfo.GetProducerBuildTimestamp(_owningAssembly);
+			}
+			set { ThrowIfSealed(); _buildTimestamp = value; _buildTimestampSet = true; }
+		}
+
+		/// <summary>
+		/// True when a build-ordering check is active for this configuration: either an explicit
+		/// non-zero <see cref="BuildTimestamp"/> was assigned, or the owning assembly declares a
+		/// <see cref="CerasBuildTimestampAttribute"/>. False means the "unknown build" mode, in which a
+		/// newer save cannot be detected.
+		/// </summary>
+		public bool BuildTimestampKnown => BuildTimestamp > 0;
+
+		/// <summary>
+		/// Explicitly selects the "unknown build" mode: the header records 0 and no build-ordering check
+		/// is performed. Prefer declaring <see cref="CerasBuildTimestampAttribute"/> for real builds; this
+		/// exists so the choice is visible and deliberate rather than a silent 0.
+		/// </summary>
+		public void SetUnknownBuildTimestamp()
+		{
+			ThrowIfSealed();
+			_buildTimestamp = 0;
+			_buildTimestampSet = true;
 		}
 
 		/// <summary>

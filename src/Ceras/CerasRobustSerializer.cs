@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using Ceras.Format;
 using Ceras.Helpers;
@@ -89,7 +90,7 @@ namespace Ceras
 
         public new CerasRobustConfig Config => _config;
 
-        public CerasRobustSerializer(Action<CerasRobustConfig> configure = null) : base(MakeConfig(configure))
+        public CerasRobustSerializer(Action<CerasRobustConfig> configure = null) : base(MakeConfig(configure, Assembly.GetCallingAssembly()))
         {
             _config = (CerasRobustConfig)base.Config;
         }
@@ -99,9 +100,10 @@ namespace Ceras
             _config = config;
         }
 
-        static CerasRobustConfig MakeConfig(Action<CerasRobustConfig> configure)
+        static CerasRobustConfig MakeConfig(Action<CerasRobustConfig> configure, Assembly callingAssembly)
         {
             var config = new CerasRobustConfig();
+            config.SetOwningAssembly(callingAssembly);
             InitializeRobustFormatters(config);
             configure?.Invoke(config);
             return config;
@@ -213,7 +215,9 @@ namespace Ceras
                 out long schemaStringOffsetL, out long dataSectionOffset, out long stringTableOffset, out ulong schemaFingerprint);
 
             // Reject saves from a newer build before decoding the payload, even when layouts match.
-            if (_config.BuildTimestamp > 0 && buildTimestamp > _config.BuildTimestamp)
+            // The check is active only in a known-build configuration; an explicitly unknown build
+            // timestamp records 0 and cannot detect a newer save (TODO 0.6 item 7).
+            if (_config.BuildTimestampKnown && buildTimestamp > _config.BuildTimestamp)
                 throw new Ceras.Exceptions.CerasException(
                     $"The save was produced by a newer build (timestamp {buildTimestamp}) than the current build " +
                     $"({_config.BuildTimestamp}). Update the application before loading this save.");
