@@ -162,7 +162,23 @@ namespace Ceras
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum | AttributeTargets.Interface)]
     public class CerasSerializableAttribute : Attribute
     {
-        /// <summary>The stable name used in the binary schema. Defaults to the simple class name.</summary>
+        /// <summary>
+        /// Optional override for the stable type name written into the robust schema.
+        /// <para>
+        /// When omitted, the default stable name is the CLR metadata identity:
+        /// <c>Namespace.Outer+Nested`Arity</c> (namespace, containing types joined with <c>+</c>,
+        /// and the metadata name including the generic arity backtick). This is stable across
+        /// renames of the C# declaration only if the metadata identity is unchanged.
+        /// </para>
+        /// <para>
+        /// Aliases for old names are declared separately:
+        /// <list type="bullet">
+        /// <item><see cref="PreviousTypeNameAttribute"/> maps a renamed type.</item>
+        /// <item><see cref="CerasStableNameAttribute"/> fixes a member's wire name independently of the C# name.</item>
+        /// <item><see cref="PreviousNameAttribute"/> maps renamed members (with alternative names).</item>
+        /// </list>
+        /// </para>
+        /// </summary>
         public string StableName { get; }
 
         public CerasSerializableAttribute(string stableName = null)

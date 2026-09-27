@@ -6,15 +6,55 @@ Ceras is a binary serializer. It converts *any* object into a `byte[]` and back.
 It goes above and beyond in terms of features, speed, and comfort.
 Supports reference loops, large/complicated inheritance chains, splitting objects into parts, ...
 
+## Direction of the next implementation
+
+The following are design targets; the implementation and older examples below are still
+being brought into alignment.
+
+- Generate inspectable ordinary C# from annotated roots and their recursively discovered
+  types. Explicit known-type declarations cover otherwise hidden types; undeclared runtime
+  types, including closed generic combinations, are errors. No runtime IL generation.
+- Target .NET 10 / C# 14, with Godot editor and exported-game integration tested.
+  Unity-specific support is deferred. Source generation is motivated by debugging, maintenance, and optimization;
+  NativeAOT compatibility is desirable.
+- Support little-endian systems only; big-endian support and byte-order conversion are
+  out of scope. Default to fixed-width primitives, with explicit compact-encoding overrides.
+- Robust saves carry a self-describing layout. Matching layouts use generated readers
+  without schema interpretation; upgrades can use an identity-preserving old-data graph
+  without retaining historical game classes. Upgrade time and memory are secondary.
+- Keep layout fingerprints, format versions, and producer-build ordering separate.
+  Reject saves from newer builds. Semantic game versions and post-load fixes belong to
+  application code. The next documented robust format begins the compatibility promise;
+  experimental saves are excluded. Saves containing arbitrary custom payloads have no
+  automatic upgrade guarantee; opaque framing is deferred.
+- Networking negotiates compatibility at connection setup, with no per-message schema or
+  protocol hashes. Optimize for graphs without cycles or reference tracking, raw strings,
+  caller-owned buffers, and reusable/value-type messages. Context-specific custom formatters
+  can transmit shared game-data references as IDs resolved to existing local objects.
+  The network context performs no cycle detection; cyclic input is misuse and may stack
+  overflow. Ordinary structs/reusable objects are supported; ref structs are not required.
+- Robust supports mutable cycles; unsupported constructor-dependent immutable cycles get
+  a diagnostic unless an explicit construction strategy is supplied.
+
 ## Quick start
 
 ```csharp
+using Ceras;
+
 class Person { public string Name; public int Age; }
 var p = new Person { Name = "riki", Age = 5 };
 
-var ceras = new CerasSerializer();
+// Fast / transient: networking, undo stacks. No schema header, wire format is not
+// stable across builds, so do not persist it.
+var fast = new CerasFastSerializer();
+byte[] packet = fast.Serialize(p);
+var copy = fast.Deserialize<Person>(packet);
 
-var bytes = ceras.Serialize(p);
+// Robust / persistent: savegames and anything that must survive game updates.
+// `UseGeneratedFormatters()` is emitted by the source generator for your assembly.
+var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
+byte[] data = robust.Save(p, gameVersion: 1);
+var p2 = robust.Load<Person>(data, currentGameVersion: 1);
 ```
 
 1. [**>> Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/src/Tutorial/Tutorial.cs)
@@ -29,8 +69,7 @@ var bytes = ceras.Serialize(p);
 - Very fast, small binary output (see **[Performance](https://github.com/rikimaru0345/Ceras#performance-benchmarks)**)
 - Supports pretty much any type:
 	- [Hand-written formatters for all common .NET types](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features#built-in-types)
-	- [Comes with formatters for all common Unity types](https://github.com/rikimaru0345/Ceras/tree/master/src/Ceras.UnityAddon)
-	- Generates new formatters at runtime for any new/user type
+	- Generates new formatters for user types at compile time (source generator)
 	- [Very easy to extend and customize](https://www.rikidev.com/extending-ceras-with-a-custom-formatter/)
 - **Full** support for reference persistence (including circular references!)
 - **Full** support for polymorphism / inheritance / interfaces
@@ -38,67 +77,72 @@ var bytes = ceras.Serialize(p);
 - **New: Specialized Robust format Format** with version-tolerance, string interning, and schema-based migration.
 - ***[full feature list (and planned features)](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features)***
 
-## Robust format Format (Version Tolerant)
+## Robust format (Version Tolerant)
 
-Ceras now includes a specialized **robust format format** designed for persistent storage that must survive game updates. It adds a self-describing schema section to each file, allowing you to add, remove, or rename fields without breaking compatibility.
+`CerasRobustSerializer` writes a self-describing **schema header** into every payload. That lets a
+future version of your game add, remove, or rename fields (and even classes or enum members) and
+still load old data.
 
 ### Why use it?
 - **Robust Versioning**: Safely add/remove fields or rename classes between game versions.
-- **Fast Path**: Zero overhead when the schema matches (uses generated formatters directly).
-- **AOT-Safe Migration**: The migration engine works on all platforms (including Unity IL2CPP) without `Expression.Compile`.
-- **Space Efficient**: Includes built-in **string interning** (duplicate strings are stored only once).
+- **Fast Path**: When the schema matches, generated formatters read the data directly.
+- **Slow Path / Migration**: On a schema mismatch, a schema-traversal engine migrates the data.
+- **AOT-Safe**: Both paths work on AOT platforms (no `Expression.Compile`).
+- **Space Efficient**: Includes built-in **string interning** (duplicate strings are stored once).
 
 ### Quick start (3 steps)
 
-**1. Annotate your save types with `VersionTolerant = true`:**
+**1. Annotate your save types:**
 
 ```csharp
-[CerasSerializable(VersionTolerant = true)]
-[PreviousTypeName("PlayerEntity")] // Handle class renames
+[CerasSerializable]
+[PreviousTypeName("PlayerEntity")] // handle class renames
 public class Player
 {
-    [SerializedAs("Hp")]  // Stable wire name
+    [CerasStableName("Hp")] // stable wire name; the C# member can be renamed freely
     public float HitPoints;
 
-    [PreviousName("Experience")] // Handle field renames
+    [PreviousName("Experience")] // handle field renames
     public int Level;
-
-    [Monomorphic] // Optimization: promise this field is always exactly 'object' (or whatever type is declared)
-    public object Extra;
 }
 ```
 
-**2. Configure your serializer once at startup:**
+Interfaces and abstract base types should be annotated too, so the generator discovers their
+concrete subtypes (needed for polymorphic fields). See [Polymorphic / runtime-only types](#polymorphic--runtime-only-types).
+
+**2. Create the serializer and register the generated formatters once:**
 
 ```csharp
-var config = new CerasRawConfig();
-RobustFormatters.UseRobustFormatters(config);
-CerasRobust.ConfigureRobust format(config);
+using Ceras;
+using Ceras.Generated;
 
-var ceras = new CerasSerializer(config);
+var ceras = new CerasRobustSerializer(config => config.UseGeneratedFormatters());
 ```
 
-**3. Use the `CerasRobust` API:**
+**3. Save and Load:**
 
 ```csharp
-uint currentGameVersion = 1;
+uint gameVersion = 1;
 
 // Save
-byte[] data = CerasRobust.Save(myPlayer, currentGameVersion, ceras);
+byte[] data = ceras.Save(game, gameVersion);
 
-// Load (automatically migrates if the save was from an older version)
-var player = CerasRobust.Load<Player>(data, currentGameVersion, ceras);
+// Load (automatically migrates if the save came from an older schema)
+var game = ceras.Load<Game>(data, gameVersion);
 ```
+
+The `gameVersion` is a monotonic application version. Loading data written by a *newer* version
+throws; older data is migrated automatically.
 
 ### Advanced Migration
 
-- **Field Mapping**: Fields are matched by their `[SerializedAs]` name, then by `[PreviousName]` aliases, and finally by their C# name.
+- **Field Mapping**: Fields are matched by their stable name (`[CerasStableName]`), then by `[PreviousName]` aliases, and finally by their C# name.
 - **Type Mapping**: Classes and structs are matched by their `StableName` (from `[CerasSerializable]`), then by `[PreviousTypeName]` aliases.
-- **Enum Migration**: Enums are automatically mapped by **name** rather than integer value. This allows you to reorder enum members or change their underlying values safely. If a value in the save file no longer exists in the current enum, it is reset to the default (0).
-- **Numeric Coercion**: The engine automatically handles common numeric upgrades (e.g. `int` -> `long`, `float` -> `double`) during migration.
-- **Monomorphic Optimization**: The source generator automatically detects sealed types and value types to skip unnecessary type-ID overhead. You can use `[Monomorphic]` or `[Polymorphic]` to override this behavior manually.
+- **Enum Migration**: Enums are mapped by **name** rather than integer value, so members can be reordered or renumbered safely. Unknown values reset to the default (0).
+- **Numeric Coercion**: Common numeric upgrades (e.g. `int` -> `long`, `float` -> `double`) are handled automatically.
 
-You can receive details about the migration by adding a method with `[OnAfterDeserialize]`:
+To react to a migration, add a method that takes a `MigrationContext`. It is called on the slow
+path (only when the schema actually changed):
 
 ```csharp
 [OnAfterDeserialize]
@@ -112,6 +156,10 @@ void OnMigrated(MigrationContext ctx)
     }
 }
 ```
+
+> Note: a parameterless `[OnAfterDeserialize]` method is **not** invoked by the generated (fast-path)
+> formatter. Only the `MigrationContext` overload is recognized, and only by the migration engine.
+> Use a lifecycle hook (e.g. your own post-load pass) to repair non-serialized state on every load.
 
 ## Performance benchmarks
 Ceras generally ranks at the top end of the performance spectrum, together with NetSerializer and MessagePack-CSharp.
@@ -170,8 +218,16 @@ This replaces the old external AotGenerator tool and works automatically — no 
 | Scenario | ReflectionFallbackFormatter (default) | Source Generator |
 |---|---|---|
 | Normal .NET desktop/server | ✅ works out of the box | optional (slightly faster startup) |
-| Unity IL2CPP / iOS / AOT | ✅ works (reflection fallback) | ✅ recommended (faster) |
 | NativeAOT (`dotnet publish`) | ✅ works (reflection fallback) | ✅ recommended (faster) |
+
+> Unity-specific integration is currently **deferred** (see TODO.md); the historical
+> `Ceras.UnityAddon` project is not maintained or verified.
+
+> **Breaking change (generator diagnostics):** shapes the generator cannot access — currently a
+> member whose *type* generated code cannot name (e.g. a private nested type) — now report
+> `CERAS018` as an **error** instead of emitting silently-broken output. A merely private member
+> with a nameable type still works through `[UnsafeAccessor]`. Mark the member `[Exclude]`, make
+> the type/member accessible, or provide a custom formatter to resolve it.
 
 ### Quick setup (2 steps)
 
@@ -203,9 +259,12 @@ public class Player
 [assembly: CerasSerializable<ExternalLibrary.UserType>]
 ```
 
-> **Automatic Registration**: Ceras will automatically look for and register your generated formatters in its constructor. You no longer need to manually call `RobustFormatters.UseRobustFormatters(config)` (though you still can if you want to apply them to a specific config object manually).
+> **Registration**: call the generated `RobustFormatters.UseRobustFormatters(config)` (or the
+> `config.UseGeneratedFormatters()` extension) after constructing the config. Ceras does not scan
+> for generated formatters automatically — a serializer in a library assembly cannot see the
+> formatters emitted for your assembly.
 
-The generated formatters produce **byte-identical output** to the runtime `ReflectionFallbackFormatter`, so serialized data is fully interchangeable.
+Generated formatters only change *how* values are read and written; the wire format is unchanged.
 
 ### Viewing and Debugging Generated Code
 
@@ -250,5 +309,3 @@ If a concrete type is only known at runtime (e.g. loaded from a plugin assembly)
 
 ## [**>> FAQ**](https://github.com/rikimaru0345/Ceras/wiki/FAQ)
 ## [**>> Development Blog**](https://rikidev.com/)
-
-

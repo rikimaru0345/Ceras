@@ -1,7 +1,8 @@
 <Project>
   <!-- Global Settings -->
   <PropertyGroup>
-    <LangVersion>latest</LangVersion>
+    <!-- Pinned platform: .NET 10 / C# 14 (see TODO.md Phase 1.1). -->
+    <LangVersion>14.0</LangVersion>
     <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
   </PropertyGroup>
 </Project>
