@@ -69,9 +69,11 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   a renamed type reachable only as a member. Preserve fail-loud unknown root behavior.
 - **Serialize callbacks in robust generated format.** `[OnBeforeSerialize]` and
   `[OnAfterSerialize]` are currently ignored there, although raw mode honors them and
-  the public attribute promises invocation. Emit them with the existing callback/access
-  conventions, or diagnose unsupported use rather than silently ignoring it. Cover
-  order, serializer argument, nested operations, and generated versus raw behavior.
+  the public attribute promises invocation. Emit them around member writes with the
+  existing callback/access conventions; accept parameterless or `CerasSerializer`
+  signatures, but diagnose `MigrationContext` on Save (there is no migration).
+  Cover order, private/generic access, serializer argument, nested operations, and
+  generated versus raw behavior. Never silently ignore an unsupported signature.
 - **Throwing predicates (former 0.8.9).** `TryResolveCollectionShape` and
   `CanAutoRegister` throw for unsupported Queue/Stack subclasses. Either use honest
   throwing API names or return a reason; rejection at seal and decode must remain
