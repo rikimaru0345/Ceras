@@ -399,6 +399,15 @@ namespace Ceras.Format
                 foreach (var entry in sorted)
                 {
                     var info = entry.Info;
+
+                    // The *final* type-ID assignment is part of the on-wire contract: the schema bytes
+                    // and every payload type tag embed these IDs. Two contexts that describe the same
+                    // logical types but assign different IDs are therefore NOT byte-compatible and must
+                    // not share a fingerprint. We hash the assignment rather than canonicalizing IDs
+                    // because IDs are already baked into the emitted bytes; reorder/canonicalization
+                    // would silently rebind them, whereas a fingerprint difference correctly routes the
+                    // load through the identity-preserving interpreter.
+                    h1 = Combine(h1, (uint)entry.Id);
                     h1 = Combine(h1, Hash(info.StableName));
                     h2 = Combine(h2, (uint)info.Kind);
 
@@ -431,7 +440,9 @@ namespace Ceras.Format
                         foreach (var ev in info.EnumValues)
                         {
                             h1 = Combine(h1, Hash(ev.Name));
+                            // Hash all 64 bits: truncating to uint made e.g. 1 and 4294967297 collide.
                             h2 = Combine(h2, (uint)ev.Value);
+                            h2 = Combine(h2, (uint)(ev.Value >> 32));
                         }
                     }
                 }

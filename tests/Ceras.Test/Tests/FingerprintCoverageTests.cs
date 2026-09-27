@@ -17,6 +17,21 @@ namespace Ceras.Test.Fingerprint
         public string S;
     }
 
+    // Two types with distinct layouts plus a holder with a polymorphic (object) slot. The payload of
+    // the holder embeds the concrete type's ID, so swapping the ID assignment must change the
+    // fingerprint and force the interpreter (never a silent fast-path misread).
+    [CerasContext("Tests")]
+    [CerasSerializable]
+    public class FpIdA { public int A; }
+
+    [CerasContext("Tests")]
+    [CerasSerializable]
+    public class FpIdB { public string B; }
+
+    [CerasContext("Tests")]
+    [CerasSerializable]
+    public class FpIdHolder { public object Item; }
+
     /// <summary>
     /// Defect: the layout fingerprint did not cover every layout-affecting property (field
     /// monomorphism, fixed byte size, generic definition/arguments, enum underlying type, format
@@ -27,19 +42,23 @@ namespace Ceras.Test.Fingerprint
     {
         sealed class ProbeType { }
 
+        sealed class ProbeType2 { }
+
         static SchemaTypeInfo MakeInfo(
             bool monomorphic,
             int fixedByteSize = 0,
             SchemaTypeKind kind = SchemaTypeKind.Struct,
             string underlyingTypeName = null,
             string[] argTypeNames = null,
-            SchemaEnumValueInfo[] enumValues = null)
+            SchemaEnumValueInfo[] enumValues = null,
+            string stableName = "Ceras.Test.Fingerprint.Probe",
+            SchemaFieldInfo[] fields = null)
         {
             return new SchemaTypeInfo(
-                stableName: "Ceras.Test.Fingerprint.Probe",
+                stableName: stableName,
                 previousTypeNames: Array.Empty<string>(),
                 kind: kind,
-                fields: new[]
+                fields: fields ?? new[]
                 {
                     new SchemaFieldInfo("Value", Array.Empty<string>(), "System.Int32", monomorphic)
                 },
@@ -53,6 +72,31 @@ namespace Ceras.Test.Fingerprint
         {
             var registry = new SchemaRegistry();
             registry.Register(typeof(ProbeType), info);
+            return registry.ComputeFingerprint();
+        }
+
+        /// <summary>Fingerprint of a single enum entry with a long value.</summary>
+        static ulong EnumFingerprint(string name, long value) =>
+            Fingerprint(MakeInfo(false, kind: SchemaTypeKind.Enum, underlyingTypeName: "System.Int64",
+                enumValues: new[] { new SchemaEnumValueInfo(name, value) }));
+
+        /// <summary>Two-entry fingerprint, registered in the given order (IDs follow that order).</summary>
+        static ulong OrderedFingerprint(bool reversed)
+        {
+            var a = MakeInfo(false, stableName: "Ceras.Test.Fingerprint.A");
+            var b = MakeInfo(false, stableName: "Ceras.Test.Fingerprint.B");
+
+            var registry = new SchemaRegistry();
+            if (reversed)
+            {
+                registry.Register(typeof(ProbeType2), b);
+                registry.Register(typeof(ProbeType), a);
+            }
+            else
+            {
+                registry.Register(typeof(ProbeType), a);
+                registry.Register(typeof(ProbeType2), b);
+            }
             return registry.ComputeFingerprint();
         }
 
@@ -136,6 +180,167 @@ namespace Ceras.Test.Fingerprint
 
             Assert.Equal(123, clone.X);
             Assert.Equal("value", clone.S);
+        }
+
+        // ── Type-ID assignment is part of the fingerprint ────────────────────────────
+
+        [Fact]
+        public void Fingerprint_Changes_When_TypeId_Assignment_Changes()
+        {
+            // Same logical types and schemas, but a different registration order assigns the IDs
+            // in the opposite order. The payload type tags would not be interchangeable, so the
+            // fingerprints must differ and the load must take the interpreter path.
+            ulong normal = OrderedFingerprint(reversed: false);
+            ulong reversed = OrderedFingerprint(reversed: true);
+            Assert.NotEqual(normal, reversed);
+        }
+
+        [Fact]
+        public void Reversed_TypeId_Assignment_With_Polymorphic_Payload_Loads_Via_Interpreter()
+        {
+            // The reader pre-registers the two payload types in the opposite order, so they get the
+            // same stable names/schemas but swapped IDs. That is a materially different on-wire
+            // contract: the fingerprint must differ and the load must not use the fast path.
+            var probe = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
+            Assert.True(probe.Config.SchemaRegistry.TryGetInfo(typeof(FpIdA), out var aInfo));
+            Assert.True(probe.Config.SchemaRegistry.TryGetInfo(typeof(FpIdB), out var bInfo));
+
+            var writer = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
+            byte[] bytes = writer.Save(new FpIdHolder { Item = new FpIdA { A = 123 } }, 1);
+            ulong writerFingerprint = writer.Config.SchemaRegistry.ComputeFingerprint();
+
+            var reader = new CerasRobustSerializer(config =>
+            {
+                config.SchemaRegistry.Register(typeof(FpIdB), bInfo);
+                config.SchemaRegistry.Register(typeof(FpIdA), aInfo);
+                config.UseGeneratedFormatters("Tests");
+            });
+            ulong readerFingerprint = reader.Config.SchemaRegistry.ComputeFingerprint();
+
+            // IDs really were assigned differently.
+            Assert.True(reader.Config.SchemaRegistry.TryGetId(typeof(FpIdA), out int readerAId));
+            Assert.True(writer.Config.SchemaRegistry.TryGetId(typeof(FpIdA), out int writerAId));
+            Assert.NotEqual(writerAId, readerAId);
+
+            Assert.NotEqual(writerFingerprint, readerFingerprint);
+
+            // Because the fingerprints differ this goes through the identity-preserving interpreter,
+            // which resolves the payload by stable name and still returns the right object.
+            var clone = reader.Load<FpIdHolder>(bytes, 1);
+            var item = Assert.IsType<FpIdA>(clone.Item);
+            Assert.Equal(123, item.A);
+        }
+
+        [Fact]
+        public void Fingerprint_Changes_When_Field_Order_Changes()
+        {
+            var ab = MakeInfo(false, fields: new[]
+            {
+                new SchemaFieldInfo("A", Array.Empty<string>(), "System.Int32", true),
+                new SchemaFieldInfo("B", Array.Empty<string>(), "System.Int32", true),
+            });
+            var ba = MakeInfo(false, fields: new[]
+            {
+                new SchemaFieldInfo("B", Array.Empty<string>(), "System.Int32", true),
+                new SchemaFieldInfo("A", Array.Empty<string>(), "System.Int32", true),
+            });
+            Assert.NotEqual(Fingerprint(ab), Fingerprint(ba));
+        }
+
+        [Fact]
+        public void Fingerprint_Changes_When_Generic_Argument_Order_Changes()
+        {
+            var ab = MakeInfo(false, kind: SchemaTypeKind.GenericInstantiation,
+                underlyingTypeName: "Ceras.Test.Fingerprint.Pair`2",
+                argTypeNames: new[] { "System.Int32", "System.String" });
+            var ba = MakeInfo(false, kind: SchemaTypeKind.GenericInstantiation,
+                underlyingTypeName: "Ceras.Test.Fingerprint.Pair`2",
+                argTypeNames: new[] { "System.String", "System.Int32" });
+            Assert.NotEqual(Fingerprint(ab), Fingerprint(ba));
+        }
+
+        [Fact]
+        public void Fingerprint_Changes_When_Value_Reference_Representation_Changes()
+        {
+            var structInfo = MakeInfo(false, kind: SchemaTypeKind.Struct);
+            var classInfo = MakeInfo(false, kind: SchemaTypeKind.Class);
+            Assert.NotEqual(Fingerprint(structInfo), Fingerprint(classInfo));
+        }
+
+        // ── Enum values: all 64 bits, names, and remapping ───────────────────────────
+
+        [Fact]
+        public void Fingerprint_Hashes_All_Enum_Value_Bits()
+        {
+            // (uint)1 == (uint)4294967297; the old truncation made these collide.
+            Assert.NotEqual(EnumFingerprint("X", 1), EnumFingerprint("X", 4294967297L));
+            Assert.NotEqual(EnumFingerprint("X", 1), EnumFingerprint("X", -4294967295L));
+            Assert.NotEqual(EnumFingerprint("X", 0xFFFFFFFFL), EnumFingerprint("X", long.MaxValue));
+            Assert.NotEqual(EnumFingerprint("X", long.MinValue), EnumFingerprint("X", 0));
+        }
+
+        [Fact]
+        public void Fingerprint_Changes_When_Enum_Value_Is_Renamed_Or_Remapped()
+        {
+            Assert.NotEqual(EnumFingerprint("X", 1), EnumFingerprint("Y", 1));
+            Assert.NotEqual(EnumFingerprint("X", 1), EnumFingerprint("X", 2));
+        }
+
+        // ── Caching / staleness ──────────────────────────────────────────────────────
+
+        [Fact]
+        public void Fingerprint_Is_Invalidated_By_New_Registration()
+        {
+            var registry = new SchemaRegistry();
+            registry.Register(typeof(ProbeType), MakeInfo(false, stableName: "Ceras.Test.Fingerprint.A"));
+            ulong first = registry.ComputeFingerprint();
+
+            registry.Register(typeof(ProbeType2), MakeInfo(false, stableName: "Ceras.Test.Fingerprint.B"));
+            ulong second = registry.ComputeFingerprint();
+
+            Assert.NotEqual(first, second);
+        }
+
+        [Fact]
+        public void Fingerprint_Matches_Baked_Fingerprint_After_Seal()
+        {
+            var registry = new SchemaRegistry();
+            registry.Register(typeof(ProbeType), MakeInfo(false, stableName: "Ceras.Test.Fingerprint.A"));
+
+            Assert.False(registry.HasBakedSchema);
+            registry.Seal();
+
+            Assert.True(registry.TryGetBakedSchema(out _, out _, out _, out _, out ulong baked));
+            Assert.Equal(baked, registry.ComputeFingerprint());
+            Assert.Equal(baked, registry.ComputeFingerprint());
+        }
+
+        [Fact]
+        public void Register_After_Seal_Throws_So_No_Stale_Baked_Schema_Can_Result()
+        {
+            var registry = new SchemaRegistry();
+            registry.Register(typeof(ProbeType), MakeInfo(false, stableName: "Ceras.Test.Fingerprint.A"));
+            registry.Seal();
+
+            Assert.Throws<InvalidOperationException>(() =>
+                registry.Register(typeof(ProbeType2), MakeInfo(false, stableName: "Ceras.Test.Fingerprint.B")));
+
+            // The baked schema/fingerprint are untouched by the rejected registration.
+            Assert.True(registry.TryGetBakedSchema(out _, out _, out _, out _, out ulong baked));
+            Assert.Equal(baked, registry.ComputeFingerprint());
+        }
+
+        [Fact]
+        public void Fingerprint_Ignores_Migration_Aliases()
+        {
+            // Previous type names are migration metadata; they never appear in a new save's payload,
+            // so a context that differs only in aliases is still byte-compatible and keeps the fast path.
+            var plain = new SchemaTypeInfo("Ceras.Test.Fingerprint.A", Array.Empty<string>(),
+                SchemaTypeKind.Struct, Array.Empty<SchemaFieldInfo>(), 0);
+            var aliased = new SchemaTypeInfo("Ceras.Test.Fingerprint.A", new[] { "Ceras.Test.OldName" },
+                SchemaTypeKind.Struct, Array.Empty<SchemaFieldInfo>(), 0);
+
+            Assert.Equal(Fingerprint(plain), Fingerprint(aliased));
         }
     }
 }
