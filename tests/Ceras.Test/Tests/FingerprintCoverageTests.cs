@@ -38,7 +38,7 @@ namespace Ceras.Test.Fingerprint
     /// version), so two contexts that differed only in those produced the same fingerprint and the
     /// fast path silently misread the payload.
     /// </summary>
-    public class FingerprintCoverageTests
+    public class FingerprintCoverageTests : TestBase
     {
         sealed class ProbeType { }
 
@@ -144,42 +144,67 @@ namespace Ceras.Test.Fingerprint
             Assert.Equal(Fingerprint(MakeInfo(false, fixedByteSize: 8)), Fingerprint(MakeInfo(false, fixedByteSize: 8)));
         }
 
+        /// <summary>
+        /// Both halves of the original coverage, expressed without an inconsistent context: a schema
+        /// difference changes the fingerprint, and the interpreter reads a generated file correctly once
+        /// it is the selected reader.
+        /// <para>
+        /// The schema difference is a field's monomorphism, and it is asserted on the fingerprint
+        /// directly. Forcing the reader used to be done by registering a schema with the flag flipped for
+        /// a type that has a generated formatter — which a robust context now refuses, because that
+        /// context would write a file whose schema section disagrees with the bytes its own generated
+        /// formatter produced (see <see cref="Doctored_Schema_ForAGeneratedType_IsRejected"/>). The stored
+        /// fingerprint in a copy of an otherwise matching file selects the reader instead, which leaves
+        /// the schema the generated one throughout.
+        /// </para>
+        /// </summary>
         [Fact]
         public void Monomorphic_Schema_Change_Forces_Interpreter_And_Still_Loads()
         {
+            // A monomorphism change is a real layout difference, so it must move the fingerprint.
+            Assert.NotEqual(
+                Fingerprint(MakeInfo(monomorphic: true, stableName: "Ceras.Test.Fingerprint.MonoSwitch")),
+                Fingerprint(MakeInfo(false, stableName: "Ceras.Test.Fingerprint.MonoSwitch")));
+
+            // And with the interpreter selected, it reads a generated file correctly.
             var model = new FingerprintMonoModel { X = 123, S = "value" };
-            var writer = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
-            byte[] bytes = writer.Save(model, 1);
+            var bytes = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests")).Save(model, 1);
 
-            // Read the normally generated schema for the model so we can build a context that is
-            // identical except for the field's monomorphism.
-            var probe = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
-            Assert.True(probe.Config.SchemaRegistry.TryGetInfo(typeof(FingerprintMonoModel), out var normalInfo));
-
-            var reader = new CerasRobustSerializer(config =>
-            {
-                // Pre-register the modified schema; the generated registration is idempotent and
-                // keeps our override (same stable name, flipped IsMonomorphic).
-                var fields = normalInfo.Fields
-                    .Select(f => new SchemaFieldInfo(f.StableName, f.PreviousNames, f.TypeName, !f.IsMonomorphic))
-                    .ToArray();
-                var modified = new SchemaTypeInfo(
-                    normalInfo.StableName, normalInfo.PreviousTypeNames, normalInfo.Kind,
-                    fields, normalInfo.FixedByteSize, normalInfo.EnumValues,
-                    normalInfo.UnderlyingTypeName, normalInfo.ArgTypeNames);
-                config.SchemaRegistry.Register(typeof(FingerprintMonoModel), modified);
-                config.UseGeneratedFormatters("Tests");
-            });
-
-            ulong writerFingerprint = writer.Config.SchemaRegistry.ComputeFingerprint();
-            ulong readerFingerprint = reader.Config.SchemaRegistry.ComputeFingerprint();
-            Assert.NotEqual(writerFingerprint, readerFingerprint);
-
-            // Fingerprints differ, so this load genuinely takes the interpreter path.
-            var clone = reader.Load<FingerprintMonoModel>(bytes, 1);
+            var reader = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
+            var clone = reader.Load<FingerprintMonoModel>(SlowPath(bytes), 1);
 
             Assert.Equal(123, clone.X);
             Assert.Equal("value", clone.S);
+        }
+
+        /// <summary>
+        /// A robust context now requires the schema registered for a type to be the very instance the
+        /// installed generated formatter declares (<c>RobustCustomFormatterPolicy</c>). Registering a
+        /// doctored schema for a type that has a generated formatter therefore fails the context: that
+        /// context would write a file whose schema section disagrees with the bytes its own generated
+        /// formatter produced, which is the desync the policy exists to prevent. Pinned here so the
+        /// refusal is deliberate rather than incidental.
+        /// </summary>
+        [Fact]
+        public void Doctored_Schema_ForAGeneratedType_IsRejected()
+        {
+            var probe = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Tests"));
+            Assert.True(probe.Config.SchemaRegistry.TryGetInfo(typeof(FingerprintMonoModel), out var normalInfo));
+
+            var ex = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(() =>
+                new CerasRobustSerializer(config =>
+                {
+                    var fields = normalInfo.Fields
+                        .Select(f => new SchemaFieldInfo(f.StableName, f.PreviousNames, f.TypeName, !f.IsMonomorphic))
+                        .ToArray();
+                    config.SchemaRegistry.Register(typeof(FingerprintMonoModel), new SchemaTypeInfo(
+                        normalInfo.StableName, normalInfo.PreviousTypeNames, normalInfo.Kind,
+                        fields, normalInfo.FixedByteSize, normalInfo.EnumValues,
+                        normalInfo.UnderlyingTypeName, normalInfo.ArgTypeNames));
+                    config.UseGeneratedFormatters("Tests");
+                }));
+
+            Assert.Contains("FingerprintMonoModel", ex.Message, StringComparison.Ordinal);
         }
 
         // ── Type-ID assignment is part of the fingerprint ────────────────────────────

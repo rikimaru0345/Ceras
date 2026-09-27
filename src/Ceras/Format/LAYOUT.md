@@ -3,7 +3,7 @@
 This documents the layout contract that generated writers/readers, the schema encoder, and the
 migration interpreter must share. It is little-endian only; fixed-width primitives are the default.
 
-## Envelope (two-region format, version 3)
+## Envelope (two-region format, version 4)
 
 ```
 header | schema bytes | schema string table | data section | payload string table
@@ -15,7 +15,7 @@ The header is a fixed 56-byte little-endian record written by one explicit codec
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 4 | magic `CERA` |
-| 4 | 1 | format version (currently 3) |
+| 4 | 1 | format version (currently 4) |
 | 5 | 1 | payload string-table compression flags |
 | 6 | 2 | reserved |
 | 8 | 4 | game/app version (`robustVersion`) |
@@ -47,6 +47,26 @@ The header is a fixed 56-byte little-endian record written by one explicit codec
 - The layout fingerprint is deterministic over the declared layout and is independent of the
   producer build timestamp. Loading rejects a save whose build timestamp is newer than the current
   build (when the current build timestamp is known) before decoding the payload.
+- The fingerprint also covers the **format version**, so identical declared layouts under two
+  incompatible format versions cannot match each other's fast path.
+- **A user custom formatter is not part of this contract and is refused in a robust context**
+  (`Ceras.Format.RobustCustomFormatterPolicy`). The schema section describes *values*, and the
+  fingerprint is derived from it; neither records which formatter produced the bytes, so a custom
+  formatter's opaque payload is invisible to both. A later build that removes, reorders or retypes a
+  member of the overridden type then cannot skip the value, and a build that kept the member still sees
+  a *matching* fingerprint and takes the generated reader — silently wrong data, not an error. The
+  check runs at context setup and again before every `Save`/`Load` (a type config seals lazily, so a
+  formatter can be installed after the serializer was constructed). Only formatters that write
+  describable bytes pass: the internal `RobustStringFormatter`/`RobustTypeFormatter`, and the ones the
+  source generator installed for the context's manifest — identified by the provenance of that
+  installation, not by their namespace or type name. Raw/transient contexts are unaffected.
+  This is temporary and is lifted when the format carries explicit opaque-schema and
+  formatter-selection metadata; until then a robust save contains no opaque custom payload.
+- **Version 4 rejects every version 3 file**, including well-formed ones. A v3 file could hold a custom
+  formatter's opaque bytes under a schema that described generated fields, and it can be
+  indistinguishable from a good file by fingerprint — so the experimental format advances rather than
+  keeping a promise it cannot keep. The two-region envelope itself is unchanged by the bump; the
+  checked-in historical fixtures were regenerated for it.
 
 ## Serialization contexts
 

@@ -59,6 +59,7 @@
 		}
 
 		protected IFormatter _overrideFormatter;
+
 		public IFormatter CustomFormatter
 		{
 			get => _overrideFormatter;
@@ -67,6 +68,8 @@
 				ThrowIfSealed();
 				if (_customResolver != null)
 					ThrowCantSetResolverAndFormatter();
+
+				Config.NoteFormatterAssignment();
 
 				if (value != null)
 				{

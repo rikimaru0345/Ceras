@@ -1538,12 +1538,16 @@ namespace Ceras.Format
             var formatter = config.CustomFormatter;
             if (formatter == null) return false;
 
-            // Robust formatters are already handled by ReadValue
-            if (formatter is RobustStringFormatter || formatter is RobustTypeFormatter) return false;
-
-            // Exclude source-generated formatters, as they rely on the normal object cache and 
-            // format expectations that differ from the robust schema traversal stream structure.
-            if (formatter.GetType().Namespace == "Ceras.Generated") return false;
+            // Only a formatter that writes opaque bytes — one the context's schema does not describe —
+            // may be driven from here. The robust internal formatters are already handled by ReadValue,
+            // and a source-generated formatter relies on the normal object cache and format
+            // expectations that differ from the robust schema traversal stream structure. That
+            // distinction is by identity, not by the formatter's namespace: a user class declared in
+            // Ceras.Generated would otherwise be mistaken for generated and read as structural fields it
+            // never wrote. (A robust context has already refused every formatter that is not the
+            // manifest's own, so in practice this returns false for all of them; it is kept as this
+            // boundary's own statement of which formatters may be driven from here.)
+            if (RobustCustomFormatterPolicy.DescribesSchemaBytes(formatter, config, _registry)) return false;
 
             // Use the "Box trick" to call DeserializeUntyped.
             // This works for any formatter that follows the DeserializeUntyped pattern
