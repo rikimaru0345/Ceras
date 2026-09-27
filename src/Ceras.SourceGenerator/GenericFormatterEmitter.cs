@@ -117,7 +117,17 @@ namespace Ceras.SourceGenerator
                 }
                 else
                 {
-                    string initial = (m.Type.IsReferenceType && CanReadMember(m))
+                    // Seed the local from the existing member value so Load(ref existing) reuses it in
+                    // place (TODO Phase 3.2). This must NOT be gated on m.Type.IsReferenceType: for an
+                    // open type parameter T that property is always false, so a closed reference-type
+                    // instantiation would hand `default` to the injected ReferenceFormatter<T> and
+                    // allocate a fresh object, violating the reuse contract. Seeding a value-type
+                    // member is harmless because its formatter overwrites the local. Unreadable
+                    // (write-only) members still start from default.
+                    // The non-generic emitter (RobustCodeEmitter.WriteFormatterClass) has the same
+                    // seeding but keeps the IsReferenceType guard: it never sees a bare open `T`
+                    // member (closed generics are emitted here), so it needs no change.
+                    string initial = CanReadMember(m)
                         ? accessors.MemberReadExpression(m, "value")
                         : "default";
                     sb.AppendLine($"                {memberTypeFqn} {localName} = {initial};");

@@ -4,8 +4,34 @@ using Xunit;
 using Ceras;
 using Ceras.Generated;
 
+// TASK 5: a member whose declared type is an open type parameter T must still honor the reuse
+// contract when T is closed with a reference type. The closed instantiations are declared
+// explicitly because the generic argument is not reachable through member walking alone.
+[assembly: CerasKnownType<Ceras.Test.Reuse.Box<Ceras.Test.Reuse.ReuseNode>>]
+[assembly: CerasKnownType<Ceras.Test.Reuse.Box<int>>]
+
 namespace Ceras.Test.Reuse
 {
+    [CerasSerializable]
+    public class ReuseNode
+    {
+        public int Id;
+        public string Name;
+    }
+
+    /// <summary>
+    /// A user generic type whose single member is declared as the open type parameter <c>T</c>.
+    /// The generated open formatter template injects <c>IFormatter&lt;T&gt;</c> (a
+    /// <c>ReferenceFormatter&lt;T&gt;</c> when the closed argument is a reference type), so seeding
+    /// the deserialize local from the existing member must not be gated on the open symbol's
+    /// <c>IsReferenceType</c> (always false for a type parameter).
+    /// </summary>
+    [CerasSerializable]
+    public class Box<T>
+    {
+        public T Value;
+    }
+
     [CerasSerializable]
     public class ReuseCollectionModel
     {
@@ -124,6 +150,52 @@ namespace Ceras.Test.Reuse
             Assert.Same(r.First, r.Cycle);
             Assert.Same(r.First, r.All[0]);
             Assert.Same(r.First.Next, r.First);
+        }
+
+        // ── TASK 5: open type-parameter members follow the reuse contract ───────────────────
+
+        [Fact]
+        public void GenericReferenceMember_ExistingInstance_IsReusedInPlace()
+        {
+            var savedValue = new ReuseNode { Id = 1, Name = "saved" };
+            var bytes = Generated().Save(new Box<ReuseNode> { Value = savedValue }, 1);
+
+            // Distinct pre-existing instance of the exact stored type.
+            var existingValue = new ReuseNode { Id = 99, Name = "existing" };
+            var existing = new Box<ReuseNode> { Value = existingValue };
+
+            Generated().Load(ref existing, bytes, 1);
+
+            // The existing instance was reused in place, not replaced, and its contents overwritten.
+            Assert.Same(existingValue, existing.Value);
+            Assert.Equal(1, existing.Value.Id);
+            Assert.Equal("saved", existing.Value.Name);
+        }
+
+        [Fact]
+        public void GenericReferenceMember_NullExisting_AllocatesNewInstance()
+        {
+            var savedValue = new ReuseNode { Id = 7, Name = "fresh" };
+            var bytes = Generated().Save(new Box<ReuseNode> { Value = savedValue }, 1);
+
+            var existing = new Box<ReuseNode> { Value = null };
+
+            Generated().Load(ref existing, bytes, 1);
+
+            // No instance to reuse: a new one is created with the saved contents.
+            Assert.NotNull(existing.Value);
+            Assert.Equal(7, existing.Value.Id);
+            Assert.Equal("fresh", existing.Value.Name);
+        }
+
+        [Fact]
+        public void GenericValueTypeMember_StillRoundtrips()
+        {
+            // Guards against the seeding change breaking value semantics for a value-type T.
+            var bytes = Generated().Save(new Box<int> { Value = 42 }, 1);
+
+            var loaded = Generated().Load<Box<int>>(bytes, 1);
+            Assert.Equal(42, loaded.Value);
         }
     }
 }
