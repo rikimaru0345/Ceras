@@ -212,15 +212,34 @@ namespace Ceras.SourceGenerator {
 			args.AddRange(type.TypeArguments);
 		}
 
-		public static string QuoteString(string s) => s == null ? "null" : $"\"{s}\"";
-
 		/// <summary>
-		/// Quotes an arbitrary user-provided string (such as a serialization context name) as a valid
-		/// C# string literal, escaping quotes/backslashes/control characters. Unlike
-		/// <see cref="QuoteString"/>, which is only used for compiler-generated metadata names, this
-		/// is safe for values that come from attribute arguments.
+		/// The <b>only</b> way the generator writes a string literal into generated C#. Every literal
+		/// that carries a string — a <c>[CerasSerializable]</c> stable name, a
+		/// <c>[PreviousTypeName]</c>/<c>[PreviousName]</c> alias, a <c>[CerasStableName]</c>, a
+		/// <c>[CerasContext]</c> name, a canonical CLR identity, an enum member name, an
+		/// <c>[UnsafeAccessor(Name = ...)]</c> member name — goes through here, so no call site can
+		/// accidentally emit an unescaped value.
+		/// <para>
+		/// Almost every value that reaches this is fully user-controlled: an attribute argument is
+		/// arbitrary text, and <c>$"\"{s}\""</c> turns a <c>"</c> into a compile error, a <c>\</c> into a
+		/// silently different string, a newline/control character into a silently different string or a
+		/// broken file, and an unpaired surrogate into U+FFFD once the file is encoded as UTF-8.
+		/// <c>SymbolDisplay.FormatLiteral</c> escapes exactly those cases.
+		/// </para>
+		/// <para>
+		/// <b>Output stability:</b> for every value without a quote, backslash, control character or
+		/// unpaired surrogate — i.e. every ordinary metadata name and identifier — the result is
+		/// byte-identical to the naive <c>"s"</c> spelling, including for non-ASCII identifiers (they stay
+		/// raw, exactly as before). The file's own encoding is untouched: generated sources are still
+		/// added as <c>SourceText.From(text, Encoding.UTF8)</c>, and printable non-ASCII survives that
+		/// round trip unchanged, so the runtime value of a name is never altered by quoting.
+		/// </para>
+		/// <para>
+		/// <paramref name="s"/> is nullable so that a genuinely absent value can be emitted as the C#
+		/// <c>null</c> literal; every current call site passes a non-null string.
+		/// </para>
 		/// </summary>
-		public static string QuoteLiteral(string s)
+		public static string QuoteLiteral(string? s)
 			=> s == null ? "null" : Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(s, quote: true);
 
 		public static string NormalizeName(string name) {

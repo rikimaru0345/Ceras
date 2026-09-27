@@ -819,7 +819,7 @@ namespace Ceras.SourceGenerator
             body.AppendLine($"                    if (robustConfig != null)");
             body.AppendLine($"                        robustConfig.SchemaRegistry.Register(typeof({typeFqn}),");
             body.AppendLine($"                            new global::Ceras.Format.SchemaTypeInfo(");
-            body.AppendLine($"                                stableName: {QuoteString(stableName)},");
+            body.AppendLine($"                                stableName: {QuoteLiteral(stableName)},");
             body.AppendLine($"                                previousTypeNames: global::System.Array.Empty<string>(),");
             body.AppendLine($"                                kind: {kindExpr},");
             body.AppendLine($"                                fields: global::System.Array.Empty<global::Ceras.Format.SchemaFieldInfo>(),");
