@@ -78,6 +78,63 @@ namespace Ceras
             stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(StringTableOffsetOffset));
             fingerprint = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(FingerprintOffset));
         }
+
+        /// <summary>
+        /// Validates the header's section offsets before any of them is used to index or allocate
+        /// (TODO 0.6 item 8). The only legal envelope is:
+        /// <c>Size &lt;= schemaStringOffset &lt;= dataSectionOffset &lt;= stringTableOffset &lt;= data.Length</c>.
+        /// A negative, overflowing, out-of-order or out-of-range offset is corruption, not a decoder
+        /// defect, and must be rejected with a clear error. (The schema string region may be empty, so
+        /// <c>schemaStringOffset == dataSectionOffset</c> is allowed; the payload region may be empty too.)
+        /// </summary>
+        public static void Validate(byte[] data)
+        {
+            if (data.Length < Size)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"The robust header is truncated: expected at least {Size} bytes, got {data.Length}.");
+
+            long schemaStringOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(SchemaStringOffsetOffset));
+            long dataSectionOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(DataSectionOffsetOffset));
+            long stringTableOffset = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(StringTableOffsetOffset));
+
+            if (schemaStringOffset < Size)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt robust header: schema-string-table offset {schemaStringOffset} is before the end of the header ({Size}).");
+
+            if (dataSectionOffset < schemaStringOffset)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt robust header: data-section offset {dataSectionOffset} is before the schema-string-table offset {schemaStringOffset}.");
+
+            if (stringTableOffset < dataSectionOffset)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt robust header: payload-string-table offset {stringTableOffset} is before the data-section offset {dataSectionOffset}.");
+
+            if (stringTableOffset > data.Length)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt robust header: payload-string-table offset {stringTableOffset} is beyond the end of the data ({data.Length} bytes).");
+        }
+
+        /// <summary>Rejects the header unless it looks like a Ceras robust block (magic + format version).</summary>
+        public static void ValidateMagicAndVersion(byte[] data, uint expectedFormatVersion)
+        {
+            if (data.Length < Size)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"The robust header is truncated: expected at least {Size} bytes, got {data.Length}.");
+
+            if (data[0] != (byte)'C' || data[1] != (byte)'E' || data[2] != (byte)'R' || data[3] != (byte)'A')
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    "Invalid magic. The provided data does not appear to be a Ceras-serialized block.");
+
+            uint version = data[FormatVersionOffset];
+            if (version != expectedFormatVersion)
+                throw new Ceras.Exceptions.CerasVersionMismatchException(
+                    $"Format version mismatch. File version {version} is not compatible with library version {expectedFormatVersion}.",
+                    version, expectedFormatVersion);
+        }
+
+        /// <summary>Returns true when <paramref name="flags"/> is a known string-table compression flag.</summary>
+        public static bool IsValidCompressionFlag(byte flags)
+            => flags == (byte)StringTableCompression.Disabled || flags == (byte)StringTableCompression.Deflate;
     }
 
     public sealed class CerasRobustSerializer : CerasSerializer
@@ -195,17 +252,13 @@ namespace Ceras
         public void Load<T>(ref T value, byte[] data, uint currentRobustVersion)
         {
             if (data == null) throw new ArgumentNullException(nameof(data));
-            if (data.Length < RobustHeader.Size) throw new InvalidOperationException("Header too short");
 
             var registry = _config.SchemaRegistry;
 
-            // Check magic "CERA"
-            if (data[0] != (byte)'C' || data[1] != (byte)'E' || data[2] != (byte)'R' || data[3] != (byte)'A')
-                throw new Ceras.Exceptions.CerasDataCorruptionException("Invalid magic. The provided data does not appear to be a Ceras-serialized block.");
-
-            uint version = data[4];
-            if (version != FormatVersion)
-                throw new Ceras.Exceptions.CerasVersionMismatchException($"Format version mismatch. File version {version} is not compatible with library version {FormatVersion}.", version, FormatVersion);
+            // Validate magic/version and the full section-offset envelope before any offset is used to
+            // index or allocate (TODO 0.6 item 8).
+            RobustHeader.ValidateMagicAndVersion(data, FormatVersion);
+            RobustHeader.Validate(data);
 
             uint robustVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(RobustHeader.GameVersionOffset));
             if (robustVersion > currentRobustVersion)
@@ -221,6 +274,10 @@ namespace Ceras
                 throw new Ceras.Exceptions.CerasException(
                     $"The save was produced by a newer build (timestamp {buildTimestamp}) than the current build " +
                     $"({_config.BuildTimestamp}). Update the application before loading this save.");
+
+            if (!RobustHeader.IsValidCompressionFlag(compressionByte))
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt robust header: unknown string-table compression flag {compressionByte}.");
 
             int schemaStringOffset = (int)schemaStringOffsetL;
 

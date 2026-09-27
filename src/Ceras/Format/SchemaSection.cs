@@ -372,16 +372,25 @@ namespace Ceras.Format
         public static Dictionary<string, OldTypeSchema> Read(ref SequenceReader<byte> reader, string[] stringTable)
         {
             var byName = new Dictionary<string, OldTypeSchema>(StringComparer.Ordinal);
+
+            // Every schema entry costs at least a few bytes; bound the declared count against the bytes
+            // that actually remain so a corrupt count cannot drive a huge allocation (TODO 0.6 item 8).
+            long remaining = reader.Sequence.Length - reader.Consumed;
             uint count = ReadLeb128(ref reader);
+            if (count > (uint)remaining)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt schema section: declared {count} entries but only {remaining} bytes remain.");
+
             for (uint i = 0; i < count; i++)
             {
                 int    typeId     = (int)ReadLeb128(ref reader);
                 string stableName = ReadInternedString(ref reader, stringTable);
-                uint prevCount = ReadLeb128(ref reader);
+                uint prevCount = ReadBoundedCount(ref reader, nameof(prevCount));
                 var  prevNames = new string[prevCount];
                 for (uint j = 0; j < prevCount; j++) prevNames[j] = ReadInternedString(ref reader, stringTable);
 
-                reader.TryRead(out byte kindByte);
+                if (!reader.TryRead(out byte kindByte))
+                    throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt schema section: unexpected end while reading a type's kind byte.");
                 var kind = (SchemaTypeKind)kindByte;
 
                 OldTypeSchema schema;
@@ -389,12 +398,13 @@ namespace Ceras.Format
                 {
                     case SchemaTypeKind.Enum:
                         int underlyingId = (int)ReadLeb128(ref reader);
-                        uint valCount = ReadLeb128(ref reader);
+                        uint valCount = ReadBoundedCount(ref reader, nameof(valCount));
                         var vals = new OldEnumValue[valCount];
                         for (uint j = 0; j < valCount; j++)
                         {
                             string name = ReadInternedString(ref reader, stringTable);
-                            reader.TryReadLittleEndian(out long val);
+                            if (!reader.TryReadLittleEndian(out long val))
+                                throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt schema section: unexpected end while reading an enum value.");
                             vals[j] = new OldEnumValue(name, val);
                         }
                         schema = new OldTypeSchema(typeId, stableName, prevNames, kind, null, 0, underlyingId, null, vals);
@@ -402,50 +412,58 @@ namespace Ceras.Format
 
                     case SchemaTypeKind.Struct:
                     case SchemaTypeKind.Class:
-                        uint fieldCount = ReadLeb128(ref reader);
+                    case SchemaTypeKind.GenericInstantiation:
+                        int defId = 0;
+                        var argIds = Array.Empty<int>();
+                        if (kind == SchemaTypeKind.GenericInstantiation)
+                        {
+                            defId = (int)ReadLeb128(ref reader);
+                            uint argCount = ReadBoundedCount(ref reader, nameof(argCount));
+                            argIds = new int[argCount];
+                            for (uint j = 0; j < argCount; j++) argIds[j] = (int)ReadLeb128(ref reader);
+                        }
+
+                        uint fieldCount = ReadBoundedCount(ref reader, nameof(fieldCount));
                         var fields = new OldFieldSchema[fieldCount];
                         for (uint j = 0; j < fieldCount; j++)
                         {
                             string fStable = ReadInternedString(ref reader, stringTable);
-                            uint fpCount = ReadLeb128(ref reader);
+                            uint fpCount = ReadBoundedCount(ref reader, nameof(fpCount));
                             var fpNames = new string[fpCount];
                             for (uint k = 0; k < fpCount; k++) fpNames[k] = ReadInternedString(ref reader, stringTable);
                             int fTypeId = (int)ReadLeb128(ref reader);
-                            reader.TryRead(out byte flags);
+                            if (!reader.TryRead(out byte flags))
+                                throw new Ceras.Exceptions.CerasDataCorruptionException("Corrupt schema section: unexpected end while reading a field's flags.");
                             fields[j] = new OldFieldSchema(fStable, fpNames, fTypeId, (flags & 1) != 0);
                         }
                         int fixedSize = (int)ReadLeb128(ref reader);
-                        schema = new OldTypeSchema(typeId, stableName, prevNames, kind, fields, fixedSize);
+                        schema = new OldTypeSchema(typeId, stableName, prevNames, kind, fields, fixedSize, defId, argIds);
                         break;
 
-                    case SchemaTypeKind.GenericInstantiation:
-                        int defId = (int)ReadLeb128(ref reader);
-                        uint argCount = ReadLeb128(ref reader);
-                        var argIds = new int[argCount];
-                        for (uint j = 0; j < argCount; j++) argIds[j] = (int)ReadLeb128(ref reader);
-                        
-                        uint gFieldCount = ReadLeb128(ref reader);
-                        var gFields = new OldFieldSchema[gFieldCount];
-                        for (uint j = 0; j < gFieldCount; j++)
-                        {
-                            string fStable = ReadInternedString(ref reader, stringTable);
-                            uint fpCount = ReadLeb128(ref reader);
-                            var fpNames = new string[fpCount];
-                            for (uint k = 0; k < fpCount; k++) fpNames[k] = ReadInternedString(ref reader, stringTable);
-                            int fTypeId = (int)ReadLeb128(ref reader);
-                            reader.TryRead(out byte flags);
-                            gFields[j] = new OldFieldSchema(fStable, fpNames, fTypeId, (flags & 1) != 0);
-                        }
-                        int gFixedSize = (int)ReadLeb128(ref reader);
-                        schema = new OldTypeSchema(typeId, stableName, prevNames, kind, gFields, gFixedSize, defId, argIds);
-                        break;
-
-                    default: throw new InvalidOperationException("Unknown kind");
+                    default:
+                        throw new Ceras.Exceptions.CerasDataCorruptionException(
+                            $"Corrupt schema section: type '{stableName}' has unknown kind {kindByte}.");
                 }
+
                 byName[stableName] = schema;
                 foreach (var pn in prevNames) if (pn != null) byName[pn] = schema;
             }
             return byName;
+        }
+
+        /// <summary>
+        /// Reads a leb128 count and rejects it when it exceeds the bytes that actually remain, so a
+        /// corrupt count cannot trigger an oversized allocation (TODO 0.6 item 8). Each element costs at
+        /// least one byte, so remaining-bytes is a sound upper bound.
+        /// </summary>
+        static uint ReadBoundedCount(ref SequenceReader<byte> reader, string description)
+        {
+            long remaining = reader.Sequence.Length - reader.Consumed;
+            uint count = ReadLeb128(ref reader);
+            if (count > (uint)remaining)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt schema section: declared {description} = {count} but only {remaining} bytes remain.");
+            return count;
         }
 
         internal static void WriteLeb128(ref byte[] buffer, ref int offset, uint value)

@@ -76,6 +76,10 @@ namespace Ceras.Format
 
         public static string[] Load(byte[] data, int offset, int length, StringTableCompression compression = StringTableCompression.Disabled)
         {
+            if (offset < 0 || length < 0 || (long)offset + length > data.Length)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt string table: region [{offset}, {offset + length}) is outside the data ({data.Length} bytes).");
+
             ReadOnlySequence<byte> sequence;
 
             if (compression == StringTableCompression.Deflate)
@@ -94,16 +98,22 @@ namespace Ceras.Format
 
             var reader = new SequenceReader<byte>(sequence);
             uint count = SchemaSection.ReadLeb128(ref reader);
-            
+
+            // Every entry is at least one leb128 length byte, so a count larger than the remaining bytes
+            // is corrupt. Reject before allocating (TODO 0.6 item 8).
+            if (count > (uint)sequence.Length)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt string table: declared {count} entries but only {sequence.Length} bytes remain.");
+
             var table = new string[count + 1];
             table[0] = null;
-            
+
             for (uint i = 1; i <= count; i++)
             {
                 string current = SchemaSection.ReadInlineString(ref reader);
                 table[i] = current;
             }
-            
+
             return table;
         }
     }
