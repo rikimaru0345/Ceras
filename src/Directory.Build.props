@@ -5,12 +5,15 @@
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
   </PropertyGroup>
 
-  <!-- SourceLink Support -->
+  <!--
+    SourceLink Support. No SourceLink package reference on purpose: the pinned SDK (global.json) ships
+    its own copy, and referencing Microsoft.SourceLink.GitHub only overrides it - at 8.0.0 that pulled
+    in the vulnerable Microsoft.Build.Tasks.Git (CVE-2026-62900, GHSA-23fw-v26w-5fgq). Bundled tooling
+    is not a restored package, so NuGet audit never sees it: developers and CI must use a serviced .NET
+    10 SDK, minimum 10.0.111, in whichever feature band rollForward latestFeature selects.
+  -->
   <PropertyGroup>
     <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
-  </ItemGroup>
 </Project>
