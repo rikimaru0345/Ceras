@@ -4,6 +4,7 @@ using System.Linq;
 using Ceras;
 using Ceras.Format;
 using Ceras.Generated;
+using Ceras.Test.Generator;
 using Ceras.SourceGenerator;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -517,27 +518,7 @@ namespace Ceras.Test.SerializationCallbacks
 
         static (IReadOnlyList<Diagnostic> Diagnostics, IReadOnlyList<(string Hint, string Text)> Sources)
             Run(string source)
-        {
-            var refs = AppDomain.CurrentDomain.GetAssemblies()
-                .Where(a => !a.IsDynamic && !string.IsNullOrEmpty(a.Location))
-                .Select(a => (MetadataReference)MetadataReference.CreateFromFile(a.Location))
-                .Append(MetadataReference.CreateFromFile(typeof(CerasSerializer).Assembly.Location))
-                .ToList();
-
-            var compilation = CSharpCompilation.Create(
-                "CerasCallbackSignatureDiagTest",
-                new[] { CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.CSharp14)) },
-                refs,
-                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
-
-            var ran = CSharpGeneratorDriver.Create(new CerasFormatterGenerator().AsSourceGenerator())
-                .RunGenerators(compilation)
-                .GetRunResult();
-
-            return (ran.Diagnostics, ran.Results
-                .SelectMany(r => r.GeneratedSources.Select(s => (s.HintName, s.SourceText.ToString())))
-                .ToList());
-        }
+            => GeneratorTestHarness.Run(source, "CerasCallbackSignatureDiagTest");
 
         static IReadOnlyList<Diagnostic> DiagnosticsFor(string source) => Run(source).Diagnostics;
 
