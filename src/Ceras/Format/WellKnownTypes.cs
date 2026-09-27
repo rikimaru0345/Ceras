@@ -186,15 +186,26 @@ namespace Ceras.Format
         /// <summary>
         /// True for BCL value types with a built-in element layout described as a definition plus
         /// ordered argument type IDs, rather than reflected CLR fields:
-        /// <see cref="KeyValuePair{TKey,TValue}"/> (key then value) and
-        /// <see cref="Nullable{T}"/> (one presence byte, then the value when present).
+        /// <see cref="KeyValuePair{TKey,TValue}"/> (key then value), <see cref="Nullable{T}"/> (one
+        /// presence byte, then the value when present), and the <c>Tuple</c>/<c>ValueTuple</c> families
+        /// (each item in order). Their reserved definition IDs do not by themselves describe an
+        /// instance's representation; the ordered argument types are what make the payload describable
+        /// (TODO 0.5 item 3).
         /// </summary>
         public static bool IsWellKnownStructuralValueType(Type type)
         {
             if (type == null || !type.IsGenericType) return false;
             var def = type.IsGenericTypeDefinition ? type : type.GetGenericTypeDefinition();
-            return def == typeof(KeyValuePair<,>) || def == typeof(Nullable<>);
+            return def == typeof(KeyValuePair<,>) || def == typeof(Nullable<>) || TupleDefToId.ContainsKey(def);
         }
+
+        /// <summary>
+        /// The ordered element type IDs laid out by the built-in formatter for a structural value type,
+        /// or null when <paramref name="definitionId"/> is not a tuple/value-tuple. Item order is
+        /// <c>Item1..ItemN</c> (and <c>Rest</c> for the 8-argument form).
+        /// </summary>
+        public static bool IsTupleDefinition(int definitionId)
+            => definitionId >= Tuple1 && definitionId <= VTuple7;
 
         /// <summary>
         /// Returns the reserved well-known definition ID used to describe a closed generic's payload

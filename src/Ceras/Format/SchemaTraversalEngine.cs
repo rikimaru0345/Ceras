@@ -457,6 +457,7 @@ namespace Ceras.Format
             if (oldSchema.DefinitionTypeId == WellKnownTypes.Stack) return ReadStack(oldSchema, targetType, ref reader, cacheIndex, existingObject);
             if (oldSchema.DefinitionTypeId == WellKnownTypes.KeyValuePair) return ReadKeyValuePair(oldSchema, targetType, ref reader, cacheIndex, existingObject);
             if (oldSchema.DefinitionTypeId == WellKnownTypes.Nullable) return ReadNullable(oldSchema, targetType, ref reader);
+            if (WellKnownTypes.IsTupleDefinition(oldSchema.DefinitionTypeId)) return ReadTuple(oldSchema, targetType, ref reader, cacheIndex, existingObject);
 
             // Arbitrary generic class or struct
             _plans.TryGetValue(oldSchema.StableName, out var plan);
@@ -559,6 +560,41 @@ namespace Ceras.Format
             // the writer, so only fill a slot the writer actually created.
             if (cacheIndex.HasValue) _objectCache[cacheIndex.Value] = kvp;
             return kvp;
+        }
+
+        /// <summary>
+        /// <c>Tuple</c>/<c>ValueTuple</c> layout: each item in order, written by <c>TupleFormatter</c> /
+        /// <c>ValueTupleFormatter</c> with no count/length prefix. The ordered arguments of the old
+        /// schema identify each item's type; the current target type (when present) supplies the CLR
+        /// representation. A tuple is never registered in the object cache by the writer, so no slot is
+        /// created here (TODO 0.5 item 3).
+        /// </summary>
+        object ReadTuple(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
+        {
+            int count = oldSchema.ArgTypeIds.Length;
+            var argTypes = targetType != null && targetType.IsGenericType ? targetType.GetGenericArguments() : null;
+
+            var values = new object[count];
+            for (int i = 0; i < count; i++)
+            {
+                int oldItemId = oldSchema.ArgTypeIds[i];
+                Type itemType = argTypes != null && i < argTypes.Length ? argTypes[i] : null;
+                values[i] = ReadValue(oldItemId, itemType, ref reader);
+            }
+
+            if (targetType == null || argTypes == null)
+                return null;
+
+            try
+            {
+                return Activator.CreateInstance(targetType, values);
+            }
+            catch (Exception)
+            {
+                // A tuple whose shape no longer matches (arity change) cannot be reconstructed; the items
+                // were still consumed, so the stream stays aligned.
+                return null;
+            }
         }
 
         object ReadArray(OldTypeSchema oldSchema, Type targetType, ref SequenceReader<byte> reader, int? cacheIndex = null, object existingObject = null)
@@ -969,6 +1005,12 @@ namespace Ceras.Format
                         break;
                     }
 
+                    if (WellKnownTypes.IsTupleDefinition(oldSchema.DefinitionTypeId))
+                    {
+                        foreach (var argId in oldSchema.ArgTypeIds) SkipValue(argId, ref reader);
+                        break;
+                    }
+
                     _plans.TryGetValue(oldSchema.StableName, out var plan);
                     if (plan?.CurrentType != null && plan.CurrentType.IsValueType)
                     {
@@ -1036,6 +1078,12 @@ namespace Ceras.Format
                             int? innerId = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
                             if (innerId.HasValue) SkipValue(innerId.Value, ref reader);
                         }
+                        return;
+                    }
+
+                    if (WellKnownTypes.IsTupleDefinition(oldSchema.DefinitionTypeId))
+                    {
+                        foreach (var argId in oldSchema.ArgTypeIds) SkipValue(argId, ref reader);
                         return;
                     }
 

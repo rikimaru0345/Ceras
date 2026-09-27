@@ -110,7 +110,24 @@ namespace Ceras.SourceGenerator {
 
 		public static bool IsWellKnownType(ITypeSymbol type) {
 			if (type.SpecialType != SpecialType.None) return true; // primitives, string, object, …
-			return IsSystemNamespaceType(type);
+			return IsSystemNamespaceType(type) || IsSystemTupleType(type);
+		}
+
+		/// <summary>
+		/// True for the <c>System.Tuple</c>/<c>System.ValueTuple</c> families. They are well-known
+		/// structural shapes, but a C# tuple type displays as <c>(int, string)</c> rather than
+		/// <c>global::System.ValueTuple&lt;int, string&gt;</c>, so the namespace check alone would
+		/// mistake them for user types and emit a bogus field-based Struct schema for them
+		/// (TODO 0.5 item 3).
+		/// </summary>
+		static bool IsSystemTupleType(ITypeSymbol type) {
+			if (type is not INamedTypeSymbol named || !named.IsGenericType) return false;
+			var def = named.OriginalDefinition;
+			var metadataName = def.MetadataName; // e.g. "ValueTuple`2", "Tuple`2"
+			if (!metadataName.StartsWith("ValueTuple`") && !metadataName.StartsWith("Tuple`")) return false;
+
+			var containing = def.ContainingNamespace?.ToDisplayString();
+			return containing == "System";
 		}
 
 		/// <summary>

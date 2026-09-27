@@ -671,15 +671,22 @@ namespace Ceras.SourceGenerator {
 				if (clrName == "System.DateTime") return 8;
 				if (clrName == "System.TimeSpan") return 8;
 				if (clrName == "System.Guid") return 16;
-				if (named.IsValueType && named.TypeKind == TypeKind.Struct) {
+				// A user struct is only "fixed size" if every one of its own fields is a fixed-width
+				// scalar. Generic value types (Nullable<>, ValueTuple<>, KeyValuePair<,>) and structs
+				// containing any variable-width or nested-struct field are variable: their payload is
+				// element-driven, so claiming a fixed size would make the schema/interpreter skip the
+				// wrong number of bytes (TODO 0.5 item 3).
+				if (named.IsValueType && named.TypeKind == TypeKind.Struct && !named.IsGenericType) {
 					int total = 0;
+					bool anyField = false;
 					foreach (var member in named.GetMembers()) {
 						if (member is not IFieldSymbol field || field.IsStatic || field.IsConst) continue;
+						anyField = true;
 						int fieldSize = ComputeFixedByteSize(field.Type);
 						if (fieldSize == 0) return 0;
 						total += fieldSize;
 					}
-					return total;
+					return anyField ? total : 0;
 				}
 			}
 			return 0;
