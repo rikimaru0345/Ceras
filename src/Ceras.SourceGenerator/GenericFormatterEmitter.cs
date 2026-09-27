@@ -226,5 +226,112 @@ namespace Ceras.SourceGenerator
             sb.AppendLine("    }");
             sb.AppendLine();
         }
+
+        /// <summary>
+        /// The closed instantiation's members in the order the shared writer actually emits them: the
+        /// order the <em>definition's</em> members sort in, restricted to the members this closure has.
+        /// <para>
+        /// Every closure of a definition is written by one emitted class - the open definition's - so the
+        /// payload order is fixed by that class and is computed from the <em>declared</em> member types.
+        /// A member declared as a type parameter therefore sorts under its parameter's name
+        /// (<c>T Value</c> after <c>int Tag</c>), while the same member of a closed instantiation sorts
+        /// under the substituted type (<c>Legacy.Coord Value</c> before <c>System.Int32 Tag</c>). The two
+        /// orders differ for most arguments, and they used to differ here as well: the per-closed schema
+        /// listed its fields in the closed order while the writer emitted the definition's, so the schema
+        /// described a layout no writer ever produces. Nothing notices while the layout matches - the
+        /// fast path reads no schema - and on a mismatch the migration reader walks a file's fields in
+        /// the order its schema lists them, so it read the wrong members: a reference member came back
+        /// null, a value came from the neighbouring field, and a stream that ran out of alignment.
+        /// </para>
+        /// <para>
+        /// Members are matched by identity - name, field or property, and the declaring type's
+        /// <em>definition</em>, so an inherited member maps to the definition that declared it. A member
+        /// that cannot be placed, or one the definition writes but the closed member list does not
+        /// contain, is reported (CERAS032) rather than guessed at: both mean the two lists disagree about
+        /// what this type is, and a guessed order is a silently misread save.
+        /// </para>
+        /// </summary>
+        public static List<SerializedMember> OrderMembersAsWritten(
+            List<SerializedMember> closedMembers, List<SerializedMember> definitionMembers,
+            INamedTypeSymbol closedType, SourceProductionContext context)
+        {
+            // The definition's members, in the order its writer emits them, keyed by member identity.
+            var written = new Dictionary<string, SerializedMember>(StringComparer.Ordinal);
+            foreach (var m in definitionMembers)
+            {
+                if (written.ContainsKey(MemberKey(m)))
+                    ReportUnplaceable(context, closedType, "the definition declares more than one member named '" + m.Name + "'", m.Name);
+                else
+                    written[MemberKey(m)] = m;
+            }
+
+            var ordered = new List<SerializedMember>(closedMembers.Count);
+            var placed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var m in closedMembers)
+            {
+                string key = MemberKey(m);
+                if (!written.ContainsKey(key))
+                {
+                    // Keep the schema well-formed; the diagnostic below fails the build.
+                    ReportUnplaceable(context, closedType, "member '" + m.Name + "' has no counterpart in the definition", m.Name);
+                    ordered.Add(m);
+                    continue;
+                }
+
+                placed.Add(key);
+                ordered.Add(m);
+            }
+
+            foreach (var m in definitionMembers)
+            {
+                // The shared writer emits every one of these, so a schema that leaves one out describes a
+                // shorter payload than the writer produces.
+                if (!placed.Contains(MemberKey(m)))
+                    ReportUnplaceable(context, closedType, "member '" + m.Name + "' is written for every closure but is not part of this type's schema", m.Name);
+            }
+
+            return OrderByWrittenPosition(ordered, written);
+        }
+
+        /// <summary>
+        /// Sorts by the definition's member order, keeping the given order among members that share a
+        /// definition position (which can only happen when the two lists disagree, and is reported above).
+        /// </summary>
+        static List<SerializedMember> OrderByWrittenPosition(
+            List<SerializedMember> closedMembers, Dictionary<string, SerializedMember> written)
+        {
+            var position = new Dictionary<string, int>(StringComparer.Ordinal);
+            int next = 0;
+            foreach (var m in written.Values)
+            {
+                if (!position.ContainsKey(MemberKey(m)))
+                    position[MemberKey(m)] = next++;
+            }
+
+            return closedMembers
+                .Select((m, i) => (member: m, index: i, key: MemberKey(m)))
+                .OrderBy(x => position.TryGetValue(x.key, out var p) ? p : int.MaxValue)
+                .ThenBy(x => x.index)
+                .Select(x => x.member)
+                .ToList();
+        }
+
+        /// <summary>
+        /// A member's identity across an open and a closed instantiation: the same name, the same kind,
+        /// and the same declaring <em>definition</em> - so <c>Box&lt;T&gt;</c> and <c>Box&lt;int&gt;</c>
+        /// name the same member, as do <c>Base&lt;T&gt;</c> and <c>Base&lt;int&gt;</c> for one the
+        /// definition inherited.
+        /// </summary>
+        static string MemberKey(SerializedMember m)
+            => m.Name + "|" + (m.IsField ? "f" : "p") + "|" +
+               m.DeclaringType.OriginalDefinition.ToDisplayString(SortKeyFormat);
+
+        static void ReportUnplaceable(SourceProductionContext context, INamedTypeSymbol closedType, string what, string memberName)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                Diag.MemberOrderNotWritten, closedType.Locations.FirstOrDefault(), what,
+                closedType.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                memberName));
+        }
     }
 }

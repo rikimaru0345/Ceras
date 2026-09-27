@@ -243,5 +243,15 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        // CERAS029/CERAS030 are the System-namespace and framework-shape diagnostics and CERAS031 is
+        // the banned-member error, so this sits above them.
+        public static readonly DiagnosticDescriptor MemberOrderNotWritten = new(
+            id: "CERAS032",
+            title: "Member order cannot be matched to the emitted writer",
+            messageFormat: "{0}. Every closure of the generic definition '{1}' is written by one shared formatter, in the order that definition's members sort in, so a closed schema may only list its fields in that order. Ceras could not place {2} - and a schema whose fields are not in the order they are written describes a layout that does not exist, so a save would be read back with the wrong members. This is a Ceras bug: please report it with the model that triggers it",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }

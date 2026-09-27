@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The historical writer for the *renamed open generic* fixtures: it holds the v1 model of a save whose
+    generic types have since been renamed, and writes the byte-exact files the tests in
+    tests/Ceras.Test/Tests/RenamedGenericAliasTests.cs load with the current model.
+
+    Like Ceras.HistoricalWriter it is intentionally NOT referenced by tests/Ceras.Test: the v1 CLR types
+    must be absent from the reader build, so a reader test can only see the bytes and the current model.
+    It is a separate project (not another fixture in Ceras.HistoricalWriter) so the two sets of golden
+    files are regenerated one change at a time.
+
+    Regenerate only when intentionally updating these fixtures: run this project in Release with the
+    single argument "out tests/Ceras.Test/Fixtures/GenericAliasV1". See README.md for the exact command.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <RootNamespace>Ceras.GenericAliasWriter</RootNamespace>
+    <AssemblyName>Ceras.GenericAliasWriter</AssemblyName>
+    <!-- Fixtures are golden bytes: a clean build must not warn about them. -->
+    <NoWarn>$(NoWarn);CS0162;CS0649</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Ceras/Ceras.csproj" />
+    <!-- The generator has to run here too: the v1 model is a real generated manifest, so the
+         fixtures are written exactly as an old build of the game would have written them. -->
+    <ProjectReference Include="../../src/Ceras.SourceGenerator/Ceras.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="true" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
+  </ItemGroup>
+
+</Project>
