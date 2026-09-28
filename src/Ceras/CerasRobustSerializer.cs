@@ -81,7 +81,7 @@ namespace Ceras
 
         /// <summary>
         /// Validates the header's section offsets before any of them is used to index or allocate
-        /// (TODO 0.6 item 8). The only legal envelope is:
+        /// (see ProtocolValidationTests). The only legal envelope is:
         /// <c>Size &lt;= schemaStringOffset &lt;= dataSectionOffset &lt;= stringTableOffset &lt;= data.Length</c>.
         /// A negative, overflowing, out-of-order or out-of-range offset is corruption, not a decoder
         /// defect, and must be rejected with a clear error. (The schema string region may be empty, so
@@ -404,7 +404,7 @@ namespace Ceras
             RobustCustomFormatterPolicy.VerifyNoUserCustomFormatters(_config);
 
             // Validate magic/version and the full section-offset envelope before any offset is used to
-            // index or allocate (TODO 0.6 item 8).
+            // index or allocate (see ProtocolValidationTests).
             RobustHeader.ValidateMagicAndVersion(data, FormatVersion);
             RobustHeader.Validate(data);
 
@@ -554,8 +554,8 @@ namespace Ceras
         }
 
         /// <summary>
-        /// The declared data section must be consumed **exactly** (TODO P0, "Detect trailing migration
-        /// payload bytes"). By construction it holds nothing but the declared root type id followed by
+        /// The declared data section must be consumed **exactly** (see PayloadConsumptionTests). By
+        /// construction it holds nothing but the declared root type id followed by
         /// the root's payload: <see cref="Save"/> starts the payload string table at the very byte after
         /// the last payload byte and never pads the region, so a reader that stopped earlier left part of
         /// the save unread, and the object graph it returns is only as trustworthy as the part it did read.

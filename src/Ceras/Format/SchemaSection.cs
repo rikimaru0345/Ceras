@@ -466,7 +466,7 @@ namespace Ceras.Format
             var byName = new Dictionary<string, OldTypeSchema>(StringComparer.Ordinal);
 
             // Every schema entry costs at least a few bytes; bound the declared count against the bytes
-            // that actually remain so a corrupt count cannot drive a huge allocation (TODO 0.6 item 8).
+            // that actually remain so a corrupt count cannot drive a huge allocation.
             long remaining = reader.Sequence.Length - reader.Consumed;
             uint count = ReadLeb128(ref reader);
             if (count > (uint)remaining)
@@ -584,7 +584,7 @@ namespace Ceras.Format
 
         /// <summary>
         /// Reads a leb128 count and rejects it when it exceeds the bytes that actually remain, so a
-        /// corrupt count cannot trigger an oversized allocation (TODO 0.6 item 8). Each element costs at
+        /// corrupt count cannot trigger an oversized allocation (see ProtocolValidationTests). Each element costs at
         /// least one byte, so remaining-bytes is a sound upper bound.
         /// </summary>
         static uint ReadBoundedCount(ref SequenceReader<byte> reader, string description)

@@ -15,7 +15,7 @@ namespace Ceras.Test.Layout
     }
 
     /// <summary>
-    /// Phase 3.1: built-in collections must be described by their explicit shape (generic definition
+    /// Built-in collections must be described by their explicit shape (generic definition
     /// + argument type names), not by reflecting their CLR internals. This keeps BCL implementation
     /// details (e.g. Dictionary`2+Entry) out of the schema and out of save-time registry growth.
     /// </summary>

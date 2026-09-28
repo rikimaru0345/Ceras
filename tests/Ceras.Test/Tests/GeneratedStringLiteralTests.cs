@@ -13,7 +13,7 @@ using Xunit;
 namespace Ceras.Test.Generator
 {
     /// <summary>
-    /// TODO P0 0.8.10: every string literal the generator writes must go through
+    /// Every string literal the generator writes must go through
     /// <c>TypeHelpers.QuoteLiteral</c>, because almost all of them are user-written attribute text.
     /// <para>
     /// These tests compile a real generated assembly and inspect what it actually carries, never the

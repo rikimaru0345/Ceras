@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // REVIEW FINDINGS — these tests document defects found while reviewing the
-// P0 0.5.x (built-in shapes) and P0 0.6.7 (producer build timestamp) work.
+// built-in-shapes and producer-build-timestamp work.
 //
 // Each [Fact] states the contract the code is supposed to honour, and the file is
 // kept as the record of which findings are now closed. Run only these with:
@@ -16,7 +16,7 @@
 // `List<T>` / `Dictionary<K,V>` subclass — is now refused by name at every layer,
 // so the member tests assert the refusal rather than a round trip, and the
 // byte-level pins for those two shapes are gone with the payload they described.
-// The subclass vehicle for the pre-0.5 finding moved from a `List<T>` to a
+// The subclass vehicle for the pre-existing finding moved from a `List<T>` to a
 // `HashSet<T>` subclass, which the policy keeps, so the finding it documents is
 // unchanged.
 //
@@ -335,7 +335,8 @@ namespace Ceras.Test.ReviewFindings
         // decimal (well-known id 13, 16 bytes) and DateTimeOffset (id 42, 10 bytes) are now
         // advertised as fully supported fixed-width scalars, so their payload must be validated
         // before a CLR instance is constructed from it, exactly like every other decoder
-        // (TODO 0.6 item 8). Today the raw BCL constructors throw straight out of the decoder:
+        // (see DecimalShapeTests / DateTimeOffsetShapeTests). The raw BCL constructors throw
+        // straight out of the decoder:
         // new DateTimeOffset(ticks, offset) rejects an out-of-range offset, and new decimal(bits)
         // rejects an impossible scale/sign word.
         [Fact]

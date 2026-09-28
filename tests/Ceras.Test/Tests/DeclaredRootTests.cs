@@ -13,7 +13,7 @@ namespace Ceras.Test.Declared
     }
 
     /// <summary>
-    /// Phase 2.6/3.3: the generated manifest is authoritative. Undeclared user types are rejected
+    /// The generated manifest is authoritative. Undeclared user types are rejected
     /// with actionable guidance, while well-known collections and arrays are valid roots even though
     /// the generator skips generating formatters for them.
     /// </summary>

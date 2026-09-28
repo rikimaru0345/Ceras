@@ -545,7 +545,7 @@ namespace T
 
         // A recursive declared type is not itself a problem: the readonly member is writable through
         // its constructor, so an acyclic value round-trips and a cycle is constructible. The rule must
-        // not fire merely because the type is self-referential (TODO 0.4).
+        // not fire merely because the type is self-referential.
         [Fact]
         public void RecursiveType_WithConstructorProvidedMember_DoesNotEmitCERAS026()
         {

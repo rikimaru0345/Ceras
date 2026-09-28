@@ -575,7 +575,7 @@ namespace Ceras.SourceGenerator {
 		/// <summary>
 		/// Canonical stable identity: namespace/nested metadata name plus ordered generic arguments
 		/// (containing type arguments first). This must match the runtime's
-		/// <c>Ceras.Format.TypeIdentity.GetCanonicalName</c> exactly (see TODO Phase 2.3).
+		/// <c>Ceras.Format.TypeIdentity.GetCanonicalName</c> exactly (see CanonicalIdentityTests).
 		/// </summary>
 		static void BuildRobustName(StringBuilder sb, ITypeSymbol type) {
 			switch (type) {

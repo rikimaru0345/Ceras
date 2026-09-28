@@ -4,7 +4,7 @@ using Xunit;
 using Ceras;
 using Ceras.Generated;
 
-// Construction contract (TODO 0.8.11), checked as a *same-layout cross-check*: both readers are handed
+// Construction contract, checked as a *same-layout cross-check*: both readers are handed
 // identical bytes of the current schema, and flipping the layout fingerprint is what selects between them
 // (see TestBase.SlowPath). It is therefore not evidence of cross-version behavior — a changed-schema file
 // is required for that, and lives in HistoricalConstructionFixtureTests (a real v1 fixture).
