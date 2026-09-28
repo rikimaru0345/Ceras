@@ -252,37 +252,84 @@ namespace Ceras
 
             int dataStart = offset;
 
-            var payloadStrings = new StringInternTable();
+            var payloadStrings = RentStringInternTable();
+            int stringTableStart;
+            try
+            {
+                // Scoped: a nested operation (a callback that saves) gets its own context and restores this
+                // one on the way out, instead of overwriting it.
+                using (RobustContext.BeginWrite(payloadStrings, typeToId))
+                {
+                    if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
+                        Ceras.Helpers.ObjectCache.BeginSerializeTrace();
 
-            // Scoped: a nested operation (a callback that saves) gets its own context and restores this
-            // one on the way out, instead of overwriting it.
-            using var writeScope = RobustContext.BeginWrite(payloadStrings, typeToId);
+                    // The payload is written straight into `buffer` rather than into a scratch writer that
+                    // is copied in afterwards. Both produce the same bytes in the same order, but the scratch
+                    // writer has to grow to the payload's size first, and it grows by doubling from 256
+                    // bytes, so a multi-kilobyte payload costs that whole ladder plus a full memcpy of the
+                    // payload, all of it discarded as soon as the copy lands. `FixedArrayBufferWriter` is
+                    // the same contract the scratch writer satisfied (an IBufferWriter<byte> that grows in
+                    // place through the shared EnsureCapacity/ExpandBuffer path), so nothing below it
+                    // changes. `offset` is the fill level of `buffer` and is exactly where the data section
+                    // starts (dataStart above), so the writer continues the file rather than starting a
+                    // new one.
+                    var writer = new FixedArrayBufferWriter(buffer, offset);
+                    SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
+                    Serialize(writer, rootObject);
 
-            if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
-                Ceras.Helpers.ObjectCache.BeginSerializeTrace();
+                    // Growth replaces the array, so the local has to take it back before the string table
+                    // and the header are written into it.
+                    buffer = writer.Buffer;
+                    offset = writer.Offset;
 
-            // The payload is written straight into `buffer` rather than into a scratch writer that
-            // is copied in afterwards. Both produce the same bytes in the same order, but the scratch
-            // writer has to grow to the payload's size first, and it grows by doubling from 256
-            // bytes, so a multi-kilobyte payload costs that whole ladder plus a full memcpy of the
-            // payload, all of it discarded as soon as the copy lands. `FixedArrayBufferWriter` is
-            // the same contract the scratch writer satisfied (an IBufferWriter<byte> that grows in
-            // place through the shared EnsureCapacity/ExpandBuffer path), so nothing below it
-            // changes. `offset` is the fill level of `buffer` and is exactly where the data section
-            // starts (dataStart above), so the writer continues the file rather than starting a
-            // new one.
-            var writer = new FixedArrayBufferWriter(buffer, offset);
-            SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
-            Serialize(writer, rootObject);
+                    stringTableStart = payloadStrings.Flush(ref buffer, ref offset, _config.StringTableCompression);
+                }
+            }
+            finally
+            {
+                ReturnStringInternTable(payloadStrings);
+            }
 
-            // Growth replaces the array, so the local has to take it back before the string table
-            // and the header are written into it.
-            buffer = writer.Buffer;
-            offset = writer.Offset;
-
-            int stringTableStart = payloadStrings.Flush(ref buffer, ref offset, _config.StringTableCompression);
             RobustHeader.FinalizeHeader(buffer, offset, (byte)_config.StringTableCompression, schemaStringOffset, dataStart, stringTableStart, schemaFingerprint);
             return buffer[..offset];
+        }
+
+        /// <summary>
+        /// The one intern table kept between operations, or null while it is in use.
+        /// <para>
+        /// Reusing it is what stops every save from rebuilding the table's dictionary and list from
+        /// empty. Both grow by rehashing through a ladder of sizes, and a graph with many distinct
+        /// strings pays that whole ladder per save - about 120 bytes per string on a 64-node graph,
+        /// which was the single largest remaining cost of writing one. <see cref="StringInternTable.Clear"/>
+        /// keeps the capacity they already reached, so the ladder is walked once per serializer
+        /// rather than once per save.
+        /// </para>
+        /// <para>
+        /// A single slot, not a pool, because a serializer owns its per-operation state outright
+        /// (one instance per thread, or externally locked - the same contract the caches in
+        /// <c>InstanceData</c> already have). A nested save - a callback that saves - finds the slot
+        /// taken and gets a fresh table, so the outer operation's table is never cleared underneath
+        /// it.
+        /// </para>
+        /// </summary>
+        StringInternTable? _spareStringInternTable;
+
+        StringInternTable RentStringInternTable()
+        {
+            var spare = _spareStringInternTable;
+            if (spare != null)
+            {
+                _spareStringInternTable = null;
+                return spare;
+            }
+
+            return new StringInternTable();
+        }
+
+        void ReturnStringInternTable(StringInternTable table)
+        {
+            table.Clear();
+            _spareStringInternTable = table;
         }
 
         public T Load<T>(byte[] data, uint currentRobustVersion)

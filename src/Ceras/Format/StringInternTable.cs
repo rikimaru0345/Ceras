@@ -16,6 +16,28 @@ namespace Ceras.Format
 
         public int Count => _indexToString.Count - 1;
 
+        /// <summary>
+        /// Empties the table so the instance can encode another operation's strings.
+        /// <para>
+        /// <see cref="Dictionary{TKey, TValue}.Clear"/> and <see cref="List{T}.Clear"/> both keep
+        /// the arrays they have already grown, so a reused table stops re-walking the growth ladder
+        /// (3, 7, 17, 37, 71, ... entries, each one a fresh pair of arrays plus a rehash) on every
+        /// save. A table that is thrown away per operation pays that ladder every time, which for a
+        /// graph with a lot of distinct strings is a large part of what writing it costs.
+        /// </para>
+        /// <para>
+        /// The null sentinel at index 0 is restored, so <see cref="GetIndex"/> keeps answering 0 for
+        /// null and the next interned string gets 1 - the same numbering a fresh table starts from,
+        /// which is what <see cref="Flush"/> writes and what the reader expects.
+        /// </para>
+        /// </summary>
+        public void Clear()
+        {
+            _stringToIndex.Clear();
+            _indexToString.Clear();
+            _indexToString.Add(null!);
+        }
+
         public int Intern(string s) => GetIndex(s);
 
         public int GetIndex(string s)
