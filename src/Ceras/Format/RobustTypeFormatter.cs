@@ -12,6 +12,10 @@ namespace Ceras.Format
     sealed class RobustTypeFormatter : FormatterBase<Type>
     {
         readonly SchemaRegistry _registry;
+
+        // Private to this formatter rather than the context's Config.TypeBinder, and used only to read a
+        // FullNameMarker type value. The other Type-value doors do honour the configured binder
+        // (SchemaTraversalEngine.ResolveFullName, CerasRobustSerializer.BuildIdToType).
         readonly ITypeBinder _typeBinder = new SimpleTypeBinder(); // Fallback binder
 
         const int FullNameMarker = 127; // Special marker for unregistered types

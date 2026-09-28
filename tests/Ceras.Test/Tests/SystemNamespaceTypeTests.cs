@@ -332,10 +332,19 @@ namespace T
         // framework type is not, because the generator believed it had a built-in formatter. The probe
         // showed that failing with advice which cannot help, and that neither declaring System.Uri nor
         // registering a custom IFormatter<Uri> changed that.
+        //
+        // The binder is installed explicitly because a bare `new SchemaRegistry()` has none, and a name
+        // the manifest does not hold now resolves through the manifest, Type.GetType, or that binder —
+        // there is no implicit assembly scan left. `System.Uri` lives in System.Private.Uri, so
+        // Type.GetType does not know it by its bare name either; only the binder does. That is the
+        // point of this case, not an inconvenience: the test is about the message the bake reports for
+        // a framework type the format cannot describe, and the bake can only get that far if the name
+        // resolves to a Type in the first place.
         [Fact]
         public void BakeError_DoesNotTellTheUserToDeclareAFrameworkType()
         {
             var registry = new SchemaRegistry();
+            registry.SetTypeBinder(new SimpleTypeBinder());
             registry.Register(typeof(BakeProbeRoot), new SchemaTypeInfo(
                 stableName: "SystemNamespace.BakeProbeRoot",
                 previousTypeNames: Array.Empty<string>(),
