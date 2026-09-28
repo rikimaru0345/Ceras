@@ -99,7 +99,10 @@ namespace Ceras.Formatters {
 
 		public void Deserialize(ref SequenceReader<byte> reader, ref T value) {
 			var objId = SerializerBinary.ReadUInt32Bias(ref reader, Bias);
-			if (objId == Null) { value = default; return; }
+			// A null marker is a legal value in a reference slot, and IFormatter<T>'s out parameter is
+			// deliberately not nullable: the null is a *value* here, so it is assigned with the
+			// null-forgiving operator rather than pretended not to happen.
+			if (objId == Null) { value = default!; return; }
 			if (objId == InlineType) {
 				// Serialize only writes the InlineType marker for a non-null Type instance, so the type
 				// read back here is never null. The seed is what the non-nullable IFormatter contract
@@ -326,7 +329,9 @@ namespace Ceras.Formatters {
 
 		public void Deserialize(ref SequenceReader<byte> reader, ref T value) {
 			var objId = SerializerBinary.ReadUInt32Bias(ref reader, Bias);
-			if (objId == Null) { value = default; return; }
+			// As in ReferenceFormatter<T>.Deserialize: the wire's null marker is a value, and the
+			// non-nullable IFormatter<T> out parameter is not changed to admit it.
+			if (objId == Null) { value = default!; return; }
 			if (objId >= 0) {
 				value = _ceras.InstanceData.ObjectCache.GetExistingObject<T>(objId);
 				return;

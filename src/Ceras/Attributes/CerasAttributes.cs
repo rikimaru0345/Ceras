@@ -56,6 +56,11 @@ namespace Ceras
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
     public class PreviousNameAttribute : Attribute
     {
+        /// <summary>
+        /// The other names this member has been serialized under. Never null: it is an empty array
+        /// when the attribute names none, so a caller can always enumerate it. A null array passed to
+        /// the constructor is normalized to that empty one.
+        /// </summary>
         public readonly string[] AlternativeNames = new string[0];
 
         /// <summary>The previous name, or null when this attribute only records alternatives.</summary>
@@ -73,7 +78,7 @@ namespace Ceras
         public PreviousNameAttribute(string? name, params string[]? alternativeNames)
         {
             Name = name;
-            AlternativeNames = alternativeNames;
+            AlternativeNames = alternativeNames ?? new string[0];
         }
     }
 
@@ -180,7 +185,10 @@ namespace Ceras
     public class CerasSerializableAttribute : Attribute
     {
         /// <summary>
-        /// Optional override for the stable type name written into the robust schema.
+        /// Optional override for the stable type name written into the robust schema, or
+        /// <see langword="null"/> when the attribute was applied without one — which is the normal
+        /// parameterless <c>[CerasSerializable]</c> form, so callers wanting the effective name have
+        /// to derive the default themselves.
         /// <para>
         /// When omitted, the default stable name is the CLR metadata identity:
         /// <c>Namespace.Outer+Nested`Arity</c> (namespace, containing types joined with <c>+</c>,
@@ -196,7 +204,7 @@ namespace Ceras
         /// </list>
         /// </para>
         /// </summary>
-        public string StableName { get; }
+        public string? StableName { get; }
 
         public CerasSerializableAttribute(string? stableName = null)
         {
