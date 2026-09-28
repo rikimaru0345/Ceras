@@ -141,6 +141,25 @@ same-version roundtrip.
   migration code, then materialize current objects without historical CLR types. The
   model exists; no runtime reader constructs it yet. Pin matching-layout allocations
   and ensure this work cannot put graph construction on the generated-reader path.
+  **Fail-loud gate before migration becomes the default:** in today's streaming reader,
+  `SkipPolymorphicValue` reserves a null object-cache slot for a first occurrence in a
+  removed member; a retained field's later back-reference resolves that in-range slot
+  to null, and load succeeds with the stream aligned. Distinguish an explicitly skipped
+  slot from a legitimate temporarily-null slot in a half-built cycle, and refuse the
+  former with a typed error until the graph can preserve/materialize it. Pin a real
+  historical fixture where a removed member contains the first occurrence and a
+  retained member back-references it, followed by a distinct object witness.
+  **Builder shape:** a separate file-faithful decoder (no current model in scope), with
+  shared payload-grammar decisions extracted from `SchemaTraversalEngine`; an arena
+  index for every value and a separate writer-cache-slot → arena-index mapping so
+  reserve-before-fill handles cycles and removed members. Land the shared grammar
+  extraction and builder tests before redirecting `Load`'s slow path. Never copy the
+  current reader's `FullNameMarker` lookup that uses a current registry id against
+  the file's id table — those id spaces are independent; resolve by file identity.
+  Keep the v5 opaque-frame integration behind the v5 merge, since the current graph
+  model has no opaque node kind yet. Pin zero graph builds and zero schema parses on
+  the fingerprint-matched generated path with exact counters, plus a representative
+  allocation check; do not let migration cost leak into matching-layout loads.
 - Preserve references whose first occurrence is in a removed field and later use is
   retained; test wrappers, aliases, sharing, cycles and unknown polymorphic types.
   Pin two shared collection references followed by a distinct object so a shifted
