@@ -7,6 +7,12 @@ using Ceras.Formatters;
 using Ceras.Resolvers;
 using Xunit;
 
+// The reflection-fallback resolver is one of the sites under test, and its [Obsolete] steers users away
+// from the reflection fallback - which is precisely what this file does with it, at the four places
+// where the fallback's rooting is pinned. Suppressed for the file the same way the library's own three
+// uses are (CerasSerializer.cs, TypeConfigDefaults.cs): the type is the subject here, not a suggestion.
+#pragma warning disable CS0618
+
 namespace Ceras.Test.Tests
 {
     /// <summary>
@@ -51,16 +57,23 @@ namespace Ceras.Test.Tests
 
         static DynamicDependencyAttribute[] RootedAt(Type declaringType, string methodName)
         {
-            var method = declaringType.GetMethod(
-                              methodName,
-                              BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
-                              binder: null,
-                              types: new[] { typeof(Type) },
-                              modifiers: null)
-                          ?? throw new InvalidOperationException(
-                              $"{declaringType.Name}.{methodName}(Type) no longer exists. It is where the formatter " +
-                              "types below are closed over a runtime Type, so whatever replaced it has to state the " +
-                              "rooting itself - a dependency on the open generic definition, not on the runtime type.");
+            var candidates = declaringType
+                                 .GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                                 .Where(m => m.Name == methodName)
+                                 .ToArray();
+
+            // One method by that name, still taking the runtime Type first: that parameter is the reason
+            // the rooting has to be stated at this method at all, so its loss is a change to notice. The
+            // lookup is by name rather than by a fixed parameter list because the two dispatcher helpers
+            // on ReferenceFormatter<T> are handed the formatter as well, as a second argument - a lookup
+            // for "the one method taking a single Type" cannot find those two at all.
+            var method = candidates.Length == 1 && candidates[0].GetParameters().FirstOrDefault()?.ParameterType == typeof(Type)
+                             ? candidates[0]
+                             : throw new InvalidOperationException(
+                                 $"{declaringType.Name}.{methodName} is not the single method taking a runtime Type that the " +
+                                 $"formatter types below are closed over ({candidates.Length} methods by that name). It is where " +
+                                 "they are closed, so whatever replaced it has to state the rooting itself - a dependency on the " +
+                                 "open generic definition, not on the runtime type.");
 
             return method.GetCustomAttributes<DynamicDependencyAttribute>().ToArray();
         }
@@ -146,7 +159,12 @@ namespace Ceras.Test.Tests
             // under its own name is what keeps the interface mapping intact. Assert the type really
             // has the three extra interfaces, so the requirement cannot be quietly reduced to
             // "some public methods" if one of them is ever dropped from the formatter.
-            var interfaces = typeof(MultiDimensionalArrayFormatter<>).GetInterfaces().ToArray();
+            //
+            // Asked of the closed instantiation, because that is the only form in which the three
+            // constructions are named at all: on the open definition they are still generic
+            // (IFormatter<TItem[,]>, not IFormatter<int[,]>), which is exactly the closed-over-runtime-type
+            // situation the dependency above has to be stated on.
+            var interfaces = typeof(MultiDimensionalArrayFormatter<int>).GetInterfaces().ToArray();
 
             Assert.Contains(typeof(IFormatter<int[,]>), interfaces);
             Assert.Contains(typeof(IFormatter<int[,,]>), interfaces);
@@ -344,8 +362,9 @@ namespace Ceras.Test.Tests
 
         /// <summary>
         /// The families these dependencies cover, named as data so the two resolvers that own more
-        /// than one of them cannot silently lose one. This is a documentation test: it fails only if
-        /// a family is renamed or removed, and the message says which.
+        /// than one of them cannot silently lose one. The coarse net under the per-family tests above:
+        /// it fails when a family is dropped from a site, and it fails when one is renamed or removed -
+        /// and unlike the tests above it says which, by name.
         /// </summary>
         [Fact]
         public void TheRootedFamiliesAreTheOnesTheResolversClose()
@@ -387,8 +406,15 @@ namespace Ceras.Test.Tests
                 (typeof(ReferenceFormatter<object>), "CreateSpecificDeserializerDispatcher"),
             };
 
+            // Target() hands back a real Type on purpose (see its own comment: "is this still the open
+            // definition" is a question only a Type can answer), and this is the one place that
+            // compares by name instead - so it is FullName that closes the gap. That is the spelling
+            // the expected set is written in, '+' included for the two private nested formatters,
+            // which cannot be written as a typeof(...) here at all.
             var actual = new HashSet<string>(
-                sites.SelectMany(s => RootedAt(s.DeclaringType, s.Method)).Select(Target),
+                sites.SelectMany(s => RootedAt(s.DeclaringType, s.Method))
+                     .Select(Target)
+                     .Select(t => t.FullName),
                 StringComparer.Ordinal);
 
             Assert.Equal(expected.OrderBy(n => n, StringComparer.Ordinal),
