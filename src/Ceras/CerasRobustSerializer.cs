@@ -37,6 +37,16 @@ namespace Ceras
 
         public const int Size = 56;
 
+        /// <summary>
+        /// Reserves <see cref="Size"/> zeroed bytes for the header, so the payload that follows can be
+        /// written without knowing its own length up front. <see cref="FinalizeHeader"/> fills the
+        /// offsets, fingerprint and CRC in afterwards.
+        /// </summary>
+        /// <param name="buffer">The file buffer. Replaced through this parameter if it has to grow.</param>
+        /// <param name="offset">Where the header starts; advanced by <see cref="Size"/>.</param>
+        /// <param name="formatVersion">Value written at <see cref="FormatVersionOffset"/>.</param>
+        /// <param name="gameVersion">Value written at <see cref="GameVersionOffset"/>.</param>
+        /// <param name="buildTimestamp">Value written at <see cref="BuildTimestampOffset"/>.</param>
         /// <param name="bufferIsPooled">
         /// True only if <paramref name="buffer"/> came from <see cref="CerasBufferPool.Rent"/>, so that
         /// growing it may return the replaced array. See <see cref="SerializerBinary.EnsureCapacity"/>
@@ -288,14 +298,21 @@ namespace Ceras
                         // changes. `offset` is the fill level of `buffer` and is exactly where the data section
                         // starts (dataStart above), so the writer continues the file rather than starting a
                         // new one.
-                        var writer = new FixedArrayBufferWriter(buffer, offset, bufferIsPooled: true);
-                        SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
-                        Serialize(writer, rootObject);
+                        var writer = RentWriter(buffer, offset, bufferIsPooled: true);
+                        try
+                        {
+                            SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
+                            Serialize(writer, rootObject);
 
-                        // Growth replaces the array, so the local has to take it back before the string table
-                        // and the header are written into it.
-                        buffer = writer.Buffer;
-                        offset = writer.Offset;
+                            // Growth replaces the array, so the local has to take it back before the string
+                            // table and the header are written into it.
+                            buffer = writer.Buffer;
+                            offset = writer.Offset;
+                        }
+                        finally
+                        {
+                            ReturnWriter(writer);
+                        }
 
                         stringTableStart = payloadStrings.Flush(ref buffer, ref offset, _config.StringTableCompression, bufferIsPooled: true);
                     }

@@ -259,16 +259,64 @@ namespace Ceras
 			// pooled: the contract for this overload is that the buffer is a rental, so growing it
 			// may return the replaced array. See EnsureCapacity for why that has to be stated rather
 			// than inferred.
-			var writer = new FixedArrayBufferWriter(buffer, offset, bufferIsPooled: true);
-			Serialize(writer, obj);
+			var writer = RentWriter(buffer, offset, bufferIsPooled: true);
+			try
+			{
+				Serialize(writer, obj);
+			}
+			finally
+			{
+				// Read back before releasing: the writer is about to be reused by the next call.
+				buffer = writer.Buffer;
+				offset = writer.Offset;
+				ReturnWriter(writer);
+			}
 
 			// Any growth already returned the arrays it replaced to the pool (ExpandBuffer does it, on
-			// the way through), so this only has to take back the latest one. The caller is left
-			// holding exactly one pooled array, which is what makes a single Return at the end of
-			// their loop correct however many times the buffer grew on the way.
-			buffer = writer.Buffer;
-			offset = writer.Offset;
+			// the way through), so the caller is left holding exactly one pooled array, which is what
+			// makes a single Return at the end of their loop correct however many times the buffer grew.
 			return offset - start;
+		}
+
+		/// <summary>
+		/// Writers kept per recursion level, so a per-frame message loop allocates none.
+		/// <para>
+		/// The writer is three fields; making one per message was the last allocation on the pooled
+		/// write path. It is kept per <em>level</em> rather than per serializer because Serialize can
+		/// re-enter - an <c>[OnSerializing]</c> callback that serializes - and the outer call is still
+		/// holding its writer across that. <c>_recursionDepth</c> already distinguishes those cases,
+		/// and two calls at the same depth cannot overlap because neither outlives its own call.
+		/// </para>
+		/// <para>
+		/// A generated or hand-written formatter that kept a reference to the writer beyond its own
+		/// Serialize call would break this, as it would the pooling above; formatters write and return.
+		/// </para>
+		/// </summary>
+		FixedArrayBufferWriter?[] _writersByDepth = new FixedArrayBufferWriter?[4];
+
+		private protected FixedArrayBufferWriter RentWriter(byte[] buffer, int offset, bool bufferIsPooled)
+		{
+			int depth = _recursionDepth;
+			if (depth >= _writersByDepth.Length)
+				Array.Resize(ref _writersByDepth, depth * 2);
+
+			var writer = _writersByDepth[depth];
+			if (writer == null)
+			{
+				writer = new FixedArrayBufferWriter(buffer, offset, bufferIsPooled);
+				_writersByDepth[depth] = writer;
+			}
+			else
+			{
+				writer.Reset(buffer, offset, bufferIsPooled);
+			}
+			return writer;
+		}
+
+		private protected void ReturnWriter(FixedArrayBufferWriter writer)
+		{
+			// Drop the reference to the buffer so a pooled array is not pinned by a spare writer.
+			writer.Release();
 		}
 
 		protected internal void Serialize<T>(IBufferWriter<byte> writer, T obj)
@@ -408,8 +456,14 @@ namespace Ceras
 			// Whether Buffer is an array the pool rented, and so may go back to it when this writer
 			// grows it. See SerializerBinary.EnsureCapacity for why this cannot be inferred. A writer
 			// that rented its own buffer always owns it, so that case needs no flag.
-			readonly bool _bufferIsPooled;
+			//
+			// Not readonly: a reused writer is handed whichever array the current call has, and a
+			// pooled buffer is not pooled for every call.
+			bool _bufferIsPooled;
 
+			/// <param name="buffer">The array to write into, or null to rent one. A rented buffer is
+			/// the writer's own and is pooled whichever <paramref name="bufferIsPooled"/> says.</param>
+			/// <param name="offset">Where writing starts, and the value <see cref="Offset"/> begins at.</param>
 			/// <param name="bufferIsPooled">
 			/// True only if <paramref name="buffer"/> came from <see cref="CerasBufferPool.Rent"/>, in
 			/// which case a grown-out array is returned to the pool. False for a caller's own array.
@@ -420,6 +474,25 @@ namespace Ceras
 				Offset = offset;
 				_bufferIsPooled = bufferIsPooled || buffer == null;
 			}
+
+			/// <summary>
+			/// Points this writer at another call's buffer instead of allocating another writer.
+			/// The previous buffer is not returned to the pool: its owner is responsible for it, and
+			/// the caller reads it back through <see cref="Buffer"/> before calling this again.
+			/// </summary>
+			public void Reset(byte[] buffer, int offset, bool bufferIsPooled)
+			{
+				Buffer = buffer ?? CerasBufferPool.Rent(0x4000);
+				Offset = offset;
+				_bufferIsPooled = bufferIsPooled || buffer == null;
+			}
+
+			/// <summary>
+			/// Drops the buffer so a spare writer does not keep it alive between calls. Only for a
+			/// writer nobody is writing with: the buffer has to be read back first, because a reused
+			/// writer overwrites it on the next call anyway.
+			/// </summary>
+			public void Release() => Buffer = System.Array.Empty<byte>();
 
 			public void Advance(int count) => Offset += count;
 			public Memory<byte> GetMemory(int sizeHint = 0) { SerializerBinary.EnsureCapacity(ref Buffer, Offset, sizeHint, _bufferIsPooled); return Buffer.AsMemory(Offset); }
@@ -456,7 +529,7 @@ namespace Ceras
 
 		internal byte[] SerializeStatic(Type type) { var writer = new ArrayBufferWriter<byte>(); SerializeStatic(type, writer); return writer.WrittenSpan.ToArray(); }
 		internal void SerializeStatic(Type type, IBufferWriter<byte> writer) { var meta = GetStaticTypeMetaData(type)!; (meta.StaticSerialize ?? PrepareStaticSerializationDispatchers(meta).ser)(writer); }
-		internal int SerializeStatic(Type type, ref byte[] buffer, ref int offset) { var writer = new FixedArrayBufferWriter(buffer, offset); SerializeStatic(type, writer); buffer = writer.Buffer; int size = writer.Offset - offset; offset = writer.Offset; return size; }
+		internal int SerializeStatic(Type type, ref byte[] buffer, ref int offset) { var writer = RentWriter(buffer, offset, bufferIsPooled: false); try { SerializeStatic(type, writer); buffer = writer.Buffer; int size = writer.Offset - offset; offset = writer.Offset; return size; } finally { ReturnWriter(writer); } }
 		internal void DeserializeStatic(Type type, byte[] buffer) { int offset = 0; DeserializeStatic(type, buffer, ref offset); }
 		internal int DeserializeStatic(Type type, byte[] buffer, ref int offset) { var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset); var reader = new SequenceReader<byte>(seq); DeserializeStatic(type, ref reader); int size = (int)reader.Consumed; offset += size; return size; }
 		internal void DeserializeStatic(Type type, ref SequenceReader<byte> reader) { var meta = GetStaticTypeMetaData(type)!; (meta.StaticDeserialize ?? PrepareStaticSerializationDispatchers(meta).deser)(ref reader); }

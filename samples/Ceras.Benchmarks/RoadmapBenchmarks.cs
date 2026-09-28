@@ -227,6 +227,20 @@ namespace Ceras.Benchmarks
             Add(rows, "Network encode chat string", 200000, () => fast.Serialize(chat), $"{chatBytes.Length} B");
             Add(rows, "Network decode chat string", 200000, () => fast.Deserialize<BenchChat>(chatBytes), $"{chatBytes.Length} B");
 
+            // The pooled write buffer, which is what a real send loop uses: one rented buffer, a
+            // message per call, nothing per message. This is the row that says whether the write path
+            // allocates at all - the convenience overload above necessarily allocates its result, so
+            // its B/op can never be zero however the write path behaves.
+            var pooledBuffer = CerasBufferPool.Rent(64 * 1024);
+            var pooledOffset = 0;
+            fast.Serialize(move, ref pooledBuffer, ref pooledOffset);
+
+            Action encodePooledMove = () => { pooledOffset = 0; fast.Serialize(move, ref pooledBuffer, ref pooledOffset); };
+            Action encodePooledChat = () => { pooledOffset = 0; fast.Serialize(chat, ref pooledBuffer, ref pooledOffset); };
+            Add(rows, "Network encode pooled (write only)", 200000, encodePooledMove, $"{moveBytes.Length} B, no result array");
+            Add(rows, "Network encode pooled chat", 200000, encodePooledChat, $"{chatBytes.Length} B, no result array");
+            CerasBufferPool.Return(pooledBuffer);
+
             // ------------------------------------------------------------------
             // Cold setup vs steady state, and the game's per-operation construction.
             // ------------------------------------------------------------------
