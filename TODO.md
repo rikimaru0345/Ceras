@@ -163,10 +163,11 @@ Only after correctness and runnable baselines; no changed bytes or reuse semanti
   scratch writer and its copy are gone. Still open: offer caller-owned buffers so the
   final trim copy can be avoided too, and measure integrity and string-table costs
   separately.
-- Add typed common-collection formatters, avoiding reflected construction and
-  interface enumeration. Bulk-copy `byte[]` and suitable fixed-width primitive
-  collections only where differential tests prove CLR layout equals wire encoding
-  (not `decimal` or arbitrary structs); test segmented input, reuse, limits, truncation.
+- `List<T>`/`T[]` of fixed-width primitives are now read in place instead of
+  enumerated, and bulk-written in blocks rather than element by element; `decimal`
+  and arbitrary structs are deliberately excluded. Still open: typed
+  common-collection formatters that avoid reflected construction, for collections
+  beyond `List<T>`; test segmented input, reuse, limits and truncation.
 - Move `SerializerBinary.ReadDecimal`'s unnecessary fast-path `stackalloc` to the
   segmented branch, subject to measurement; check `ReinterpretFormatter` similarly.
 - Batch fixed-size generated writes and reduce dispatch/locals; cache context-local

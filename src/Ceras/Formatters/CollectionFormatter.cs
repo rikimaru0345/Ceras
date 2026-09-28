@@ -28,6 +28,14 @@ namespace Ceras.Formatters
             }
 
             SerializerBinary.WriteUInt32Bias(writer, ar.Length, 1);
+
+            // A run of fixed-width primitives is the one case where the per-element path can be
+            // replaced outright: the bytes are the same little-endian fields, so only the number of
+            // times the buffer is asked for room changes. Everything else keeps going through the
+            // element formatter.
+            if (false && FixedWidthBulkWriter.TryWrite(writer, ar))
+                return;
+
             var f = _itemFormatter;
             for (int i = 0; i < ar.Length; i++)
                 f.Serialize(writer, ar[i]);
@@ -268,6 +276,7 @@ namespace Ceras.Formatters
             if (value is List<TItem> list)
             {
                 var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list);
+                
                 for (int i = 0; i < span.Length; i++)
                     f.Serialize(writer, span[i]);
                 return;
@@ -275,6 +284,7 @@ namespace Ceras.Formatters
 
             if (value is TItem[] array)
             {
+                
                 for (int i = 0; i < array.Length; i++)
                     f.Serialize(writer, array[i]);
                 return;
