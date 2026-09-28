@@ -1,3 +1,18 @@
+// Collection *subclasses* the built-in collection formatter serves: their payload is an explicit
+// element count, so the manifest must describe them structurally and both readers must refill them.
+//
+// The set of subclasses that are allowed shrank deliberately. ReadOnlyCollection<T> /
+// ReadOnlyDictionary<TKey,TValue> and every List<T> / Dictionary<TKey,TValue> subclass are refused with
+// an actionable error (see UnsupportedCollectionPolicyTests and Format/UnsupportedCollectionPolicy):
+// a List/Dictionary subclass with only a copying constructor came back from a migration holding zero
+// elements and no error, and a ReadOnlyCollection<T> subclass could not be written at all. What stays
+// is everything else the built-in formatter serves — here a HashSet<T> subclass, annotated and
+// unannotated, plus the exact built-in List<T>/Dictionary<TKey,TValue>, which the policy keeps and this
+// file therefore keeps pinning.
+//
+// The refused families are still *declared* below (BsRefusedList, BsRefusedDict) so their types exist to
+// be asserted on; they are simply not members of any annotated context, because a member of one is a
+// compile error (CERAS033) and a context root of one is a compile error (CERAS034).
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,29 +23,37 @@ using Ceras.Generated;
 
 namespace Ceras.Test.BuiltinShapes
 {
-    // ── Collection subclasses (annotated and unannotated) ───────────────────────────────
+    // ── Collection subclasses the policy keeps (HashSet<T> is not a List/Dictionary family) ──
     [CerasSerializable]
-    public class BsAnnotatedList<T> : List<T> { }
-
-    public class BsPlainList<T> : List<T> { }
-
-    public class BsPlainDict : Dictionary<string, int> { }
+    public class BsAnnotatedSet<T> : HashSet<T> { }
 
     public class BsPlainSet : HashSet<int> { }
+
+    public class BsPlainStringSet : HashSet<string> { }
 
     public class BsPlainQueue : Queue<int> { }
 
     public class BsPlainStack : Stack<int> { }
+
+    // Refused families, kept as types only. Nothing in a [CerasContext] may name them.
+    public class BsRefusedList<T> : List<T> { }
+
+    public class BsRefusedDict : Dictionary<string, int> { }
+
+    public class BsRefusedReadOnlyList : System.Collections.ObjectModel.ReadOnlyCollection<int>
+    {
+        public BsRefusedReadOnlyList(IList<int> inner) : base(inner) { }
+    }
 
 
     [CerasContext("BuiltinShapes")]
     [CerasSerializable]
     public class BsCollectionSubclassHolder
     {
-        public BsAnnotatedList<int> Annotated;
-        public BsPlainList<int> Plain;
-        public BsPlainDict Dict;
-        public BsPlainSet Set;
+        public BsAnnotatedSet<int> Annotated;
+        public BsPlainSet Plain;
+        public List<int> ExactList;
+        public Dictionary<string, int> ExactDict;
         public int After;
     }
 
@@ -38,8 +61,8 @@ namespace Ceras.Test.BuiltinShapes
     [CerasSerializable]
     public class BsTwoSubclassHolder
     {
-        public BsPlainList<int> First;
-        public BsAnnotatedList<string> Second;
+        public BsAnnotatedSet<int> First;
+        public BsPlainStringSet Second;
         public int After;
     }
 
@@ -52,12 +75,6 @@ namespace Ceras.Test.BuiltinShapes
     }
 
 
-    /// <summary>
-    /// TODO 0.5 item 1: every collection subclass admitted to a manifest must have an accurate
-    /// collection schema (not an empty class schema), so its payload is describable and the interpreter
-    /// can migrate it. Annotated and unannotated subclasses are covered, including a following field to
-    /// prove the stream stays aligned.
-    /// </summary>
     public class BuiltinCollectionShapeTests : TestBase
     {
         const string Ctx = "BuiltinShapes";
@@ -67,8 +84,7 @@ namespace Ceras.Test.BuiltinShapes
         {
             c.UseGeneratedFormatters(Ctx);
             c.DeclareRoots(typeof(int[]), typeof(int[][]), typeof(List<int>),
-                typeof(BsAnnotatedList<int>), typeof(BsPlainList<int>), typeof(BsPlainList<string>),
-                typeof(BsPlainDict), typeof(BsPlainSet));
+                typeof(BsAnnotatedSet<int>), typeof(BsPlainSet), typeof(BsPlainStringSet));
         });
 
         [Fact]
@@ -76,21 +92,16 @@ namespace Ceras.Test.BuiltinShapes
         {
             var s = New();
             // Save once so the structural entries are baked into the registry.
-            s.Save(new BsCollectionSubclassHolder { Plain = new BsPlainList<int> { 1 } }, 1);
+            s.Save(new BsCollectionSubclassHolder { Plain = new BsPlainSet { 1 } }, 1);
 
-            Assert.True(s.Config.SchemaRegistry.TryGetInfo(typeof(BsPlainList<int>), out var info));
+            Assert.True(s.Config.SchemaRegistry.TryGetInfo(typeof(BsPlainSet), out var info));
             Assert.Equal(SchemaTypeKind.GenericInstantiation, info.Kind);
-            Assert.Equal("System.Collections.Generic.List`1", info.UnderlyingTypeName);
+            Assert.Equal("System.Collections.Generic.HashSet`1", info.UnderlyingTypeName);
             Assert.Equal(new[] { "System.Int32" }, info.ArgTypeNames);
 
-            Assert.True(s.Config.SchemaRegistry.TryGetInfo(typeof(BsAnnotatedList<int>), out var annotatedInfo));
+            Assert.True(s.Config.SchemaRegistry.TryGetInfo(typeof(BsAnnotatedSet<int>), out var annotatedInfo));
             Assert.Equal(SchemaTypeKind.GenericInstantiation, annotatedInfo.Kind);
-            Assert.Equal("System.Collections.Generic.List`1", annotatedInfo.UnderlyingTypeName);
-
-            Assert.True(s.Config.SchemaRegistry.TryGetInfo(typeof(BsPlainDict), out var dictInfo));
-            Assert.Equal(SchemaTypeKind.GenericInstantiation, dictInfo.Kind);
-            Assert.Equal("System.Collections.Generic.Dictionary`2", dictInfo.UnderlyingTypeName);
-            Assert.Equal(new[] { "System.String", "System.Int32" }, dictInfo.ArgTypeNames);
+            Assert.Equal("System.Collections.Generic.HashSet`1", annotatedInfo.UnderlyingTypeName);
         }
 
         [Fact]
@@ -99,10 +110,10 @@ namespace Ceras.Test.BuiltinShapes
             var s = New();
             var holder = new BsCollectionSubclassHolder
             {
-                Annotated = new BsAnnotatedList<int> { 1, 2, 3 },
-                Plain = new BsPlainList<int> { 4, 5 },
-                Dict = new BsPlainDict { ["a"] = 6, ["b"] = 7 },
-                Set = new BsPlainSet { 8, 9 },
+                Annotated = new BsAnnotatedSet<int> { 1, 2, 3 },
+                Plain = new BsPlainSet { 4, 5 },
+                ExactList = new List<int> { 6 },
+                ExactDict = new Dictionary<string, int> { ["a"] = 7, ["b"] = 8 },
                 After = 4242,
             };
 
@@ -113,13 +124,17 @@ namespace Ceras.Test.BuiltinShapes
             foreach (var clone in new[] { fast, slow })
             {
                 Assert.NotNull(clone);
-                Assert.Equal(new[] { 1, 2, 3 }, clone.Annotated);
-                Assert.Equal(new[] { 4, 5 }, clone.Plain);
-                Assert.Equal(6, clone.Dict["a"]);
-                Assert.Equal(7, clone.Dict["b"]);
-                Assert.Equal(new[] { 8, 9 }, clone.Set.OrderBy(x => x));
+                Assert.Equal(new[] { 1, 2, 3 }, clone.Annotated.OrderBy(x => x));
+                Assert.Equal(new[] { 4, 5 }, clone.Plain.OrderBy(x => x));
+                Assert.Equal(new[] { 6 }, clone.ExactList);
+                Assert.Equal(7, clone.ExactDict["a"]);
+                Assert.Equal(8, clone.ExactDict["b"]);
                 Assert.Equal(4242, clone.After);
             }
+
+            // The subclass survives, which is the part a structural schema alone would not prove.
+            Assert.IsType<BsAnnotatedSet<int>>(fast.Annotated);
+            Assert.IsType<BsPlainSet>(fast.Plain);
         }
 
         [Fact]
@@ -142,10 +157,10 @@ namespace Ceras.Test.BuiltinShapes
         public void Unannotated_Collection_Subclass_Works_As_Root_Both_Paths()
         {
             var s = New();
-            var value = new BsPlainList<string> { "x", "y" };
+            var value = new BsPlainStringSet { "x", "y" };
             var bytes = s.Save(value, 1);
-            Assert.Equal(new[] { "x", "y" }, s.Load<BsPlainList<string>>(bytes, 1));
-            Assert.Equal(new[] { "x", "y" }, s.Load<BsPlainList<string>>(SlowPath(bytes), 1));
+            Assert.Equal(new[] { "x", "y" }, s.Load<BsPlainStringSet>(bytes, 1).OrderBy(x => x));
+            Assert.Equal(new[] { "x", "y" }, s.Load<BsPlainStringSet>(SlowPath(bytes), 1).OrderBy(x => x));
         }
 
         [Fact]
@@ -154,8 +169,8 @@ namespace Ceras.Test.BuiltinShapes
             var s = New();
             var holder = new BsTwoSubclassHolder
             {
-                First = new BsPlainList<int> { 1 },
-                Second = new BsAnnotatedList<string> { "two" },
+                First = new BsAnnotatedSet<int> { 1 },
+                Second = new BsPlainStringSet { "two" },
                 After = 5,
             };
             var bytes = s.Save(holder, 1);
@@ -167,7 +182,7 @@ namespace Ceras.Test.BuiltinShapes
             }
         }
 
-        // ── Jagged / multidimensional arrays ────────────────────────────────────────────
+        // ── Jagged / multidimensional arrays ────────────────────────────────────────────────
 
         [Fact]
         public void Jagged_Arrays_RoundTrip_Both_Paths()

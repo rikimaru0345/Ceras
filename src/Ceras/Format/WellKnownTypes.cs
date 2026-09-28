@@ -38,6 +38,27 @@ namespace Ceras.Format
         /// type cannot be inferred, so no definition plus ordered arguments can describe its payload.
         /// </summary>
         UninferrableElementType,
+
+        /// <summary>
+        /// A collection shape the project owner decided Ceras does not support: <c>ReadOnlyCollection&lt;T&gt;</c> /
+        /// <c>ReadOnlyDictionary&lt;K,V&gt;</c> (the built-in types and every subclass) and every subclass of
+        /// <c>List&lt;T&gt;</c> / <c>Dictionary&lt;K,V&gt;</c>. The exact built-in <c>List&lt;T&gt;</c> and
+        /// <c>Dictionary&lt;K,V&gt;</c> are <b>not</b> this rejection, and neither is a subclass of any other
+        /// collection.
+        /// <para>
+        /// These shapes have no describable construction: the generated collection formatter allocates
+        /// without arguments, so a subclass that needs arguments comes back as the base type (or not at
+        /// all), and a <c>ReadOnlyCollection&lt;T&gt;</c> has no <c>Add</c> to be refilled through. Refusing
+        /// them loudly everywhere beats promising a shape that only sometimes round-trips.
+        /// </para>
+        /// <para>
+        /// The classifier itself is <see cref="UnsupportedCollectionPolicy.IsUnsupported"/>, and this value
+        /// only records that the shape question was asked and answered. The check therefore runs
+        /// <em>before</em> the <c>IDictionary</c>/<c>ICollection</c> branches below, which would otherwise
+        /// describe all four families as an ordinary <c>List&lt;&gt;</c>/<c>Dictionary&lt;,&gt;</c> payload.
+        /// </para>
+        /// </summary>
+        UnsupportedCollectionPolicy,
     }
 
     /// <summary>
@@ -323,6 +344,17 @@ namespace Ceras.Format
                 }
             }
 
+            // The owner's collection policy, before anything that would otherwise describe these shapes.
+            // It has to come first: ReadOnlyDictionary<K,V> is picked up by the IDictionary branch below
+            // and ReadOnlyCollection<T> by the ICollection branch, so a check after them would never be
+            // reached. The exact List<T>/Dictionary<TKey,TValue> answered above and stays supported; only a
+            // derived type is refused, which the predicate decides by walking the base chain.
+            if (UnsupportedCollectionPolicy.IsUnsupported(type))
+            {
+                rejection = CollectionShapeRejection.UnsupportedCollectionPolicy;
+                return false;
+            }
+
             var dictItf = FindClosedInterface(type, typeof(System.Collections.Generic.IDictionary<,>));
             if (dictItf != null)
             {
@@ -397,7 +429,12 @@ namespace Ceras.Format
                 CollectionShapeRejection.UninferrableElementType =>
                     $"The collection type '{name}' is handled by the built-in collection formatter, but Ceras cannot infer a " +
                     "single element/key/value type to describe it with. Give it a concrete ICollection<T> or IDictionary<K,V> " +
-                    "implementation, or provide a custom formatter.",
+                    "implementation, and load the save with the build that wrote it if one is already written.",
+
+                // One shared sentence for the whole policy, so the four refused families cannot be
+                // described four different ways depending on which layer noticed them.
+                CollectionShapeRejection.UnsupportedCollectionPolicy =>
+                    $"The collection type '{name}' is a shape Ceras does not support. {UnsupportedCollectionPolicy.BanReason}",
 
                 _ =>  // None: no shape-specific defect to explain; this is the general fallback.
                     $"'{name}' is not a collection shape Ceras describes: it is not a built-in collection, a collection " +

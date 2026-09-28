@@ -340,6 +340,45 @@ The above are just examples. Some shapes are out of scope however they are used 
   > produced. Nothing on the wire changed for types that had no banned member — the member was
   > already excluded from the schema — so existing saves of unaffected types still load.
 
+- If you need a `ReadOnlyCollection<T>` / `ReadOnlyDictionary<TKey,TValue>`, or a subclass of
+  `List<T>` / `Dictionary<TKey,TValue>`. Those four families are **not serializable**, by decision and
+  not by accident of the format: see
+  [`Format/UnsupportedCollectionPolicy`](src/Ceras/Format/UnsupportedCollectionPolicy.cs) and
+  [the policy section of `Format/LAYOUT.md`](src/Ceras/Format/LAYOUT.md).
+
+  > **Why, when the format can describe them.** The three shapes fail differently, and one of them
+  > fails *silently*, which is the reason none of them is left to chance:
+  >
+  > * A `List<T>` / `Dictionary<TKey,TValue>` subclass with no parameterless constructor comes back from
+  >   a save **empty**. A migration builds the wrapper from a fresh empty backing collection and then
+  >   fills that backing collection, which a copying constructor has already copied — so you get a real
+  >   instance holding zero elements, the rest of the graph intact, and no error.
+  > * A `ReadOnlyCollection<T>` subclass loads fine, but cannot be *saved*: the dedicated formatter was
+  >   written for the base `ReadOnlyCollection<T>`, so the write fails with a bare
+  >   `ArgumentNullException("method")` that names neither the type nor the member.
+  > * The base `ReadOnlyCollection<T>` itself did work — it is refused because it cannot be told apart
+  >   from the subclass, which resolves to it.
+  >
+  > The exact `List<T>` and `Dictionary<TKey,TValue>` are **not** affected and remain supported, as are
+  > `HashSet<>` (and its subclasses), the exact `Queue<>` and `Stack<>`, `LinkedList<>`, `SortedList<,>`,
+  > `SortedSet<>`, arrays, and the other collections the built-in formatter serves. A `Queue<>`/`Stack<>`
+  > *subclass* is refused too, but by an older and separate rule (no formatter can round-trip it at
+  > all), not by this policy. The rule here is base-type identity, never a name: an `IReadOnlyList<T>` or
+  > `IReadOnlyDictionary<K,V>` signature is ordinary API and is never rejected.
+  >
+  > The refusal is typed and actionable wherever a value would have to be produced: `CERAS033` for an
+  > annotated member and `CERAS034` for a declaration or context root at compile time, a
+  > `CerasSchemaException` from the robust bake (`Save`/`Load`, `DeclareRoot`), a `BannedTypeException`
+  > on the raw/transient serializer for a member, a root, a value in an `object` slot or a `Type` slot,
+  > and a `CerasSchemaException` from the migration interpreter for a save written by an older build —
+  > never a bare `MissingMethodException`/`ArgumentNullException` and never a silently empty collection.
+  > (One position is deliberately exempt: while *migrating*, a value of one of these types in a member
+  > you have since **removed** is skipped rather than refused — there is no value to produce and the
+  > bytes still have to be accounted for exactly, so refusing it would make an intentional deletion
+  > unloadable.) Store the elements in a `List<T>` / `Dictionary<TKey,TValue>` member instead, or mark
+  > the member `[Exclude]` if it is intentionally not serialized. Nothing on the wire changed for any
+  > shape the policy keeps.
+
 - If your robust save must serialize types that only exist at runtime. A robust context has a
   **finite** manifest baked at the first `Save`/`Load`; a type that is not in it is an error, not a
   fallback. The transient mode has no such restriction.

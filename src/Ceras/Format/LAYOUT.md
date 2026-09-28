@@ -202,13 +202,20 @@ same reason it picks the rest of the payload grammar: a rename, a re-assigned ID
 must still decode by the layout the writer used. The bound (`SizeLimits.MaxCollectionSize`) is checked
 in the same place, so it cannot drift between the shapes either.
 
-Any other concrete collection shape — a subclass, or a shape with no public parameterless constructor
-and no `Add` such as `ReadOnlyCollection<T>` / `ReadOnlyDictionary<K,V>` — is described as the
-built-in payload it is written as (`List<>` / `Dictionary<,>` plus the element/key/value identities)
-and is written as exactly those bytes. On the migration path the interpreter rebuilds such a shape by
-constructing the built-in collection and wrapping it (`ReadOnlyCollection<T>(IList<T>)`,
-`ReadOnlyDictionary<K,V>(IDictionary<K,V>)`); a shape it can neither construct nor wrap is rejected
-with an actionable `CerasSchemaException` instead of a raw reflection exception.
+Any other concrete collection shape the built-in collection formatter serves — a `HashSet<>` /
+`LinkedList<>` / `SortedList<,>` subclass, or one that implements `ICollection<T>` /
+`IDictionary<K,V>` directly — is described as the built-in payload it is written as (`List<>` /
+`Dictionary<,>` plus the element/key/value identities) and is written as exactly those bytes. On the
+migration path the interpreter rebuilds such a shape by constructing the shape itself; when it has no
+public parameterless constructor but a wrapping constructor, it constructs the built-in collection the
+shape describes, hands that to the wrapping constructor, and then adds the elements to the **backing**
+collection rather than to the wrapper (which may have no `Add` at all). The value and the fill target are
+deliberately different objects here (`Format/CurrentObjectFactory.CollectionFill`), and whether that
+works depends entirely on the wrapping constructor: one that *retains* the collection it is handed ends
+up holding every element, while one that *copies* it holds only what it copied — an empty collection,
+because the copy was taken before anything was added. A shape it can neither construct nor wrap is
+rejected with an actionable `CerasSchemaException` instead of a raw reflection exception. The four
+families below are removed from this set on purpose, and the copying case is one of the reasons.
 
 **The robust format describes only rank-1 arrays.** `MultiDimensionalArrayFormatter` (rank +
 per-dimension lengths + flattened elements) exists in the raw serializer, but the structural schema
@@ -241,6 +248,83 @@ and the member that reached it), `DeclareRoot` refuses it, and the interpreter r
 (naming the name the file used, and as a `CerasSchemaException` — the bytes are irrelevant, it is the
 current model that cannot describe the shape). All three carry the same reason text
 (`WellKnownTypes.DescribeCollectionShapeRejection`).
+
+## The temporary collection policy
+
+`Format/UnsupportedCollectionPolicy` refuses four collection families outright:
+
+| refused | kept |
+|---|---|
+| `ReadOnlyCollection<T>` — the built-in type and every subclass | the exact `List<T>` and the exact `Dictionary<K,V>` |
+| `ReadOnlyDictionary<K,V>` — the built-in type and every subclass | `HashSet<>` and its subclasses; the exact `Queue<>` and `Stack<>` |
+| every `List<T>` subclass | `LinkedList<>`, `SortedList<,>`, `SortedSet<>` and every other collection the built-in formatter serves |
+
+Note the `Queue<>`/`Stack<>` row against the paragraph above it: a `Queue<>`/`Stack<>` **subclass** is
+refused, but by a different and older rule (`CollectionShapeRejection.UnsupportedQueueOrStack` — no
+formatter can round-trip it at all), not by this policy. The exact built-in `Queue<>`/`Stack<>` are fine.
+
+This is an **owner decision, not a format property**: the format can still describe these shapes, and
+no byte described below changes. What the policy removes is the promise that they round-trip, and the
+three shapes do not fail alike — which is the whole argument for refusing the families as a group
+rather than fixing them one at a time. Measured against the code as it stood before this policy:
+
+- A **`List<T>` / `Dictionary<TKey,TValue>` subclass with no parameterless constructor loses its elements
+  silently on migration.** The wrap-and-copy fallback constructs the wrapper from a *freshly empty*
+  backing collection and only then fills that backing collection, which a copying constructor has already
+  copied. The result is a real instance holding zero elements, the following members still aligned, and
+  no error. The matching-layout reader does not get that far — `Activator.CreateInstance` without
+  arguments, then a `MissingMethodException`.
+- A **`ReadOnlyCollection<T>` subclass fails on the way out.** The interpreter reconstructs it correctly
+  (the wrapper *retains* the list it is handed, so filling the backing list afterwards does reach it),
+  but the dedicated formatter was typed for the *base* `ReadOnlyCollection<T>`, so the reference wrapper
+  could not bind a serializer for the subclass: a bare `ArgumentNullException("method")` for a typed
+  slot, an `InvalidCastException` for a polymorphic `object` slot.
+- The **base `ReadOnlyCollection<T>` worked** — it round-tripped through the raw serializer, including a
+  wrapper holding a reference to itself. It is refused because it cannot be told apart from the subclass,
+  which resolves to it.
+
+**The exact-type distinction is the whole rule.** The predicate walks the base chain and matches generic
+*definitions*: `ReadOnlyCollection<>` / `ReadOnlyDictionary<,>` in any position, `List<>` /
+`Dictionary<,>` only when the walked type is *not* the type itself. An inheritance ban on `List<>` would
+take `List<int>` down with its subclasses, which is exactly the shape that has to keep working.
+
+**Where it is enforced** — one predicate, asked at every layer that would have to produce a value,
+because a refusal that exists only on the write side is a shape a legacy file can still walk into:
+
+| layer | site | error |
+|---|---|---|
+| source generator | an annotated member | `CERAS033` |
+| source generator | an assembly-level declaration or a `[CerasContext]` root | `CERAS034` |
+| robust bake | `SchemaRegistry.TryBuildStructuralSchema` (and so `DeclareRoot` and a Save's root check) | `CerasSchemaException` |
+| robust bake | `SchemaSection.ResolveId` — a member, a generic argument or an array element that reaches one | `CerasSchemaException` naming the declaring type and the position |
+| raw / transient | `BannedTypes` — a member, a value in a reference slot, a `System.Type` value | `BannedTypeException` |
+| raw / transient | `CollectionFormatterResolver` — a root, and a payload that names the type while it is read | `BannedTypeException` |
+| raw / transient read | `TypeFormatter.Deserialize` | `BannedTypeException` |
+| migration read | `SchemaTraversalEngine` — a collection payload, a class-shaped entry, and a file entry whose name still resolves to a refused type | `CerasSchemaException` |
+| migration read | `SchemaTraversalEngine.ReadTypeValue` — a `Type` value naming one | `BannedTypeException` |
+
+**Nested reachability is the same question.** The bake expands a described collection into its
+element/key/value type identities, so `List<ReadOnlyCollection<int>>` and
+`ReadOnlyCollection<int>[]` are refused at the *argument* that is refused; the generator walks the same
+shapes (`TypeHelpers.FindUnsupportedCollectionType`) and reports the offending argument, long before
+the bake.
+
+**An `IReadOnly*` signature is not one of these shapes.** `IReadOnlyList<T>`,
+`IReadOnlyDictionary<K,V>`, `ICollection<T>` and `IList<T>` are ordinary API declarations. The predicate
+matches base-type identity, never a name or a namespace, and the generator's mirror refuses interfaces
+outright — a name-shaped check would reject code that has nothing to do with serialization.
+
+**One position is deliberately *not* refused: the migration skip path.** A refused shape sitting in a
+member the user has since *removed* has no value to produce, and its payload still has to be accounted
+for byte-exactly or every field after it decodes from the wrong offset. Accounting for it is right;
+refusing it would turn an intentional deletion into an unloadable save. Only the read path — the one
+that would have to invent a value — refuses. This is the same asymmetry the `Queue<>`/`Stack<>` subclass
+rejection already has.
+
+`SchemaRegistry.Register(type, info)` with an **explicit** descriptor stays available: it is the
+documented public forge, and it is how a historical file's shape is described by hand. Only the derived
+paths — `DeclareRoot`, and `Register(type, null)`, which derive the descriptor from the CLR type — are
+refused.
 
 ## References, null, and polymorphism
 

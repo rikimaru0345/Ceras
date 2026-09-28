@@ -60,28 +60,28 @@ namespace Ceras.Test {
 			var robust = new CerasRobustSerializer(config => config.UseGeneratedFormatters("Tests"));
 
 			var original = new ReuseTestClass();
-			original.list1.Add(1000);
-			original.List2.Add(2000);
+			original.set1.Add(1000);
+			original.Set2.Add(2000);
 			original.InitOnlyAutoProp.Add(3000);
 
-			var listCountA = MyList<int>.created;
+			var setCountA = MySet<int>.created;
 
 			var data = robust.Save(original, 1);
 
 			// Saving should not create anything
-			Assert.Equal(listCountA, MyList<int>.created);
+			Assert.Equal(setCountA, MySet<int>.created);
 
 			var clone = new ReuseTestClass();
-			var listCountB = MyList<int>.created;
+			var setCountB = MySet<int>.created;
 
 			robust.Load(ref clone, data, 1);
 
-			var listCountC = MyList<int>.created;
+			var setCountC = MySet<int>.created;
 
-			// everything should be the same, ceras should have no problem with any of this, and should not have created more lists
-			// it should reuse the lists that are already there
-			Assert.Equal(listCountB, listCountC);
-			Assert.Equal(listCountC, MyList<int>.created);
+			// everything should be the same, ceras should have no problem with any of this, and should not have created more sets
+			// it should reuse the sets that are already there
+			Assert.Equal(setCountB, setCountC);
+			Assert.Equal(setCountC, MySet<int>.created);
 		}
 	}
 
@@ -103,17 +103,22 @@ namespace Ceras.Test {
 	[CerasSerializable]
 	public class ReuseTestClass {
 		// field
-		public MyList<int> list1 = [1, 2, 3];
+		public MySet<int> set1 = [1, 2, 3];
 		// readonly backing field
-		private readonly MyList<int> list2 = [7, 5, 1];
-		public MyList<int> List2 => list2;
+		private readonly MySet<int> set2 = [7, 5, 1];
+		public MySet<int> Set2 => set2;
 		// autoprop
-		public MyList<int> InitOnlyAutoProp { get; } = [4, 5, 6];
+		public MySet<int> InitOnlyAutoProp { get; } = [4, 5, 6];
 	}
 
-	public class MyList<T> : List<T> {
+	// A HashSet<T> subclass rather than a List<T> one: the collection policy refuses every
+	// List<T>/Dictionary<TKey,TValue> subclass (Format/UnsupportedCollectionPolicy), and a member of
+	// refused type is a compile error. HashSet<T> is the nearest shape the policy keeps, so the test still
+	// asks the same question — does loading reuse the collection the target object already holds instead of
+	// constructing another one?
+	public class MySet<T> : HashSet<T> {
 		public static int created = 0;
-		public MyList() {
+		public MySet() {
 			created++;
 		}
 	}

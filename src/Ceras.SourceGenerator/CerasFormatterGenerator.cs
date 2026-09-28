@@ -140,6 +140,21 @@ namespace Ceras.SourceGenerator
                         continue;
                     }
 
+                    // A context root that is itself a refused collection shape. Such a type gets no
+                    // generated formatter (the collection formatter would serve it) and no schema the bake
+                    // can accept, so the context could only ever fail on its first Save. Reported at the
+                    // type, next to the [CerasContext] that put it there.
+                    var refusedRoot = FindUnsupportedCollectionType(type);
+                    if (refusedRoot != null)
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(
+                            Diag.UnsupportedCollectionShapeDeclaration,
+                            type.Locations.FirstOrDefault(),
+                            type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                            refusedRoot.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
+                        continue;
+                    }
+
                     AddRoot(name!, type);
                 }
             }
@@ -181,6 +196,22 @@ namespace Ceras.SourceGenerator
                 }
 
                 if (target == null) continue;
+
+                // A declaration cannot make a collection shape the owner has ruled out serializable: the
+                // bake refuses it (Ceras.Format.SchemaRegistry.TryBuildStructuralSchema), so the generated
+                // registration would only produce a context that fails on its first Save. Reported where
+                // the declaration is written, and the offending type is what is named — a declaration of
+                // List<ReadOnlyCollection<int>> is refused for the argument, not for the List.
+                var refusedCollection = FindUnsupportedCollectionType(target);
+                if (refusedCollection != null)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        Diag.UnsupportedCollectionShapeDeclaration,
+                        attr.ApplicationSyntaxReference?.GetSyntax()?.GetLocation() ?? Location.None,
+                        target.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                        refusedCollection.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
+                    continue;
+                }
 
                 // A declaration cannot make a framework type the format cannot describe serializable: it
                 // would be registered as a well-known type and then rejected by the bake with advice that
@@ -367,6 +398,11 @@ namespace Ceras.SourceGenerator
             {
                 if (type.TypeKind == TypeKind.Interface || type.IsAbstract) { noFormatterReason[type] = "it is an interface or abstract type"; continue; }
                 if (IsOpenType(type)) { noFormatterReason[type] = "it is an open generic definition"; continue; }
+                // Asked before IsWellKnownType/IsCollectionType on purpose: those two would answer "it uses a
+                // built-in formatter" / "it is handled by the built-in collection formatter", which is
+                // exactly the promise the policy withdraws. The reason recorded here is what a member's
+                // generated field falls back to, so it has to say what is actually true.
+                if (FindUnsupportedCollectionType(type) != null) { noFormatterReason[type] = "it is a collection shape Ceras does not support (CERAS033/CERAS034)"; continue; }
                 if (IsWellKnownType(type, attrBag)) { noFormatterReason[type] = "it uses a built-in formatter"; continue; }
                 // IsCollectionFormatterType is a strict subset of this check (it calls IsCollectionType
                 // as its first condition), so one branch covers both cases.
@@ -823,6 +859,11 @@ namespace Ceras.SourceGenerator
             if (type.TypeKind == TypeKind.Enum) return true;
             if (type.SpecialType != SpecialType.None) return false;   // int, string, decimal, …
             if (type.TypeKind == TypeKind.Interface || type.IsAbstract) return false;
+            // A refused collection shape is not a declarable root: SchemaRegistry.DeclareRoot derives its
+            // schema from the CLR type and refuses it (Format/UnsupportedCollectionPolicy). It is already
+            // reported at the declaration or the [CerasContext] (CERAS034), so emitting a DeclareRoot for
+            // it here would only add a second, later failure to a build that has already failed.
+            if (FindUnsupportedCollectionType(type) != null) return false;
             if (MemberExplorer.IsCollectionFormatterType(type)) return true;
             if (type.IsUnboundGenericType || !type.IsGenericType) return false;
 

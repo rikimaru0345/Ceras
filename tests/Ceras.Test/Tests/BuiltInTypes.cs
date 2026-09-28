@@ -309,13 +309,18 @@ namespace Ceras.Test
                 Assert.True(queue.Dequeue() == clone.Dequeue());
         }
 
+        // ReadOnlyCollection<T> and ReadOnlyDictionary<TKey,TValue> used to be two entries in this test.
+        // They are not serializable any more — the owner's collection policy refuses both types and every
+        // subclass (Ceras/Format/UnsupportedCollectionPolicy). A List/Dictionary subclass with only a
+        // copying constructor used to come back from a migration holding zero elements with no error, and
+        // a ReadOnlyCollection<T> subclass used to fail on Save with a bare ArgumentNullException("method")
+        // because the dedicated formatter was typed for the base type — so a deep-equality pin for either
+        // would document a round trip no Ceras build performs. The refusal itself is pinned in
+        // UnsupportedCollectionPolicyTests (raw root, member, object slot, Type slot and read) and in
+        // ReviewFindingsTests (both wrappers through a robust object slot).
         [Fact]
         public void ImmutableCollections()
         {
-            var rc = new ReadOnlyCollection<int>(new[] { 4, 5, rngInt, 6, rngInt, 7, 8, rngInt, 98, 34, 2435, 32131 });
-            TestDeepEquality(rc);
-
-
             var immAr = ImmutableArray.Create(9, 8, 7, 6, 5, 4, 3, 32, rngInt, 123, 15, 42, 5, rngInt, rngInt);
             TestDeepEquality(immAr);
 
@@ -336,15 +341,6 @@ namespace Ceras.Test
 
             var ihs = ImmutableHashSet.Create(5, 5, 5, 5, 5, 5, rngInt, rngInt, 1, 2, 3, 4, 5, 6, 7, 8, 9);
             TestDeepEquality(ihs);
-
-
-            var dict = new ReadOnlyDictionary<string,string>(new Dictionary<string, string>
-            {
-                ["a"] = "val a",
-                ["asdasdsa"] = "val b",
-                ["123"] = "val c",
-            });
-            TestDeepEquality(dict);
         }
 
         [Fact]

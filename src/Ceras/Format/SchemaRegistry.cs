@@ -410,11 +410,20 @@ namespace Ceras.Format
         /// names). These are valid as roots/fields even though the generator skips them. Returns false
         /// for every other type (which must be declared via the generated manifest).
         /// <para>
-        /// A shape the format cannot represent at all is <b>rejected</b> rather than described: a
-        /// multidimensional array, and a <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> subclass. This is the
-        /// bake's fail-loud entry point (see <c>Format/LAYOUT.md</c>), so the error is raised here rather
-        /// than returned — unlike <see cref="WellKnownTypes.TryResolveCollectionShape"/>, which is a pure
-        /// classifier every caller may probe, and which supplies the reason this method reports.
+        /// A shape the format cannot represent at all — or one the owner has decided Ceras does not
+        /// support — is <b>rejected</b> rather than described: a multidimensional array, a
+        /// <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> subclass, and the collection shapes
+        /// <see cref="UnsupportedCollectionPolicy"/> refuses. This is the bake's fail-loud entry point
+        /// (see <c>Format/LAYOUT.md</c>), so the error is raised here rather than returned — unlike
+        /// <see cref="WellKnownTypes.TryResolveCollectionShape"/>, which is a pure classifier every caller
+        /// may probe, and which supplies the reason this method reports.
+        /// </para>
+        /// <para>
+        /// Only the <em>derived</em> structural schema is refused this way. <see cref="Register(Type, SchemaTypeInfo)"/>
+        /// with an explicit descriptor is the documented public forge (it is how a historical file is
+        /// described by hand), and it stays available; the automatic paths — <see cref="DeclareRoot"/> and
+        /// <c>Register(type, null)</c>, which both derive the descriptor from the CLR type — reach this
+        /// method and therefore cannot admit a refused shape.
         /// </para>
         /// </summary>
         public static bool TryBuildStructuralSchema(Type type, out SchemaTypeInfo info)
@@ -483,10 +492,14 @@ namespace Ceras.Format
                 return true;
             }
 
-            // A Queue<>/Stack<> subclass: no Ceras formatter writes it (see the rejection's own
-            // documentation), so there is no payload to describe. Refused loudly, with the same
-            // actionable reason the migration decoder reports, rather than admitted as an empty class.
-            if (shapeRejection == CollectionShapeRejection.UnsupportedQueueOrStack)
+            // A Queue<>/Stack<> subclass, or one of the collection shapes the owner has decided Ceras does
+            // not support (ReadOnlyCollection<>/ReadOnlyDictionary<,> and their subclasses, and every
+            // List<>/Dictionary<,> subclass): no Ceras formatter writes these in a way that round-trips
+            // (see each rejection's own documentation), so there is no payload to describe. Refused
+            // loudly, with the same actionable reason the migration decoder reports, rather than admitted
+            // as an empty class — which is what would otherwise produce a save that loads back empty.
+            if (shapeRejection is CollectionShapeRejection.UnsupportedQueueOrStack
+                or CollectionShapeRejection.UnsupportedCollectionPolicy)
                 throw new Ceras.Exceptions.CerasSchemaException(
                     WellKnownTypes.DescribeCollectionShapeRejection(type, shapeRejection));
 

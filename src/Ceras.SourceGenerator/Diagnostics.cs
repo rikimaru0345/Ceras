@@ -253,5 +253,27 @@ namespace Ceras.SourceGenerator
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        // CERAS033/CERAS034 are the two positions of the unsupported-collection policy (an annotated
+        // member, and a declaration or context root), mirroring the CERAS029/CERAS030 pair for the same
+        // reason: the member and the declaration are different places with different fixes. The two texts
+        // state the runtime's rule (Ceras.Format.UnsupportedCollectionPolicy) in the same words, because
+        // the generator cannot reference a runtime const and a rule that reads differently in a compile
+        // error than in a bake error is two rules.
+        public static readonly DiagnosticDescriptor UnsupportedCollectionShapeMember = new(
+            id: "CERAS033",
+            title: "Member has a collection shape Ceras does not support",
+            messageFormat: "Member '{0}' in '{1}' has the type '{2}', which Ceras does not support: ReadOnlyCollection<T> / ReadOnlyDictionary<TKey,TValue> (neither the built-in type nor any subclass), and any subclass of List<T> or Dictionary<TKey,TValue>. The exact List<T> and Dictionary<TKey,TValue> are supported and unaffected, as is every other collection Ceras describes. A subclass of these cannot be round-tripped: depending on the shape and the path it either comes back empty with no error, or cannot be written at all. Leaving the member out of the payload is not an option either - that is the same silent loss. Store the elements in a List<T> / Dictionary<TKey,TValue> member instead, or mark the member [Exclude] if it is intentionally not serialized",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor UnsupportedCollectionShapeDeclaration = new(
+            id: "CERAS034",
+            title: "Declaration names a collection shape Ceras does not support",
+            messageFormat: "The declaration names '{0}', whose type is '{1}' - a collection shape Ceras does not support: ReadOnlyCollection<T> / ReadOnlyDictionary<TKey,TValue> (neither the built-in type nor any subclass), and any subclass of List<T> or Dictionary<TKey,TValue>. The exact List<T> and Dictionary<TKey,TValue> are supported and unaffected. A context root or declared type of this shape cannot be given a formatter or a schema, so the bake would refuse the context; declare a root shape the format does describe (a one-dimensional array, the built-in collections, KeyValuePair, a tuple or an enum) instead",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }

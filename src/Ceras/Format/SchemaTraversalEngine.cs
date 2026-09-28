@@ -289,6 +289,12 @@ namespace Ceras.Format
         /// <see cref="TypeValueShapes"/> — the same decoder a polymorphic value's type tag uses, so the two
         /// can never describe the bytes differently. Reconstructing the closed type is required both to
         /// return the right value and to consume the argument bytes so the stream stays aligned.
+        /// <para>
+        /// A reconstructed type that <see cref="UnsupportedCollectionPolicy"/> refuses is rejected here, the
+        /// mirror of <c>RobustTypeFormatter</c>'s refusal on the way out: a save that could be written with
+        /// such a reference must not be the one place a value Ceras refuses to serialize can still come
+        /// back from, and the two halves of a round-trip cannot disagree about which types are admissible.
+        /// </para>
         /// </summary>
         object? ReadTypeValue(ref SequenceReader<byte> reader)
         {
@@ -296,7 +302,25 @@ namespace Ceras.Format
             if (tag == FullNameMarker)
                 return _typeBinder.GetTypeFromBase(ReadStringFromTable(ref reader));
 
-            return _typeValues.Materialize(_typeValues.Decode(tag, ref reader));
+            var value = _typeValues.Materialize(_typeValues.Decode(tag, ref reader));
+            RejectRefusedTypeValue(value);
+            return value;
+        }
+
+        /// <summary>
+        /// A <see cref="Type"/> value naming a collection shape the policy refuses, reported as a typed
+        /// error rather than handed back. The whole type value has already been consumed at this point, so
+        /// the stream stays aligned for whatever follows.
+        /// </summary>
+        void RejectRefusedTypeValue(object? value)
+        {
+            if (value is not Type type) return;
+            if (!UnsupportedCollectionPolicy.IsUnsupported(type)) return;
+
+            throw new Formatters.BannedTypeException(
+                $"A System.Type value in the save names the collection type '{TypeIdentity.GetCanonicalName(type)}', which Ceras does not " +
+                $"support, and it is not reported as {nameof(Type)}'s null: a null here silently changes what the value means. " +
+                UnsupportedCollectionPolicy.BanReason);
         }
 
         /// <summary>
@@ -579,6 +603,7 @@ namespace Ceras.Format
             _plans.TryGetValue(oldSchema.StableName, out var plan);
             Type? currentType = plan?.CurrentType ?? targetType;
 
+            RejectRefusedCollectionType(oldSchema, currentType);
             RejectUndescribableShape(oldSchema, currentType);
 
             // Reuse is only valid for an exact runtime-type match; a subtype/supertype mismatch must
@@ -727,11 +752,7 @@ namespace Ceras.Format
             // A collection payload is written by the built-in collection formatter as an explicit count
             // plus its elements/entries, so every collection is read through the single collection
             // reader, never through the ordinary user-type path (which would consume a reference marker
-            // that was never written). This check must come BEFORE any well-known definition dispatch: a
-            // collection subclass and a shape with no public parameterless constructor
-            // (ReadOnlyCollection<T>, ReadOnlyDictionary<K,V>) both bake the reserved definition id of the
-            // built-in collection they are described as, so dispatching on that id first would pick a
-            // reader for the wrong shape and then fail to construct the instance.
+            // that was never written). This check must come BEFORE any well-known definition dispatch.
             if (CurrentObjectFactory.IsCollectionShape(currentType))
                 return ReadCollectionShape(currentType, targetType, oldSchema, ref reader, cacheIndex, existingObject);
 
@@ -978,6 +999,37 @@ namespace Ceras.Format
         }
 
         /// <summary>
+        /// Refuses a value whose <em>current</em> CLR type is a collection shape
+        /// <see cref="UnsupportedCollectionPolicy"/> refuses, whatever the file's own entry looks like.
+        /// <para>
+        /// The collection reader refuses these from the payload side (a count followed by elements), and
+        /// <see cref="RejectRefusedCollectionName"/> refuses the same shapes resolved from the file's own
+        /// name. This is the third door, and the only one that needs a *current* type rather than the
+        /// file's: it guards the route where the file described the value as an ordinary class, so the
+        /// interpreter walks a field list — which for a collection entry means no fields, and therefore an
+        /// <c>object</c> uninitialized instance of the current type handed back empty with no error
+        /// anywhere.
+        /// </para>
+        /// <para>
+        /// Through the supported model that route needs a current type Ceras would itself have refused
+        /// (a member declared as one, a manifest entry registered for one), both of which the generator
+        /// and the bake refuse first. So this is the last line rather than the first: it is what makes the
+        /// guarantee "no code path returns an empty collection for a refused shape" hold even for a
+        /// hand-written schema, where the current type is whatever the caller declared.
+        /// </para>
+        /// </summary>
+        static void RejectRefusedCollectionType(OldTypeSchema oldSchema, Type? currentType)
+        {
+            if (oldSchema == null || currentType == null) return;
+            if (!UnsupportedCollectionPolicy.IsUnsupported(currentType)) return;
+
+            throw new Exceptions.CerasSchemaException(
+                $"Cannot migrate the value the save file records as '{oldSchema.StableName}': its current type is a collection shape " +
+                "Ceras has nothing to read it into, so loading it would produce an empty collection with no error anywhere. " +
+                WellKnownTypes.DescribeCollectionShapeRejection(currentType, CollectionShapeRejection.UnsupportedCollectionPolicy));
+        }
+
+        /// <summary>
         /// Rejects the saves written before the format learned to describe collection and tuple shapes
         /// structurally. Those files record such a value as an ordinary class schema with <b>no fields</b>
         /// (the shape's payload was never described), while the bytes are a count plus elements. Reading
@@ -1219,9 +1271,21 @@ namespace Ceras.Format
         /// The file describes a collection payload, but this build has no concrete collection type for it
         /// (the old name no longer resolves, or the slot is polymorphic and the runtime type is unknown
         /// here). Consume the payload so the stream stays aligned and report no value.
+        /// <para>
+        /// <b>"No concrete type" and "a concrete type this build refuses" are different answers.</b> The
+        /// first is a removed type: nothing can be produced, and consuming the payload keeps the rest of
+        /// the graph readable. The second is a type the owner has decided Ceras does not support
+        /// (<see cref="UnsupportedCollectionPolicy"/>), and it <em>does</em> resolve here — an older build
+        /// wrote a name this build still knows. Returning null for it would turn a save the current model
+        /// cannot represent into a silently empty collection, so the file's own name is resolved first and a
+        /// refused shape is named instead. That is the same name the writer used, which is the only handle
+        /// the user has on a file that is otherwise perfectly valid.
+        /// </para>
         /// </summary>
         object? ReadUnknownCollectionPayload(OldTypeSchema oldSchema, ref SequenceReader<byte> reader)
         {
+            RejectRefusedCollectionName(oldSchema);
+
             int count = ReadCollectionCount(oldSchema.DefinitionTypeId, ref reader);
             if (count == -1) return null;
 
@@ -1252,7 +1316,7 @@ namespace Ceras.Format
             var add = CurrentObjectFactory.ResolveElementAdder(fill.Target, elementType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
                     $"Cannot refill the collection type '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}' while migrating: it has no usable " +
-                    $"'{elementType?.Name ?? "element"}' add method. Provide a custom formatter for it, or load the save with the build that wrote it.");
+                    $"'{elementType?.Name ?? "element"}' add method. Give it a public '{elementType?.Name ?? "element"}' Add method, or load the save with the build that wrote it.");
 
             var coerce = oldElemId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldElemId.Value, elementType) : CoercionKind.None;
             for (int i = 0; i < count; i++)
@@ -1274,7 +1338,7 @@ namespace Ceras.Format
             var add = CurrentObjectFactory.ResolveEntryAdder(fill.Target, keyType, valType)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
                     $"Cannot refill the dictionary type '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}' while migrating: it has no usable " +
-                    $"'Add({keyType?.Name ?? "key"}, {valType?.Name ?? "value"})' method. Provide a custom formatter for it, or load the save " +
+                    $"'Add({keyType?.Name ?? "key"}, {valType?.Name ?? "value"})' method. Give it a public two-argument Add method, or load the save " +
                     "with the build that wrote it.");
 
             var kCoerce = oldKeyId.HasValue ? MigrationPlanBuilder.DetectCoercion(oldKeyId.Value, keyType) : CoercionKind.None;
@@ -1542,6 +1606,39 @@ namespace Ceras.Format
         }
 
 		Type GetCurrentType(string stableName) { _registry.TryResolveType(stableName, out var t); return t; }
+
+        /// <summary>
+        /// Refuses a file entry whose stable name still resolves in this build to a collection shape the
+        /// owner has decided Ceras does not support, and answers for every other name.
+        /// <para>
+        /// This is the "legacy file" half of the policy. A save written before it existed can name a
+        /// <c>ReadOnlyCollection&lt;T&gt;</c> or a <c>List&lt;T&gt;</c> subclass, and the current manifest
+        /// can never contain one — so nothing earlier in the decode has refused it, and the shape would
+        /// otherwise be skipped as "no concrete type for this payload" or built as an empty wrapper.
+        /// Resolving the file's own name is what makes the refusal possible at all: it is the only place
+        /// the identity the writer used is still available.
+        /// </para>
+        /// <para>
+        /// <b>The skip path deliberately does not do this</b>, and that asymmetry is the same one the
+        /// <c>Queue&lt;&gt;</c>/<c>Stack&lt;&gt;</c> subclass rejection has: a value in a member the user has
+        /// since <em>removed</em> has no value to produce, and the payload still has to be accounted for
+        /// byte-exactly or every field after it decodes from the wrong offset. Accounting for it is right;
+        /// refusing it would turn an intentional deletion into an unloadable save. Only the read path — the
+        /// one that would have to invent a value — refuses.
+        /// </para>
+        /// </summary>
+        void RejectRefusedCollectionName(OldTypeSchema oldSchema)
+        {
+            if (oldSchema?.StableName == null) return;
+            var current = GetCurrentType(oldSchema.StableName);
+            if (!UnsupportedCollectionPolicy.IsUnsupported(current)) return;
+
+            throw new Exceptions.CerasSchemaException(
+                $"The save file describes this value as '{oldSchema.StableName}', which still resolves in this build. Its current type is " +
+                "a collection shape Ceras has nothing to read it into, so consuming the payload and reporting no value would silently drop " +
+                "the data. " +
+                WellKnownTypes.DescribeCollectionShapeRejection(current, CollectionShapeRejection.UnsupportedCollectionPolicy));
+        }
 
         object? ReadEnumValue(OldTypeSchema oldSchema, Type? targetType, TypeMigrationPlan? plan, ref SequenceReader<byte> reader)
         {

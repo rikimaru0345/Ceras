@@ -142,7 +142,9 @@ namespace T
         // MakeFormatterFieldName sanitizes the fully-qualified display: 'A.B_C' and the nested
         // 'A.B.C' both become '_A_B_CFormatter'. Here the second type is a reference-type collection,
         // so it is skipped from formatter generation (no CERAS022) and no member references it, which
-        // isolates the field-name collision to exactly one declaring type.
+        // isolates the field-name collision to exactly one declaring type. (A HashSet<T> subclass, not a
+        // List<T> one: the collection policy refuses every List<T>/Dictionary<TKey,TValue> subclass, and a
+        // refused context root is CERAS034 — a different defect that would mask the one under test.)
         // ----------------------------------------------------------------------------------------
         [Fact]
         public void FormatterFieldNameCollision_EmitsCERAS020()
@@ -172,7 +174,7 @@ namespace A
     {
         [CerasContext(""Tests"")]
         [CerasSerializable]
-        public class C : System.Collections.Generic.List<int> { }
+        public class C : System.Collections.Generic.HashSet<int> { }
     }
 }";
 
