@@ -110,8 +110,29 @@ must match the generator's `Ceras.SourceGenerator.TypeHelpers.GetRobustName` exa
 emits these canonical names for field types and enum underlying types (never `Type.FullName`).
 Structural/declared runtime schemas (`SchemaRegistry.TryBuildStructuralSchema`,
 `BuildDeclaredSchema`) use the same helper. `SchemaRegistry.TryResolveType` parses canonical names
-back to CLR types on cold paths; the remaining assembly scan is a last resort for genuinely
-external/legacy unqualified `Type.FullName` names.
+back to CLR types on cold paths.
+
+Resolution never walks the loaded assemblies. A name is answered by exactly three identities, in this
+order, and a name none of them answers stands for no type at all:
+
+1. the manifest's own names — each registered entry's stable name and its `[PreviousTypeName]`
+   aliases, which the manifest's one-name-one-entry rule already makes unambiguous;
+2. `Type.GetType`, for the framework and assembly-qualified spellings;
+3. the context's configured `ITypeBinder` (`Config.TypeBinder`), reached only from the
+   canonical-name parser's definition lookup and memoized per name. This is the one door outside the
+   manifest, it is explicit, and `CerasRobustConfig.Seal` installs it before any save can exist, so
+   the same bytes resolve the same way in any process that configured the same context.
+
+Requiring a binder rather than scanning is what makes resolution a property of the context: which
+types a name stands for is a fact about this context's manifest and configuration, not about whatever
+happens to be loaded when the name is read. A binder name that would claim a *different* manifest
+entry's name is refused at the seal, since the same string in a save file would otherwise bind to one
+type through the manifest and another through the binder.
+
+Note that `SimpleTypeBinder`, the default binder, still searches assemblies itself — its declared
+`CustomSearchAssemblies`, then the entry assembly, then everything loaded. That search is now the only
+remaining broad lookup in the robust read path, and it is reached only through the configured binder,
+on cold paths, and memoized per name.
 
 ## Member layout
 

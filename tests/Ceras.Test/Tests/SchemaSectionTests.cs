@@ -34,6 +34,27 @@ namespace Ceras.Test
 
     public class SchemaSectionTests : TestBase
     {
+        /// <summary>
+        /// Installs the binder these hand-built registries need, and returns the registry.
+        /// <para>
+        /// The tests below use the <see cref="SchemaRegistry"/> directly (<c>SchemaSection.Write</c>,
+        /// <c>Seal()</c>), so no serializer is ever constructed for them and
+        /// <c>CerasRobustConfig.Seal()</c> - the one place that hands the context's
+        /// <c>Config.TypeBinder</c> to the registry - never runs. That matters because a name is now
+        /// answered by exactly three identities: this manifest, <c>Type.GetType</c>, and the configured
+        /// binder. The implicit loaded-assembly scan these tests used to lean on is gone, so the
+        /// "Tests" context's own generic definitions (<c>Ceras.Test.MySet`1</c>, reached as a
+        /// <c>ReuseTestClass</c> member) have nothing to answer their names unless a binder is named.
+        /// This is the same <see cref="SimpleTypeBinder"/> a real context gets at setup, installed here
+        /// because a real context installs it for itself.
+        /// </para>
+        /// </summary>
+        static SchemaRegistry WithDefaultBinder(SchemaRegistry registry)
+        {
+            registry.SetTypeBinder(new SimpleTypeBinder());
+            return registry;
+        }
+
         // Two enums whose values differ in every one of the eight raw bytes, so a value read back
         // can only be correct if all eight bytes came off the wire and none was carried over from a
         // buffer a previous value (or a previous schema entry) left behind. Not [CerasSerializable],
@@ -89,7 +110,7 @@ namespace Ceras.Test
                 },
                 underlyingTypeName: "System.UInt64"));
 
-            return registry;
+            return WithDefaultBinder(registry);
         }
 
         SchemaRegistry CreateRegistry()
@@ -123,7 +144,7 @@ namespace Ceras.Test
             }, 8);
             ((CerasRobustConfig)config).SchemaRegistry.Register(typeof(Vec2Struct), vec2Info);
 
-            return ((CerasRobustConfig)config).SchemaRegistry;
+            return WithDefaultBinder(((CerasRobustConfig)config).SchemaRegistry);
         }
 
         // ── Round-trip helpers ────────────────────────────────────────────────
