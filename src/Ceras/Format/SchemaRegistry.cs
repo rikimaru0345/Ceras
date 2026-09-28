@@ -353,6 +353,16 @@ namespace Ceras.Format
 		/// the registry could answer for and an id the format already owns must not be one string.
 		/// </para>
 		/// <para>
+		/// And the mirror of that rule, and the one clause of this invariant that ordering cannot settle: a
+		/// name Ceras writes for a CLR type is that type's own, whether or not the type has registered yet
+		/// (<see cref="RequireOwnDerivedName"/>, which says what is decided syntactically and what
+		/// remains). A shape that is only reachable as a member — a structural collection, an array, a
+		/// tuple, an enum the generator has no entry for — is registered by the bake at the moment a member
+		/// reaches it, so "whoever registers first" would be decided by which member the walk happened to
+		/// reach first; and a member whose name an impostor already holds is never reached, so the real
+		/// shape never registers and the impostor's id is what gets written.
+		/// </para>
+		/// <para>
 		/// Reported from <see cref="Register"/> rather than from the seal, which is strictly earlier: the
 		/// author sees it where they wrote the name, and nothing half-baked has been published. The seal
 		/// asks it again for every shape it discovers on the way (<c>SchemaSection.ResolveId</c> registers
@@ -399,9 +409,10 @@ namespace Ceras.Format
 
 		/// <summary>
 		/// The single check <see cref="ClaimNames"/> makes for one of its names: the name must be
-		/// non-empty where it has to be, must not be a reserved well-known name, and must not already be
-		/// claimed by a different entry (or by a different generic family). Answers without mutating
-		/// anything, which is what lets the caller require every name before indexing any of them.
+		/// non-empty where it has to be, must not be a reserved well-known name, must be a name this
+		/// entry's own type may answer for, and must not already be claimed by a different entry (or by a
+		/// different generic family). Answers without mutating anything, which is what lets the caller
+		/// require every name before indexing any of them.
 		/// </summary>
 		void RequireClaimableName(Entry entry, string name, bool isStableName)
 		{
@@ -425,6 +436,8 @@ namespace Ceras.Format
 					$"entry recorded under '{name}' could never be resolved to — a reader takes the well-known id first. Rename " +
 					"the type (or drop the [PreviousTypeName] alias that reuses the name), then rebuild.");
 
+			RequireOwnDerivedName(entry, name, isStableName);
+
 			if (!_byStableName.TryGetValue(name, out var owner))
 				return;
 
@@ -439,6 +452,89 @@ namespace Ceras.Format
 				$"{NameRole(owner.Info.StableName == name)}. A manifest name identifies exactly one type — a save file is " +
 				"matched to this build by it, so two claims would bind it to whichever was registered first, silently. " +
 				"Rename one of the two types, or declare the [PreviousTypeName] alias on only one of them, then rebuild.");
+		}
+
+		/// <summary>
+		/// The mirror of the reserved-name rule: a name Ceras writes for a CLR type belongs to that type.
+		/// The name is not invented here — it is read off the type being described
+		/// (<see cref="TryBuildStructuralSchema"/> and <see cref="BuildDeclaredSchema"/> both write
+		/// <c>TypeIdentity.GetCanonicalName(type)</c> as a derived entry's stable name, the generator
+		/// writes the same string for a declared one), and a member records that same string as its type
+		/// name. So such a name already has an owner, whoever is asking: the CLR type it spells.
+		/// <para>
+		/// <b>Why that has to be a rule and not a coincidence of registration order.</b> A member's type
+		/// name is resolved by <c>SchemaSection.ResolveId</c>, which asks the reserved table, then
+		/// <see cref="TryResolveType"/>, and registers the real shape only if the name is not already
+		/// claimed. So an entry that claims a member's name <em>first</em> is what that member resolves
+		/// to: <c>Register(typeof(List&lt;int&gt;), null)</c> is never reached, the member is written with
+		/// the impostor's id, and the load reports success. On the migration path the member then reads
+		/// through <c>SchemaTraversalEngine.ReadGenericInstantiation</c> with the impostor as its current
+		/// type, which is not a collection shape, so <c>ReadUnknownCollectionPayload</c> consumes the
+		/// count, skips the elements and answers <b>null</b> — a member silently gone, with the stream
+		/// still aligned and no exception anywhere. Nothing downstream can catch that: the file's entry
+		/// records the definition the real type would have recorded, so
+		/// <c>MigrationPlanBuilder.TypeIdsCompatible</c> agrees with itself. This is the one hole in
+		/// <see cref="ClaimNames"/> that ordering cannot close, which is why it is closed here instead —
+		/// at the claim, before the name is in the index at all.
+		/// </para>
+		/// <para>
+		/// What makes it so easy to miss is that the corruption needs the impostor in the context that
+		/// <em>reads</em>: a reader whose manifest does not carry it registers the real shape under that
+		/// name while it bakes, and the same bytes come back whole there. Measured on the code before this
+		/// rule, for a member declared <c>List&lt;int&gt;</c> whose name a descriptor had claimed: the
+		/// generated reader returned the list, the migration interpreter in the context that carried the
+		/// descriptor returned <c>null</c>, and the context without it returned the list again. (See
+		/// <c>DerivedNameBindingTests</c>.)
+		/// </para>
+		/// <para>
+		/// <b>What is decided syntactically, and why it has to be.</b> Whether some string is the
+		/// canonical name of a CLR type is a question about the CLR, and the only way to answer it inside a
+		/// registry is <see cref="ResolveDefinitionName"/> — the configured <see cref="ITypeBinder"/>, which
+		/// is user code and is documented as never running under the lock this method runs under
+		/// (<see cref="Register"/> holds it). <see cref="WellKnownTypes.IsDerivedCanonicalName"/> therefore
+		/// recognizes the <em>form</em> of a closed canonical name instead, which needs no type, no
+		/// assembly and no binder, and which covers every such name because Ceras only ever writes
+		/// <c>TypeIdentity.GetCanonicalName</c>. A type claiming its own canonical name is the one
+		/// overlap, and it is what every entry in a manifest does, so no manifest is refused by this.
+		/// </para>
+		/// <para>
+		/// <b>The residual gap, stated rather than papered over:</b> a name with <em>no</em> arguments is
+		/// written for a CLR type just as much — an enum (<see cref="BuildDeclaredSchema"/>) and a
+		/// non-generic collection subclass (<see cref="TryBuildStructuralSchema"/>) both derive a plain
+		/// canonical name — and <b>nothing syntactic can tell those from an arbitrary alias</b>, because
+		/// both are ordinary names that merely look like a type. The duplicate check below covers the
+		/// order that keeps them safe: the real type registers (as a manifest entry, a declared root, or
+		/// through a member of one) and the later claim is refused, naming both. What survives is the
+		/// window in which the impostor registers first and the real type is only reached as a member, so
+		/// its name resolves to the impostor and it never registers at all — the same silent binding, for
+		/// an enum or a non-generic collection subclass. Closing that would mean resolving the name at
+		/// claim time, i.e. the binder, under the lock: not available here, and not worth making the
+		/// invariant conditional on a user callback. A descriptor claiming a name of <em>another</em>
+		/// type's is the only shape of it that this gap applies to.
+		/// </para>
+		/// </summary>
+		void RequireOwnDerivedName(Entry entry, string name, bool isStableName)
+		{
+			if (!WellKnownTypes.IsDerivedCanonicalName(name))
+				return;
+
+			// The one overlap, and not a narrow one: this is what the bake itself does for every shape it
+			// discovers, and what a generated manifest does for every closed generic and array in it.
+			string ownName = TypeIdentity.GetCanonicalName(entry.Type);
+			if (string.Equals(name, ownName, StringComparison.Ordinal))
+				return;
+
+			throw new Ceras.Exceptions.CerasSchemaException(
+				$"Cannot register '{ownName}' under the name '{name}': that name is the canonical name of a CLR type, and Ceras " +
+				$"writes it for that type — the bake and the generator both spell an entry's stable name as " +
+				$"TypeIdentity.GetCanonicalName(type), and a member records the same string as its type name. '{name}' therefore " +
+				$"already belongs to the type it spells, and a member declared as that type resolves its name through this " +
+				$"context's name index ({NameRole(isStableName)}), so the claim would bind that member to '{ownName}' instead of " +
+				$"to the type it is: the real shape is then never registered, the member's payload is written with the wrong " +
+				"type id, and a migrated load reads it back as null with the stream still aligned and no error raised. Only the " +
+				$"type a name spells may claim it — which is why this entry's own canonical name ('{ownName}') is the name it may " +
+				"use. Give the type its canonical name, and describe a renamed generic with an OPEN [PreviousTypeName] alias of " +
+				"its definition ('Legacy.Box`1'), which a reader closes with the file's own arguments, then rebuild.");
 		}
 
 		public bool IsSealed => _sealedWatermark != -1;
@@ -460,9 +556,10 @@ namespace Ceras.Format
 		/// </para>
 		/// <para>
 		/// It is also the one place the manifest's <em>name</em> invariant is enforced, so a descriptor
-		/// that collides with another entry's name, with a reserved well-known name, or with the name a
-		/// structural shape derives from the CLR type is refused here and nothing joins the manifest. See
-		/// <see cref="ClaimNames"/>, which states it.
+		/// that collides with another entry's name, with a reserved well-known name, or with the closed
+		/// canonical name a CLR type is <em>derived</em> from is refused here and nothing joins the
+		/// manifest. See <see cref="ClaimNames"/>, which states it, and
+		/// <see cref="RequireOwnDerivedName"/>, which states the third rule and the gap it leaves.
 		/// </para>
 		/// </summary>
 		public void Register(Type type, SchemaTypeInfo info)
@@ -806,6 +903,12 @@ namespace Ceras.Format
         /// <c>Type.FullName</c> shape, and a hand-written closed alias) contains <c>&lt;</c>, so it
         /// keeps the exact closure it was indexed with. Only a name that carries no arguments at all
         /// is an alias for the family, so no other type can be picked up by accident.
+        /// </para>
+        /// <para>
+        /// A canonical closed name is also the <b>only</b> entry it can reach: it is the name the bake
+        /// derives for one CLR type, so <see cref="RequireOwnDerivedName"/> refuses every other entry's
+        /// claim on it and the entry this finds is that type. The branch below is therefore the answer
+        /// for a name that is not closed, and the closed one is answered by the same string the bake wrote.
         /// </para>
         /// </summary>
         static Type AsNamedType(Type registered, string? name)

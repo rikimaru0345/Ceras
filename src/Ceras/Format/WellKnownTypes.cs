@@ -512,7 +512,10 @@ namespace Ceras.Format
         /// Only a <em>reserved</em> name answers. A closed canonical name —
         /// <c>System.Collections.Generic.List`1&lt;System.Int32&gt;</c>, <c>System.Int32[]</c> — is an
         /// ordinary manifest entry that happens to mention a reserved definition, and a name outside the
-        /// canonical form is not a well-known name at all; both resolve to nothing here.
+        /// canonical form is not a well-known name at all; both resolve to nothing here. Being an
+        /// ordinary manifest entry is exactly what makes a closed name delicate: it is also the name the
+        /// bake <em>derives</em> for that CLR type, so it may only be claimed by the type it names — see
+        /// <see cref="IsDerivedCanonicalName"/> and <c>SchemaRegistry.RequireClaimableName</c>.
         /// </para>
         /// </summary>
         public static bool TryGetIdByCanonicalName(string canonicalName, out int id)
@@ -525,6 +528,226 @@ namespace Ceras.Format
 
             return CanonicalNameToIdMap.TryGetValue(canonicalName, out id);
         }
+
+        // ── The mirror of the reserved table: the names the bake *derives* ────────────────────────
+        //
+        // <see cref="CanonicalNameToIdMap"/> answers "which reserved id does this name stand for". This
+        // half answers the other question about the same strings: "is this a name the bake derives from
+        // a CLR type and registers that type under?". It is the mirror of the reserved-name rule in
+        // <c>SchemaRegistry.RequireClaimableName</c>, and it lives here for the same reason that rule
+        // delegates: one place that knows what a name means, so the two halves cannot disagree.
+        //
+        // Why a *recognizer* rather than a lookup. The question looks like "does the CLR have a type this
+        // name is", and the honest answer to that is a resolution — but resolution in a registry is
+        // <see cref="ITypeBinder.GetTypeFromBase"/>, which is user code, and <see cref="SchemaRegistry"/>
+        // documents that it is never called while the registry's lock is held; Register runs under that
+        // lock, which is where a claim is checked. So the answer has to come from the string alone. That
+        // is enough, because the names in question are not arbitrary: they are canonical names produced
+        // by <see cref="TypeIdentity.GetCanonicalName"/>, so recognizing the form recognizes every one
+        // of them, and nothing else.
+
+        /// <summary>
+        /// How deep the canonical form may nest before a string stops being one. Every level is a real
+        /// generic or array level of a real type, so this is far past anything a CLR type can be — it is
+        /// here to bound the recursion on a name that <em>is</em> arbitrary author text
+        /// (<c>[PreviousTypeName]</c> and a hand-written descriptor both accept any string), not because a
+        /// legitimate name is expected to reach it.
+        /// </summary>
+        const int MaxCanonicalNesting = 32;
+
+        /// <summary>
+        /// True when <paramref name="name"/> is a <b>closed canonical name</b>: the exact string
+        /// <see cref="TypeIdentity.GetCanonicalName"/> produces for a closed generic
+        /// (<c>Ns.Box`1&lt;System.Int32&gt;</c>, <c>Ns.Box`1+Cell`1&lt;System.Int32,Ns.Coord&gt;</c>) or for
+        /// an array (<c>System.Int32[]</c>, <c>System.Int32[,]</c>). Those are precisely the two shapes a
+        /// manifest entry's name can carry its type's shape in: <c>SchemaRegistry.TryBuildStructuralSchema</c>
+        /// and <c>SchemaRegistry.BuildDeclaredSchema</c> write
+        /// <c>TypeIdentity.GetCanonicalName(type)</c> as the <em>derived</em> entry's own stable name, the
+        /// generator writes the same string for a <em>declared</em> one, and a member records that string
+        /// as its type name — which <c>SchemaSection.ResolveId</c> resolves through the name index. So a
+        /// name which is one <b>belongs to the type it names</b>, and no other entry may claim it: that is
+        /// <c>SchemaRegistry.RequireOwnDerivedName</c>, and this is the question it asks.
+        /// <para>
+        /// It is a <b>recognizer, not a resolver</b>, which is what makes it usable where the question
+        /// is asked: nothing here loads a type, consults a manifest or calls the configured
+        /// <see cref="ITypeBinder"/>, so it answers for a name that names nothing in this build at all,
+        /// and it answers while the registry's lock is held — a call into user code could not, and
+        /// <c>ResolveDefinitionName</c> is documented as never running under it.
+        /// </para>
+        /// <para>
+        /// The grammar is the canonical form of <see cref="TypeIdentity.GetCanonicalName"/>, and it is
+        /// strict on purpose: <b>a name it does not recognize is an ordinary, claimable name</b>. So an
+        /// <em>open</em> definition name (<c>Ns.Box`1</c>), a plain scalar name, a generic parameter
+        /// (<c>!0</c>), a pointer (<c>System.Int32*</c> — a shape no writer can describe, so no name is
+        /// derived for one) and the legacy <c>Type.FullName</c> spelling of a closed generic
+        /// (<c>Ns.Box`1[System.Int32]</c>) all answer <c>false</c>. That last one answers <c>false</c>
+        /// because its element is a <em>definition</em>: a canonical name of a type always carries that
+        /// type's own arguments, and an array of an open generic is not a CLR type. It is the spelling
+        /// <see cref="SchemaRegistry.TryResolveType"/> step 2 still answers, and
+        /// <c>SchemaReproTests</c> relies on a hand-written descriptor being free to use it, so it has
+        /// to stay claimable.
+        /// </para>
+        /// <para>
+        /// What it deliberately does not decide: a name with <b>no</b> arguments is a plain canonical
+        /// name too, and the bake derives those as well — an enum, or a non-generic collection subclass.
+        /// Nothing syntactic can tell such a name from an arbitrary alias, so that part of the rule is
+        /// not here; <c>SchemaRegistry.RequireClaimableName</c> says what covers it and what does not.
+        /// </para>
+        /// </summary>
+        public static bool IsDerivedCanonicalName(string name)
+            => !string.IsNullOrEmpty(name)
+               && IsCanonicalName(name, 0, name.Length, 0, out bool carriesItsOwnShape)
+               && carriesItsOwnShape;
+
+        // The grammar, once, in the terms the canonical form is written in
+        // (TypeIdentity.AppendCanonicalName / AppendDefinitionName):
+        //
+        //   name       := array | closed | plain
+        //   array      := name '[' { ',' } ']'          // a rank; the bake refuses anything above 1
+        //   closed     := definition '<' name { ',' name } '>'
+        //   plain      := definition                     // an argument, and a name of its own
+        //   definition := segment { ('.' | '+') segment }
+        //   segment    := name-chars '`' digits?         // the arity marker, for a generic definition
+        //
+        // Only `array` and `closed` carry a type's shape in its name, and those two are what
+        // IsDerivedCanonicalName answers for; `plain` is accepted as an argument and as the tail of a
+        // name, and an arity marker on its own last segment is the one thing that would make it the name
+        // of a definition rather than of a type.
+
+        /// <summary>
+        /// Recognizes one canonical name in <c>[start, end)</c>, and reports in
+        /// <paramref name="carriesShape"/> whether that name is a <em>closed</em> one — an array or a
+        /// closed generic — rather than a plain name.
+        /// </summary>
+        static bool IsCanonicalName(string name, int start, int end, int depth, out bool carriesShape)
+        {
+            carriesShape = false;
+
+            if (depth > MaxCanonicalNesting) return false;
+
+            // The array suffix is anchored at the *end* of the name, so `System.Int32[][]` is an array of
+            // an array rather than one malformed rank: everything in front of the last bracket group is
+            // the element, and it is a name in its own right.
+            if (end > start && name[end - 1] == ']')
+            {
+                int rankStart = end - 1;
+                while (rankStart > start && name[rankStart - 1] == ',') rankStart--;
+                if (rankStart <= start || name[rankStart - 1] != '[') return false;
+                if (!IsCanonicalName(name, start, rankStart - 1, depth + 1, out _)) return false;
+                carriesShape = true;
+                return true;
+            }
+
+            int i = start;
+            if (!ScanDefinition(name, ref i, end, out bool lastSegmentIsGeneric)) return false;
+
+            // No argument list, so a plain name. An arity marker on its *own* last segment would make it
+            // the name of a definition (`Ns.Box`1`), and a definition is not a type: a canonical name of
+            // a type carries that type's arguments. A marker on an *enclosing* segment is fine — a
+            // non-generic type nested in a generic one is written `Ns.Box`1+Cell<System.Int32>`.
+            if (i == end)
+                return !lastSegmentIsGeneric;
+
+            if (name[i] != '<' || i + 1 >= end || name[i + 1] == '>') return false;
+            i++;
+
+            // The arguments, each one a name in its own right, separated by ',' and closed by the '>' the
+            // scan reports.
+            for (;;)
+            {
+                int argumentEnd = FindArgumentEnd(name, i, end);
+                if (argumentEnd < 0) return false;
+                if (!IsCanonicalName(name, i, argumentEnd, depth + 1, out _)) return false;
+
+                char separator = name[argumentEnd];
+                i = argumentEnd + 1;
+                if (separator == ',')
+                {
+                    if (i >= end) return false;   // a trailing separator
+                    continue;
+                }
+                break;
+            }
+
+            // Nothing may follow a closed generic but an array suffix, and that is anchored at the end of
+            // the name and was handled above — so a '>' anywhere but the last character is not a canonical
+            // name at all.
+            if (i != end) return false;
+
+            carriesShape = true;
+            return true;
+        }
+
+        /// <summary>
+        /// Consumes one <c>definition</c> — the dot- and plus-separated segments a type's name is made
+        /// of, each with an optional arity marker — and reports in
+        /// <paramref name="lastSegmentIsGeneric"/> whether the segment it stopped at carries one. Leaves
+        /// <paramref name="i"/> on the first character that is not part of the definition, which is where
+        /// an argument list or an array suffix has to follow.
+        /// </summary>
+        static bool ScanDefinition(string name, ref int i, int end, out bool lastSegmentIsGeneric)
+        {
+            lastSegmentIsGeneric = false;
+
+            for (;;)
+            {
+                int segmentStart = i;
+                while (i < end && IsNameChar(name[i])) i++;
+                if (i == segmentStart)
+                    return false;   // an empty segment: a leading, doubled or trailing separator
+
+                bool generic = false;
+                if (i < end && name[i] == '`')
+                {
+                    i++;
+                    int arityStart = i;
+                    while (i < end && name[i] >= '0' && name[i] <= '9') i++;
+                    if (i == arityStart)
+                        return false;   // an arity marker that names no arity
+                    generic = true;
+                }
+                lastSegmentIsGeneric = generic;
+
+                if (i >= end) return true;
+                if (name[i] != '.' && name[i] != '+') return true;
+                i++;   // another segment follows, or the name is malformed and the loop above says so
+            }
+        }
+
+        /// <summary>
+        /// Where the argument starting at <paramref name="start"/> ends: the top-level ',' that
+        /// separates it from the next one, or the '&gt;' that closes the list. -1 when the name runs out
+        /// or a bracket group is left open. The commas of an array rank belong to the array, so a '[' is
+        /// skipped whole, and a '&lt;' only opens a nesting level.
+        /// </summary>
+        static int FindArgumentEnd(string name, int start, int end)
+        {
+            int open = 0;
+
+            for (int i = start; i < end; i++)
+            {
+                char c = name[i];
+
+                if (c == '<') { open++; continue; }
+                if (c == '>') { if (open == 0) return i; open--; continue; }
+                if (c == ',') { if (open == 0) return i; continue; }
+                if (c != '[') continue;
+
+                while (++i < end && name[i] != ']') { }
+                if (i >= end) return -1;
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// A character a type name can carry besides its separators: letters and digits from any script,
+        /// and '_' / '$', both of which are legal inside a C# identifier. Everything the canonical form
+        /// reserves for structure ('.', '+', '`', '&lt;', '&gt;', '[', ']', ',', '*', '!') is read by the
+        /// scanner itself, and anything else — a space, a quote, the legacy '[' spelling — is not part of
+        /// a type name at all, so a string carrying one is not a canonical name.
+        /// </summary>
+        static bool IsNameChar(char c) => c == '_' || c == '$' || char.IsLetterOrDigit(c);
 
         /// <summary>
         /// Returns the fixed byte size for a well-known type ID, or 0 if variable.
