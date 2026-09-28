@@ -24,10 +24,21 @@ namespace Ceras.Format
     /// </summary>
     static class EnumWireName
     {
-        /// <summary>The wire name of the enum member called <paramref name="memberName"/>.</summary>
+        /// <summary>
+        /// The wire name of the enum member called <paramref name="memberName"/>.
+        /// <para>
+        /// The name this returns is never null: it is <paramref name="memberName"/> itself when the
+        /// type has no such field (or when the field carries no <c>[CerasStableName]</c>), and the
+        /// pinned name when it does. So the two ways a caller could get a null out of it are refused
+        /// rather than passed on — a null <paramref name="enumType"/> here, and a null
+        /// <paramref name="memberName"/> at the reflection lookup below, which names the argument it
+        /// rejects. Neither is reachable from the two call sites, which pass a type they are
+        /// describing and a name <see cref="Enum.GetNames(Type)"/> produced.
+        /// </para>
+        /// </summary>
         public static string Of(Type enumType, string memberName)
         {
-            if (enumType == null || memberName == null) return memberName;
+            ArgumentNullException.ThrowIfNull(enumType);
             return Of(enumType.GetField(memberName, BindingFlags.Public | BindingFlags.Static), memberName);
         }
 
