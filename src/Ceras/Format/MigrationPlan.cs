@@ -39,14 +39,76 @@ namespace Ceras.Format
         }
 
         /// <summary>The parameter index a member feeds, or -1 when the member is not a constructor argument.</summary>
-        public int SlotForField(FieldInfo field)
+        public int SlotForField(FieldInfo? field)
             => field != null && _slotByField.TryGetValue(field, out int slot) ? slot : -1;
+
+        /// <summary>
+        /// The member a parameter is fed by, or null when it is transient construction input. Read from
+        /// the map in the other direction, on purpose: it is asked only to name a value that is about to be
+        /// refused, so a reverse index would cost one array per type on every load to save a scan over a
+        /// map that holds one entry per mapped parameter.
+        /// </summary>
+        FieldInfo? MemberForSlot(int slot)
+        {
+            foreach (var (field, mappedSlot) in _slotByField)
+                if (mappedSlot == slot) return field;
+
+            return null;
+        }
 
         public bool IsMapped(int slot) => _mapped[slot];
 
         /// <summary>
+        /// The value read for the member a parameter takes, or the reason this save cannot supply one.
+        /// <para>
+        /// A null is a value the payload genuinely carried, and it is <b>accepted for a reference-type
+        /// parameter and for a <c>Nullable&lt;T&gt;</c> one</b>: those are the two shapes a save can
+        /// record a null for, and passing it through is what a correct round-trip looks like.
+        /// </para>
+        /// <para>
+        /// A null for a <b>non-nullable value type</b> is not a value the format can produce for it —
+        /// and reflection does not stop it. <c>ConstructorInfo.Invoke</c> substitutes
+        /// <c>default(T)</c>, <b>runs the constructor with it</b>, and returns null without raising
+        /// anything: the load succeeds, the constructor body has already run, and the object is built
+        /// from an argument the save never contained. That is silent data loss on a save that is
+        /// otherwise perfectly readable, and it is the worst of the three answers available, because
+        /// the value cannot be used and nothing says so. Refusing it here names the parameter, the
+        /// member the value came from and the type, and it refuses it at the first point the value
+        /// exists: before the constructor, before any member is assigned, and before the object can
+        /// reach a deferred <c>[OnAfterDeserialize]</c>.
+        /// </para>
+        /// </summary>
+        public object? AcceptMemberValue(int slot, object? value, OldFieldSchema? storedField)
+        {
+            if (value != null) return value;
+
+            var parameter = Parameters[slot];
+            var parameterType = parameter.ParameterType;
+            if (!parameterType.IsValueType || Nullable.GetUnderlyingType(parameterType) != null)
+                return null;   // a reference type and Nullable<T> each have a null of their own
+
+            var field = MemberForSlot(slot);
+            string owner = TypeIdentity.GetCanonicalNameOrUnknown(parameter.Member.DeclaringType);
+            string member = field != null
+                ? $"the member '{CtorArgumentPlanBuilder.StableNameOf(field)}'"
+                : "a parameter no serialized member feeds";
+            string stored = storedField != null
+                ? $"the save file records it under the name '{storedField.StableName}' and the stored value is null"
+                : "the save file records no member for it, and its value is null";
+
+            throw new Ceras.Exceptions.CerasSchemaException(
+                $"Cannot migrate '{owner}': the [CerasConstructor] parameter '{parameter.Name}' is a '{parameterType.Name}', which has no " +
+                $"null, but the value read for {member} is null ({stored}). A value type is written inline, so this save holds no value " +
+                $"for that position at all — passing it on would hand the constructor a default it never contained, and the load would " +
+                $"report success. Keep the member's declared type a reference type or a Nullable<> on both sides, give the parameter a " +
+                $"member whose stored value is never null, or load the save with the build that wrote it.");
+        }
+
+        /// <summary>
         /// The value for a parameter that no serialized member feeds: its declared default, or
-        /// <c>default(T)</c> when it has none. Mirrors <c>RobustCodeEmitter.FormatDefaultArgument</c>.
+        /// <c>default(T)</c> when it has none. Mirrors <c>RobustCodeEmitter.FormatDefaultArgument</c>,
+        /// and is never null for a value-type parameter — the same reason
+        /// <see cref="AcceptMemberValue"/> refuses one that arrived from the payload.
         /// </summary>
         public object? DefaultFor(int slot)
         {
@@ -77,7 +139,7 @@ namespace Ceras.Format
     struct FieldMapping
     {
         public OldFieldSchema OldField;
-        public FieldInfo NewField;  // null = removed (skip)
+        public FieldInfo? NewField;  // null = removed (skip)
         public CoercionKind Coercion;
     }
 
@@ -91,25 +153,37 @@ namespace Ceras.Format
 
     sealed class TypeMigrationPlan
     {
-        public Type CurrentType = null!;
-        public FieldMapping[] Mappings = null!;
-        public string[] AddedFieldNames = null!;
+        /// <summary>
+        /// The current CLR type the file's name resolved to, or null when this build has no such type:
+        /// a type that was removed is read structurally and assigned nothing, so a plan without a
+        /// current type is a normal plan rather than an incomplete one.
+        /// </summary>
+        public Type? CurrentType;
+        /// <summary>Null for an enum: an enum has no members, only a value remapping.</summary>
+        public FieldMapping[]? Mappings;
+        public string[]? AddedFieldNames;
         public bool HasChanges;
-        public MethodInfo OnBeforeDeserialize = null!;
+        public MethodInfo? OnBeforeDeserialize;
         public CallbackArgumentKind OnBeforeDeserializeArgument;
-        public MethodInfo OnAfterDeserialize = null!;
+        public MethodInfo? OnAfterDeserialize;
         public CallbackArgumentKind OnAfterDeserializeArgument;
         // Cached invokers that already carry the migration context for this type. Built by the
-        // traversal engine once per plan (the migration context is identical for every instance).
-        public Action<CerasSerializer, object> BeforeInvoker;
-        public Action<CerasSerializer, object> AfterInvoker;
-        /// <summary>Old raw bits -> current raw bits, matched by enum member name. See <see cref="EnumBits"/>.</summary>
-        public Dictionary<ulong, ulong> EnumValueMap;
+        // traversal engine once per plan (the migration context is identical for every instance),
+        // and null for a type with no such callback.
+        public Action<CerasSerializer, object>? BeforeInvoker;
+        public Action<CerasSerializer, object>? AfterInvoker;
+        /// <summary>
+        /// Old raw bits -> current raw bits, matched by enum member name (see <see cref="EnumBits"/>).
+        /// Null for everything but an enum that this build still has, and empty for an enum none of
+        /// whose members the file recorded — both are "no remapping to apply", which the reader
+        /// distinguishes from a plan that never had a map to consult.
+        /// </summary>
+        public Dictionary<ulong, ulong>? EnumValueMap;
 
         // How this type's [CerasConstructor] gets its values while migrating, resolved once per load
         // (the same resolution the generator does at compile time). Null when the type needs no
         // constructor arguments.
-        public CtorArgumentPlan CtorArgs = null!;
+        public CtorArgumentPlan? CtorArgs;
         public bool CtorArgsResolved;
     }
 
@@ -203,7 +277,7 @@ namespace Ceras.Format
 
         static TypeMigrationPlan BuildOne(OldTypeSchema old, Dictionary<int, OldTypeSchema> oldById, SchemaRegistry registry)
         {
-            registry.TryResolveType(old.StableName, out Type currentType);
+            registry.TryResolveType(old.StableName, out Type? currentType);
 
             var plan = new TypeMigrationPlan { CurrentType = currentType };
 
@@ -943,8 +1017,12 @@ namespace Ceras.Format
     /// </summary>
     static class CtorArgumentPlanBuilder
     {
-        /// <summary>Names the payload's field order for a constructor error, so the cause can be found.</summary>
-        public static string? DescribeOldFields(TypeMigrationPlan plan)
+        /// <summary>
+        /// Names the payload's field order for a constructor error, so the cause can be found. "none"
+        /// is the answer for a plan with no mappings, which includes a type this build cannot resolve:
+        /// its constructor then has nothing to report about.
+        /// </summary>
+        public static string? DescribeOldFields(TypeMigrationPlan? plan)
         {
             if (plan?.Mappings == null || plan.Mappings.Length == 0) return "none";
             return string.Join(", ", plan.Mappings.Select(m => m.OldField?.StableName).Where(n => n != null));
@@ -953,8 +1031,14 @@ namespace Ceras.Format
         /// <summary>
         /// The plan for a type, or null when the type needs no constructor arguments. Cached on the
         /// migration plan, so a type with many instances still resolves its constructor once.
+        /// <para>
+        /// Both arguments are nullable because both are nullable in the question: the reader asks for
+        /// the plan of the *current* type a value decodes into, and a type this build does not have
+        /// (a removed one) has no constructor to describe. The resolved flag is separate from the
+        /// cached plan so that "resolved to no constructor" is remembered too.
+        /// </para>
         /// </summary>
-        public static CtorArgumentPlan? Resolve(Type type, TypeMigrationPlan plan)
+        public static CtorArgumentPlan? Resolve(Type? type, TypeMigrationPlan? plan)
         {
             if (plan == null) return null;
             if (!plan.CtorArgsResolved)
@@ -965,7 +1049,7 @@ namespace Ceras.Format
             return plan.CtorArgs;
         }
 
-        static CtorArgumentPlan? Build(Type type, TypeMigrationPlan plan)
+        static CtorArgumentPlan? Build(Type? type, TypeMigrationPlan plan)
         {
             // A value type never takes a [CerasConstructor] on the generated path (the generator only looks
             // for one on reference types), and an interface/abstract type has no instance to construct.
@@ -1039,9 +1123,15 @@ namespace Ceras.Format
             return null;
         }
 
-        internal static (FieldInfo Field, string StableName) FindMemberForParameter(ParameterInfo parameter, List<(FieldInfo Field, string StableName)> members)
+        /// <summary>
+        /// The member a parameter is fed by, matched by name only — exactly the generator's rule
+        /// (<c>GetBestConstructor</c>), so both readers choose the same constructor for the same type.
+        /// The result is <c>default</c> for a parameter nothing matches: a transient construction input,
+        /// which then receives its own declared default.
+        /// </summary>
+        internal static (FieldInfo? Field, string? StableName) FindMemberForParameter(ParameterInfo parameter, List<(FieldInfo Field, string StableName)> members)
         {
-            string wanted = NormalizeName(parameter.Name);
+            string? wanted = NormalizeName(parameter.Name);
             if (wanted == null) return default;
 
             foreach (var member in members)
@@ -1051,8 +1141,13 @@ namespace Ceras.Format
             return default;
         }
 
-        /// <summary>Mirrors <c>TypeHelpers.NormalizeName</c> in the generator: lower-case, one leading underscore dropped.</summary>
-        internal static string NormalizeName(string name)
+        /// <summary>
+        /// Mirrors <c>TypeHelpers.NormalizeName</c> in the generator: lower-case, one leading
+        /// underscore dropped. Reflection annotates a parameter's and a field's name as maybe-null
+        /// (metadata-only parameters carry none), and a null normalizes to null rather than to an empty
+        /// string, so an unnamed parameter matches no member instead of matching every other unnamed one.
+        /// </summary>
+        internal static string? NormalizeName(string? name)
         {
             if (string.IsNullOrEmpty(name)) return name;
             var normalized = name.ToLowerInvariant();

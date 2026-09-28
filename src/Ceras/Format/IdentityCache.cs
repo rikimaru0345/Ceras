@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Ceras.Format
 {
@@ -76,7 +77,7 @@ namespace Ceras.Format
         // type it resolves to is what decides whether its payload is written behind a reference marker.
         readonly Dictionary<int, Type>              _typeValueTypes = new();
 
-        public FileSchemaView(Dictionary<string, OldTypeSchema> oldSchemas)
+        public FileSchemaView(Dictionary<string, OldTypeSchema>? oldSchemas)
         {
             _byName = oldSchemas ?? new Dictionary<string, OldTypeSchema>();
 
@@ -87,7 +88,13 @@ namespace Ceras.Format
 
         public Dictionary<string, OldTypeSchema> ByName => _byName;
 
-        public bool TryGetById(int typeId, out OldTypeSchema schema) => _byId.TryGetValue(typeId, out schema);
+        /// <summary>
+        /// The file's schema for a type id, or false when the file never described that id — in which
+        /// case <paramref name="schema"/> is null, which is a fact about the file rather than a value
+        /// a caller may use.
+        /// </summary>
+        public bool TryGetById(int typeId, [MaybeNullWhen(false)] out OldTypeSchema schema)
+            => _byId.TryGetValue(typeId, out schema);
 
         /// <summary>Whether an id is already taken, so a synthesized identity can be checked for a collision.</summary>
         public bool ContainsById(int typeId) => _byId.ContainsKey(typeId);
@@ -112,18 +119,23 @@ namespace Ceras.Format
         public Type? TypeValueCurrentType(int typeId)
             => _typeValueTypes.TryGetValue(typeId, out var type) ? type : null;
 
-        public bool TryGetByName(string stableName, out OldTypeSchema schema)
+        /// <summary>
+        /// The file's schema for a stable name. A null <paramref name="stableName"/> is answered as
+        /// "not in this file" rather than as a lookup failure, because a value the reader could not
+        /// name has no entry to find; the out parameter is then null.
+        /// </summary>
+        public bool TryGetByName(string? stableName, [MaybeNullWhen(false)] out OldTypeSchema schema)
         {
             if (stableName == null)
             {
-                schema = null!;
+                schema = null;
                 return false;
             }
 
             return _byName.TryGetValue(stableName, out schema);
         }
 
-        public bool Contains(string stableName) => stableName != null && _byName.ContainsKey(stableName);
+        public bool Contains(string? stableName) => stableName != null && _byName.ContainsKey(stableName);
 
         /// <summary>
         /// The name the file used for a current CLR type: its canonical stable name, or the first of its

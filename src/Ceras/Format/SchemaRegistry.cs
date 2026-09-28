@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -20,8 +21,15 @@ namespace Ceras.Format
         sealed class Entry
         {
             public int            Id;
-            public SchemaTypeInfo Info = null!;
+            public SchemaTypeInfo Info;
             public Type           Type;
+
+            public Entry(int id, SchemaTypeInfo info, Type type)
+            {
+                Id = id;
+                Info = info;
+                Type = type;
+            }
         }
 
         readonly Dictionary<Type,   Entry>  _byType       = new();
@@ -42,15 +50,28 @@ namespace Ceras.Format
 		readonly object _lock = new();
 
 		// Frozen schema (baked once, at seal). The happy path uses this directly and never parses
-		// the file schema nor decodes schema metadata names.
-		byte[] _bakedSchemaBytes = null!;
-		byte[] _bakedSchemaStringsBytes = null!;
+		// the file schema nor decodes schema metadata names. All four are null until the bake and null
+		// again after InternalClear, which is exactly what TryGetBakedSchema reports; they are
+		// deliberately not each given its own "is it baked" flag.
+		byte[]? _bakedSchemaBytes;
+		byte[]? _bakedSchemaStringsBytes;
 		ulong _bakedFingerprint;
-		Dictionary<Type, int> _bakedTypeToId;
-		Dictionary<int, Type> _bakedIdToType;
+		Dictionary<Type, int>? _bakedTypeToId;
+		Dictionary<int, Type>? _bakedIdToType;
 
 		/// <summary>True once the schema has been baked and frozen. A frozen bake never goes stale.</summary>
-		public bool HasBakedSchema => _bakedSchemaBytes != null;
+		public bool HasBakedSchema => IsBaked();
+
+		/// <summary>
+		/// Whether the four frozen fields are all present. They are set together by the bake and
+		/// cleared together by <see cref="InternalClear"/>, so this is the one answer to "is the
+		/// manifest baked" — stated once so a caller cannot read one field and get a different answer
+		/// than the accessor hands out. The bake runs under the lock, so a caller already holding it
+		/// (or calling one of the accessors) cannot observe a half-written set.
+		/// </summary>
+		bool IsBaked()
+			=> _bakedSchemaBytes != null && _bakedSchemaStringsBytes != null
+			   && _bakedTypeToId != null && _bakedIdToType != null;
 
 		/// <summary>
 		/// Precondition for resolving a save file's type ids against this registry: the manifest must be
@@ -74,8 +95,19 @@ namespace Ceras.Format
 		/// <summary>
 		/// Returns the frozen schema region: the schema bytes (containing indices into the schema
 		/// string table) and the schema string table bytes. Deterministic for a given registered set.
+		/// <para>
+		/// Every reference is null when this returns false — the context has not baked its manifest
+		/// yet — and non-null when it returns true, so the answer is the single thing a caller has to
+		/// check. The fingerprint is still reported either way, because it is a value rather than a
+		/// reference and comparing it is the point of asking.
+		/// </para>
 		/// </summary>
-		public bool TryGetBakedSchema(out byte[] schemaBytes, out byte[] schemaStrings, out Dictionary<Type, int> typeToId, out Dictionary<int, Type> idToType, out ulong fingerprint)
+		public bool TryGetBakedSchema(
+			[NotNullWhen(true)] out byte[]? schemaBytes,
+			[NotNullWhen(true)] out byte[]? schemaStrings,
+			[NotNullWhen(true)] out Dictionary<Type, int>? typeToId,
+			[NotNullWhen(true)] out Dictionary<int, Type>? idToType,
+			out ulong fingerprint)
 		{
 			lock (_lock)
 			{
@@ -84,7 +116,7 @@ namespace Ceras.Format
 				typeToId = _bakedTypeToId;
 				idToType = _bakedIdToType;
 				fingerprint = _bakedFingerprint;
-				return _bakedSchemaBytes != null;
+				return IsBaked();
 			}
 		}
 
@@ -102,10 +134,10 @@ namespace Ceras.Format
 				_declaredRoots.Clear();
 				_baking = false;
 				_fingerprint = null;
-				_bakedSchemaBytes = null!;
-				_bakedSchemaStringsBytes = null!;
-				_bakedTypeToId = null!;
-				_bakedIdToType = null!;
+				_bakedSchemaBytes = null;
+				_bakedSchemaStringsBytes = null;
+				_bakedTypeToId = null;
+				_bakedIdToType = null;
 				_bakedFingerprint = 0;
             }
         }
@@ -222,10 +254,16 @@ namespace Ceras.Format
 			int strOff = 0;
 			schemaStrings.Flush(ref strBuf, ref strOff, StringTableCompression.Disabled);
 
-			_bakedSchemaBytes = new byte[schemaOff];
-			Array.Copy(schemaBuf, _bakedSchemaBytes, schemaOff);
-			_bakedSchemaStringsBytes = new byte[strOff];
-			Array.Copy(strBuf, _bakedSchemaStringsBytes, strOff);
+			// Each array is filled before its field is published, so the frozen region is only ever
+			// reachable complete — the bake holds the lock throughout, but a field's own assignment is
+			// the point at which it becomes visible at all.
+			var bakedSchema = new byte[schemaOff];
+			Array.Copy(schemaBuf, bakedSchema, schemaOff);
+			var bakedStrings = new byte[strOff];
+			Array.Copy(strBuf, bakedStrings, strOff);
+
+			_bakedSchemaBytes = bakedSchema;
+			_bakedSchemaStringsBytes = bakedStrings;
 			_bakedIdToType = BuildIdToTypeLocked();
 		}
 
@@ -346,7 +384,7 @@ namespace Ceras.Format
                 // builder and the Type-value grammar; this is only the earliest door.
                 StructuralShape.RequireDescribableDescriptor(type, info);
 
-                var entry = new Entry { Id = _nextId++, Info = info, Type = type };
+                var entry = new Entry(_nextId++, info, type);
 
                 _byType[type] = entry;
 
@@ -385,7 +423,7 @@ namespace Ceras.Format
                     // make this path the one that cannot read its own files after a member rename.
                     string wireName = EnumWireName.Of(type, names[i]);
 
-                    if (wireNameOwner.TryGetValue(wireName, out string other))
+                    if (wireNameOwner.TryGetValue(wireName, out var other))
                         throw new Ceras.Exceptions.CerasSchemaException(
                             $"Cannot describe the enum '{TypeIdentity.GetCanonicalName(type)}': its members '{other}' and " +
                             $"'{names[i]}' would both be recorded under the name '{wireName}'. An enum member is identified by " +
@@ -455,7 +493,6 @@ namespace Ceras.Format
                     throw UnsupportedMultidimensionalArray(type, "schema");
                 }
 
-                var element = type.GetElementType();
                 info = new SchemaTypeInfo(
                     stableName: TypeIdentity.GetCanonicalName(type),
                     previousTypeNames: Array.Empty<string>(),
@@ -464,7 +501,7 @@ namespace Ceras.Format
                     fixedByteSize: 0,
                     enumValues: null!,
                     underlyingTypeName: TypeIdentity.GetCanonicalName(typeof(Array)),
-                    argTypeNames: new[] { TypeIdentity.GetCanonicalName(element) });
+                    argTypeNames: new[] { TypeIdentity.GetCanonicalName(TypeIdentity.ElementTypeOf(type)) });
                 return true;
             }
 
@@ -493,7 +530,17 @@ namespace Ceras.Format
             // instead of emitting an empty ordinary-class schema that cannot describe a single byte.
             if (WellKnownTypes.TryResolveCollectionShape(type, out var shapeDef, out var shapeArgs, out var shapeRejection))
             {
-                var argNames = new string[shapeArgs!.Length];
+                // A shape is a (definition, ordered arguments) pair, and the classifier reports one as
+                // a pair: answering true while leaving either half out would produce a schema that
+                // describes an argument list the file cannot have written. It is a Ceras-side
+                // invariant rather than a property of the model, so it is reported as such and not
+                // papered over with a null-forgiving operator on the argument array.
+                if (shapeDef == null || shapeArgs == null)
+                    throw new InvalidOperationException(
+                        $"The collection classifier resolved '{TypeIdentity.GetCanonicalName(type)}' to a shape with no definition " +
+                        "or no arguments, so no structural schema can describe it. This is a defect in the classifier, not in the model.");
+
+                var argNames = new string[shapeArgs.Length];
                 for (int i = 0; i < shapeArgs.Length; i++) argNames[i] = TypeIdentity.GetCanonicalName(shapeArgs[i]);
 
                 info = new SchemaTypeInfo(
@@ -563,16 +610,17 @@ namespace Ceras.Format
         /// <summary>
         /// Resolves a stable name (or previous type name) to the current registered <see cref="Type"/>.
         /// Used by the migration engine when reading old schema sections. Types absent from the current
-        /// build resolve to null and are interpreted without being registered.
+        /// build resolve to null and are interpreted without being registered — so the out parameter is
+        /// null exactly when this returns false, and every caller has to treat the two as one fact.
         /// A caller mapping a whole file's id space calls <c>RequireBakedManifest()</c> first.
         /// </summary>
-        public bool TryResolveType(string stableName, out Type type)
+        public bool TryResolveType(string stableName, [MaybeNullWhen(false)] out Type type)
         {
-			if (string.IsNullOrEmpty(stableName))
-			{
-				type = null!;
-				return false;
-			}
+            if (string.IsNullOrEmpty(stableName))
+            {
+                type = null;
+                return false;
+            }
 
             // Steps 1-3 consult the registry's own maps, so they run under the lock. Step 4 walks every
             // loaded assembly, which must not happen under it (0.8.14): the bake holds the same lock and
@@ -592,8 +640,11 @@ namespace Ceras.Format
             // 3. Canonical names of closed generics / arrays / pointers that are not registered yet
             //    (e.g. a structural collection discovered while baking the schema). Definitions are
             //    resolved from the framework or loaded assemblies.
-            if (TypeIdentity.TryParseCanonicalName(stableName, ResolveDefinitionName, out type))
+            if (TypeIdentity.TryParseCanonicalName(stableName, ResolveDefinitionName, out var parsed))
+            {
+                type = parsed;
                 return true;
+            }
 
             // 4. Last resort for genuinely-external/old names: an unqualified, non-canonical
             //    Type.FullName or a definition name. Bounded scan of loaded assemblies, unlocked.
@@ -620,7 +671,7 @@ namespace Ceras.Format
         /// is an alias for the family, so no other type can be picked up by accident.
         /// </para>
         /// </summary>
-        static Type AsNamedType(Type registered, string name)
+        static Type AsNamedType(Type registered, string? name)
         {
             if (!registered.IsGenericType || registered.IsGenericTypeDefinition) return registered;
             if (name != null && name.IndexOf('<') >= 0) return registered;
@@ -633,7 +684,7 @@ namespace Ceras.Format
         /// the registry, and a miss is not a correctness problem for the caller (a name that is absent
         /// here is absent from the registry too, and <see cref="TryResolveType"/> is a cold path).
         /// </summary>
-        static Type? ScanLoadedAssemblies(string name)
+        static Type? ScanLoadedAssemblies(string? name)
         {
             if (string.IsNullOrEmpty(name)) return null;
 
@@ -649,9 +700,10 @@ namespace Ceras.Format
         /// <summary>
         /// Resolves a generic/array element *definition* name (no arguments) to a <see cref="Type"/>.
         /// Used only by canonical-name parsing on cold paths, and called without <see cref="_lock"/> held
-        /// so the assembly scan cannot stall the registry (0.8.14).
+        /// so the assembly scan cannot stall the registry (0.8.14). It answers null for a name this build
+        /// does not have, which is the contract <c>TypeIdentity.TryParseCanonicalName</c> is given.
         /// </summary>
-        Type? ResolveDefinitionName(string definitionName)
+        Type? ResolveDefinitionName(string? definitionName)
         {
             if (string.IsNullOrEmpty(definitionName)) return null;
 
