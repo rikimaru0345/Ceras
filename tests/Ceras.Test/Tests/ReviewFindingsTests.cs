@@ -482,25 +482,52 @@ namespace Ceras.Test.ReviewFindings
 
         // ── Finding: a serializer built from a config does not learn its owning assembly ──
         //
-        // SetOwningAssembly is only called from the Action<CerasRobustConfig> constructor. The
-        // internal (CerasRobustConfig) constructor leaves the owning assembly unset, so
-        // BuildTimestamp silently degrades to "unknown" and no build-ordering check runs.
+        // The finding was that BuildTimestamp silently degraded to "unknown" for the internal
+        // (CerasRobustConfig) constructor, so no build-ordering check ran. The fix is no longer a
+        // stack walk inside that constructor: the owning assembly is an explicit, sealed input
+        // (CerasRobustConfig.OwningAssembly), so the caller that built the config states it. The walk
+        // that used to be in the constructor is a property of the runtime, not of this library -
+        // NativeAOT implements none and throws PlatformNotSupportedException from it, which is why the
+        // config-built path could not be created under AOT either.
+        //
+        // So the two halves of the original finding are pinned separately below: a config that states
+        // its owning assembly gets the timestamp *and* records it in the header, and a config that
+        // states nothing reports the unknown-build mode rather than pretending to know a build.
         [Fact]
-        public void Serializer_Built_From_A_Config_Still_Knows_Its_Build_Timestamp()
+        public void Serializer_Built_From_A_Config_Uses_The_Owning_Assembly_The_Config_Stated()
         {
             long expected = BuildInfo.GetProducerBuildTimestamp(typeof(ReviewFindingsTests).Assembly);
             Assert.True(expected > 0, "this assembly must declare [assembly: CerasBuildTimestamp] for the test to mean anything");
 
             var config = new CerasRobustConfig();
             config.UseGeneratedFormatters("RfHeader");
+            config.OwningAssembly = typeof(ReviewFindingsTests).Assembly;
             var s = new CerasRobustSerializer(config);
 
-            Assert.True(s.Config.BuildTimestampKnown, "a config-built serializer silently fell back to the unknown-build mode");
+            Assert.True(s.Config.BuildTimestampKnown, "a config-built serializer ignored the owning assembly it was handed");
             Assert.Equal(expected, s.Config.BuildTimestamp);
 
             // And the value is what actually lands in the header.
             var bytes = s.Save(new RfHeaderHolder { Value = 1 }, 1);
             Assert.Equal(expected, BitConverter.ToInt64(bytes, RobustHeader.BuildTimestampOffset));
+        }
+
+        [Fact]
+        public void Serializer_Built_From_A_Config_That_Named_No_Assembly_Says_The_Build_Is_Unknown()
+        {
+            // The other half: no owning assembly is not a value to guess at, it is the unknown-build
+            // mode, and it is reported as such - in the config, in the compatibility descriptor, and
+            // in the header, which records 0.
+            var config = new CerasRobustConfig();
+            config.UseGeneratedFormatters("RfHeader");
+            Assert.Null(config.OwningAssembly);
+            var s = new CerasRobustSerializer(config);
+
+            Assert.False(s.Config.BuildTimestampKnown);
+            Assert.Equal(0, s.Config.BuildTimestamp);
+
+            var bytes = s.Save(new RfHeaderHolder { Value = 1 }, 1);
+            Assert.Equal(0, BitConverter.ToInt64(bytes, RobustHeader.BuildTimestampOffset));
         }
 
         // ── Finding: header integrity is checked after the fields it protects ───────────

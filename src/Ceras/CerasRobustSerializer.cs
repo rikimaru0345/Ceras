@@ -4,6 +4,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Ceras.Format;
 using Ceras.Helpers;
@@ -182,7 +183,63 @@ namespace Ceras
 
         public new CerasRobustConfig Config => _config;
 
-        public CerasRobustSerializer(Action<CerasRobustConfig>? configure = null) : base(MakeConfig(configure, Assembly.GetCallingAssembly()))
+        /// <summary>
+        /// Creates a robust serializer, taking the owning assembly — the one whose
+        /// <see cref="CerasBuildTimestampAttribute"/> supplies this build's producer timestamp — from
+        /// the calling frame. This overload is the common one, and it needs no argument for the
+        /// assembly, which is the whole reason the timestamp is worth having: it is the same build for
+        /// every serializer in the process.
+        /// <para>
+        /// The discovery is a stack walk (<see cref="Assembly.GetCallingAssembly"/>), and that is a
+        /// property of the <em>runtime</em>, not of this library: NativeAOT compiles IL ahead of time
+        /// and has no stack to walk, and
+        /// <see cref="RuntimeFeature.IsDynamicCodeSupported"/> is exactly the switch that says which
+        /// kind of runtime this is. So the walk is attempted only where it is implemented. On CoreCLR
+        /// nothing at all is different — the same assembly is found, the same timestamp is resolved,
+        /// the same bytes are written. Under NativeAOT nothing is thrown, the assembly is simply
+        /// unknown, and the build is reported as such
+        /// (<see cref="CerasRobustConfig.BuildTimestampKnown"/> false, 0 in the header, no
+        /// newer-build check) rather than guessed at; use the other constructor, or
+        /// <see cref="CerasRobustConfig.OwningAssembly"/>, to supply one there.
+        /// </para>
+        /// </summary>
+        public CerasRobustSerializer(Action<CerasRobustConfig>? configure = null) : base(MakeConfig(configure,
+            // Inline on purpose, both halves of it. Assembly.GetCallingAssembly() answers for the
+            // frame that calls it and the runtime skips a constructor's own frame, so evaluating this
+            // in the constructor yields the assembly that constructed the serializer - and moving it
+            // into a helper, even a [MethodImpl(NoInlining)] one, would report Ceras' own assembly
+            // instead. The capability check has to be inline for the same reason: the call is what
+            // needs this frame, not the check. Both are on the base-constructor argument list for the
+            // same reason they were when the walk was unconditional: the config has to be complete
+            // before CerasSerializer's constructor seals it.
+            RuntimeFeature.IsDynamicCodeSupported
+                ? Assembly.GetCallingAssembly()
+                : null))
+        {
+            _config = (CerasRobustConfig)base.Config;
+        }
+
+        /// <summary>
+        /// Creates a robust serializer for a named owning assembly, configured as usual. This is the
+        /// constructor for a host that cannot be asked which assembly called it: it takes the source of
+        /// the build timestamp as an explicit argument, in the same shape as
+        /// <see cref="BuildInfo.GetProducerBuildTimestamp(Assembly)"/>.
+        /// <para>
+        /// <paramref name="owningAssembly"/> is the assembly that owns the build, so normally
+        /// <c>typeof(Program).Assembly</c> or the assembly the save root type lives in — the one whose
+        /// <see cref="CerasBuildTimestampAttribute"/> Ceras should read. Passing null is legal and means
+        /// "no owning assembly": the build is then honestly unknown
+        /// (<see cref="CerasRobustConfig.BuildTimestampKnown"/> false, 0 written to the header, no
+        /// newer-build check) instead of being taken from a frame that may not exist.
+        /// </para>
+        /// <para>
+        /// <see cref="CerasRobustConfig.OwningAssembly"/> inside <paramref name="configure"/> overrides
+        /// the argument, and an explicit <see cref="CerasRobustConfig.BuildTimestamp"/> outranks both.
+        /// Passing an assembly that declares no <see cref="CerasBuildTimestampAttribute"/> is the
+        /// unknown-build mode too, and says so rather than reporting a guess.
+        /// </para>
+        /// </summary>
+        public CerasRobustSerializer(Assembly? owningAssembly, Action<CerasRobustConfig>? configure = null) : base(MakeConfig(configure, owningAssembly))
         {
             _config = (CerasRobustConfig)base.Config;
         }
@@ -190,14 +247,14 @@ namespace Ceras
         internal CerasRobustSerializer(CerasRobustConfig config) : base(config)
         {
             _config = config;
-            // The owning assembly has to be captured here, in the constructor itself:
-            // Assembly.GetCallingAssembly() reports the assembly of the method that called the *current*
-            // method, and the runtime skips a constructor's own frame, so evaluating it inside the
-            // constructor yields the assembly that constructed the serializer. Moving it into a helper
-            // (even a [MethodImpl(NoInlining)] one) would report Ceras' own assembly instead, so it stays
-            // here on purpose. Both constructors hand it to the same place, so no construction path can
-            // silently end up in the unknown-build mode.
-            _config.SetOwningAssembly(Assembly.GetCallingAssembly());
+            // No assembly is discovered here, and that is a decision rather than an omission. The
+            // caller built this config and handed it over, so the caller owns the answer, and
+            // CerasRobustConfig.OwningAssembly is where a caller states it. A config that was told
+            // nothing reports the unknown-build mode honestly (BuildTimestampKnown false) instead of
+            // picking up whatever frame happened to reach the constructor - a question this path used
+            // to answer with the same stack walk that cannot be answered under NativeAOT at all, so
+            // under NativeAOT it threw PlatformNotSupportedException and the config-built serializer
+            // could not be created either.
         }
 
         /// <summary>
@@ -214,10 +271,15 @@ namespace Ceras
         /// </summary>
         public RobustCompatibilityDescriptor RobustCompatibility => CompatibilityDescriptors.For(_config);
 
-        static CerasRobustConfig MakeConfig(Action<CerasRobustConfig>? configure, Assembly owningAssembly)
+        static CerasRobustConfig MakeConfig(Action<CerasRobustConfig>? configure, Assembly? owningAssembly)
         {
             var config = new CerasRobustConfig();
-            config.SetOwningAssembly(owningAssembly);
+            // Null is the honest "no owning assembly" answer, and it is what the parameterless
+            // constructor passes on a runtime that cannot walk a stack: the config then resolves the
+            // unknown-build mode instead of leaving a stale value behind. Applied before the callback
+            // runs, and an OwningAssembly or BuildTimestamp assignment in the callback outranks it in
+            // either order, so precedence does not depend on how the caller wrote the two lines.
+            config.OwningAssembly = owningAssembly;
             InitializeRobustFormatters(config);
             configure?.Invoke(config);
             // The formatters above are installed *before* the configuration callback, so a TypeBinder
