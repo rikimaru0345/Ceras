@@ -25,7 +25,19 @@ namespace Ceras.Helpers
             stream.Write(_streamBuffer, 0, size);
         }
 
-        public static async Task<object> ReadFromStream(this CerasFastSerializer ceras, Stream stream)
+        /// <summary>
+        /// Reads a value written by <see cref="WriteToStream"/>, or null when the bytes hold the
+        /// null marker.
+        /// <para>
+        /// The null is a value, not a failure. The wire format encodes it, so a payload written from
+        /// a null object reads back as null and the round trip preserves that rather than
+        /// substituting a default - which is the same contract
+        /// <see cref="CerasFastSerializer.Deserialize{T}(byte[])"/> itself has, and why its result
+        /// is <c>MaybeNull</c>. A caller that needs an object checks for null (or passes a
+        /// <c>byte[]</c> it knows is non-null by construction).
+        /// </para>
+        /// </summary>
+        public static async Task<object?> ReadFromStream(this CerasFastSerializer ceras, Stream stream)
         {
             var length = (int)await ReadVarIntFromStream(stream);
             var recvBuffer = new byte[length];

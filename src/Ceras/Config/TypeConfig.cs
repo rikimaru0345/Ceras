@@ -5,6 +5,7 @@
 	using Helpers;
 	using System;
 	using System.Collections.Generic;
+	using System.Diagnostics.CodeAnalysis;
 	using System.Linq;
 	using System.Linq.Expressions;
 	using System.Reflection;
@@ -29,10 +30,25 @@
 		// Settings
 		bool _isConstructionExplicit;
 
-		protected TypeConstruction _typeConstruction; // null = invalid
+		/// <summary>
+		/// The construction for this type, or null while none is selected. Both states are real:
+		/// it is null until <see cref="TypeConfigDefaults"/> has applied a default (the
+		/// <see cref="TypeConfig"/> constructor always ends with one), and a deliberate assignment
+		/// of null puts it back — which <see cref="VerifyConstructionMethod"/> then reports as
+		/// "no construction mode configured". The public property keeps the non-null contract every
+		/// configured type satisfies.
+		/// </summary>
+		protected TypeConstruction? _typeConstruction;
+
+		/// <summary>
+		/// The construction Ceras uses to build instances of this type. A configured
+		/// <see cref="TypeConfig"/> always has one: the constructor applies a library default, and
+		/// <see cref="VerifyConstructionMethod"/> is the check that reports the one case where that
+		/// is not true.
+		/// </summary>
 		public TypeConstruction TypeConstruction
 		{
-			get => _typeConstruction;
+			get => _typeConstruction!;
 			set
 			{
 				AssignConstruction(value);
@@ -62,21 +78,33 @@
 		/// </summary>
 		internal void SetDefaultTypeConstruction(TypeConstruction construction) => AssignConstruction(construction);
 
-		void AssignConstruction(TypeConstruction value)
+		void AssignConstruction(TypeConstruction? value)
 		{
 			ThrowIfSealed();
 			_typeConstruction = value;
 			if (value != null)
 			{
-				TypeConstruction.TypeConfig = this;
-				TypeConstruction.VerifyReturnType();
+				value.TypeConfig = this;
+				value.VerifyReturnType();
 			}
 		}
-		internal Dictionary<ParameterInfo, MemberInfo> ParameterMap;
+
+		/// <summary>
+		/// The user's explicit constructor-to-member mapping, or null while none is set (and before
+		/// <see cref="TypeConstruction.VerifyParameterMapping(MethodBase)"/> has built its automatic one).
+		/// </summary>
+		internal Dictionary<ParameterInfo, MemberInfo>? ParameterMap;
 
 
-		internal FormatterResolverCallback _customResolver;
-		public FormatterResolverCallback CustomResolver
+		/// <summary>The application's formatter callback for this type, or null when it set none.</summary>
+		internal FormatterResolverCallback? _customResolver;
+
+		/// <summary>
+		/// A callback that supplies the formatter for this type, or null when there is none - which is
+		/// the ordinary state, and the one Ceras' own resolution chain starts from. Setting it is
+		/// mutually exclusive with <see cref="CustomFormatter"/>.
+		/// </summary>
+		public FormatterResolverCallback? CustomResolver
 		{
 			get => _customResolver;
 			set
@@ -88,9 +116,16 @@
 			}
 		}
 
-		protected IFormatter _overrideFormatter;
+		/// <summary>The formatter the application registered for this type, or null when it registered none.</summary>
+		protected IFormatter? _overrideFormatter;
 
-		public IFormatter CustomFormatter
+		/// <summary>
+		/// The formatter the application registered for this type, or null when it registered none.
+		/// Assigning null removes a previously registered formatter (and is counted as an assignment,
+		/// so a robust context's re-check sees it). Setting it is mutually exclusive with
+		/// <see cref="CustomResolver"/>.
+		/// </summary>
+		public IFormatter? CustomFormatter
 		{
 			get => _overrideFormatter;
 			set
@@ -108,7 +143,7 @@
 				}
 				else
 				{
-					_overrideFormatter = null!;
+					_overrideFormatter = null;
 				}
 			}
 		}
@@ -128,13 +163,16 @@
 
 			var configType = typeof(MemberConfig<>).MakeGenericType(type);
 
+			// Activator returns object?; the constructed type is a MemberConfig<> over the very type
+			// reflected over here, and its arguments are two real instances, so a null would be a
+			// broken deployment rather than a runtime condition.
 			var members = from m in isStatic ? type.GetAllStaticDataMembers() : type.GetAllDataMembers()
 						  let a = new object[] { this, m }
 						  select (MemberConfig)Activator.CreateInstance(configType,
 																	  BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
 																	  null,
 																	  a,
-																	  null);
+																	  null)!;
 
 			_allMembers = members.ToList();
 
@@ -154,7 +192,9 @@
 					return mc;
 			}
 
-			throw new InvalidOperationException($"Cannot find member '{memberInfo.DeclaringType.FriendlyName()}.{memberInfo.Name}' in type '{Type.FriendlyName(true)}'");
+			// DeclaringType is null for a dynamic member (one with no declaring type at all, see
+			// MemberConfig's constructor), which is the one case where it can be missing here.
+			throw new InvalidOperationException($"Cannot find member '{Format.TypeIdentity.GetCanonicalNameOrUnknown(memberInfo.DeclaringType)}.{memberInfo.Name}' in type '{Type.FriendlyName(true)}'");
 		}
 
 		/// <summary>
@@ -382,7 +422,11 @@
 		/// </summary>
 		public TypeConfig<T> ConstructByDelegate(Func<T> factory)
 		{
-			// Delegates get deconstructed into target+method automatically
+			// Delegates get deconstructed into target+method automatically. A static method has no
+			// target and a lambda that closes over nothing is such a method; the ConstructByMethod
+			// constructor is what rejects the impossible combinations (a static method handed a
+			// target, or an instance method handed none), so the possibly-null Target goes to it
+			// unexamined rather than being silently replaced here.
 			var instance = factory.Target;
 			var method = factory.Method;
 
@@ -468,9 +512,16 @@
 
 		#region Formatter
 
-		public new IFormatter<T> CustomFormatter
+		/// <summary>
+		/// The formatter registered for <typeparamref name="T"/>, or null when none is. Assigning
+		/// null removes a previously registered one.
+		/// </summary>
+		public new IFormatter<T>? CustomFormatter
 		{
-			get => (IFormatter<T>)base.CustomFormatter;
+			// A cast, not 'as': a formatter registered for a different closed type is a
+			// configuration error, and InvalidCastException is what has always reported it. Only the
+			// genuine 'no formatter registered' case becomes null.
+			get => (IFormatter<T>?)base.CustomFormatter;
 			set => base.CustomFormatter = value;
 		}
 
@@ -491,19 +542,21 @@
 		{
 			var memberInfo = ((MemberExpression)selectMemberExpression.Body).Member;
 			var memberConfig = Members.FirstOrDefault(m => m.Member == memberInfo);
-			return (MemberConfig<T>)memberConfig;
+			// Cast, not 'as', for the same reason as CustomFormatter: a member config of another
+			// closed type is a configuration error. Null here only means 'no such member'.
+			return (MemberConfig<T>?)memberConfig;
 		}
 
 		public MemberConfig<T>? ConfigField(string fieldName)
 		{
 			var memberConfig = Members.FirstOrDefault(m => m.Member is FieldInfo && m.Member.Name == fieldName);
-			return (MemberConfig<T>)memberConfig;
+			return (MemberConfig<T>?)memberConfig;
 		}
 
 		public MemberConfig<T>? ConfigProperty(string propName)
 		{
 			var memberConfig = Members.FirstOrDefault(m => m.Member is PropertyInfo && m.Member.Name == propName);
-			return (MemberConfig<T>)memberConfig;
+			return (MemberConfig<T>?)memberConfig;
 		}
 
 		#endregion
@@ -518,7 +571,22 @@
 		public Type MemberType => Member is FieldInfo f ? f.FieldType : ((PropertyInfo)Member).PropertyType;
 
 
-		string _persistentNameOverride;
+		/// <summary>
+		/// The name a previous save file recorded for this member, when one was configured. Null is
+		/// the ordinary state - a member has no old spelling until something says it does.
+		/// </summary>
+		string? _persistentNameOverride;
+
+		/// <summary>
+		/// The name this member is written under: the configured override, else the auto-property's
+		/// name, else the member's C# name. Never null.
+		/// <para>
+		/// Assigning null clears the override, so the member falls back to the derived name above. That
+		/// is the same state as never having assigned one, and it is what a null <c>PreviousName</c>
+		/// resolves to (see <c>TypeConfigDefaults.ApplyMemberAttributes</c>).
+		/// </para>
+		/// </summary>
+		[AllowNull]
 		public string PersistentName
 		{
 			get
@@ -552,7 +620,12 @@
 		public bool IsGetterOnly { get; }
 
 		internal bool HasNonSerializedAttribute;
-		internal readonly PropertyInfo AssociatedProperty;
+
+		/// <summary>
+		/// The auto-property a compiler-generated backing field belongs to, or null when this member
+		/// is not one (a real field or property) or its declaring type has no such property.
+		/// </summary>
+		internal readonly PropertyInfo? AssociatedProperty;
 
 		/// <summary>
 		/// Controls when Ceras will write this member to the class/struct after deserialization.
@@ -686,18 +759,36 @@
 			if (HasNonSerializedAttribute && TypeConfig.Config.RespectNonSerializedAttribute)
 				return new InclusionExclusionResult(false, $"Member has [NonSerializedAttribute] and 'RespectNonSerializedAttribute' is set in the config.");
 
+			// The reason is only built when the caller asked for one: every branch above builds its
+			// string unconditionally because it is the only way to reach the verdict, but this last
+			// branch is the default-included case, whose reason would be a constant string built on a
+			// hot path that never displays it.
 			return new InclusionExclusionResult(true, needReason ? "Member is a field and included by default." : null);
 		}
 
 		public override string ToString() => $"{TypeConfig.Type.FriendlyName()}.{Member.Name} ({(ComputeFinalInclusionFast() ? "Included" : "Excluded")})";
 	}
 
+	/// <summary>
+	/// The verdict for one member: whether it is serialized, and why.
+	/// </summary>
 	public struct InclusionExclusionResult
 	{
 		public readonly bool IsIncluded;
-		public readonly string Reason;
 
-		public InclusionExclusionResult(bool isIncluded, string reason)
+		/// <summary>
+		/// Why the member is included or excluded, or null when the caller did not ask for it.
+		/// <para>
+		/// Computing a reason allocates the string that explains it, and the verdict itself is
+		/// consulted on a hot path (<c>ComputeFinalInclusionFast</c>), which does not need one -
+		/// so the two are requested separately and only <see cref="MemberConfig.ComputeFinalInclusion"/>
+		/// pays for the explanation. Use <see cref="MemberConfig.IncludeExcludeReason"/> for a reason
+		/// that is never null.
+		/// </para>
+		/// </summary>
+		public readonly string? Reason;
+
+		public InclusionExclusionResult(bool isIncluded, string? reason)
 		{
 			IsIncluded = isIncluded;
 			Reason = reason;
