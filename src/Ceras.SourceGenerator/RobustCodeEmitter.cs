@@ -510,13 +510,13 @@ namespace Ceras.SourceGenerator {
 			// MyList<T> : List<T> (or a Queue/Stack subclass). This must be resolved before the generic
 			// ReferenceFormatter fallback so the field type matches what the runtime injects.
 			if (IsCollectionFormatterType(type)) {
-				string concrete = GetCollectionConcreteFormatterType(type);
+				string? concrete = GetCollectionConcreteFormatterType(type);
 				if (concrete != null)
 					return type.IsValueType ? concrete : $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
 			}
 
 			if (IsCollectionType(type)) {
-				string concrete = GetCollectionConcreteFormatterType(type);
+				string? concrete = GetCollectionConcreteFormatterType(type);
 				if (concrete != null) {
 					if (type.IsValueType) return concrete;
 					return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
@@ -743,7 +743,7 @@ namespace Ceras.SourceGenerator {
 		/// still skipped with a single Advance() there.
 		/// </para>
 		/// </summary>
-		static int ComputeFixedByteSize(ITypeSymbol type, List<SerializedMember> members) {
+		static int ComputeFixedByteSize(ITypeSymbol type, List<SerializedMember>? members) {
 			switch (type.SpecialType) {
 				case SpecialType.System_Boolean: return 1;
 				case SpecialType.System_Byte: return 1;
