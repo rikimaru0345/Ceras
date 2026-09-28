@@ -108,10 +108,13 @@ namespace Ceras.Test.Tests.FixedBuffer
             {
                 bytes = raw.Serialize(value);
             }
-            catch (Exception e)
+            catch (CerasSchemaException refusal)
             {
-                // Refused: the only acceptable alternative to a correct encoding.
-                Assert.Contains("Buffer", RefusalIn(e).Message, StringComparison.Ordinal);
+                // Refused: the only acceptable alternative to a correct encoding. Caught by type, and
+                // by that type only — a refusal that arrived wrapped in a reflection exception would
+                // not be caught here and would fail the test, which is what keeps this honest about
+                // what the caller is handed.
+                Assert.Contains("Buffer", refusal.Message, StringComparison.Ordinal);
                 return;
             }
 
@@ -410,25 +413,17 @@ namespace T
         }
 
         /// <summary>
-        /// The refusal, as the caller sees it. <c>ReflectionFallbackFormatter</c> is constructed through
-        /// <see cref="System.Reflection"/>, which wraps whatever its constructor threw — the same
-        /// wrapping <c>TypeConfig.VerifyNoBannedMemberShapes</c>'s <c>BannedTypeException</c> gets, and
-        /// the same reason those tests look for the diagnosis in the whole chain. The diagnosis the user
-        /// acts on is the innermost one either way.
+        /// The refusal, as the caller sees it, and it sees it <em>unwrapped</em>.
+        /// <c>ReflectionFallbackFormatter</c> is constructed through <c>Helpers.Instantiator.Create</c>,
+        /// so its constructor's <see cref="CerasSchemaException"/> used to arrive inside a
+        /// <see cref="TargetInvocationException"/> — the whole refusal reduced to "Exception has been
+        /// thrown by the target of an invocation", with the measurement and the advice on one
+        /// <c>---&gt;</c> line, and <c>catch (CerasSchemaException)</c> unable to reach it. It is
+        /// rethrown as itself now, so this catches the type directly: no walk, and a regression that
+        /// put the wrapper back fails here instead of being looked past.
         /// </summary>
         static CerasSchemaException AssertRefused(Action action)
-            => RefusalIn(Assert.ThrowsAny<Exception>(action));
-
-        /// <summary>The <see cref="CerasSchemaException"/> somewhere in <paramref name="thrown"/>'s chain.</summary>
-        static CerasSchemaException RefusalIn(Exception thrown)
-        {
-            for (var current = thrown; current != null; current = current.InnerException)
-                if (current is CerasSchemaException refusal)
-                    return refusal;
-
-            Assert.Fail($"Expected a CerasSchemaException, but got: {thrown}");
-            return null;
-        }
+            => Assert.Throws<CerasSchemaException>(action);
     }
 
     // ── Models ──────────────────────────────────────────────────────────────────────────────────────
