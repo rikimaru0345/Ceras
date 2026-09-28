@@ -282,6 +282,38 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
     target: the read path resolves saved type *names* back to `Type`s, so a trimmed app that
     kept the writer but dropped a type cannot load its own saves. Fix it by resolving against
     the generated manifest — which is the same work as Milestone 1's manifest identities.
+  - **Work that finished after AOT was parked, kept on branch
+    `agents/aot-closed-instantiation` (`428ced3`), deliberately not merged.** All four smoke
+    modes pass on it, `aot` included. It is unmerged because AOT is not a target and because it
+    changes what the generator emits for every consumer. Do not discard it: the measurements
+    behind it are the expensive part, and they are recorded here.
+  - What the remaining AOT blocker actually was, measured over 36 family/argument combinations
+    (all reached only through `MakeGenericType`): **no amount of `[DynamicDependency]` creates
+    native code.** A dependency is a *metadata* root; a marked constructor is not a request for
+    code, and `[DynamicDependency]` on the *closed* instantiation is byte-for-byte as ineffective
+    as on the open one. Only a *call* the compiler cannot discard produces it. Separately, the
+    open-definition roots already let the compiler emit the **canonical** instantiation, which
+    serves exactly the instantiations whose type arguments are all reference types — so the
+    only cases needing a named instantiation are the ones with a value type in the argument
+    list. Two traps worth not rediscovering: a discarded `typeof(closed);` statement is
+    dead-code-eliminated and achieves nothing, and a constraint *between two type parameters*
+    (`ReflectionSerializationHelper<TBase, TSpecific> where TSpecific : TBase`) is not satisfied
+    by the canonical instantiation, so it needs naming even when both arguments are references.
+  - The honest boundary, which that branch cannot remove and which matches the library's own
+    `[RequiresUnreferencedCode]`: a type reached **purely** through the reflection fallback (no
+    generated context names it) is unsupported under AOT, as is a member of a referenced-but-
+    not-generated type, and a collection reachable only behind a collection-typed member whose
+    concrete type appears nowhere else in the context. The generator enumerating the closed
+    instantiations is the only mechanism that scales; no library-side change can answer "which
+    instantiations exist" for an unbounded runtime-closed set.
+  - A **pre-existing** trimming-only defect found on the way, independent of all the above and
+    not fixed anywhere: `CollectionFormatter`'s capacity-constructor read path
+    (`CurrentObjectFactory.cs`) drops `List<T>`/`Dictionary<,>`'s public constructor metadata, so
+    an *unset* `List<int>` member fails with `MissingMethodException: No parameterless
+    constructor defined for type 'List<int>'`. Note that `samples/TrimAotSmoke` passes **only
+    because every collection member there is pre-initialised in a field initializer**, so the read
+    path reuses rather than constructs — the smoke does not cover this and its green is misleading
+    on that point.
 
 ## Deferred
 
