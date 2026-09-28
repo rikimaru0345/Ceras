@@ -92,8 +92,8 @@ context after seal or parse the schema on a matching-layout load.
   rejection. Custom payloads have no automatic upgrade promise; an unframed value
   that cannot be consumed during migration must fail loudly.
   **This is the highest-value item on the whole roadmap, and the reason is a real
-  consumer, not a hypothetical.** The game at `/games/wt-robustsave` (branch
-  `wave-robustsave`) had four custom formatters in a robust context and could not save
+  consumer, not a hypothetical.** The game's earlier `wave-robustsave` branch had four
+  custom formatters in a robust context and could not save
   *or* load at all: `RobustCustomFormatterPolicy` refuses the type at construction, and
   `Save()` and `Load()` both build the serializer, so the save feature did not work in
   that build. Its tracker records the policy as a one-day-old commit against a path that
@@ -109,10 +109,16 @@ context after seal or parse the schema on a matching-layout load.
     loads. Note the general lesson, which outlives this consumer: **rebasing a value
     against load time is not expressible as an `IFormatter<T>` in a robust context, and
     never was** — it needs a post-load pass over the loaded graph, not a custom writer.
-  The game works around this today with a same-version round trip only. Its own note is
-  that until this is resolved *no save-compatibility claim in its tracker is verified*,
-  and the raw `CerasFastSerializer` round trip standing in for it proves less than it
-  appears to.
+  The game works around this today by storing recipe IDs and game time as generated
+  state instead of using custom formatters. **Current
+  game checkout is `/games/godot-factory-test` on `main`, not the removed
+  `/games/wt-robustsave` worktree.** It now stores recipe IDs and restores registry
+  references in `Game.Rebuild`, and serializes its game clock as generated state; its
+  logic tests assert recipe identity, paused time, and loaded-world simulation. It
+  checks in two older experimental robust saves (`populated-world-v1.bin` and
+  `-v2.bin`) as migration fixtures. These are not shipped/player data and the v5
+  format break is permitted, but the game's fixture tests must be updated explicitly
+  after v5 lands — never overwrite these files as a side effect of a scratch test.
 - Extend the generator's `CERAS019` duplicate-name check to aliases, per context,
   and to types it currently skips: the runtime already refuses a name two manifest
   entries claim (`SchemaRegistry.ClaimNames`), but that is a save/load-time error
@@ -121,10 +127,14 @@ context after seal or parse the schema on a matching-layout load.
   stop treating `SpecialType` types as exempt (a `[CerasSerializable("X")]` on two
   differently-kinded types currently produces no diagnostic). Include
   `contextMinimalTypes` and declared structural roots.
-- Exercise `samples/GodotIntegration` and the active `/games/wt-robustsave` project in
-  editor play, assembly reload and exported execution with real private/generic save
-  graphs. The immutable compatibility descriptor and configured `TypeBinder` path are
-  already implemented; verify them in the integration rather than reimplementing them.
+- Re-run `samples/GodotIntegration` under headless Godot after the v5 merge (it has
+  a self-checking success sentinel). Exercise the active `/games/godot-factory-test`
+  logic save suite after every format change, including recipe registry identity,
+  paused-time semantics and older fixtures. Editor assembly reload and exported-game
+  execution are **not automated**; neither project has an export preset. Build an
+  explicit safe harness before claiming those paths verified. The immutable
+  compatibility descriptor and configured `TypeBinder` path already exist; verify
+  them in integration rather than reimplementing them.
 
 ## Milestone 2 — old-data graph and migration
 
