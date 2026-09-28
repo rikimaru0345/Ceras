@@ -219,21 +219,40 @@ namespace Ceras.Test.Tests
         }
 
         /// <summary>
-        /// Contract for formatters supplied after the serializer exists: the eagerly-resolved standalone
-        /// formatters (string / System.Type) are already cached in serializer metadata, so a later change
-        /// is silently ignored (the TypeConfig setter itself does not throw, because per-type configs
-        /// seal on first use, not at config-seal time). This pins that behavior for the FIX 2 case.
+        /// The case this test was written for, re-pinned in its new form. A custom formatter supplied
+        /// after the serializer exists used to be accepted and then <em>ignored</em> for
+        /// <see cref="string"/>: the serializer resolves and caches that formatter in its constructor,
+        /// and nothing reads the type config again - so the code read as though it had taken effect and
+        /// the bytes disagreed. Configuring a type the serializer had <em>not</em> reached yet did take
+        /// effect, so the same call meant different things for different types.
+        /// <para>
+        /// Both are now the same outcome - a refusal - and this file keeps the
+        /// <see cref="string"/> case because it is the one that was silently ignored. Which layer
+        /// refuses depends on what the context already knows about the type, and both are pinned: a raw
+        /// context never configured <see cref="string"/>, so the config cannot create a configuration
+        /// for it now, while a robust context installed its own string formatter up front, so the
+        /// configuration exists and the change to it is what is refused. PostSealMutationTests covers
+        /// the rest of the matrix and the <c>OnConfigNewType</c> door that stays open.
+        /// </para>
         /// </summary>
         [Fact]
-        public void CustomFormatter_AfterConstruction_IsIgnored_ForEagerlyResolvedString()
+        public void CustomFormatter_AfterConstruction_Refuses_RatherThanBeingIgnored()
         {
             SealingProbeStringFormatter.SerializeCalls = 0;
 
-            var ceras = new CerasFastSerializer();
-            ceras.Config.ConfigType<string>().CustomFormatter = new SealingProbeStringFormatter();
+            // Nothing configured string: the config refuses to build a configuration for it now.
+            var raw = new CerasFastSerializer();
+            var notConfigured = Assert.Throws<InvalidOperationException>(
+                () => raw.Config.ConfigType<string>().CustomFormatter = new SealingProbeStringFormatter());
+            Assert.Contains("no configuration", notConfigured.Message, StringComparison.OrdinalIgnoreCase);
 
-            var clone = ceras.Deserialize<string>(ceras.Serialize("abc"));
-            Assert.Equal("abc", clone);
+            // A robust context does configure string (RobustStringFormatter), so the configuration
+            // exists - and is closed, like every other one.
+            var robust = new CerasRobustSerializer();
+            var alreadyConfigured = Assert.Throws<Ceras.Exceptions.ConfigurationSealedException>(
+                () => robust.Config.ConfigType<string>().CustomFormatter = new SealingProbeStringFormatter());
+
+            Assert.Contains("configure", alreadyConfigured.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(0, SealingProbeStringFormatter.SerializeCalls);
         }
     }

@@ -16,14 +16,29 @@
 
 	/// <summary>
 	/// <para>For performance reasons <see cref="CerasSerializer"/>, <see cref="CerasConfig"/>, and <see cref="TypeConfig"/> are not thread-safe. Do not share a config instance between serializers.</para>
+	/// <para>
+	/// A type's configuration is open until one of two things closes it, and which one it was is
+	/// something the caller is told rather than left to guess: the schema for this type was built
+	/// (emitted code and a formatter now depend on it), or the owning <see cref="CerasConfig"/> was
+	/// sealed because a serializer was constructed. See <see cref="ThrowIfSealed()"/>.
+	/// </para>
 	/// </summary>
-	public abstract class TypeConfig
+	public abstract class TypeConfig : ISealedConfiguration
 	{
 		public Type Type { get; }
 		public CerasConfig Config { get; }
 		public bool IsStatic { get; }
 
 		bool _isSealed = false;
+
+		// The two windows in which this type's configuration still accepts a change the seal rules
+		// would otherwise refuse. Both are the library's own work: the constructor, which applies the
+		// defaults and the attributes, and the OnConfigNewType callback for this type, which exists
+		// because Ceras discovered the type now and could not have been told about it earlier. Neither
+		// is a capability - the first is over before the constructor returns, the second is opened and
+		// closed by CerasConfig around that one call, on this one instance (BeginNewTypeCallback).
+		bool _isBeingBuilt;
+		bool _isNewTypeCallbackOpen;
 
 
 		//
@@ -198,7 +213,7 @@
 		void ThrowCantSetResolverAndFormatter() => throw new InvalidOperationException("You can only set a custom resolver or a custom formatter instance, not both.");
 
 
-		internal readonly List<MemberConfig> _allMembers;
+		internal readonly ConfigList<MemberConfig> _allMembers;
 		public IEnumerable<MemberConfig> Members => _allMembers.Where(m => !m.IsCompilerGenerated);
 
 
@@ -208,6 +223,15 @@
 			Type = type;
 			IsStatic = isStatic;
 
+			// A type can be built after its config was sealed - that is what discovery does, and it is
+			// the normal case for every type the application did not configure up front. Applying the
+			// defaults and the attributes below is the library building the configuration, not the
+			// application changing a closed one, so it is the one window the seal does not apply to.
+			// The window is opened and closed inside this constructor, so it is not a capability: by the
+			// time any derived constructor body - the only other code that can run here - is reached, it
+			// is already shut again.
+			_isBeingBuilt = true;
+
 			// CreateMemberConfig, not Activator inline: TypeConfig<T> overrides it and constructs
 			// MemberConfig<T> directly, and that is the only place in the library where the closed
 			// instantiation is visible to a compiler. Calling it from the constructor is safe here
@@ -216,17 +240,17 @@
 			// outside this assembly can extend it) and its constructor body is empty. The defaults are
 			// applied below, in the same order as before.
 			var members = isStatic ? type.GetAllStaticDataMembers() : type.GetAllDataMembers();
-			var allMembers = new List<MemberConfig>();
+			_allMembers = new ConfigList<MemberConfig>(this, $"the member list of type '{type.FriendlyName(true)}'");
 			foreach (var m in members)
-				allMembers.Add(CreateMemberConfig(m));
-
-			_allMembers = allMembers;
+				_allMembers.Add(CreateMemberConfig(m));
 
 			TypeConfigDefaults.ApplySpecializedDefaults(this); // apply special handling first
 
 			TypeConfigDefaults.ApplyTypeAttributes(this); // then attributes on the type and members
 			foreach (var m in _allMembers)
 				TypeConfigDefaults.ApplyMemberAttributes(m);
+
+			_isBeingBuilt = false;
 		}
 
 		/// <summary>
@@ -273,6 +297,17 @@
 
 		/// <summary>
 		/// Don't use this.
+		/// <para>
+		/// This is the live list, not a copy - a change made through it is a change to this type - but
+		/// it is a <see cref="ConfigList{T}"/> and not a <see cref="List{T}"/>. That is the whole
+		/// reason it can be handed out at all: a plain <see cref="List{T}"/> would keep accepting
+		/// changes after the type's configuration was sealed, and adding or removing a member then is
+		/// the one edit that defeats every other check (it changes what the type serializes without
+		/// going through any of them). <see cref="List{T}"/> cannot be intercepted - its methods are
+		/// not virtual - so the guard has to be a different type, and casting the result back to
+		/// <see cref="List{T}"/> now fails instead of producing an unguarded list. Before the seal the
+		/// list still changes like any other, through <see cref="IList{T}"/>.
+		/// </para>
 		/// </summary>
 		public IEnumerable<MemberConfig> UnsafeGetAllMembersIncludingCompilerGenerated()
 		{
@@ -437,11 +472,62 @@
 		}
 
 
-		internal void ThrowIfSealed()
+		/// <summary>
+		/// Why this type's configuration can no longer be changed, or null while it still can.
+		/// <para>
+		/// Two reasons, and they are genuinely different situations, so they get their own message
+		/// rather than one that covers both: the schema for this type has been built (the original
+		/// rule - dynamically emitted code and a resolved formatter now depend on this), or the owning
+		/// <see cref="CerasConfig"/> was sealed because a serializer was constructed. The second used
+		/// to be accepted with two different outcomes - ignored for a type the serializer had already
+		/// resolved, applied for one it had not - which is why it is refused now; see
+		/// <see cref="CerasConfig.ConfigType(Type)"/>.
+		/// </para>
+		/// </summary>
+		string? WhyConfigurationIsClosed()
 		{
 			if (_isSealed)
-				throw new ConfigurationSealedException("The configuration for this Type or Member is already sealed because the SerializationSchema has been instantiated (which means dynamically emitted code relies on it not changing anymore). All changes to the type or member configuration must be made before the the configuration is used in a 'CerasSerializer' instance, except for config callbacks like OnConfigNewType)");
+				return "The configuration for this Type or Member is already sealed because the SerializationSchema has been instantiated (which means dynamically emitted code relies on it not changing anymore). All changes to the type or member configuration must be made before the the configuration is used in a 'CerasSerializer' instance, except for config callbacks like OnConfigNewType)";
+
+			// The two windows, and nothing else: the library building this configuration, or the
+			// OnConfigNewType callback running for this one type. A type's configuration is otherwise
+			// immutable the moment a serializer exists, whether or not this type was ever reached.
+			if (Config.IsSealed && !_isBeingBuilt && !_isNewTypeCallbackOpen)
+				return $"The configuration for type '{Type.FriendlyName(true)}' can no longer be changed: the CerasConfig that owns it was sealed when the CerasSerializer was constructed, and a serializer does not read type configuration again after that. " +
+					   "A change made now would be ignored for a type the serializer has already resolved and applied for one it has not reached yet, so the same call would mean different things for different types and the code that made it could not tell which. " +
+					   "Configure the type in the 'configure' callback of the serializer's constructor, or - for a type Ceras only discovers at runtime - from OnConfigNewType, which is still called for a type met after the seal, or with [CerasSerializable], whose generated registration configures it up front.";
+
+			return null;
 		}
+
+		internal void ThrowIfSealed()
+		{
+			var why = WhyConfigurationIsClosed();
+			if (why != null)
+				throw new ConfigurationSealedException(why);
+		}
+
+		/// <summary>
+		/// The named form, for the member list (<see cref="ConfigList{T}"/>), so a refusal there points
+		/// at the list rather than at the type's configuration in general.
+		/// </summary>
+		void ISealedConfiguration.ThrowIfSealed(string what)
+		{
+			var why = WhyConfigurationIsClosed();
+			if (why != null)
+				throw new ConfigurationSealedException(why + " (refused: " + what + ")");
+		}
+
+		/// <summary>
+		/// Opens the one post-seal window this type has: the <see cref="CerasConfig.OnConfigNewType"/>
+		/// callback, for the type the callback is handed. Called by <see cref="CerasConfig"/> around
+		/// that one invocation and closed again straight after, on this instance - so it lets the
+		/// application configure <em>this</em> type and nothing else: a type configured before the seal
+		/// stays closed even from inside the callback, and a reference kept to this type stops working
+		/// when the callback returns.
+		/// </summary>
+		internal void BeginNewTypeCallback() => _isNewTypeCallbackOpen = true;
+		internal void EndNewTypeCallback() => _isNewTypeCallbackOpen = false;
 	}
 
 
@@ -577,9 +663,19 @@
 		/// Ceras can automatically map what members to put into the parameters of the constructor or factory method, but sometimes (when the names don't match up) you have to manually specify it
 		/// </para>
 		/// Only use this overload if you really have to (for example a parameter that will go into a private field)
+		/// <para>
+		/// The mapping is part of this type's configuration and is refused once that is closed, like
+		/// every other change to it. It used to be accepted, and then applied or dropped depending on
+		/// when the reflection formatter happened to be built: the only reader of the map is
+		/// <c>TypeConstruction.VerifyParameterMapping</c>, reached from the fallback formatter, so a
+		/// mapping written after the serializer had built that formatter was never consulted at all.
+		/// </para>
 		/// </summary>
 		public TypeConfig<T> MapParameters(Dictionary<ParameterInfo, MemberInfo> mapping)
 		{
+			// Ahead of the two state checks below: those report a mistake in the call, this one reports
+			// that it is too late, and once it is too late the rest is uninteresting.
+			ThrowIfSealed();
 			if (ParameterMap != null)
 				throw new InvalidOperationException("ParameterMapping is already set");
 			if (_typeConstruction == null)

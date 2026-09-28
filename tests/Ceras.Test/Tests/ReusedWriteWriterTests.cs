@@ -76,12 +76,20 @@ namespace Ceras.Test
         /// <para>
         /// <c>Outer</c> is a struct, so there is no null-flag in front of the formatter's own bytes.
         /// </para>
+        /// <para>
+        /// The formatter is installed through a <c>CustomResolver</c> rather than handed to
+        /// <c>SetFormatter</c>, because it needs the serializer it will re-enter - and the serializer
+        /// only exists once the constructor is running, by which time the config is sealed. A resolver
+        /// is the shape that closes that circle: it is configured before the serializer exists and is
+        /// handed the serializer when <c>Outer</c> is first resolved, which is the same instance a
+        /// formatter installed by hand used to get. See PostSealMutationTests for why a change made
+        /// after construction is refused.
+        /// </para>
         /// </summary>
         [Fact]
         public void ANestedWriteDoesNotDisturbTheWriterItWasMadeFrom()
         {
-            var ceras = new CerasFastSerializer();
-            ceras.Config.ConfigType<Outer>().SetFormatter(new ReentrantFormatter(ceras));
+            var ceras = new CerasFastSerializer(c => c.ConfigType<Outer>().CustomResolver = (s, t) => new ReentrantFormatter(s));
 
             var value = new Outer { Head = 1, Nested = new Inner { A = 2, B = 3 }, Tail = 4 };
 
@@ -108,8 +116,7 @@ namespace Ceras.Test
         [Fact]
         public void NestingKeepsWorkingAcrossRepeatedCalls()
         {
-            var ceras = new CerasFastSerializer();
-            ceras.Config.ConfigType<Outer>().SetFormatter(new ReentrantFormatter(ceras));
+            var ceras = new CerasFastSerializer(c => c.ConfigType<Outer>().CustomResolver = (s, t) => new ReentrantFormatter(s));
 
             byte[] buffer = CerasBufferPool.Rent(256);
             try

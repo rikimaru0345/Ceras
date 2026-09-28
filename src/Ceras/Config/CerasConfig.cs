@@ -4,6 +4,7 @@ namespace Ceras
 	using Ceras.Helpers;
 	using Ceras.Resolvers;
 	using System;
+	using System.Collections;
 	using System.Collections.Generic;
 	using System.Diagnostics.CodeAnalysis;
 	using IFormatter = Formatters.IFormatter;
@@ -55,15 +56,36 @@ namespace Ceras
 	/// Base configuration shared by <see cref="CerasRawConfig"/> and <see cref="CerasRobustConfig"/>.
 	/// Use one of those concrete subclasses — do not instantiate this directly.
 	/// </summary>
-	public abstract class CerasConfig
+	public abstract class CerasConfig : ISealedConfiguration
 	{
 		public CerasConfig() {
 			_advanced = new AdvancedConfig(this);
+			// Built here rather than in the property's own initializer: 'this' is not available there,
+			// and the list needs its owner to know whether it may still change.
+			OnResolveFormatter = new ConfigList<FormatterResolverCallback>(this, nameof(OnResolveFormatter));
 		}
 
 		bool _isSealed;
 		internal bool IsSealed => _isSealed;
 		internal void ThrowIfSealed() { if (_isSealed) throw new InvalidOperationException("CerasConfig is already sealed and cannot be modified."); }
+
+		/// <summary>
+		/// The named form, used by the collections a property hands out (<see cref="ConfigList{T}"/>):
+		/// a refusal there is just as final as one from a setter, so it names the member the caller
+		/// reached for instead of pointing at the whole config.
+		/// </summary>
+		void ISealedConfiguration.ThrowIfSealed(string what)
+		{
+			if (!_isSealed) return;
+			throw new InvalidOperationException(
+				"CerasConfig is already sealed and cannot be modified, so " + what + " cannot be changed now. " +
+				"A serializer settles everything it needs from its config once, when it is constructed: its constructor seals the config " +
+				"before it resolves a single formatter, and nothing reads the config again afterwards. So a change made now would either " +
+				"be ignored for the rest of the process or - the worse case - reach only the part of the work that had not happened yet, " +
+				"and the code reading it would have no way to tell which. Configure the config in the 'configure' callback of the " +
+				"serializer's constructor, or on the config object itself before you hand it to one.");
+		}
+
 		internal virtual void Seal() {
 			_isSealed = true;
 			SizeLimits.Seal();
@@ -98,8 +120,25 @@ namespace Ceras
 			if (configDict.TryGetValue(type, out var typeConfig))
 				return typeConfig;
 
+			// The type has no configuration yet. The open-generic answer comes first, because it is a
+			// statement about the argument rather than about the moment: an open generic was never
+			// configurable, and that message names the one door that does work for it. After that, the
+			// seal: before it, a missing entry is the ordinary case and the entry is created below;
+			// after it, creating one is refused - see the throw for why. The lookup above runs first, so
+			// the read side stays open: a type that *was* configured can still be inspected after a
+			// serializer exists, and every change to it is refused by TypeConfig rather than here.
 			if (type.ContainsGenericParameters)
 				throw new InvalidOperationException("You cannot configure open generic types like List<>. Only closed types like List<int> can be configured statically. Use OnConfigNewType for dynamic configuration.");
+
+			if (IsSealed)
+				throw new InvalidOperationException(
+					$"'{Format.TypeIdentity.GetCanonicalNameOrUnknown(type)}' has no configuration, and this CerasConfig is already sealed, " +
+					"so none can be created for it now. A serializer seals the config when it is constructed and settles there what it will " +
+					"do with every type it will meet, so a configuration that appears afterwards is either never consulted or consulted only " +
+					"for the types that had not been reached yet - which is why it is refused rather than accepted and half-applied. " +
+					"Configure the type in the 'configure' callback of the serializer's constructor, or, for a type Ceras only meets at runtime, " +
+					"from OnConfigNewType (which is still called for a type discovered after the seal) or with [CerasSerializable], whose " +
+					"generated registration configures it up front.");
 
 			// The factory is the shape a NativeAOT compiler can satisfy: naming TypeConfig<T> in code
 			// is what makes ILC emit native code for that closed instantiation, and MakeGenericType
@@ -163,7 +202,24 @@ namespace Ceras
 				System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
 				null, new object[] { this, isStatic }, null)!;
 
-			OnConfigNewType?.Invoke(typeConfig);
+			// The one post-seal door that stays open, and only for as long as the callback runs and
+			// only for the type it was handed: OnConfigNewType is Ceras asking the application to
+			// configure a type it has just discovered, which is the one configuration that cannot have
+			// happened earlier - the type did not exist in the config until this line. It is scoped to
+			// this one TypeConfig instance rather than to the config, so a callback that reaches for
+			// some *other* type - already configured, or discovered later - is refused exactly as it
+			// would be outside the callback, and a reference to the type it was handed stops working
+			// the moment the callback returns.
+			try
+			{
+				typeConfig.BeginNewTypeCallback();
+				OnConfigNewType?.Invoke(typeConfig);
+			}
+			finally
+			{
+				typeConfig.EndNewTypeCallback();
+			}
+
 			configDict.Add(type, typeConfig);
 			return typeConfig;
 		}
@@ -212,6 +268,14 @@ namespace Ceras
 		/// <c>[CerasSerializable]</c> type already is - roots that instantiation, after which this
 		/// overload binds to the same code and produces the same config object.
 		/// </para>
+		/// <para>
+		/// Call this to configure a type, which means before a serializer exists: a serializer seals the
+		/// config when it is constructed, and a type with no configuration cannot get one afterwards.
+		/// After the seal this still returns the configuration of a type that was configured before it,
+		/// so it can be read (<see cref="TypeConfig.Members"/>,
+		/// <see cref="TypeConfig.CustomFormatter"/>, <see cref="TypeConfig.Type"/>), but every change to
+		/// that configuration is refused by <see cref="TypeConfig"/>.
+		/// </para>
 		/// </summary>
 		[RequiresUnreferencedCode("Ceras constructs the closed 'TypeConfig<T>' for 'type' through MakeGenericType/Activator, and a trimmed or NativeAOT build only has native code for that instantiation if some code constructs it statically. Call ConfigType<T>() for the same type - the generated registration of a [CerasSerializable] type does exactly that - so the instantiation is rooted.")]
 		[RequiresDynamicCode("Ceras constructs the closed 'TypeConfig<T>' for 'type' through Activator.CreateInstance, which a NativeAOT build cannot compile into native code unless the instantiation is rooted by a static construction. Call ConfigType<T>() instead.")]
@@ -227,6 +291,11 @@ namespace Ceras
 		/// <c>ConfigType&lt;T&gt;()</c> - the generated registration of a <c>[CerasSerializable]</c> type
 		/// already is one - roots what this overload needs, and it then binds to that code.
 		/// </para>
+		/// <para>
+		/// Before and after the seal, this is <see cref="ConfigType(Type)"/> applied to the static
+		/// members: reading an existing configuration is still allowed, configuring a type that has
+		/// none is still refused.
+		/// </para>
 		/// </summary>
 		[RequiresUnreferencedCode("Ceras constructs the closed 'TypeConfig<T>' for 'type' through MakeGenericType/Activator, and a trimmed or NativeAOT build only has native code for that instantiation if some code constructs it statically. Call ConfigType<T>() for the same type - the generated registration of a [CerasSerializable] type does exactly that - so the instantiation is rooted.")]
 		[RequiresDynamicCode("Ceras constructs the closed 'TypeConfig<T>' for 'type' through Activator.CreateInstance, which a NativeAOT build cannot compile into native code unless the instantiation is rooted by a static construction. Call ConfigType<T>() for the same type - the generated registration of a [CerasSerializable] type does exactly that.")]
@@ -240,6 +309,11 @@ namespace Ceras
 		/// closed type here is what makes ILC emit native code for it. It is also what makes
 		/// <see cref="ConfigType(Type)"/> work there; both hand back the same config object either way.
 		/// </para>
+		/// <para>
+		/// Before and after the seal, this is <see cref="ConfigType(Type)"/> in its AOT-friendly form:
+		/// reading an existing configuration is still allowed, configuring a type that has none is
+		/// still refused.
+		/// </para>
 		/// </summary>
 		public TypeConfig<T> ConfigType<T>() => (TypeConfig<T>)GetTypeConfigForConfiguration(typeof(T), false, () => new TypeConfig<T>(this, false));
 
@@ -250,6 +324,14 @@ namespace Ceras
 		/// <para>
 		/// Null until assigned: Ceras treats "no callback" and "a callback" as the two states, and fires it
 		/// only when there is one.
+		/// </para>
+		/// <para>
+		/// This is the one door that stays open after the config is sealed, and it is deliberately
+		/// narrow: the callback is still fired for a type Ceras discovers later, and the
+		/// <see cref="TypeConfig"/> it is handed accepts changes <em>for that type, for the duration of
+		/// the call</em>. Nothing else does - a type that was configured before the seal stays closed, a
+		/// reference kept to the type this callback was handed stops working when the callback returns,
+		/// and the callback cannot be assigned twice.
 		/// </para>
 		/// </summary>
 		public Action<TypeConfig>? OnConfigNewType
@@ -272,8 +354,16 @@ namespace Ceras
 		/// <summary>
 		/// List of callbacks tried in order when Ceras needs a formatter for a type.
 		/// Return null to fall through to the next callback or Ceras's built-in resolution.
+		/// <para>
+		/// Changeable only while the config is open: the serializer snapshots the list when it is
+		/// constructed, so an entry added afterwards would be ignored for the rest of the process -
+		/// which is why every change is refused instead, through the list itself rather than through a
+		/// property setter, so that a reference taken before the seal is refused as well. Add your
+		/// callbacks in the 'configure' callback of the serializer's constructor (this is what
+		/// <c>UseImmutableFormatters</c> and the source generator's registration do).
+		/// </para>
 		/// </summary>
-		public List<FormatterResolverCallback> OnResolveFormatter { get; } = new List<FormatterResolverCallback>();
+		public ConfigList<FormatterResolverCallback> OnResolveFormatter { get; }
 
 		/// <summary>
 		/// Converts between Type and string for type names embedded in serialized data.
@@ -391,5 +481,88 @@ namespace Ceras
 		}
 
 		#endregion
+	}
+
+	/// <summary>
+	/// Configuration that accepts changes while it is open and refuses them once it is sealed.
+	/// <para>
+	/// The collections a configuration hands out ask through this rather than checking a flag of their
+	/// own, for one reason: a property that returned a plain <see cref="List{T}"/> could not take that
+	/// reference back. A caller who read the property before the seal kept a list that still accepted
+	/// changes after it - and for a collection like the resolver list, a change that is accepted and
+	/// then ignored is the worst of the available outcomes, because the code that made it reads as
+	/// though it took effect. The guarded list keeps the same instance for its whole life, so refusing
+	/// is something the list does rather than something the property asked for once.
+	/// </para>
+	/// </summary>
+	internal interface ISealedConfiguration
+	{
+		/// <summary>
+		/// Refuses a change, naming <paramref name="what"/> the thing being changed, so the message
+		/// points at the member the caller reached for. Returns normally while the configuration is open.
+		/// </summary>
+		void ThrowIfSealed(string what);
+	}
+
+	/// <summary>
+	/// The list behind a configuration setting, e.g. <see cref="CerasConfig.OnResolveFormatter"/>:
+	/// <see cref="IList{T}"/> and <see cref="IReadOnlyList{T}"/> over the real list, accepting every
+	/// change while the configuration that owns it is open and refusing every change once that
+	/// configuration is sealed.
+	/// <para>
+	/// It is deliberately not a <see cref="List{T}"/>, and cannot be one. A property that hands out
+	/// the raw list hands out a reference that sealing cannot revoke, and <see cref="List{T}"/> cannot
+	/// be intercepted to change that - its methods are not virtual. So the guard has to live in a
+	/// different type, which is also why casting one of these back to <see cref="List{T}"/> fails
+	/// instead of quietly producing an unguarded list.
+	/// </para>
+	/// <para>
+	/// Reading is never refused, before or after the seal: enumeration, <see cref="Count"/>, the indexer
+	/// and <see cref="Contains(T)"/> are how a configuration is inspected, and inspecting a serializer's
+	/// configuration after it exists is legitimate. <see cref="IsReadOnly"/> reports false, like every
+	/// writable property on a config does: the list <em>is</em> writable, up until the moment it is not.
+	/// </para>
+	/// </summary>
+	public sealed class ConfigList<T> : IList<T>, IReadOnlyList<T>
+	{
+		readonly List<T> _items = new List<T>();
+		readonly ISealedConfiguration _owner;
+		readonly string _name;
+
+		internal ConfigList(ISealedConfiguration owner, string name)
+		{
+			_owner = owner;
+			_name = name;
+		}
+
+		// Asked before the change, never after: a refused change must leave the list exactly as it was,
+		// and "remove the item that was not there" is still a refusal.
+		void Guard() => _owner.ThrowIfSealed(_name);
+
+		public int Count => _items.Count;
+		public bool IsReadOnly => false;
+
+		public T this[int index]
+		{
+			get => _items[index];
+			set { Guard(); _items[index] = value; }
+		}
+
+		public void Add(T item) { Guard(); _items.Add(item); }
+		public void Clear() { Guard(); _items.Clear(); }
+		public bool Contains(T item) => _items.Contains(item);
+		public void CopyTo(T[] array, int arrayIndex) => _items.CopyTo(array, arrayIndex);
+		public int IndexOf(T item) => _items.IndexOf(item);
+		public void Insert(int index, T item) { Guard(); _items.Insert(index, item); }
+		public bool Remove(T item) { Guard(); return _items.Remove(item); }
+		public void RemoveAt(int index) { Guard(); _items.RemoveAt(index); }
+
+		/// <summary>
+		/// The underlying list's struct enumerator, so a <c>foreach</c> over this does not box it - the
+		/// same reason <see cref="List{T}"/> exposes its own.
+		/// </summary>
+		public List<T>.Enumerator GetEnumerator() => _items.GetEnumerator();
+		IEnumerator<T> IEnumerable<T>.GetEnumerator() => _items.GetEnumerator();
+		IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable)_items).GetEnumerator();
 	}
 }
