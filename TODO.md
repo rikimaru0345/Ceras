@@ -11,7 +11,8 @@ The settled contracts below are targets; they are not claims that the code alrea
 ## Settled goals and contracts
 
 - **Platform:** .NET 10 / C# 14, with Godot editor and exported-game integration tested.
-  Unity-specific support is deferred. No ASP.NET dependency is needed or planned.
+  No first-class Unity integration or Unity-specific patching is planned; the legacy
+  addon is not a supported target. No ASP.NET dependency is needed or planned.
 - **Generated code:** ordinary, inspectable, debuggable C# that the compiler and JIT can
   optimize. No expression compilation or runtime IL generation. Reflection is acceptable
   where needed in the upgrade interpreter. NativeAOT compatibility is desirable, but
@@ -50,7 +51,9 @@ The settled contracts below are targets; they are not claims that the code alrea
 - **Network ownership:** ordinary structs and reusable objects, caller-owned/pooled buffers,
   reusable collection storage. No mandatory ref structs; borrowed views are deferred.
   Allocation-free steady state is a target for suitable messages, not a promise for owning
-  strings or arbitrary graphs. Send strings directly without interning.
+  strings or arbitrary graphs. Send strings directly without interning. Prefer sharing
+  the generated fast-path/layout foundation with robust saves where it preserves both
+  paths' correctness and performance; do not mandate one serializer wrap the other.
 - **Game-data IDs:** context-specific formatters write recipe/item/etc. IDs and resolve them
   to existing local objects on receipt. The same type may serialize differently in saves.
 
@@ -232,10 +235,10 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
 - Preserve explicit inaccessible-signature diagnostics and generic accessor semantics;
   revisit ref-return accessors only for a demonstrated need.
 - Clean build warnings and smoke-test realistic trimming/NativeAOT; optionally omit
-  deferred Unity addon from the default build.
+  unsupported legacy Unity addon from the default build.
 
 ## Deferred
 
-Unity-specific integration; borrowed ref-struct packet views; opaque framing for
-custom payloads; lazy old-data graphs; broad speculative specializations, compression
+Borrowed ref-struct packet views; opaque framing for custom payloads; lazy old-data
+graphs; broad speculative specializations, compression
 or interning redesign, and JIT tuning without representative evidence.

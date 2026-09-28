@@ -10,10 +10,15 @@ Supports reference loops and inheritance chains. It does **not** support every .
 ## Direction of the next implementation
 
 Design targets, **not** a description of the current release. What is implemented today is claimed
-elsewhere on this page; the open items live in `TODO.md`. In short: the robust format has a
-self-describing layout, a generated fast path and a streaming migration interpreter, but the
-old-data graph, compact-encoding overrides, a dedicated networking mode, Godot export testing and
-NativeAOT support are all still to do.
+elsewhere on this page; the open items live in `TODO.md`. In short:
+
+- Split into two major things:
+    - An "as fast as possible" thing optimal for networking (no allocations if at all possible)
+    - A robust format with a self-describing layout; perfect for savegames (where the game gets patched and new versions must load old savegames).
+      Ideally the robust path tries to build on top of the "as fast as possible" path, just adding stuff on top to ensure anyone can read saved data.
+- No more IL generation or expression trees; we go all in on source code generation.
+- First-class Unity 3D engine support will be dropped. If it works, cool; if it doesn't, we won't patch it.
+
 
 ## Quick start
 
