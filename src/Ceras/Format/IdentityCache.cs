@@ -14,10 +14,20 @@ namespace Ceras.Format
     /// half-built instance. Reserving is therefore separate from publishing, and both are here so the
     /// index arithmetic exists in exactly one place.
     /// </para>
+    /// <para>
+    /// Generic over the value the slots hold, so the same arithmetic serves every reader that fills slots
+    /// — the streaming interpreter instantiates it as <c>IdentityCache&lt;object?&gt;</c>, and the
+    /// old-data graph's builder (TODO.md, Milestone 2) as <c>IdentityCache&lt;OldValue&gt;</c>. The
+    /// parameter is what keeps a second implementation from being written by copy, which is the failure
+    /// the paragraph above is about: the reserve/publish split and the bounds check are load-bearing, and
+    /// a hand-rolled second copy of them is a second chance to disagree with the writer.
+    /// </para>
     /// </summary>
-    sealed class IdentityCache
+    /// <typeparam name="T">What a slot holds. A slot is nullable: a reserved-but-unpublished slot, or a
+    /// published null, are both states the reader can legitimately be in.</typeparam>
+    sealed class IdentityCache<T>
     {
-        readonly List<object?> _slots = new();
+        readonly List<T?> _slots = new();
 
         public int Count => _slots.Count;
 
@@ -26,7 +36,7 @@ namespace Ceras.Format
         /// <paramref name="placeholder"/> is what a reference to it resolves to until it is published —
         /// a reused instance for a value that reuses one, otherwise null.
         /// </summary>
-        public int Reserve(object? placeholder)
+        public int Reserve(T? placeholder)
         {
             int index = _slots.Count;
             _slots.Add(placeholder);
@@ -34,10 +44,10 @@ namespace Ceras.Format
         }
 
         /// <summary>Publishes the object into a reserved slot.</summary>
-        public void Publish(int index, object? value) => _slots[index] = value;
+        public void Publish(int index, T? value) => _slots[index] = value;
 
         /// <summary>Publishes into a reserved slot, if one was reserved.</summary>
-        public void Publish(int? index, object? value)
+        public void Publish(int? index, T? value)
         {
             if (index.HasValue) Publish(index.Value, value);
         }
@@ -47,7 +57,7 @@ namespace Ceras.Format
         /// emits indices for objects it has written, so this used to decode as a legitimate null — the one
         /// value a caller cannot tell apart from a real one.
         /// </summary>
-        public object? Resolve(int index)
+        public T? Resolve(int index)
         {
             if ((uint)index >= (uint)_slots.Count)
                 throw new Exceptions.CerasDataCorruptionException(
