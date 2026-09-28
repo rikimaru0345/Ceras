@@ -882,14 +882,13 @@ namespace Ceras
             byte[] newBuffer = CerasBufferPool.Rent(targetSize);
             buffer.AsSpan(0, currentSize).CopyTo(newBuffer);
 
-            // The replaced buffer is deliberately *not* handed back to the pool. It is not
-            // necessarily one the pool ever rented: the public `Serialize(obj, ref buffer, offset)`
-            // overload lets the caller pass its own array, and growing that array must not push the
-            // caller's memory into a pool it does not belong to. ArrayPool.Return rejects a length
-            // that is not one of its buckets, so a caller-allocated array of an odd size turned a
-            // grow into an ArgumentException from inside the write. Letting the replaced array go to
-            // the collector instead costs nothing measurable: a save sizes its buffer from the
-            // previous one, so steady-state saves do not grow at all.
+            // Every buffer that reaches here came from CerasBufferPool - Save rents its own, and the
+            // public write path requires the caller's to be a rental too - so the replaced array is
+            // ours to hand back. Not doing so leaks it: growth is exactly when the pool is asked for
+            // more, and dropping what it just gave up means the pool keeps allocating instead of
+            // reusing. (This used to be skipped to protect a caller-allocated buffer, which the pooled
+            // write API no longer accepts.)
+            CerasBufferPool.Return(buffer);
             buffer = newBuffer;
         }
 

@@ -176,46 +176,97 @@ namespace Ceras
 		/// <summary>
 		/// The serialized bytes of <paramref name="obj"/>. Never null: the result is a fresh array
 		/// holding everything the write produced (an empty input produces an empty array, not null).
+		/// <para>
+		/// Convenient, and allocates twice - once for the working buffer, once for the result. To
+		/// write repeatedly without allocating, rent a buffer from <see cref="CerasBufferPool"/> once
+		/// and use <see cref="Serialize{T}(T, ref byte[])"/>, which is the shape a per-frame message
+		/// loop wants.
+		/// </para>
 		/// </summary>
 		protected internal byte[] Serialize<T>(T obj)
 		{
-			var writer = new ArrayBufferWriter<byte>();
-			Serialize(writer, obj);
-			return writer.WrittenSpan.ToArray();
+			// Rented rather than allocated: a caller that has not asked to manage a buffer should not
+			// pay for a fresh working array on every message, only for the one it receives back.
+			byte[] buffer = CerasBufferPool.Rent(DefaultBufferSize);
+			try
+			{
+				int offset = 0;
+				Serialize(obj, ref buffer, ref offset);
+				return buffer[..offset];
+			}
+			finally
+			{
+				CerasBufferPool.Return(buffer);
+			}
 		}
 
+		/// <summary>Working-buffer size for the write path before it has to grow.</summary>
+		protected internal const int DefaultBufferSize = 4096;
+
 		/// <summary>
-		/// Writes <paramref name="obj"/> into <paramref name="buffer"/> at <paramref name="offset"/>
-		/// and returns the number of bytes written.
+		/// A pooled buffer sized for writing with <see cref="Serialize{T}(T, ref byte[], ref int)"/>,
+		/// for callers that would otherwise have to know the default size. Return it to
+		/// <see cref="CerasBufferPool.Return"/> when done.
+		/// </summary>
+		protected internal static byte[] RentWriteBuffer() => CerasBufferPool.Rent(DefaultBufferSize);
+
+		/// <summary>
+		/// Writes <paramref name="obj"/> at offset 0 of <paramref name="buffer"/> and returns the
+		/// number of bytes written.
 		/// <para>
-		/// <b>The buffer can change, and the caller must read it back.</b> If the object does not
-		/// fit, the array is replaced by a larger one and <paramref name="buffer"/> is reassigned -
-		/// which is why it is a <see langword="ref"/> parameter and why the old contents of the
-		/// variable are not a safe thing to keep reading. The array you passed in is not modified
-		/// beyond the bytes actually written, but it may be a different array afterwards.
+		/// <paramref name="buffer"/> must come from <see cref="CerasBufferPool.Rent"/>, and the caller
+		/// returns it to <see cref="CerasBufferPool.Return"/> when done with it. If the object does not
+		/// fit, Ceras returns the replaced array itself and hands back the larger one through
+		/// <paramref name="buffer"/> - so the caller always holds exactly one pooled array and can
+		/// return it exactly once, whatever sequence of sizes it has been through. There is no window
+		/// in which the caller holds a replaced array, which is what makes that safe.
 		/// </para>
 		/// <para>
-		/// <b>Ownership after a replacement is not yours to assume.</b> When the buffer has to grow,
-		/// the replacement comes from <see cref="CerasBufferPool"/> (the shared
-		/// <see cref="System.Buffers.ArrayPool{T}"/>). So of the two arrays, the one you supplied is
-		/// yours and the one you were handed back is the pool's. Passing the replacement to
-		/// <see cref="CerasBufferPool.Return"/> is fine; passing your own original there throws,
-		/// because the pool rejects an array it never rented. The array you passed is never returned
-		/// to the pool on your behalf - growth deliberately leaves it to the collector rather than
-		/// pushing a caller's memory into a pool it does not belong to.
-		/// </para>
-		/// <para>
-		/// To avoid the question entirely, either size the buffer generously up front so it never
-		/// grows, or use the <see cref="IBufferWriter{T}"/> overload with a writer you own.
+		/// This is the allocation-free path for a message sent every frame: rent once, write many,
+		/// return once. Compared with <see cref="Serialize{T}(T)"/> it allocates nothing per message
+		/// once the buffer is big enough, where that overload allocates for the working buffer and the
+		/// result on every call.
 		/// </para>
 		/// </summary>
-		protected internal int Serialize<T>(T obj, ref byte[] buffer, int offset = 0)
+		protected internal int Serialize<T>(T obj, ref byte[] buffer)
 		{
+			int offset = 0;
+			return Serialize(obj, ref buffer, ref offset);
+		}
+
+
+		/// <summary>
+		/// Writes <paramref name="obj"/> into <paramref name="buffer"/> starting at
+		/// <paramref name="offset"/>, and returns the number of bytes written. On return
+		/// <paramref name="offset"/> points just past what was written, so calls can be chained to
+		/// build one buffer out of several objects.
+		/// <para>
+		/// <b>The buffer is pooled and the caller must return it.</b> It must come from
+		/// <see cref="CerasBufferPool.Rent"/>, and the caller returns it to
+		/// <see cref="CerasBufferPool.Return"/> when finished - not after every call, but once, when
+		/// the buffer is no longer needed.
+		/// </para>
+		/// <para>
+		/// <b>The buffer can change, and the caller must read it back.</b> If the object does not
+		/// fit, Ceras returns the replaced array to the pool itself and hands back a larger one
+		/// through <paramref name="buffer"/>. That is safe precisely because the caller no longer
+		/// holds the old one: there is always exactly one pooled array in the caller's hands, so
+		/// returning it can never be a double return, however many times the buffer has grown.
+		/// </para>
+		/// </summary>
+		protected internal int Serialize<T>(T obj, ref byte[] buffer, ref int offset)
+		{
+			int start = offset;
 			var writer = new FixedArrayBufferWriter(buffer, offset);
 			Serialize(writer, obj);
+
+			// Any growth already returned the arrays it replaced to the pool (ExpandBuffer does it, on
+			// the way through), so this only has to take back the latest one. The caller is left
+			// holding exactly one pooled array, which is what makes a single Return at the end of
+			// their loop correct however many times the buffer grew on the way.
 			buffer = writer.Buffer;
-			int size = writer.Offset - offset;
-			return size;
+			offset = writer.Offset;
+			return offset - start;
 		}
 
 		protected internal void Serialize<T>(IBufferWriter<byte> writer, T obj)

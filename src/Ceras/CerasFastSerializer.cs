@@ -27,13 +27,23 @@ namespace Ceras
         /// </summary>
         public new byte[] Serialize<T>(T obj) => base.Serialize(obj);
         public new void Serialize<T>(IBufferWriter<byte> writer, T obj) => base.Serialize(writer, obj);
-        /// <inheritdoc cref="CerasSerializer.Serialize{T}(T, ref byte[], int)"/>
-        /// <remarks>
-        /// The buffer can be replaced by a larger one - read it back after the call. If it was, the
-        /// array you were handed is the shared pool's rather than yours, so only that one may be
-        /// passed to <see cref="CerasBufferPool.Return(byte[])"/>.
-        /// </remarks>
-        public new int Serialize<T>(T obj, ref byte[] buffer, int offset = 0) => base.Serialize(obj, ref buffer, offset);
+        /// <summary>
+        /// Writes <paramref name="obj"/> at offset 0 of a pooled <paramref name="buffer"/> and
+        /// returns the number of bytes written. The allocation-free path for a message written every
+        /// frame: rent once, write many, return once.
+        /// <para>
+        /// The buffer must come from <see cref="CerasBufferPool.Rent"/> (or
+        /// <see cref="CerasSerializer.RentWriteBuffer"/>) and must be returned to
+        /// <see cref="CerasBufferPool.Return"/> when finished. If the object does not fit, Ceras
+        /// returns the replaced array itself and hands back a larger one, so read
+        /// <paramref name="buffer"/> back after every call. There is never a moment where you hold a
+        /// replaced array, so returning the one you hold can never be a double return.
+        /// </para>
+        /// </summary>
+        public new int Serialize<T>(T obj, ref byte[] buffer) => base.Serialize(obj, ref buffer);
+
+        /// <inheritdoc cref="CerasSerializer.Serialize{T}(T, ref byte[], ref int)"/>
+        public new int Serialize<T>(T obj, ref byte[] buffer, ref int offset) => base.Serialize(obj, ref buffer, ref offset);
 
         /// <summary>
         /// Reads a value. Returns null (or <c>default</c>) when the bytes describe a null value.
