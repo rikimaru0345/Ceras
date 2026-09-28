@@ -2,6 +2,7 @@ using System.Linq;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 namespace Ceras.Format
 {
@@ -336,8 +337,13 @@ namespace Ceras.Format
                     }
                     else
                     {
-                        var sa = newField.GetCustomAttribute<CerasStableNameAttribute>();
-                        mappedStableNames.Add(sa?.Name ?? newField.Name);
+                        // The name the map found this member under, by the same rule the map used to
+                        // record it. It used to be re-derived here as `sa?.Name ?? newField.Name`, which
+                        // is a different rule: it skipped the auto-property peel, so a mapped
+                        // auto-property was recorded as "<Name>k__BackingField" and therefore never
+                        // matched the "Name" the current schema lists — reporting a member the file
+                        // carried as one the file never had.
+                        mappedStableNames.Add(StableNameOf(newField));
                     }
                 }
 
@@ -382,38 +388,164 @@ namespace Ceras.Format
             return m;
         }
 
+        /// <summary>
+        /// The current members a file's field names are matched against, keyed by every name one of them
+        /// may be recorded under: its wire name, plus each <c>[PreviousName]</c>.
+        /// <para>
+        /// The member set is <b>every instance field up the base chain</b>, not one
+        /// <c>Type.GetFields(Public | NonPublic | Instance)</c> call. That call looks like it walks
+        /// inheritance and does not: without <c>FlattenHierarchy</c> the runtime returns a base type's
+        /// <em>public and protected</em> fields and stops there, because a private field is not a member
+        /// of the derived type. An auto-property's backing field is private by definition, so **every
+        /// inherited auto-property was missing from this map** — and both writers do serialize those
+        /// members, because <c>MemberExplorer</c> and <c>ReflectionHelper.EnumerateMembers</c> both walk
+        /// the chain with <c>DeclaredOnly</c> themselves. The file's value for one was therefore read
+        /// structurally, discarded, and the object kept its declared default, with the load reporting
+        /// success. That is the whole reason the walk is written out here rather than delegated.
+        /// </para>
+        /// <para>
+        /// The walk is <b>derived-first and first-wins</b>, so a member declared in a more derived type
+        /// claims a name before any base declaration of it is considered. That is the generator's own
+        /// rule (<c>MemberExplorer</c> builds its <c>typeChain</c> derived-first and drops the base
+        /// version of a shadowed auto-property through <c>claimedBackingFieldNames</c>), and it is also
+        /// the order the single <c>GetFields</c> call already produced for the names it could see — so
+        /// this changes <em>which</em> members are enumerated, not <em>who wins</em> a contested name.
+        /// </para>
+        /// </summary>
         static Dictionary<string, FieldInfo> BuildCurrentFieldMap(Type type)
         {
             var map = new Dictionary<string, FieldInfo>(StringComparer.Ordinal);
-            foreach (var f in type.GetFields(
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+
+            foreach (var f in EnumerateInstanceFields(type))
             {
-                if (f.GetCustomAttribute<ExcludeAttribute>() != null) continue;
-                if (f.GetCustomAttribute<NonSerializedAttribute>() != null) continue;
+                // Resolved once and handed to all three rules below, so a backing field costs one
+                // GetProperty rather than one per rule.
+                var property = AssociatedPropertyOf(f);
+                if (!IsSerializedMember(f, property)) continue;
 
-                var sa = f.GetCustomAttribute<CerasStableNameAttribute>();
-                string stableName = sa?.Name ?? f.Name;
-                
-                // Handle compiler-generated auto-property backing fields (e.g., <Map>k__BackingField)
-                if (sa == null && stableName.StartsWith("<") && stableName.EndsWith(">k__BackingField"))
-                {
-                    stableName = stableName.Substring(1, stableName.Length - 17);
-                }
+                map.TryAdd(StableNameOf(f, property), f);
 
-                // If it's a private field without an attribute, it might be a backing field.
-                // For now we just include it if it's not excluded.
-                map.TryAdd(stableName, f);
-
-                foreach (var pn in f.GetCustomAttributes<PreviousNameAttribute>())
-                {
-                    if (pn.Name != null)
-                        map.TryAdd(pn.Name, f);
-                    foreach (var alt in pn.AlternativeNames)
-                        if (alt != null)
-                            map.TryAdd(alt, f);
-                }
+                foreach (var previous in PreviousNamesOf(f, property))
+                    map.TryAdd(previous, f);
             }
             return map;
+        }
+
+        /// <summary>
+        /// Every instance field of <paramref name="type"/> and of its base types, most derived first and
+        /// stopping at <see cref="object"/>. No filtering: the caller decides which of them are members,
+        /// so the shape of the walk and the rules about a member stay separate decisions.
+        /// </summary>
+        static IEnumerable<FieldInfo> EnumerateInstanceFields(Type type)
+        {
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+
+            for (var current = type; current != null && current != typeof(object); current = current.BaseType)
+                foreach (var f in current.GetFields(flags))
+                    if (f.DeclaringType == current)
+                        yield return f;
+        }
+
+        /// <summary>
+        /// Would a Ceras writer have put this field in the payload? The rules mirror the two that decide
+        /// it on the write side, so the map can never offer a member the file's own writer left out:
+        /// <c>TypeConfigDefaults.ApplyMemberAttributes</c> for the reflection schema, and
+        /// <c>MemberExplorer.DiscoverMembers</c> for the generator.
+        /// </summary>
+        static bool IsSerializedMember(FieldInfo field, PropertyInfo? property)
+        {
+            if (field.GetCustomAttribute<ExcludeAttribute>() != null) return false;
+            if (field.GetCustomAttribute<NonSerializedAttribute>() != null) return false;
+
+            // The property is what the user wrote, so its attributes are the declaration's. That is true
+            // on the write side for all three of these (MemberConfig carries AssociatedProperty and both
+            // TypeConfigDefaults and MemberExplorer consult it), and it is the reason a [CerasStableName]
+            // or an [Exclude] written above an auto-property is a real instruction rather than a comment.
+            if (property != null)
+            {
+                if (property.GetCustomAttribute<ExcludeAttribute>() != null) return false;
+                if (property.GetCustomAttribute<NonSerializedAttribute>() != null) return false;
+            }
+
+            // A compiler-generated field is a member only when a property stands in for it, which is the
+            // same correction MemberConfig makes when it clears IsCompilerGenerated for an
+            // AssociatedProperty. Everything else the compiler generates is not a member of anything — an
+            // event's backing field, a cached delegate — and no file can name it. The base chain is what
+            // brings these into view for the first time, so the rule has to be here: without it this walk
+            // would start offering members that the writers never serialized.
+            if (property == null && field.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
+                return false;
+
+            return true;
+        }
+
+        const string BackingFieldSuffix = ">k__BackingField";
+
+        /// <summary>
+        /// The auto-property <paramref name="field"/> is the backing field of, or null when it is not one
+        /// (a real field, or a compiler-generated field no property stands in for). Mirrors
+        /// <c>MemberConfig</c>'s constructor and <c>ReflectionHelper.AutoPropertyOf</c>: the property is
+        /// looked for on the field's own declaring type, so a shadowing property in a derived type is not
+        /// mistaken for the one the field belongs to.
+        /// </summary>
+        static PropertyInfo? AssociatedPropertyOf(FieldInfo field)
+        {
+            var name = field.Name;
+            if (!name.StartsWith("<", StringComparison.Ordinal) || !name.EndsWith(BackingFieldSuffix, StringComparison.Ordinal))
+                return null;
+
+            var propertyName = name.Substring(1, name.Length - 1 - BackingFieldSuffix.Length);
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+            return field.DeclaringType?.GetProperty(propertyName, flags);
+        }
+
+        /// <summary>
+        /// The one rule for the name a field is written and matched under: the <c>[CerasStableName]</c> of
+        /// the field, else of its auto-property, else the auto-property's own name, else the field's.
+        /// <para>
+        /// It is a single method because the three places that need it had drifted into three answers. The
+        /// map peeled the backing-field wrapper but read no property attribute; the recorded-name set
+        /// (<c>BuildOne</c>, which decides <c>MigrationContext.AddedFields</c>) did not peel it at all, so
+        /// an auto-property that <em>was</em> mapped was still reported as an added one; and the
+        /// constructor matcher peeled it without the property either. A name that does not agree with the
+        /// writer's is a value the migration cannot find — or, in the AddedFields case, one it reports as
+        /// never having been read.
+        /// </para>
+        /// </summary>
+        internal static string StableNameOf(FieldInfo field) => StableNameOf(field, AssociatedPropertyOf(field));
+
+        static string StableNameOf(FieldInfo field, PropertyInfo? property)
+        {
+            var stable = field.GetCustomAttribute<CerasStableNameAttribute>()
+                ?? property?.GetCustomAttribute<CerasStableNameAttribute>();
+            if (stable?.Name != null) return stable.Name;
+
+            var name = field.Name;
+            if (name.StartsWith("<", StringComparison.Ordinal) && name.EndsWith(BackingFieldSuffix, StringComparison.Ordinal))
+                name = name.Substring(1, name.Length - 1 - BackingFieldSuffix.Length);
+            return name;
+        }
+
+        /// <summary>
+        /// The other wire names this member has been recorded under, from the field's own
+        /// <c>[PreviousName]</c> attributes and from its auto-property's. Nulls are dropped rather than
+        /// keyed: a <c>[PreviousName]</c> with no name records alternatives only.
+        /// </summary>
+        static IEnumerable<string> PreviousNamesOf(FieldInfo field, PropertyInfo? property)
+        {
+            foreach (var previous in PreviousNamesOn(field)) yield return previous;
+            if (property == null) yield break;
+            foreach (var previous in PreviousNamesOn(property)) yield return previous;
+        }
+
+        static IEnumerable<string> PreviousNamesOn(MemberInfo member)
+        {
+            foreach (var previous in member.GetCustomAttributes<PreviousNameAttribute>())
+            {
+                if (previous.Name != null) yield return previous.Name;
+                foreach (var alternative in previous.AlternativeNames)
+                    if (alternative != null) yield return alternative;
+            }
         }
 
         static FieldInfo? FindCurrentField(
@@ -1155,17 +1287,13 @@ namespace Ceras.Format
             return normalized;
         }
 
-        /// <summary>The wire name of a field: <c>[CerasStableName]</c>, or the property name for an auto-property.</summary>
-        internal static string StableNameOf(FieldInfo field)
-        {
-            var stable = field.GetCustomAttribute<CerasStableNameAttribute>();
-            if (stable?.Name != null) return stable.Name;
-
-            var name = field.Name;
-            const string backingSuffix = ">k__BackingField";
-            if (name.StartsWith("<", StringComparison.Ordinal) && name.EndsWith(backingSuffix, StringComparison.Ordinal))
-                name = name.Substring(1, name.Length - backingSuffix.Length);
-            return name;
-        }
+        /// <summary>
+        /// The wire name of a field, by the one rule that defines it. Delegates rather than repeating it:
+        /// a constructor parameter is matched against a member's <em>wire</em> name as a fallback after
+        /// its C# name, and a <c>[CerasStableName]</c> on an auto-property's property replaces that name
+        /// for the generator too — so a matcher that ignored it would pick a different constructor than
+        /// the generated reader does.
+        /// </summary>
+        internal static string StableNameOf(FieldInfo field) => MigrationPlanBuilder.StableNameOf(field);
     }
 }
