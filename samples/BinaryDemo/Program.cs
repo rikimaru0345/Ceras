@@ -31,12 +31,18 @@ namespace BinaryDemo
 
             //
             // Serialize and Visualize
+            //
+            // `typeof(Person)` is written by name, in full, every time - it is in the hex below as
+            // "BinaryDemo.Person". The type cache only dedupes a Type within one operation.
             var data = ceras.Serialize(a);
             VisualizePrint(data);
 
 
             //
-            // Repeat with KnownTypes
+            // Repeat with a second serializer instance
+            //
+            // The `KnownTypes` option this used to configure is gone and the lambda is now empty, so
+            // this prints byte-for-byte what the first pass printed.
             ceras = new CerasFastSerializer(config => {
             });
             

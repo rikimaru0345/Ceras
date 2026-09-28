@@ -1,6 +1,6 @@
 # Ceras roadmap benchmarks
 
-A standalone, runnable measurement tool for the P0 0.7 roadmap performance baselines
+A standalone, runnable measurement tool for the roadmap performance baselines
 (`TODO.md` → "Benchmark sustained traffic and steady-state allocations…", and Milestone 5's
 "retain only genuinely useful exploratory tools/benchmarks").
 

@@ -42,16 +42,21 @@ byte[] data = robust.Save(p, robustVersion: 1);
 var p2 = robust.Load<Person>(data, currentRobustVersion: 1);
 ```
 
-1. [**>> Many more examples in the code tutorial**](https://github.com/rikimaru0345/Ceras/blob/master/src/Tutorial/Tutorial.cs)
-2. [**>> Detailed guides for specific scenarios on my blog**](https://www.rikidev.com/)
-3. [**>> Read 'Optimization & Usage Pitfalls'**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
+1. [**>> Detailed guides for specific scenarios on my blog**](https://www.rikidev.com/)
+2. [**>> Read 'Optimization & Usage Pitfalls'**](https://github.com/rikimaru0345/Ceras/wiki/Optimization-&-Pitfalls)
 - [**>> Changelog v3.0 (rikidev.com/new-features-in-ceras-3-0-2)**](https://www.rikidev.com/new-features-in-ceras-3-0-2/)
 - [**>> New features in v4.0 (https://github.com/rikimaru0345/Ceras/releases/tag/4.0)**](https://github.com/rikimaru0345/Ceras/releases/tag/4.0)
+
+> The step-by-step code tutorial that used to live in `src/Tutorial/Tutorial.cs` has been deleted
+> along with the settings it demonstrated; `src/Tutorial` is now an empty `Main`. The runnable
+> equivalents in this repository are the [quick start](#quick-start), the
+> [robust quick start](#quick-start-3-steps) below, and
+> [`samples/GodotIntegration`](samples/GodotIntegration/Main.cs).
 
 
 ## Features
 
-- Very fast, small binary output (see **[Performance](https://github.com/rikimaru0345/Ceras#performance-benchmarks)**)
+- Small binary output, with runnable in-repository measurements (see **[Performance](https://github.com/rikimaru0345/Ceras#performance-benchmarks)**; the cross-serializer chart there is historical, and allocation-free operation is not a current claim)
 - Supports a wide range of .NET types:
 	- [Hand-written formatters for all common .NET types](https://github.com/rikimaru0345/Ceras/wiki/Full-feature-list-&-planned-features#built-in-types)
 	- Generates new formatters for user types at compile time (source generator)
@@ -242,15 +247,18 @@ void OnMigrated(MigrationContext ctx)
 > reported rather than silently never called.
 
 ## Performance benchmarks
-Ceras generally ranks at the top end of the performance spectrum, together with NetSerializer and MessagePack-CSharp.
-To get an idea of how Ceras performs here are the preliminary benchmark results.
-The resulting binary size is about the same as MessagePack-CSharp.
+The chart below is a **historical** measurement, kept because it is the only comparison against other
+serializers this repository has ever published. It is not a claim about the current release.
 
 ![Single object performance benchmark](https://i.imgur.com/Q896UgV.png)
 
 > **Historical and unverified.** This chart predates the current source generator, the robust format
 > and the .NET 10 port, and it has not been regenerated — treat the numbers as indicative only, not
-> as a measurement of the current release.
+> as a measurement of the current release. The specific claims that accompanied it — that Ceras
+> "ranks at the top end of the performance spectrum" alongside NetSerializer and MessagePack-CSharp,
+> and that the output is about the same size as MessagePack-CSharp's — were true of the *build that
+> produced the chart* and are **not** re-measured here. Nothing in this repository benchmarks Ceras
+> against another serializer, so no current ranking is claimed.
 
 For the **current** code, the in-repository tool is
 [`samples/Ceras.Benchmarks`](samples/Ceras.Benchmarks/README.md). It measures the current
@@ -262,13 +270,18 @@ dotnet run --project samples/Ceras.Benchmarks -c Release -- --roadmap-quick   # 
 dotnet run --project samples/Ceras.Benchmarks -c Release -- --roadmap-bench   # BenchmarkDotNet
 ```
 
-It runs the self-checks first and exits non-zero if any fails, so a number is never reported for a
-build that does not actually round-trip.
+It runs 13 self-checks first and exits non-zero if any fails, so a number is never reported for a
+build that does not actually round-trip. Those rows measure *this* library on *your* machine; they
+are a baseline to compare two runs against, not a published result.
 
 I encourage you to not only try it yourself, but to also provide feedback about scenarios you had good and bad results with.
 
 Don't forget to tune the settings in `CerasConfig` for your specific situation.
 Using Ceras to read/write network packets might require different settings than, lets say, saving a settings-object to a file, or persisting items/spells/monsters in a game, or ... 
+
+Note that Ceras **allocates**: a save or load is not allocation-free, and the tool above measures the
+allocation (`B/op`) of every row it prints. The allocation-free steady state is a target for a
+*future* dedicated network path (see `TODO.md`, Milestone 4), not a property of either serializer today.
 
 The project is still heavily work-in-progress, meaning that over time more optimizations will get implemented (your feedback is important here!).
 
@@ -283,7 +296,7 @@ Examples:
 Saving objects to disk quickly without much trouble: settings, robust formats, whatever it  is.
 The transient mode needs no configuration beyond the annotations; the robust mode does — it needs a
 declared context (`[CerasContext]` plus `config.UseGeneratedFormatters("…")`).
-See steps 1 and 2 in the [Usage Guide](https://github.com/rikimaru0345/Ceras/blob/master/src/Tutorial/Tutorial.cs#L22)
+Those are steps 1 and 2 of [Robust format → Quick start](#quick-start-3-steps) above.
 
 - **Splitting:**
 So your `Person` has references to other `Person` objects, but each one should be serialized individually!?
@@ -300,6 +313,10 @@ It is *not* the dedicated network mode the roadmap describes: the fast serialize
 reference-tracking machinery with the object-graph format, so it carries graph costs into every
 packet, and it performs no compatibility negotiation. Treat the guide as a starting point, not a
 battle-tested networking system.
+
+  > `samples/NetworkExample` is that guide's code. Its comments have been corrected: there is no
+  > "learned type" cache, and the requirement is **the same build of your types** on both ends
+  > rather than matching settings. See the sample for the details.
 
 - **More:**
 The above are just examples. Some shapes are out of scope however they are used — see
@@ -572,9 +589,11 @@ source-generated. What you can do then depends on the mode:
 
 - **Transient mode** (`CerasFastSerializer`): a generated formatter is not required. A type with no
   generated formatter falls back to `ReflectionFallbackFormatter` while
-  `config.AllowReflectionFallback` is `true` (the default; it is marked `[Obsolete]` and is being
-  phased out), or you can write a hand-crafted `IFormatter<T>` and register it via
-  `config.ConfigType<T>().CustomFormatter = new MyFormatter();`. Either way the wire format is
+  `config.AllowReflectionFallback` is `true` (the default; set it to `false` to make the fallback an
+  error instead). The reflection *resolver* is the `[Obsolete]` part — it says the fallback is being
+  phased out in favour of the source generator — while the config switch that gates it is not
+  deprecated and remains supported. You can also write a hand-crafted `IFormatter<T>` and register it
+  via `config.ConfigType<T>().CustomFormatter = new MyFormatter();`. Either way the wire format is
   whatever those formatters write, with no schema describing it.
 - **Robust mode** (`CerasRobustSerializer`): a runtime-only type is refused, with a different error
   depending on where it appears. As the **root** type it is a `CerasSchemaException` ("not declared

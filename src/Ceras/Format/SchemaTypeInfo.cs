@@ -88,8 +88,11 @@ namespace Ceras.Format
 
         /// <summary>
         /// True when no per-element type ID is written for this field's elements.
-        /// Auto-set for value-type and sealed-class element types; overridable via
-        /// <c>[Monomorphic]</c> / <c>[Polymorphic]</c>.
+        /// Derived from the element type, not configured: a value type or a sealed class is
+        /// monomorphic, anything else is not. There is no attribute to override it — the former
+        /// <c>[Monomorphic]</c>/<c>[Polymorphic]</c> pair no longer exists, and
+        /// <c>TypeHelpers.IsMonomorphicByDefault</c> (generator) and <c>SchemaMember</c>
+        /// (reflection fallback) are the two places the value is computed.
         /// </summary>
         public bool IsMonomorphic { get; }
 

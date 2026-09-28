@@ -8,7 +8,7 @@ using Ceras.Generated;
 namespace Ceras.Benchmarks
 {
     // ==================================================================================================
-    // Roadmap P0 0.7 baselines: complete robust Save/Load and isolated payload costs, allocations,
+    // Roadmap baselines: complete robust Save/Load and isolated payload costs, allocations,
     // bytes, cold setup and steady state, upgrade (interpreter) cost, CRC/schema/string/payload costs,
     // small network messages, and the game's per-operation serializer construction versus reuse.
     //
