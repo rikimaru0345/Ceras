@@ -209,8 +209,24 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
   diagnostic message naming a config option that does not exist, and a comment.
 - Preserve explicit inaccessible-signature diagnostics and generic accessor semantics;
   revisit ref-return accessors only for a demonstrated need.
-- Clean build warnings and smoke-test realistic trimming/NativeAOT; optionally omit
-  unsupported legacy Unity addon from the default build.
+- Build warnings are clean; omit the unsupported legacy Unity addon from the default build.
+- **Trimming and NativeAOT are known broken** and are now measured rather than assumed.
+  `samples/TrimAotSmoke/run-smoke.sh` builds the library's consumer app four ways — jit,
+  self-contained, trimmed, AOT — and runs each, so a failure is attributable; it is outside
+  the solution and costs the normal build nothing. Self-contained-untrimmed passes and
+  trimmed/AOT fail, so the failures are genuinely caused by trimming. Ordered defects:
+  1. the trimmer deletes `ReferenceFormatter<>`/`ReferenceFormatter_KnownSealedType<>`
+     constructors, which are only ever built reflectively (`IL2067`); hand the generator's
+     already-typed `[CerasInject]` factory down instead of `MakeGenericType`, or annotate;
+  2. `Assembly.GetCallingAssembly()` throws on NativeAOT, so `CerasRobustSerializer` cannot
+     be constructed at all — and its only consumer is the optional build timestamp;
+  3. a closed generic nothing names statically has no native code, so `TypeConfig<T>` and
+     `MemberConfig<T>` fail under AOT; construct them directly instead of via `Activator`;
+  4. the remaining `MakeGenericType`/`Array.CreateInstance`/`MakeGenericMethod` sites are
+     latent instances of the same class;
+  5. the read path resolves saved type *names* back to `Type`s, so a trimmed app that kept
+     the writer but dropped the type cannot load its own old saves — the failure most likely
+     to reach the field, and the one to fix by resolving against the generated manifest.
 
 ## Deferred
 
