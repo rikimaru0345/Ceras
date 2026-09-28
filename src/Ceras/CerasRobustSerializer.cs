@@ -234,65 +234,119 @@ namespace Ceras
             if (rootTypeId == WellKnownTypes.Null)
                 throw UndeclaredType(typeof(T));
 
-            var buffer = new byte[4096];
-            int offset = 0;
-
-            RobustHeader.WritePlaceholder(ref buffer, ref offset, FormatVersion, robustVersion, _config.BuildTimestamp);
-
-            // Schema region: [schema bytes][schema string table]. The schema string table is separate
-            // from the payload string table so skipping schema interpretation never decodes metadata names.
-            SerializerBinary.EnsureCapacity(ref buffer, offset, schemaBytes.Length);
-            schemaBytes.CopyTo(buffer.AsSpan(offset));
-            offset += schemaBytes.Length;
-
-            int schemaStringOffset = offset;
-            SerializerBinary.EnsureCapacity(ref buffer, offset, schemaStrings.Length);
-            schemaStrings.CopyTo(buffer.AsSpan(offset));
-            offset += schemaStrings.Length;
-
-            int dataStart = offset;
-
-            var payloadStrings = RentStringInternTable();
-            int stringTableStart;
+            // Rented, not allocated: the buffer is handed back at the end of the save, and pooling
+            // it is what makes a steady-state save allocate nothing for its output. It also has to
+            // be rented rather than `new byte[]`, because SerializerBinary.ExpandBuffer returns the
+            // buffer it replaces to the pool once it is large enough, and ArrayPool.Return rejects
+            // an array it never handed out.
+            var buffer = CerasBufferPool.Rent(NextBufferSize());
             try
             {
-                // Scoped: a nested operation (a callback that saves) gets its own context and restores this
-                // one on the way out, instead of overwriting it.
-                using (RobustContext.BeginWrite(payloadStrings, typeToId))
+                int offset = 0;
+
+                RobustHeader.WritePlaceholder(ref buffer, ref offset, FormatVersion, robustVersion, _config.BuildTimestamp);
+
+                // Schema region: [schema bytes][schema string table]. The schema string table is separate
+                // from the payload string table so skipping schema interpretation never decodes metadata names.
+                SerializerBinary.EnsureCapacity(ref buffer, offset, schemaBytes.Length);
+                schemaBytes.CopyTo(buffer.AsSpan(offset));
+                offset += schemaBytes.Length;
+
+                int schemaStringOffset = offset;
+                SerializerBinary.EnsureCapacity(ref buffer, offset, schemaStrings.Length);
+                schemaStrings.CopyTo(buffer.AsSpan(offset));
+                offset += schemaStrings.Length;
+
+                int dataStart = offset;
+
+                var payloadStrings = RentStringInternTable();
+                int stringTableStart;
+                try
                 {
-                    if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
-                        Ceras.Helpers.ObjectCache.BeginSerializeTrace();
+                    // Scoped: a nested operation (a callback that saves) gets its own context and restores this
+                    // one on the way out, instead of overwriting it.
+                    using (RobustContext.BeginWrite(payloadStrings, typeToId))
+                    {
+                        if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
+                            Ceras.Helpers.ObjectCache.BeginSerializeTrace();
 
-                    // The payload is written straight into `buffer` rather than into a scratch writer that
-                    // is copied in afterwards. Both produce the same bytes in the same order, but the scratch
-                    // writer has to grow to the payload's size first, and it grows by doubling from 256
-                    // bytes, so a multi-kilobyte payload costs that whole ladder plus a full memcpy of the
-                    // payload, all of it discarded as soon as the copy lands. `FixedArrayBufferWriter` is
-                    // the same contract the scratch writer satisfied (an IBufferWriter<byte> that grows in
-                    // place through the shared EnsureCapacity/ExpandBuffer path), so nothing below it
-                    // changes. `offset` is the fill level of `buffer` and is exactly where the data section
-                    // starts (dataStart above), so the writer continues the file rather than starting a
-                    // new one.
-                    var writer = new FixedArrayBufferWriter(buffer, offset);
-                    SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
-                    Serialize(writer, rootObject);
+                        // The payload is written straight into `buffer` rather than into a scratch writer that
+                        // is copied in afterwards. Both produce the same bytes in the same order, but the scratch
+                        // writer has to grow to the payload's size first, and it grows by doubling from 256
+                        // bytes, so a multi-kilobyte payload costs that whole ladder plus a full memcpy of the
+                        // payload, all of it discarded as soon as the copy lands. `FixedArrayBufferWriter` is
+                        // the same contract the scratch writer satisfied (an IBufferWriter<byte> that grows in
+                        // place through the shared EnsureCapacity/ExpandBuffer path), so nothing below it
+                        // changes. `offset` is the fill level of `buffer` and is exactly where the data section
+                        // starts (dataStart above), so the writer continues the file rather than starting a
+                        // new one.
+                        var writer = new FixedArrayBufferWriter(buffer, offset);
+                        SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
+                        Serialize(writer, rootObject);
 
-                    // Growth replaces the array, so the local has to take it back before the string table
-                    // and the header are written into it.
-                    buffer = writer.Buffer;
-                    offset = writer.Offset;
+                        // Growth replaces the array, so the local has to take it back before the string table
+                        // and the header are written into it.
+                        buffer = writer.Buffer;
+                        offset = writer.Offset;
 
-                    stringTableStart = payloadStrings.Flush(ref buffer, ref offset, _config.StringTableCompression);
+                        stringTableStart = payloadStrings.Flush(ref buffer, ref offset, _config.StringTableCompression);
+                    }
                 }
+                finally
+                {
+                    ReturnStringInternTable(payloadStrings);
+                }
+
+                RobustHeader.FinalizeHeader(buffer, offset, (byte)_config.StringTableCompression, schemaStringOffset, dataStart, stringTableStart, schemaFingerprint);
+
+                // Remembered so the next save starts near the right size instead of walking the
+                // growth ladder up from the minimum. See NextBufferSize.
+                _lastSaveLength = offset;
+
+                // The result is a fresh array, so the working buffer is dead here and goes back to
+                // the pool - on the failure path too, since `buffer` may have been replaced by a
+                // larger one while the graph was written.
+                return buffer[..offset];
             }
             finally
             {
-                ReturnStringInternTable(payloadStrings);
+                CerasBufferPool.Return(buffer);
             }
-
-            RobustHeader.FinalizeHeader(buffer, offset, (byte)_config.StringTableCompression, schemaStringOffset, dataStart, stringTableStart, schemaFingerprint);
-            return buffer[..offset];
         }
+
+        /// <summary>
+        /// How large to make a save's output buffer before anything is written to it.
+        /// <para>
+        /// The buffer grows by doubling, so a save whose output is much larger than the starting
+        /// size pays for every step of that ladder - a fresh array each time, and a copy of
+        /// everything written so far - and throws all but the last away. Nothing about the graph is
+        /// known before it is walked, but the <em>previous</em> save's length is a good enough guess
+        /// for a serializer used to save the same kind of thing repeatedly, which is the normal
+        /// case: a savegame slot, a network endpoint.
+        /// </para>
+        /// <para>
+        /// The last length is used as it stands, without rounding up: rounding to a power of two
+        /// looked tidier and cost more than it saved, because an output that already fitted the
+        /// minimum (3901 B into 4096, say) was then handed an 8192-byte buffer. A save a little
+        /// larger than its predecessor still grows, but it grows once from a near-correct size
+        /// instead of all the way from the minimum.
+        /// </para>
+        /// <para>
+        /// Capped, so that one unusually large save does not leave a permanently huge buffer
+        /// behind. Past the cap this falls back to the minimum and the ladder is walked as before,
+        /// which costs the same as not having grown adaptively at all.
+        /// </para>
+        /// </summary>
+        int NextBufferSize()
+        {
+            const int Minimum = 4096;
+            if (_lastSaveLength <= Minimum) return Minimum;
+            if (_lastSaveLength > MaximumRememberedBufferSize) return Minimum;
+            return _lastSaveLength;
+        }
+
+        const int MaximumRememberedBufferSize = 1 << 21; // 2 MB
+        int _lastSaveLength;
 
         /// <summary>
         /// The one intern table kept between operations, or null while it is in use.
