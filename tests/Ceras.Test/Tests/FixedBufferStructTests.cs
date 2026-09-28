@@ -17,7 +17,8 @@
 //     zeros. This is the worst failure class in the project: a value written short, the load
 //     succeeding, the user losing data with no error anywhere.
 //   * the source generator resolves the C# declaration, sees the `byte*` the surface really has, and
-//     refuses the type at compile time (CERAS029).
+//     refuses the type at compile time (CERAS035, its own diagnostic - a fixed buffer is not a `System.*`
+//     framework type, it is a member Ceras cannot describe at all).
 //
 // So the reflection path had a competitor that was not merely different but shorter, and the only
 // reason nobody saw it is that the raw path's `ReinterpretFormatter` happened to claim the type: the
@@ -30,7 +31,7 @@
 //   * that the type is now REFUSED, loudly and with a typed error naming the cause, on every path —
 //     the reflection fallback, the blit (which no longer claims it), and a struct that merely contains
 //     one, an array of one, and a tuple holding one;
-//   * that the refusal agrees with CERAS029 rather than telling a different story, so changing one
+//   * that the refusal agrees with CERAS035 rather than telling a different story, so changing one
 //     line of config cannot turn the build error into a silent truncation;
 //   * that the two escape hatches still work — `[Exclude]` (the member is not in the payload, so
 //     there is nothing to describe) and a custom `IFormatter<T>` (Ceras hands the type over whole);
@@ -332,12 +333,13 @@ namespace Ceras.Test.Tests.FixedBuffer
         /// The other half of the requirement: a user who marks the type <c>[CerasSerializable]</c> gets a
         /// build error, and a user who does not must not be able to reach a silent truncation instead.
         /// Both now say the same thing — Ceras cannot write a fixed buffer, and here is what to do —
-        /// so the two are pinned together. The generator's own text is not in this repository's
-        /// generator tree to edit (see the report); what is pinned is the *invariant* the fix rests on:
-        /// the compile-time error is a refusal of the same shape, and the runtime agrees it is one.
+        /// so the two are pinned together. What is pinned here is the *invariant* the fix rests on: the
+        /// compile-time error is a refusal of the same shape, and the runtime agrees it is one. The
+        /// agreement of the two texts themselves is pinned in FixedBufferDiagnosticTests, which is the only
+        /// place that can see both the generator's message and the runtime's.
         /// </summary>
         [Fact]
-        public void The_Generator_Refuses_It_At_Compile_Time_With_CERAS029()
+        public void The_Generator_Refuses_It_At_Compile_Time_With_CERAS035()
         {
             const string source = @"
 using Ceras;
@@ -352,20 +354,28 @@ namespace T
     }
 }";
             var diagnostic = Assert.Single(GeneratorTestHarness.Diagnostics(source, allowUnsafe: true)
-                .Where(x => x.Id == "CERAS029"));
+                .Where(x => x.Id == "CERAS035"));
             Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
 
-            // The member and the declared length are both named, so the build error is as specific as
-            // the runtime refusal. 'Buffer' and '25' are both in the message text.
-            Assert.Contains("Buffer", diagnostic.GetMessage(), StringComparison.Ordinal);
-            Assert.Contains("byte*", diagnostic.GetMessage(), StringComparison.Ordinal);
+            // The member and the declared length are both named, so the build error is as specific as the
+            // runtime refusal: 'Buffer', the element type, the element count and the byte count it works
+            // out to. What it must not say is the old explanation - that 'byte*' is a System.* framework
+            // type the user could have declared or formatted. A fixed buffer is neither, which is why it
+            // has its own diagnostic instead of CERAS029, and one shape gets one diagnostic.
+            string message = diagnostic.GetMessage();
+            Assert.Contains("Buffer", message, StringComparison.Ordinal);
+            Assert.Contains("fixed byte[25]", message, StringComparison.Ordinal);
+            Assert.Contains("25 bytes", message, StringComparison.Ordinal);
+            Assert.DoesNotContain("CERAS029", GeneratorTestHarness.DiagnosticIds(source, allowUnsafe: true));
         }
 
         [Fact]
         public void A_Type_With_A_Fixed_Buffer_Cannot_Be_Declared_At_All()
         {
             // Same, at the declaration site rather than the member: even a root that is nothing but a
-            // fixed buffer is a build error, so there is no declaration that reaches the runtime.
+            // fixed buffer is a build error, so there is no declaration that reaches the runtime. The
+            // assertion is on the refusal, not on a particular id - see
+            // The_Generator_Refuses_It_At_Compile_Time_With_CERAS035 for why the id is CERAS035.
             const string source = @"
 using Ceras;
 namespace T
@@ -374,7 +384,7 @@ namespace T
     [CerasSerializable]
     public unsafe struct Root { public fixed byte Data[4]; }
 }";
-            Assert.Contains("CERAS029", GeneratorTestHarness.DiagnosticIds(source, allowUnsafe: true));
+            Assert.Contains("CERAS035", GeneratorTestHarness.DiagnosticIds(source, allowUnsafe: true));
         }
 
         // ── helpers ────────────────────────────────────────────────────────────────────────────────

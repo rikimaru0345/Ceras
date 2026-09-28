@@ -56,6 +56,36 @@ namespace Ceras.SourceGenerator
 
                         if (hasExclude) continue;
 
+                        // A C# `fixed` buffer. Asked here, immediately after the [Exclude] gate and before
+                        // every other shape rule, for two reasons that are both load-bearing:
+                        //
+                        //   * after [Exclude], because [Exclude] is the documented way to keep a member out
+                        //     of a payload and the runtime guard agrees — it is asked of the members Ceras
+                        //     resolved for the type, not of every field the CLR has (Formatters/
+                        //     FixedBufferGuard). A shape the runtime permits must not be refused here, or
+                        //     the compiler and the library are two rules;
+                        //   * before the framework-type rule below, because that rule explains itself in
+                        //     terms of a System.* type the user could have declared, and a fixed buffer is
+                        //     neither: `byte*` is not a framework type, it is the surface C# gives a buffer
+                        //     and the peel in TypeHelpers.GetCoreNamedType duly reaches System.Byte through
+                        //     it. The refusal itself was already right; only the explanation was wrong.
+                        //
+                        // A fixed buffer in a type nothing serializes is never reached from here at all:
+                        // only a type a [CerasContext]/[CerasSerializable] root reaches has its members
+                        // walked, which is the same answer the runtime gives, since it never builds a
+                        // formatter for a type nothing asks it for.
+                        if (IsFixedBufferField(field))
+                        {
+                            string memberName = associatedProp?.Name ?? field.Name;
+                            string containingTypeName = type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            var location = (associatedProp?.Locations.FirstOrDefault() ?? field.Locations.FirstOrDefault());
+                            ReportMemberDiagnostic(diagnosticSink, Diagnostic.Create(
+                                Diag.UnsupportedFixedBufferMember,
+                                location,
+                                containingTypeName, memberName, DescribeFixedBuffer(field)));
+                            continue;
+                        }
+
                         // The robust format describes only one-dimensional arrays. A multidimensional
                         // array member would otherwise emit an ArrayFormatter<T[]> that does not compile
                         // (CS1503). Report it as a hard diagnostic instead.
@@ -332,6 +362,104 @@ namespace Ceras.SourceGenerator
             }
             return false;
         }
+
+        /// <summary>
+        /// Is this field a C# <c>fixed</c> buffer, whatever the compilation sees?
+        /// <para>
+        /// <b>How it is recognised, which is the part worth knowing.</b> The declared length of a fixed
+        /// buffer lives nowhere in the member's type, so no amount of looking at the type can answer this;
+        /// the compiler's own record of the declaration has to be read instead. That record is
+        /// <c>System.Runtime.CompilerServices.FixedBufferAttribute</c>, with constructor arguments
+        /// <c>(Type elementType, int length)</c> — and it is *real metadata*:
+        /// <c>FieldInfo.GetCustomAttribute&lt;FixedBufferAttribute&gt;()</c> resolves it at runtime, which
+        /// is how <c>Formatters/FixedBufferGuard.IsFixedBuffer</c> asks the same question. Roslyn does not
+        /// hand that attribute to a field declared in the sources being compiled, though: on such a field
+        /// <c>GetAttributes()</c> is empty of it, and the same fact is exposed instead as
+        /// <see cref="IFieldSymbol.IsFixedSizeBuffer"/> plus <see cref="IFieldSymbol.FixedSize"/>. Measured
+        /// with the pinned Roslyn (5.0.0): a source-declared <c>fixed byte Buffer[25]</c> has
+        /// <c>IsFixedSizeBuffer == true</c> and <c>FixedSize == 25</c> with no attribute on it, while the
+        /// same field read back from a referenced assembly carries the attribute <em>and</em> reports the
+        /// same two values. So <see cref="IFieldSymbol.IsFixedSizeBuffer"/> is the one test that answers
+        /// this in both cases, and it is what this uses — the attribute is only consulted as a second
+        /// source of the element type and the length (see <see cref="DescribeFixedBuffer"/>).
+        /// <para>
+        /// It also does not confuse the two things that look alike in the source: a hand-written
+        /// <c>byte*</c> member is <c>IsFixedSizeBuffer == false</c>, and so is a pointer the peel in
+        /// <c>GetCoreNamedType</c> walks through. Only a real buffer is refused here; a bare pointer keeps
+        /// whatever answer the framework-type rule already gave it, unchanged.
+        /// </para>
+        /// </summary>
+        public static bool IsFixedBufferField(IFieldSymbol field) => field.IsFixedSizeBuffer;
+
+        /// <summary>
+        /// The declaration as the diagnostic spells it — <c>fixed byte[25], 25 bytes</c> — the same shape
+        /// the runtime refusal names a buffer by (<c>Formatters/FixedBufferGuard.Reject</c>), so a user who
+        /// meets both is reading about the same member in the same terms.
+        /// <para>
+        /// The element type and the count are taken from the <c>FixedBufferAttribute</c> when the symbol
+        /// carries one (a field reached through a referenced assembly) and from the symbol's own
+        /// <see cref="IFieldSymbol.FixedSize"/>/pointer target otherwise (a field declared in this
+        /// compilation); both were measured to agree, and the attribute is preferred only because it is the
+        /// compiler's own record. The byte count is the element count times the element size, which is what
+        /// makes the loss concrete — it is why <c>fixed byte[25]</c> against a reflection fallback is 25
+        /// bytes and not 1.
+        /// </para>
+        /// </summary>
+        static string DescribeFixedBuffer(IFieldSymbol field)
+        {
+            var declared = field.GetAttributes().FirstOrDefault(IsFixedBufferAttribute);
+
+            var element = (declared != null && declared.ConstructorArguments.Length > 0
+                              ? declared.ConstructorArguments[0].Value as INamedTypeSymbol
+                              : null)
+                          ?? (field.Type as IPointerTypeSymbol)?.PointedAtType as INamedTypeSymbol
+                          ?? field.Type;
+
+            int count = (declared != null && declared.ConstructorArguments.Length > 1
+                            && declared.ConstructorArguments[1].Value is int fromAttribute
+                            ? fromAttribute
+                            : field.FixedSize);
+
+            string elementName = element.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+            int size = FixedBufferElementSize(element);
+
+            return size > 0
+                ? $"fixed {elementName}[{count}], {count * size} bytes"
+                : $"fixed {elementName}[{count}]";
+        }
+
+        /// <summary>
+        /// Is this the compiler's own record of a fixed buffer's declaration, read straight off a field
+        /// symbol? Matched on the display string, which is how the generator recognises its own attributes
+        /// too (<c>GetTypeIfAnnotated</c>): there is no <c>Compilation</c> in hand here to resolve the
+        /// attribute class against, and the full name is unambiguous either way.
+        /// </summary>
+        static bool IsFixedBufferAttribute(AttributeData attribute)
+            => attribute.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.FixedBufferAttribute";
+
+        /// <summary>
+        /// The size in bytes of a type a <c>fixed</c> buffer may declare as its element, or -1 for anything
+        /// else. C# restricts the element to a closed set of primitives, so this covers every declaration
+        /// that compiles; the -1 is there so that an element type this table does not know about produces
+        /// a shorter message rather than a wrong number, because a wrong number in a refusal about silent
+        /// data loss is worse than no number.
+        /// </summary>
+        static int FixedBufferElementSize(ITypeSymbol element) => element.SpecialType switch
+        {
+            SpecialType.System_Boolean => 1,
+            SpecialType.System_Byte => 1,
+            SpecialType.System_SByte => 1,
+            SpecialType.System_Char => 2,
+            SpecialType.System_Int16 => 2,
+            SpecialType.System_UInt16 => 2,
+            SpecialType.System_Int32 => 4,
+            SpecialType.System_UInt32 => 4,
+            SpecialType.System_Single => 4,
+            SpecialType.System_Int64 => 8,
+            SpecialType.System_UInt64 => 8,
+            SpecialType.System_Double => 8,
+            _ => -1,
+        };
 
         /// <summary>
         /// A multidimensional array member (rank &gt; 1). The robust format describes only one-dimensional
