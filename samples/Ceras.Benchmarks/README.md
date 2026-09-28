@@ -82,3 +82,16 @@ comparable to the quick table's reused-graph row.
 - A global warm-up runs before the first row, so the early rows are not paying tiered-JIT
   promotion or initial Gen0 growth. The run still ends with a reminder of these caveats.
 - The `--roadmap-bench` mode writes a `BenchmarkDotNet.Artifacts` directory (git-ignored).
+- At these sizes a single timed pass does not reach steady-state JIT, and `--roadmap-quick` has 10 ns
+  of resolution — a change worth measuring is routinely smaller than that. `FixedCostProbe`
+  (`CERAS_FIXED=1`) takes the minimum of several long runs for that reason, and the `--roadmap-quick`
+  rows have been seen to report a real 55% change as 12%. Prefer it for deltas; treat the table for
+  shape.
+- A microbenchmark that calls a method through an interface it only ever sees one implementation of
+  will report that the interface call is cheaper than it is, and that sealing the type helps. Both
+  were measured here and neither survived contact with the real encode: the microbenchmark's call
+  site is specialised by guarded devirtualization because it sees one type, while the real call site
+  inside `SerializerBinary` is shared across every formatter and sees several. Sealing
+  `FixedArrayBufferWriter` moved the microbenchmark by 10% and the real encode by nothing
+  (2.056 → 2.048 ns/field). `DevirtSpike` (`CERAS_SPIKE=1`) is the experiment; a number from a
+  benchmark of that shape is a ceiling, not a prediction.

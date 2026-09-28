@@ -90,23 +90,12 @@ namespace Ceras.SourceGenerator
             // [OnAfterSerialize] after the last member write.
             if (beforeSerialize != null)
                 sb.AppendLine($"            {accessors.CallbackCallExpression(beforeSerialize, "value", RobustCodeEmitter.CallbackArgument(beforeSerialize, "_ceras"))};");
-            foreach (var m in members)
-            {
-                string fieldName = MakeFormatterFieldName(m.Type);
-                string getAccess = accessors.MemberReadExpression(m, "value");
-                if (IsFastPrimitive(m.Type))
-                {
-                    string writeMethod = RobustCodeEmitter.GetPrimitiveWriteMethod(m.Type);
-                    string valueExp = getAccess;
-                    if (m.Type.SpecialType == SpecialType.System_Boolean)
-                        valueExp = $"(byte)({valueExp} ? 1 : 0)";
-                    sb.AppendLine($"            global::Ceras.SerializerBinary.{writeMethod}(writer, {valueExp});");
-                }
-                else
-                {
-                    sb.AppendLine($"            {fieldName}.Serialize(writer, {getAccess});");
-                }
-            }
+            BatchedMemberEmitter.EmitWrites(
+                sb,
+                members,
+                m => accessors.MemberReadExpression(m, "value"),
+                m => MakeFormatterFieldName(m.Type),
+                "            ");
             if (afterSerialize != null)
                 sb.AppendLine($"            {accessors.CallbackCallExpression(afterSerialize, "value", RobustCodeEmitter.CallbackArgument(afterSerialize, "_ceras"))};");
             sb.AppendLine("        }");
