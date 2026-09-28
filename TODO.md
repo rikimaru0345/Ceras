@@ -65,19 +65,24 @@ claiming migration coverage. The fixtures in `fixtures/Ceras.HistoricalWriter` a
 in; reader tests must not reference the historical writer assembly. Do not infer
 cross-version compatibility from a fingerprint flip or a same-version roundtrip.
 
-- **Wrap-only user collection construction.** The migration reader can construct a
-  `List<T>`/`Dictionary<K,V>` subclass through a wrapping constructor, but the generated
-  matching-layout collection formatter still calls `Activator.CreateInstance` without
-  arguments. Either support the admitted shape on both paths or reject it at bake time
-  with a useful diagnostic; pin the same type through both reader paths. A separate
-  `ReadOnlyCollection<T>` subclass is also admitted structurally but the dedicated
-  formatter constructs the base wrapper, and `ReferenceFormatter` fails with a bare
-  `ArgumentNullException("method")` on Save; reject or support this variant too.
-- **`System.Array`-declared slot on migration.** A rank-1 array held in a member
-  declared as `System.Array` round-trips on the generated path but the interpreter
-  treats the declared type as an empty class instead of decoding the polymorphic
-  array value; exact data-section consumption now rejects it. Pin a real old-build
-  fixture and make both readers agree without admitting rank>1 values.
+- **Temporarily reject problematic collection shapes.** A wrap-only `List<T>` or
+  `Dictionary<K,V>` subclass throws on the generated path but can **silently load
+  empty** on migration because its wrapping constructor copies an empty backing
+  collection before the interpreter fills it. `ReadOnlyCollection<T>` subclasses
+  fail Save with untyped exceptions; even the base type loses self-cycles on the
+  generated path. **Decision:** reject *all* `List<T>`/`Dictionary<K,V>` subclasses
+  and `ReadOnlyCollection<T>`/`ReadOnlyDictionary<K,V>` (base and subclasses) early
+  on both robust and raw paths, including generated diagnostics and migration reads.
+  Exact base `List<T>` and `Dictionary<K,V>` stay supported. The game has no concrete
+  use of the deferred shapes; `IReadOnly*` API signatures are not themselves these
+  collection types. Defer their construction/cycle/comparer contract until needed.
+- **Reject array-to-polymorphic member type changes early on migration.** Changing a
+  member's declared type between concrete `T[]` and `System.Array`/`object` changes
+  its reference-marker grammar. The file is currently rejected late by unread-byte
+  detection. **Decision:** no new wire markers; diagnose the incompatible old/new
+  declaration at robust Load during schema mapping, before reading the root payload,
+  and advise renaming the member and migrating intentionally. A generator cannot
+  diagnose an old file it has not seen. This does not change Save bytes or speed.
 - **Bool width and malformed collection schema.** The alleged removed `List<bool>`
   corruption is a false positive for files written by this version: its normal skip
   path advances one byte. A hand-registered collection schema lacking element type
