@@ -238,6 +238,29 @@ Reference/polymorphism markers are defined once in `Format/Protocol.cs`
 (`RefNull=-1`, `RefNewValue=-2`, `RefNewValueSameType=-3`, `RefInlineType=-5`, bias `+5`).
 A marker is written with the bias so non-negative values are object-cache IDs.
 
+**An object-cache ID names one instance, so the cache is keyed on reference identity.** The id is
+the object's *position* in the reader's deserialization cache, and the reader fills those positions
+in stream order, so an id can only ever be shared by the same instance: a non-negative field is a
+back-reference to the very object that was written at that id, and everything else is a full new
+value. The writer's dictionary (`Helpers/ObjectCache.cs`) therefore uses
+`ReferenceEqualityComparer` unless `CerasConfig.ObjectCacheComparer` says otherwise, and a type's
+own `Equals`/`GetHashCode` is never consulted — for two instances that are `Equals` but not
+`ReferenceEquals`, the second is written out in full and comes back as a second object. Keying on
+the default object comparer instead collapsed those into one back-reference, so the second slot came
+back as the first object: a save that loaded cleanly and described a different graph than the one
+written. Sharing is unaffected — the same instance in two slots is still one byte and one object.
+
+`ObjectCacheComparer` is a deliberate opt-in and an identity-losing one: a value comparer makes a
+merely-equal instance collapse into a back-reference to the first, which is only right for a type
+whose instances are interchangeable by definition. Such a save is still an ordinary save of the shape
+described here and is read back faithfully, collapse included — the change is entirely on the writer
+side, since the reader allocates a proxy only when it reads a new-value marker, in stream order.
+
+**Strings are the deliberate exception to "one slot, one occurrence"** in the robust format only: the
+payload string table interns them, so two equal strings come back as one instance regardless of the
+object cache. The raw format writes a string by value every time. Neither is a reference-cache
+decision, and neither makes two distinct *objects* share.
+
 ## The `Type` value: a polymorphic value's type tag
 
 A `RefNewValue` marker is followed by the **concrete runtime type of the value**, written by

@@ -46,6 +46,9 @@
         }
         // ──────────────────────────────────────────────────────────────────────────
         // While serializing we add all encountered objects and give them an ID (their index), so when we encounter them again we can just write the index instead.
+        // The keys are compared with the comparer below, which is reference identity unless the
+        // configuration asked for something else: an id is a position in the reader's
+        // deserialization cache, so it may only ever be shared by one and the same instance.
         readonly Dictionary<object, int> _serializationCache;
 
         // At deserialization-time we keep adding all new objects to this list, so when we find a back-reference we can take it from here.
@@ -54,12 +57,35 @@
 
 
         /// <summary>
+        /// The comparer used when the caller did not ask for one. Reference identity, and it has
+        /// to be: the id a slot gets is a *position* in the deserialization cache, so
+        /// "already seen" has to mean "this very instance was already written", never "an equal
+        /// instance was". Keying on <see cref="object.Equals(object)"/> collapsed two distinct
+        /// instances of any type that overrides equality into one back-reference, so the second
+        /// occurrence came back as the first object - a saved graph that is not the graph that
+        /// was written - and it was worse for boxed values, which are equal far more often than
+        /// anyone writing them expects. The same reasoning is why <c>TypeDictionary</c> forces
+        /// <see cref="object.ReferenceEquals(object, object)"/> and
+        /// <see cref="RuntimeHelpers.GetHashCode(object)"/> for <c>Type</c> keys.
+        /// <para>
+        /// A caller-supplied comparer is honoured as given (see
+        /// <see cref="Config.CerasConfig.ObjectCacheComparer"/>), because collapsing equal
+        /// instances is a legitimate - if identity-losing - choice for a type whose instances are
+        /// interchangeable by definition. Ceras does not second-guess it.
+        /// </para>
+        /// </summary>
+        static readonly IEqualityComparer<object> ReferenceComparer = ReferenceEqualityComparer.Instance;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="ObjectCache"/> class.
         /// </summary>
-        /// <param name="comparer">The <see cref="IEqualityComparer{T}"/> to use.</param>
-        public ObjectCache(IEqualityComparer<object> comparer = null!)
+        /// <param name="comparer">
+        /// The <see cref="IEqualityComparer{T}"/> deciding which values share a cache id, or
+        /// <c>null</c> for reference identity (<see cref="ReferenceComparer"/>).
+        /// </param>
+        public ObjectCache(IEqualityComparer<object>? comparer = null)
         {
-            _serializationCache = new Dictionary<object, int>(64, comparer);
+            _serializationCache = new Dictionary<object, int>(64, comparer ?? ReferenceComparer);
         }
 
         // Serialization:
@@ -76,6 +102,14 @@
         {
             var id = _serializationCache.Count;
 
+            // Add, not the indexer, so that a comparer which reports a value as already present in
+            // this same bucket is told so rather than having its earlier id silently re-pointed at a
+            // position the reader never creates a proxy for. With the default comparer neither can
+            // happen: the hash is the identity hash, so TryGetExistingObjectId above always finds
+            // the value itself when it is in here, and a value registered once is never added twice.
+            // A caller-supplied comparer whose GetHashCode changes for a value that is still cached
+            // is a different story - the lookup misses and the value is written a second time as if
+            // new - which is why the comparer is not a free choice (see CerasConfig).
             _serializationCache.Add(value, id);
 
             if (DebugTraceEnabled)

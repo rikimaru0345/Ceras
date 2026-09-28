@@ -13,8 +13,11 @@ namespace Ceras.Benchmarks
     /// about to time first, and a failure makes the process exit non-zero.
     /// <para>
     /// These are cheap (a few hundred operations total) and deliberately cover the properties the
-    /// reported numbers depend on: graph fidelity, reference identity, string interning, the upgrade
-    /// path, rejection of corrupt data, and that the per-section cost proxies really decode.
+    /// reported numbers depend on: graph fidelity, reference identity (including that the object
+    /// cache is keyed on reference identity rather than on a type's own <c>Equals</c>, using boxed
+    /// values so the check adds nothing to this project's serialization context), string interning,
+    /// the upgrade path, rejection of corrupt data, and that the per-section cost proxies really
+    /// decode.
     /// </para>
     /// </summary>
     public static class SelfChecks
@@ -132,6 +135,31 @@ namespace Ceras.Benchmarks
                 if (!schemas.Values.Any(s => s.StableName.EndsWith("BenchWorld", StringComparison.Ordinal)))
                     return Outcome.Fail("decoded schemas do not mention BenchWorld");
                 return Outcome.Ok($"{schemas.Count} types from {envelope.HeaderLength + envelope.SchemaStringTableLength} B");
+            });
+
+            Check(results, "equal-but-distinct values stay distinct, shared ones stay shared", () =>
+            {
+                // The object cache decides which occurrences come back as one object, and it is keyed
+                // on reference identity. A value-keyed cache would hand back the *first* box for the
+                // second slot, so every row below would be timing a graph that does not round-trip.
+                // Boxed values are used deliberately: adding a model type to this project's
+                // serialization context would change the world save's manifest and its fingerprint,
+                // and these numbers are meant to be comparable across library changes.
+                var fast = BenchData.Fast();
+
+                var a = (object)1L;
+                var b = (object)1L;
+                if (!a.Equals(b) || ReferenceEquals(a, b)) return Outcome.Fail("the check's own setup is wrong");
+
+                var distinct = fast.Deserialize<object[]>(fast.Serialize(new object[] { a, b }));
+                if (ReferenceEquals(distinct[0], distinct[1])) return Outcome.Fail("two equal instances collapsed into one object");
+                if (!distinct[0].Equals(1L) || !distinct[1].Equals(1L)) return Outcome.Fail("values did not survive the round-trip");
+
+                // Sharing is not collateral damage of reference identity.
+                var shared = fast.Deserialize<object[]>(fast.Serialize(new object[] { a, a }));
+                if (!ReferenceEquals(shared[0], shared[1])) return Outcome.Fail("a shared reference came back as two objects");
+
+                return Outcome.Ok("2 equal instances stay 2, 1 shared instance stays 1");
             });
 
             Check(results, "deferred callback runs exactly once per load", () =>

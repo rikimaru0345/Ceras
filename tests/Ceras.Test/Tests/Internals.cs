@@ -14,13 +14,19 @@ namespace Ceras.Test
 
 	public class Internals : TestBase
 	{
-		// Boxed value references being de-duplicated (cached) doesn't hurt, but it shouldn't happen just out of principle.
-		// Fixing this would probably be very complicated.
-		// I guess we'd have to essentially completely remove ReferenceFormatter; moving all its functionality into each actual formatter or something?
-		// But that would make writing custom formatters much harder...
-		// Maybe that could be combined with the 'ref writer' idea to alleviate this somewhat?
-		// But then again, this "bug" causes absolutely no harm, it doesn't even really affect performance, so why bother?
-		[Fact(Skip = "Not implemented yet; causes no problems though. See comment for more details.")]
+		// A boxed value sitting in a reference slot used to be de-duplicated by *value*: the
+		// object cache was keyed on the default object comparer, so two boxes of the same long
+		// compared equal, the second one was written as a back-reference to the first, and the
+		// clone came back with a single box in two slots. The cache now keys on reference identity
+		// (Helpers/ObjectCache.cs), so a box is a value like any other: a second box is written in
+		// full, and only a genuinely repeated *reference* is shared.
+		//
+		// The old skip note ("fixing this would probably be very complicated... why bother?") was
+		// about the cost of removing the cache entirely. It was never a cost: the cache is
+		// reference bookkeeping and has no business consulting Equals, so the fix was one comparer.
+		// ObjectCacheIdentityTests pins the same property for user types and for the explicit
+		// ObjectCacheComparer opt-in.
+		[Fact]
         public void BoxedReferencesAreNotCached()
         {
             var ceras = new CerasFastSerializer();
