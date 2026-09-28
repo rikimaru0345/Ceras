@@ -29,7 +29,7 @@ namespace Ceras.Format
         readonly CerasSerializer                       _serializer;
         readonly SchemaRegistry                        _registry;
         readonly ITypeBinder                           _typeBinder;
-        readonly IdentityCache                         _identity = new();
+        readonly IdentityCache<object?>                _identity = new();
         readonly CurrentObjectFactory                  _factory;
         readonly TypeValueShapes                       _typeValues;
         readonly uint                                  _maxCollectionSize;
