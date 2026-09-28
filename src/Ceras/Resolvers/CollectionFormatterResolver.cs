@@ -5,10 +5,14 @@
     using System;
     using System.Collections;
     using System.Collections.Generic;
+    using System.Diagnostics.CodeAnalysis;
     using System.Linq;
 
     /// <summary>
     /// Creates formatters for array-types and all types that implement ICollection&lt;&gt;
+    /// <para>
+    /// Returns null for anything else, which is how a resolver declines and lets the next one try.
+    /// </para>
     /// </summary>
     public class CollectionFormatterResolver : IFormatterResolver
     {
@@ -20,21 +24,24 @@
             _ceras = ceras;
         }
 
-        public IFormatter GetFormatter(Type type)
+        public IFormatter? GetFormatter(Type type)
         {
             //
             // Do we already have an array or collection formatter?
             //
+            if (_formatterInstances.TryGetValue(type, out var cached))
+                return cached;
+
+            // Assigned only on the paths that create a formatter, so it is non-null from here on.
             IFormatter formatter;
-            if (_formatterInstances.TryGetValue(type, out formatter))
-                return formatter;
 
             //
             // Array?
             //
             if (type.IsArray)
             {
-                var itemType = type.GetElementType();
+                // An array type always has an element type; every use of it below needs a non-null Type.
+                var itemType = type.GetElementType() ?? throw new InvalidOperationException($"Array type '{type}' has no element type");
                 int rank = type.GetArrayRank();
                 var maxCount = itemType == typeof(byte)
                         ? _ceras.Config.SizeLimits.MaxByteArraySize
@@ -63,7 +70,10 @@
                     }
                     else
                     {
-                        ArrayRankTooHigh(rank);
+                        // Returned rather than called as a statement: [DoesNotReturn] drives nullable
+                        // flow, not reachability, so a bare call would still leave `formatter`
+                        // possibly unassigned at the cache write below.
+                        return ArrayRankTooHigh(rank);
                     }
                 }
 
@@ -131,10 +141,12 @@
                 return formatter;
             }
 
+            // Neither an array nor an ICollection<T>: decline, so the next resolver is asked.
             return null;
         }
 
-        private static void ArrayRankTooHigh(int rank)
+        [DoesNotReturn]
+        private static IFormatter ArrayRankTooHigh(int rank)
         {
             throw new InvalidOperationException("Multi-dimensional array of rank " + rank + " is not yet supported, please open an issue on github");
         }

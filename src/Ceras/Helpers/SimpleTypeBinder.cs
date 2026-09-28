@@ -10,8 +10,21 @@
     /// </summary>
     public interface ITypeBinder
     {
+        /// <summary>
+        /// The stable name <paramref name="type"/> is written under, which
+        /// <see cref="GetTypeFromBase"/> resolves back to the type.
+        /// <para>
+        /// The return is not nullable: a payload stores a type name so the reader can resolve it, so a
+        /// type that has no name is an error. A binder that cannot name one throws
+        /// <see cref="Ceras.Exceptions.CerasException"/> instead of returning null.
+        /// </para>
+        /// </summary>
         string GetBaseName(Type type);
+
+        /// <summary>The type <paramref name="baseTypeName"/> names.</summary>
         Type GetTypeFromBase(string baseTypeName);
+
+        /// <summary>The closed generic type named by the definition and its arguments.</summary>
         Type GetTypeFromBaseAndArguments(string baseTypeName, params Type[] genericTypeArguments);
     }
 
@@ -35,20 +48,45 @@
             foreach (var frameworkAsm in CerasSerializer._frameworkAssemblies)
                 _searchAssemblies.Add(frameworkAsm);
 
-            // Search in user code
-            _searchAssemblies.Add(Assembly.GetEntryAssembly());
-
-            _searchAssemblies.RemoveWhere(a => a == null);
+            // Search in user code. Some hosts have no entry assembly, which is a normal state: the
+            // search then falls through to the custom assemblies and to everything that is loaded.
+            var entryAssembly = Assembly.GetEntryAssembly();
+            if (entryAssembly != null)
+                _searchAssemblies.Add(entryAssembly);
         }
 
-
-        public string? GetBaseName(Type type)
+        public string GetBaseName(Type type)
         {
-            if (type.IsGenericType)
-                return type.GetGenericTypeDefinition().FullName;
+            if (type == null) throw new ArgumentNullException(nameof(type));
 
-            return type.FullName;
+            // A closed generic is named by its definition, so the reader can rebuild it from that name
+            // plus the arguments recorded next to it (TypeFormatter.Deserialize). An open generic
+            // definition is its own definition, and names itself the same way.
+            var name = type.IsGenericType
+                ? type.GetGenericTypeDefinition().FullName
+                : type.FullName;
+
+            // A generic type parameter, for one, has no metadata name at all. Returning null here used
+            // to be written out as a null name marker, so the save was produced successfully and only
+            // failed later, as corrupt data that named neither the value nor the fix.
+            if (name == null)
+            {
+                throw new Exceptions.CerasException(
+                    $"Ceras cannot name {DescribeUnnameable(type)}, so it will not be written to a payload. " +
+                    "A System.Type value is stored as the name a type binder resolves it back from, and this type has no such name. " +
+                    "It is not stored as a null name either: the reader would then have nothing to resolve, and the file would fail to load as corrupt. " +
+                    "Close the generic before storing it, or store the name in a string member if the name itself is what the payload needs.");
+            }
+
+            return name;
         }
+
+        static string DescribeUnnameable(Type type)
+            => type.IsGenericParameter
+                ? $"the generic type parameter '{type}'" + (type.DeclaringType != null
+                    ? $" of '{type.DeclaringType}'"
+                    : type.DeclaringMethod != null ? " of a method" : "")
+                : $"the type '{type}'";
 
                 public Type GetTypeFromBase(string baseTypeName)
                 {
