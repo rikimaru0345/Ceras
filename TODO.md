@@ -160,10 +160,17 @@ Only after correctness and runnable baselines; no changed bytes or reuse semanti
   beyond `List<T>`; test segmented input, reuse, limits and truncation.
 - Move `SerializerBinary.ReadDecimal`'s unnecessary fast-path `stackalloc` to the
   segmented branch, subject to measurement; check `ReinterpretFormatter` similarly.
-- Batch fixed-size generated writes and reduce dispatch/locals; cache context-local
-  formatter instances and use typed factories only where measurements warrant it.
 - Generate closed specializations only for measured hot instantiations and
   cross-read them with generic writers/readers and the migration decoder.
+- Typed factories remain open, and should wait for evidence: devirtualizing the
+  writer was measured and is *not* the win it looks like. A by-ref struct writer
+  costs 2.05 → 3.45 ns/field on the path that already exists, because a
+  reference-typed callee must reload around every call; batching a generated
+  formatter's fixed-width members into one `GetSpan` per run reaches the same
+  place with no signature change and no contract movement, and that is what
+  landed. Only measure a remaining idea end-to-end — a microbenchmark whose call
+  site sees exactly one writer type gets guarded devirtualization the real
+  shared call site never sees, which is how a 33% figure became a 2% one.
 
 ## Milestone 4 — dedicated networking execution
 
