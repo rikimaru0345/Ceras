@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Xunit;
 using Ceras;
@@ -51,7 +52,7 @@ namespace Ceras.Test
 		public void SerializeStatic()
 		{
 			var config = new CerasRawConfig();
-			config.ConfigStaticType(typeof(StaticClassTest))
+			ConfigStaticOf(config, typeof(StaticClassTest))
 				  .Members.First(m => m.PersistentName == "NotIncluded3")
 				  .SerializationOverride = SerializationOverride.ForceSkip;
 
@@ -207,6 +208,18 @@ namespace Ceras.Test
 			public string Name;
 			public CircularNode Self;
 		}
+
+		// ConfigStaticType(Type) is the only overload that configures a type's *static* members; there is
+		// no generic one, because ConfigType<T> configures the instance entry, not the static one. It is
+		// annotated [RequiresUnreferencedCode]/[RequiresDynamicCode] because it constructs the closed
+		// TypeConfig<T> reflectively - though a ConfigType<T>() call for the same type roots exactly
+		// that instantiation, since both go through the same constructor. Safe here: this is a CoreCLR
+		// test, where the reflective construction always works, and what is under test is the static
+		// round trip - not how the config object is created. The suppression is on this one call site
+		// rather than blanket, and the test above is its only caller.
+		[UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "No generic overload configures a static config; the test runs on CoreCLR where the reflective construction always works, and the NativeAOT rooting requirement is documented on ConfigStaticType(Type).")]
+		[UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Same call site: no generic overload exists for a static config, and this is a CoreCLR test.")]
+		static Ceras.TypeConfig ConfigStaticOf(CerasConfig config, Type type) => config.ConfigStaticType(type);
 	}
 	static class StaticClassTest
 	{

@@ -210,9 +210,10 @@ namespace Ceras.Test
             var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config, "Tests");
 
-            var rootType = typeof(DiscoveryRoot);
-            var tc = config.ConfigType(rootType);
-            
+            // The generic overload, not ConfigType(Type): the root type is statically known here, and
+            // the Type-based one is [RequiresUnreferencedCode] (it builds TypeConfig<T> reflectively,
+            // which a NativeAOT build has no code for unless something constructs it statically).
+            var tc = config.ConfigType<DiscoveryRoot>();
             var bannedMember = tc.Members.First(m => m.Member.Name == "Banned");
             Assert.False(bannedMember.ComputeFinalInclusionFast());
 

@@ -5,6 +5,7 @@ namespace Ceras
 	using Ceras.Resolvers;
 	using System;
 	using System.Collections.Generic;
+	using System.Diagnostics.CodeAnalysis;
 	using IFormatter = Formatters.IFormatter;
 
 	/// <summary>
@@ -86,7 +87,12 @@ namespace Ceras
 		Dictionary<Type, TypeConfig> _staticConfigEntries = new Dictionary<Type, TypeConfig>();
 
 		// Get a TypeConfig without calling 'OnConfigNewType' (used during explicit user configuration)
-		TypeConfig GetTypeConfigForConfiguration(Type type, bool isStatic = false)
+		//
+		// 'createTypeConfig' is the generic API's contribution: ConfigType<T> passes a factory that
+		// constructs TypeConfig<T> directly. The dictionary above is the only cache either route goes
+		// through, so a type configured through one overload is the *same* instance in the other - which
+		// is why adding the factory changed no semantics, only how the instance is created on a miss.
+		TypeConfig GetTypeConfigForConfiguration(Type type, bool isStatic = false, Func<TypeConfig>? createTypeConfig = null)
 		{
 			var configDict = isStatic ? _staticConfigEntries : _configEntries;
 			if (configDict.TryGetValue(type, out var typeConfig))
@@ -95,13 +101,25 @@ namespace Ceras
 			if (type.ContainsGenericParameters)
 				throw new InvalidOperationException("You cannot configure open generic types like List<>. Only closed types like List<int> can be configured statically. Use OnConfigNewType for dynamic configuration.");
 
-			// Activator returns object?; the constructed type is known to exist here (it is a closed
-			// TypeConfig<> over a type that passed the check above), and a null here would be a broken
-			// deployment rather than a runtime condition.
-			typeConfig = (TypeConfig)Activator.CreateInstance(
-				typeof(TypeConfig<>).MakeGenericType(type),
-				System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
-				null, new object[] { this, isStatic }, null)!;
+			// The factory is the shape a NativeAOT compiler can satisfy: naming TypeConfig<T> in code
+			// is what makes ILC emit native code for that closed instantiation, and MakeGenericType
+			// names no type at all. So an application that reached a type only through ConfigType(Type)
+			// used to get
+			//   NotSupportedException: This object cannot be invoked because no code was generated
+			//   for it: 'Ceras.TypeConfig`1[MyType]..ctor(Ceras.CerasConfig,System.Boolean)'
+			// on the first call - always for a value-type argument, which has no shared canonical
+			// code to fall back on. One ConfigType<T>() anywhere in the app (the generated
+			// registration for a [CerasSerializable] type is exactly that) roots the instantiation,
+			// and this reflective branch then binds to real code. See ConfigType(Type)'s docs.
+			typeConfig = createTypeConfig != null
+				? createTypeConfig()
+				// Activator returns object?; the constructed type is known to exist here (it is a closed
+				// TypeConfig<> over a type that passed the check above), and a null here would be a broken
+				// deployment rather than a runtime condition.
+				: (TypeConfig)Activator.CreateInstance(
+					typeof(TypeConfig<>).MakeGenericType(type),
+					System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
+					null, new object[] { this, isStatic }, null)!;
 			configDict.Add(type, typeConfig);
 			return typeConfig;
 		}
@@ -130,6 +148,13 @@ namespace Ceras
 			if (type.ContainsGenericParameters)
 				return null;
 
+			// The same NativeAOT consideration as GetTypeConfigForConfiguration: this reflective
+			// construction is only sound once the closed TypeConfig<T> has been named statically
+			// somewhere, which is what the generic entry point (and the generated registration behind
+			// it) does. Deliberately not annotated: this is the resolver's own path for a type it
+			// discovered at runtime, and it is reached from library code that a user cannot re-root,
+			// so an annotation here would only warn about call sites that have no alternative.
+			//
 			// Activator returns object?; the constructed type is known to exist here (it is a closed
 			// TypeConfig<> over a type that passed the check above), and a null here would be a broken
 			// deployment rather than a runtime condition.
@@ -178,18 +203,45 @@ namespace Ceras
 		/// <summary>
 		/// Configure a specific type. Use this for types you don't control (external libraries, etc.).
 		/// Prefer putting attributes directly on your types when possible.
+		/// <para>
+		/// Under a trimmed or NativeAOT build, prefer <see cref="ConfigType{T}"/>, and make sure
+		/// something calls it for <paramref name="type"/>: this overload builds the config by
+		/// constructing the closed generic <c>TypeConfig&lt;T&gt;</c> reflectively, and ILC emits native
+		/// code for a closed generic only when some code in the compilation names it statically. A
+		/// single <c>ConfigType&lt;T&gt;()</c> for the same type - which the generated registration of a
+		/// <c>[CerasSerializable]</c> type already is - roots that instantiation, after which this
+		/// overload binds to the same code and produces the same config object.
+		/// </para>
 		/// </summary>
+		[RequiresUnreferencedCode("Ceras constructs the closed 'TypeConfig<T>' for 'type' through MakeGenericType/Activator, and a trimmed or NativeAOT build only has native code for that instantiation if some code constructs it statically. Call ConfigType<T>() for the same type - the generated registration of a [CerasSerializable] type does exactly that - so the instantiation is rooted.")]
+		[RequiresDynamicCode("Ceras constructs the closed 'TypeConfig<T>' for 'type' through Activator.CreateInstance, which a NativeAOT build cannot compile into native code unless the instantiation is rooted by a static construction. Call ConfigType<T>() instead.")]
 		public TypeConfig ConfigType(Type type) => GetTypeConfigForConfiguration(type);
 
 		/// <summary>
 		/// Configure the static members of a type.
+		/// <para>
+		/// The NativeAOT requirement is the same as <see cref="ConfigType(Type)"/>, and
+		/// <see cref="ConfigType{T}"/> satisfies it: both overloads construct the same closed
+		/// <c>TypeConfig&lt;T&gt;</c> through the same constructor, and only the resulting config object
+		/// differs (the static one is a separate cache entry with the static members). So a single
+		/// <c>ConfigType&lt;T&gt;()</c> - the generated registration of a <c>[CerasSerializable]</c> type
+		/// already is one - roots what this overload needs, and it then binds to that code.
+		/// </para>
 		/// </summary>
+		[RequiresUnreferencedCode("Ceras constructs the closed 'TypeConfig<T>' for 'type' through MakeGenericType/Activator, and a trimmed or NativeAOT build only has native code for that instantiation if some code constructs it statically. Call ConfigType<T>() for the same type - the generated registration of a [CerasSerializable] type does exactly that - so the instantiation is rooted.")]
+		[RequiresDynamicCode("Ceras constructs the closed 'TypeConfig<T>' for 'type' through Activator.CreateInstance, which a NativeAOT build cannot compile into native code unless the instantiation is rooted by a static construction. Call ConfigType<T>() for the same type - the generated registration of a [CerasSerializable] type does exactly that.")]
 		public TypeConfig ConfigStaticType(Type type) => GetTypeConfigForConfiguration(type, true);
 
 		/// <summary>
 		/// Configure a specific type using the generic API.
+		/// <para>
+		/// This overload constructs <c>TypeConfig&lt;T&gt;</c> directly rather than through
+		/// <c>Activator</c>, which is what makes it usable - and rooting - under NativeAOT: naming the
+		/// closed type here is what makes ILC emit native code for it. It is also what makes
+		/// <see cref="ConfigType(Type)"/> work there; both hand back the same config object either way.
+		/// </para>
 		/// </summary>
-		public TypeConfig<T> ConfigType<T>() => (TypeConfig<T>)GetTypeConfigForConfiguration(typeof(T));
+		public TypeConfig<T> ConfigType<T>() => (TypeConfig<T>)GetTypeConfigForConfiguration(typeof(T), false, () => new TypeConfig<T>(this, false));
 
 		/// <summary>
 		/// Called the first time Ceras encounters a type. Use this to configure types you don't know in advance
