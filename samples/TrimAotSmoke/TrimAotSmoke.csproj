@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Trimming / NativeAOT smoke-test host for Ceras. See README.md in this folder.
+
+    Deliberately NOT referenced from Ceras.sln: `dotnet build`/`dotnet test` of the
+    solution must stay exactly as fast as before, and this project is only ever
+    published explicitly (see run-smoke.sh). Publishing it AOT/trimmed takes
+    minutes and needs the ILCompiler + a native linker.
+
+    Both publish modes below need `PublishTrimmed`/`PublishAot` to be able to see
+    the *application* entry point; neither flag does anything useful on a plain
+    library (Ceras.csproj has no Main, so ILLink reports IL1034 "Root assembly ...
+    does not have entry point"). That is why the check lives in an Exe.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <RootNamespace>TrimAotSmoke</RootNamespace>
+    <AssemblyName>TrimAotSmoke</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!--
+      Do not let the trimmer's opinion be pre-filtered: we want to *read* the
+      IL2xxx warnings, not hide them behind a NoWarn. The publish command line
+      can add -p:TrimmerSingleWarn=false for a one-line-per-warning summary.
+    -->
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <!--
+      The publish flags live here, not on the command line, on purpose. A
+      global `-p:PublishAot=true` is inherited by every project in the graph,
+      including the netstandard2.0 Ceras.SourceGenerator, which has no entry
+      point and cannot be AOT'd:
+          error NETSDK1207: Ahead-of-time compilation is not supported for the
+          target framework. [Ceras.SourceGenerator.csproj]
+      A property set in this file stays local. Override from the command line
+      with `-p:PublishAot=false` to get the trimmed-but-JIT publish instead.
+    -->
+    <PublishTrimmed Condition="'$(PublishTrimmed)' == ''">true</PublishTrimmed>
+    <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
+    <!--
+      Deliberately NO NoWarn for IL2026/IL2057/IL2067/IL2070 here. ILLink
+      reports every warning against the *root* project (this one) even when the
+      offending line is in a referenced library, so suppressing those codes
+      would silence src/Ceras' own warnings as well - the exact thing this
+      sample exists to count. Section 5 of Program.cs therefore contributes a
+      handful of warnings of its own; run-smoke.sh counts the two separately.
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ceras\Ceras.csproj" />
+    <!--
+      The source generator must run over this project exactly as it does for a
+      real consumer, otherwise there is nothing to smoke-test: user-type
+      formatters are emitted at compile time, so without the analyzer this app
+      cannot serialize a single [CerasSerializable] type.
+    -->
+    <ProjectReference Include="..\..\src\Ceras.SourceGenerator\Ceras.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="true" />
+  </ItemGroup>
+
+</Project>
