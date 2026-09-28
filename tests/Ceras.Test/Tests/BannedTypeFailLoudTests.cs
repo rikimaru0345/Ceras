@@ -250,7 +250,7 @@ namespace T {{
         [MemberData(nameof(BannedValues))]
         public void Save_BannedValueInObjectSlot_Throws(string _, object value, string expectedInMessage)
         {
-            var banned = AssertBanned(() => Raw().Serialize(new ObjectSlotHolder { Before = 1, Value = value, After = 2 }));
+            var banned = AssertBannedValueWrite(() => Raw().Serialize(new ObjectSlotHolder { Before = 1, Value = value, After = 2 }));
 
             // The message has to name the value that was rejected, not just that "something" was,
             // and it has to say which slot it went through so the member can be found.
@@ -317,7 +317,7 @@ namespace T {{
         [MemberData(nameof(BannedTypeValues))]
         public void Save_BannedTypeValue_Throws(string _, Type value, string expectedInMessage)
         {
-            var banned = AssertBanned(() => Raw().Serialize(new TypeSlotHolder { Before = 1, Value = value, After = 2 }));
+            var banned = AssertBannedValueWrite(() => Raw().Serialize(new TypeSlotHolder { Before = 1, Value = value, After = 2 }));
 
             Assert.Contains(expectedInMessage, banned.Message, StringComparison.Ordinal);
         }
@@ -331,7 +331,7 @@ namespace T {{
             // MakeGenericType is never reached.
             Exception thrown = Record.Exception(() => Raw().Serialize(new TypeSlotHolder { Value = typeof(List<Func<int>>) }));
 
-            var banned = Unwrap<BannedTypeException>(thrown);
+            var banned = BannedInChain(thrown);
 
             Assert.NotNull(banned);
             Assert.IsNotType<ArgumentNullException>(banned);
@@ -376,14 +376,14 @@ namespace T {{
         [Fact]
         public void RobustSave_BannedValues_Throw()
         {
-            var bannedInObjectSlot = AssertBanned(() => Robust().Save(
+            var bannedInObjectSlot = AssertBannedValueWrite(() => Robust().Save(
                 new ObjectSlotHolder { Before = 1, Value = (Action)(() => { }), After = 2 }, 1));
             Assert.Contains("Action", bannedInObjectSlot.Message, StringComparison.Ordinal);
 
             // The robust Type formatter is a separate implementation and has to reach the same
             // verdict: without a ban check the value fell through to the registry lookup and was
             // reported as an undeclared type, pointing at a fix that cannot work for a banned shape.
-            var bannedInTypeSlot = AssertBanned(() => Robust().Save(
+            var bannedInTypeSlot = AssertBannedValueWrite(() => Robust().Save(
                 new RobustTypeSlotHolder { Before = 1, Value = typeof(Func<int>), After = 2 }, 1));
             Assert.Contains("Func", bannedInTypeSlot.Message, StringComparison.Ordinal);
         }
@@ -486,26 +486,55 @@ namespace T {{
         }
 
         /// <summary>
-        /// Runs <paramref name="action"/> and returns the <see cref="BannedTypeException"/> it must
-        /// fail with, or fails the test. The exception is looked for in the whole chain, because
-        /// Ceras adds context on top of the diagnosis: a member error is wrapped with the member and
-        /// type it belongs to, and a reflection-fallback formatter is constructed through
-        /// <see cref="System.Reflection"/>, which wraps what its constructor threw. The diagnosis the
-        /// user acts on is the innermost one either way.
+        /// Runs <paramref name="action"/> and returns the <see cref="BannedTypeException"/> it must fail
+        /// with, caught by type and nothing else.
+        /// <para>
+        /// These are the sites where the refusal is raised while the formatter is <em>built</em> (the
+        /// reflection fallback's schema walk, or the static one), and that is the case this file needs
+        /// to say something about: Ceras constructs a formatter through
+        /// <c>Helpers.Instantiator.Create</c>, and <see cref="System.Reflection"/> wraps whatever a
+        /// constructor throws. So the refusal used to reach the caller as
+        /// <c>TargetInvocationException: Exception has been thrown by the target of an invocation</c>
+        /// with the whole diagnosis on one <c>---&gt;</c> line — and <c>catch (BannedTypeException)</c>,
+        /// which is the entire reason the type exists, could not reach it. It is not unwrapped here to
+        /// make this helper convenient: <c>Instantiator.Create</c> rethrows a wrapped Ceras exception
+        /// as itself (see the note there), and a caller that catches this type gets it. There is no
+        /// walk, so a regression that put the wrapper back fails these tests rather than hiding inside
+        /// them.
+        /// </para>
         /// </summary>
         static BannedTypeException AssertBanned(Action action)
-        {
-            Exception ex = Assert.ThrowsAny<Exception>(action);
+            => Assert.Throws<BannedTypeException>(action);
 
-            var banned = Unwrap<BannedTypeException>(ex);
-            Assert.True(banned != null, $"Expected a BannedTypeException, but got: {ex}");
-            return banned;
-        }
+        /// <summary>
+        /// The same refusal raised while a <em>value</em> is written rather than while the formatter is
+        /// built. Here Ceras does add context of its own, on purpose: a member failure is wrapped with
+        /// the member and the type it belongs to (and an object slot with one more wrapper naming the
+        /// object), which is information the diagnosis did not have. The walk is therefore over
+        /// Ceras's own wrappers — and it asserts that they are the <em>only</em> wrappers there are,
+        /// so a reflection wrapper in the chain is a failure here too, not something to look past.
+        /// </summary>
+        static BannedTypeException AssertBannedValueWrite(Action action)
+            => BannedInChain(Assert.ThrowsAny<Exception>(action));
 
-        static TException Unwrap<TException>(Exception e) where TException : Exception
+        /// <summary>
+        /// The <see cref="BannedTypeException"/> inside a chain Ceras built for itself, or a failure
+        /// naming what was thrown instead. Every frame has to be a <see cref="CerasException"/>: that
+        /// is the invariant the walk relies on, and it is the assertion that the
+        /// <see cref="System.Reflection.TargetInvocationException"/> of a constructor can no longer
+        /// hide in one of them.
+        /// </summary>
+        static BannedTypeException BannedInChain(Exception thrown)
         {
-            for (var current = e; current != null; current = current.InnerException)
-                if (current is TException match) return match;
+            for (var current = thrown; current != null; current = current.InnerException)
+            {
+                Assert.True(current is CerasException,
+                    $"Expected the refusal to be wrapped in Ceras's own context only, but the chain contains " +
+                    $"{current.GetType().FullName}, which is not a CerasException. The full chain was: {thrown}");
+                if (current is BannedTypeException match) return match;
+            }
+
+            Assert.Fail($"Expected a BannedTypeException, but got: {thrown}");
             return null;
         }
 

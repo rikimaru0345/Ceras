@@ -598,9 +598,10 @@ namespace Ceras.Test.ReviewFindings
         /// <summary>
         /// Runs <paramref name="action"/> and returns the <see cref="BannedTypeException"/> it must fail
         /// with, or fails the test. The search walks the whole chain, because Ceras adds context on top of
-        /// the diagnosis: a member error is wrapped with the member and the type it belongs to, and a
-        /// formatter is often constructed through reflection, which wraps whatever its constructor threw.
-        /// The diagnosis the user acts on is the innermost one either way.
+        /// the diagnosis: a member error is wrapped with the member and the type it belongs to. The
+        /// diagnosis the user acts on is the innermost one either way. (A formatter's constructor is
+        /// <em>not</em> a reason to walk any more: it is invoked through
+        /// <c>Helpers.Instantiator.Create</c>, which hands a Ceras refusal out as itself.)
         /// </summary>
         static BannedTypeException AssertBanned(Action action)
         {

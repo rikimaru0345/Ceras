@@ -141,8 +141,11 @@ namespace Ceras.Test.BatchB
             => new CerasFastSerializer(configure ?? (_ => { }));
 
         /// <summary>
-        /// Builds a <c>ReflectionFallbackFormatter&lt;T&gt;</c> the way its resolver does, and
-        /// unwraps the reflection layer so the caller sees the exception Ceras actually threw.
+        /// Builds a <c>ReflectionFallbackFormatter&lt;T&gt;</c> directly and unwraps this test's own
+        /// reflection layer, so the caller sees the exception Ceras actually threw. The unwrap is
+        /// needed because this calls <see cref="Activator"/> itself; the resolver does not have to any
+        /// more, because it goes through <c>Helpers.Instantiator.Create</c>, which hands a Ceras
+        /// refusal out as itself.
         /// </summary>
         static Exception BuildFallbackFormatter(CerasSerializer ceras, Type type, bool isStatic = false)
         {
