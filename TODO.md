@@ -90,12 +90,26 @@ context after seal or parse the schema on a matching-layout load.
   opaque schema and formatter-selection fingerprint metadata after the P0 temporary
   rejection. Custom payloads have no automatic upgrade promise; an unframed value
   that cannot be consumed during migration must fail loudly.
-- Reject duplicate stable names and ambiguous aliases across the entire finite
-  manifest, including structural and external declarations.
-- Replace bounded assembly scans in `SchemaRegistry.TryResolveType` and definition
-  resolution with manifest identities or explicit binder resolution.
+- Extend the generator's `CERAS019` duplicate-name check to aliases, per context,
+  and to types it currently skips: the runtime already refuses a name two manifest
+  entries claim (`SchemaRegistry.ClaimNames`), but that is a save/load-time error
+  where the compiler could have said it. Run the check over `[PreviousTypeName]`
+  too, over one dictionary per context rather than the union of all contexts, and
+  stop treating `SpecialType` types as exempt (a `[CerasSerializable("X")]` on two
+  differently-kinded types currently produces no diagnostic). Include
+  `contextMinimalTypes` and declared structural roots.
 - Expose an immutable, mode-specific context compatibility descriptor for diagnostics
-  and network handshakes.
+  and network handshakes. It must not report a layout fingerprint before the manifest is
+  sealed and baked: `ComputeFingerprint` is provisional until then and excludes pending
+  `DeclareRoot` entries, so report `IsFinal`/`LayoutFingerprint` together or not at all.
+  The runtime never learns the generated context name, so either add an explicit
+  `SetContextName` or expose an immutable copy of the manifest's stable names.
+- `RobustTypeFormatter` resolves a stored `FullNameMarker` type value through a
+  *private* `SimpleTypeBinder` rather than the context's `Config.TypeBinder`, so a
+  context that abbreviates or remaps type names cannot read back its own name
+  spelling. Pass `Config.TypeBinder` in from `CerasRobustSerializer` (it is built
+  there already); the other `Type`-value doors honour the configured binder, so the
+  disagreement is confined to this one path.
 - Exercise `samples/GodotIntegration` and `/games/godot-factory-test` in editor play,
   assembly reload and exported execution with real private/generic save graphs.
 

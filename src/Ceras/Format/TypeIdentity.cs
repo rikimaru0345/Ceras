@@ -124,10 +124,13 @@ namespace Ceras.Format
         /// Parses a canonical name produced by <see cref="GetCanonicalName"/> (or by the generator's
         /// <c>GetRobustName</c>) back into a <see cref="Type"/>. Definition names are resolved through
         /// <paramref name="resolveDefinition"/>, which answers null for a name this build does not have
-        /// — that is how a registry or a binder reports "no such type"
-        /// (<c>SchemaRegistry.ResolveDefinitionName</c> is written to that contract), and it is a miss
-        /// rather than a half-answer. Generic parameters cannot be resolved without context and return
-        /// false. This is only used on cold paths (bake and migration), never per save.
+        /// — that is how a registry or a binder reports "no such type", and it is a miss rather than a
+        /// half-answer. (The registry's own resolver is a private member of <c>SchemaRegistry</c>:
+        /// <c>TryResolveType</c> passes it here as <c>ResolveDefinitionName</c>, and it is documented
+        /// on that method rather than from here, so the two orderings — the manifest first, then
+        /// <c>Type.GetType</c>, then the configured binder — are stated in one place.)
+        /// Generic parameters cannot be resolved without context and return false. This is only used on
+        /// cold paths (bake and migration), never per save.
         /// </summary>
         internal static bool TryParseCanonicalName(string name, Func<string, Type?> resolveDefinition, out Type type)
         {

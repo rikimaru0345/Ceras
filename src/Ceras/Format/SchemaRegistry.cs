@@ -15,6 +15,10 @@ namespace Ceras.Format
     /// does not discover or build schemas for undeclared types. Only explicit declarations and
     /// structural BCL shapes (arrays and built-in collections) are accepted, and the
     /// baked schema, deterministic IDs, and layout fingerprint are therefore per context.
+    /// <para>
+    /// One further rule makes those identities usable: within a context, a name belongs to exactly one
+    /// entry, whatever produced it. It is stated once, on <see cref="ClaimNames"/>.
+    /// </para>
     /// </summary>
     public sealed class SchemaRegistry
     {
@@ -36,6 +40,21 @@ namespace Ceras.Format
         readonly Dictionary<string, Entry>  _byStableName = new();
 		int _nextId = WellKnownTypes.UserTypeBase;
 		int _sealedWatermark = -1;
+
+		// The configured type binder, installed once at context setup (CerasRobustConfig.Seal). It is the
+		// *only* thing beyond the manifest itself and Type.GetType that may answer a name question, and
+		// it is consulted in exactly one place: ResolveDefinitionName, which the canonical-name parser
+		// asks for a definition. Null means "this context has no binder", and an unregistered name then
+		// resolves to nothing at all - which is the point of this field (see SetTypeBinder).
+		ITypeBinder? _typeBinder;
+
+		// ResolveDefinitionName's answers, positive and negative, keyed by the name it was asked about.
+		// Memoized because the bake resolves a name per field, element and argument, and a load's id map
+		// resolves a name per file entry, while a binder answer is a property of the process and never
+		// changes: SimpleTypeBinder.GetTypeFromBase searches assemblies and throws when it finds nothing,
+		// so asking it the same name twice costs a search and an exception. A null value is a real answer
+		// here, not a missing one, which is why it is memoized too.
+		readonly Dictionary<string, Type?> _definitionNames = new(StringComparer.Ordinal);
 
 		// True only while baking: baking walks field/element type names and registers the structural
 		// types it discovers, which must be allowed even though the registry is already sealed.
@@ -77,9 +96,9 @@ namespace Ceras.Format
 		/// Precondition for resolving a save file's type ids against this registry: the manifest must be
 		/// baked. Baking is what registers a shape the generated manifest does not contain - a type
 		/// reachable only as a member, a structural shape, a declared root - and with it the
-		/// <c>[PreviousTypeName]</c> aliases a file can refer to. Before the bake a renamed member-only
-		/// type resolves its current name through the loaded-assembly scan but not its old one, so ids
-		/// resolved too early are silently incomplete.
+		/// <c>[PreviousTypeName]</c> aliases a file can refer to. Before the bake none of those is in the
+		/// manifest, so neither its current name nor its old one is a registry identity; ids resolved too
+		/// early are silently incomplete.
 		/// </summary>
 		internal void RequireBakedManifest()
 		{
@@ -129,6 +148,7 @@ namespace Ceras.Format
             {
                 _byType.Clear();
                 _byStableName.Clear();
+                _definitionNames.Clear();
                 _nextId = WellKnownTypes.UserTypeBase;
 				_sealedWatermark = -1;
 				_declaredRoots.Clear();
@@ -162,7 +182,9 @@ namespace Ceras.Format
 				_baking = true;
 				try
 				{
-					// Declared root shapes first, in canonical order, so the id space is deterministic.
+					// Declared root shapes first, in canonical order, so the id space is deterministic. Every
+					// name this context declares is claimed (and so checked) here, before a schema byte
+					// exists — the refusal is ClaimNames'.
 					foreach (var declared in _declaredRoots.Values)
 					{
 						if (_byType.ContainsKey(declared)) continue;
@@ -171,12 +193,11 @@ namespace Ceras.Format
 					_declaredRoots.Clear();
 
 					// Baking walks field/element type names and may register the structural types it
-					// discovers, which is why registrations are allowed for its duration.
+					// discovers, which is why registrations are allowed for its duration. It publishes the
+					// frozen region only once it holds all four parts, so a claim refused on the way (a
+					// structural shape whose derived name is already taken) leaves the registry unsealed and
+					// unbaked, exactly as if it had never been asked to seal.
 					BakeLocked();
-
-					// Every alias a file can be matched by is now known, including the ones a shape
-					// that was reachable only as a member contributed.
-					ValidateRenameAliasesLocked();
 				}
 				finally
 				{
@@ -248,7 +269,14 @@ namespace Ceras.Format
 
 			byte[] schemaBuf = new byte[1024];
 			int schemaOff = 0;
-			_bakedTypeToId = SchemaSection.Write(ref schemaBuf, ref schemaOff, this, schemaStrings);
+
+			// Every part of the frozen region is produced into a local first and published at the end, in
+			// one uninterrupted run, so a bake that raises part-way through — a member whose type name
+			// does not resolve, or a structural shape whose name is already claimed — leaves all four
+			// fields at their previous value. Half a bake would answer HasBakedSchema/TryGetBakedSchema
+			// with "baked" while IsSealed is still false, which is the one combination a caller cannot
+			// reason about.
+			var typeToId = SchemaSection.Write(ref schemaBuf, ref schemaOff, this, schemaStrings);
 
 			byte[] strBuf = new byte[256];
 			int strOff = 0;
@@ -264,6 +292,7 @@ namespace Ceras.Format
 
 			_bakedSchemaBytes = bakedSchema;
 			_bakedSchemaStringsBytes = bakedStrings;
+			_bakedTypeToId = typeToId;
 			_bakedIdToType = BuildIdToTypeLocked();
 		}
 
@@ -277,56 +306,115 @@ namespace Ceras.Format
 		}
 
 		/// <summary>
-		/// Rejects a rename alias that two different types could answer for.
+		/// The manifest's name invariant, stated in the one place that enforces it: <b>a name belongs to
+		/// exactly one entry</b>. A stable name or a <c>[PreviousTypeName]</c> alias is how a save file is
+		/// matched onto this build, so a name two entries answer for would bind that file to whichever was
+		/// registered first — a silent mis-binding on a save that is otherwise perfectly valid, showing up
+		/// as a wrong value long after the rename. Two aliases, a stable name and an alias, or a
+		/// stable name and a structural entry's derived name are all the same defect, so they are all
+		/// refused here rather than by each of the paths that can produce them.
 		/// <para>
-		/// An alias is how a save file is matched onto this build, so it has to name one type. Structural
-		/// matching of closed generics makes that sharper than it looks: an <b>open</b> alias
-		/// (<c>Old.Box`1</c>) is not matched as a name but closed with the file's arguments, so two
-		/// unrelated definitions claiming the same text would be resolved by whichever registered first
-		/// — a silent mis-binding on a save that is otherwise perfectly valid, and a hole that only shows
-		/// up as a wrong value long after the rename.
+		/// The one exception is a name several closures of <b>one</b> generic family may claim, because an
+		/// <b>open</b> alias names the family rather than one of its members: a file writes the closed
+		/// canonical name and the alias is closed with the file's own arguments
+		/// (<see cref="AsNamedType"/>), so <c>Legacy.Box`1</c> legitimately stands for
+		/// <c>Box&lt;int&gt;</c>, <c>Box&lt;string&gt;</c> and every other closure of <c>Box&lt;&gt;</c>. Two
+		/// <i>different</i> families claiming it is a conflict, and that is what is refused.
 		/// </para>
 		/// <para>
-		/// Several closures of the <i>same</i> definition claiming one open alias is the normal case, not
-		/// a conflict: the alias names the family, so every closure of it indexes that name. Only two
-		/// different targets are an error. Reported from the bake, which is the boundary that knows every
-		/// registered type — including a shape that was reachable only as a member and was registered
-		/// while baking.
+		/// A reserved well-known name is not a manifest name at all (<see cref="WellKnownTypes.TryGetIdByCanonicalName"/>):
+		/// ids below <see cref="WellKnownTypes.UserTypeBase"/> are a separate id space which a reader
+		/// consults before the manifest, so an entry recorded under such a name could never be referred
+		/// to. The check is asked here, at the claim, for the same reason the duplicate check is: a name
+		/// the registry could answer for and an id the format already owns must not be one string.
+		/// </para>
+		/// <para>
+		/// Reported from <see cref="Register"/> rather than from the seal, which is strictly earlier: the
+		/// author sees it where they wrote the name, and nothing half-baked has been published. The seal
+		/// asks it again for every shape it discovers on the way (<c>SchemaSection.ResolveId</c> registers
+		/// a structural type through the same door), so the invariant covers the whole finite manifest and
+		/// not only what was declared up front.
 		/// </para>
 		/// </summary>
-		void ValidateRenameAliasesLocked()
+		void ClaimNames(Entry entry)
 		{
-			// alias -> the thing the name can resolve to: a generic's definition (an alias names the
-			// family), or the type itself for everything else.
-			var target = new Dictionary<string, Type>(StringComparer.Ordinal);
-			var firstClaimant = new Dictionary<string, Type>(StringComparer.Ordinal);
+			var info = entry.Info;
 
-			foreach (var entry in _byType.Values)
+			// Two passes on purpose: every name is required before any of them is indexed, so a refused
+			// registration cannot leave one of its aliases pointing at an entry that never joined the
+			// manifest. Registering is a context-setup step, so the second walk costs nothing. First claim
+			// wins, which is what resolving an open name already assumes (see AsNamedType): only a family
+			// that is already allowed to share a name reaches the part where an index entry is a duplicate.
+			RequireClaimableName(entry, info.StableName, isStableName: true);
+			foreach (var alias in info.PreviousTypeNames)
+				RequireClaimableName(entry, alias, isStableName: false);
+
+			_byStableName.TryAdd(info.StableName, entry);
+			foreach (var alias in info.PreviousTypeNames)
+				if (IsClaimable(alias))
+					_byStableName.TryAdd(alias, entry);
+		}
+
+		/// <summary>
+		/// What a claim by <paramref name="type"/> names: a generic's <i>definition</i>, because an open
+		/// name reaches the family and every closure of it answers for it (<see cref="AsNamedType"/>).
+		/// Two claims are the same claim when this answers the same type for both — the exception
+		/// <see cref="ClaimNames"/> documents.
+		/// </summary>
+		static Type ClaimTargetOf(Type type) => type.IsGenericType ? type.GetGenericTypeDefinition() : type;
+
+		/// <summary>
+		/// A name an entry answers for at all. An empty alias names nothing, so it is skipped rather than
+		/// indexed (and rather than made to collide with the next entry's empty alias); an empty
+		/// <em>stable</em> name is a defect instead, and <see cref="RequireClaimableName"/> refuses it.
+		/// </summary>
+		static bool IsClaimable(string name) => !string.IsNullOrEmpty(name);
+
+		static string NameRole(bool isStableName)
+			=> isStableName ? "stable name" : "[PreviousTypeName] alias";
+
+		/// <summary>
+		/// The single check <see cref="ClaimNames"/> makes for one of its names: the name must be
+		/// non-empty where it has to be, must not be a reserved well-known name, and must not already be
+		/// claimed by a different entry (or by a different generic family). Answers without mutating
+		/// anything, which is what lets the caller require every name before indexing any of them.
+		/// </summary>
+		void RequireClaimableName(Entry entry, string name, bool isStableName)
+		{
+			if (!IsClaimable(name))
 			{
-				var resolves = entry.Type.IsGenericType ? entry.Type.GetGenericTypeDefinition() : entry.Type;
+				if (isStableName)
+					throw new Ceras.Exceptions.CerasSchemaException(
+						$"Cannot register '{TypeIdentity.GetCanonicalName(entry.Type)}': the descriptor's stable name is empty. " +
+						"That name is the entry's identity on the wire — the schema string table records it and a save file is " +
+						"matched by it — so it has to name something. Give the type a [CerasSerializable(\"Name\")] (or a " +
+						"descriptor whose stable name is the type's canonical name), then rebuild.");
 
-				foreach (var alias in entry.Info.PreviousTypeNames)
-				{
-					if (string.IsNullOrEmpty(alias)) continue;
-
-					if (target.TryGetValue(alias, out var existing))
-					{
-						if (existing == resolves) continue;
-
-						throw new Ceras.Exceptions.CerasSchemaException(
-							$"The rename alias '{alias}' is claimed by two different types: " +
-							$"'{TypeIdentity.GetCanonicalName(firstClaimant[alias])}' and " +
-							$"'{TypeIdentity.GetCanonicalName(entry.Type)}'. A save file names a type with one " +
-							"identity, so a [PreviousTypeName] alias can stand for exactly one type - or, for a " +
-							$"generic, for its whole family (every closure of '{TypeIdentity.GetCanonicalName(existing)}' " +
-							"may share the same open name). Give one of them the previous name that build actually " +
-							"used, then rebuild.");
-					}
-
-					target[alias] = resolves;
-					firstClaimant[alias] = entry.Type;
-				}
+				return;   // an empty alias names nothing
 			}
+
+			if (WellKnownTypes.TryGetIdByCanonicalName(name, out int wellKnownId))
+				throw new Ceras.Exceptions.CerasSchemaException(
+					$"Cannot register '{TypeIdentity.GetCanonicalName(entry.Type)}' under the name '{name}': that name is " +
+					$"reserved, and already stands for well-known type id {wellKnownId} without consulting any manifest. " +
+					$"Type ids below {WellKnownTypes.UserTypeBase} and this context's own names are separate id spaces, so an " +
+					$"entry recorded under '{name}' could never be resolved to — a reader takes the well-known id first. Rename " +
+					"the type (or drop the [PreviousTypeName] alias that reuses the name), then rebuild.");
+
+			if (!_byStableName.TryGetValue(name, out var owner))
+				return;
+
+			// The one claim that is not a conflict: the same entry, or another closure of the same family.
+			if (ClaimTargetOf(owner.Type) == ClaimTargetOf(entry.Type))
+				return;
+
+			throw new Ceras.Exceptions.CerasSchemaException(
+				$"The name '{name}' is claimed by two different types in this context's manifest: " +
+				$"'{TypeIdentity.GetCanonicalName(entry.Type)}' claims it as its {NameRole(isStableName)}, and " +
+				$"'{TypeIdentity.GetCanonicalName(owner.Type)}' already claims it as its " +
+				$"{NameRole(owner.Info.StableName == name)}. A manifest name identifies exactly one type — a save file is " +
+				"matched to this build by it, so two claims would bind it to whichever was registered first, silently. " +
+				"Rename one of the two types, or declare the [PreviousTypeName] alias on only one of them, then rebuild.");
 		}
 
 		public bool IsSealed => _sealedWatermark != -1;
@@ -345,6 +433,12 @@ namespace Ceras.Format
 		/// invariant — a <c>GenericInstantiation</c> of one of the format's own definitions has to record
 		/// exactly that definition's argument count — so a malformed one is refused here rather than
 		/// reaching a reader that could not honour it. See <see cref="StructuralShape"/>.
+		/// </para>
+		/// <para>
+		/// It is also the one place the manifest's <em>name</em> invariant is enforced, so a descriptor
+		/// that collides with another entry's name, with a reserved well-known name, or with the name a
+		/// structural shape derives from the CLR type is refused here and nothing joins the manifest. See
+		/// <see cref="ClaimNames"/>, which states it.
 		/// </para>
 		/// </summary>
 		public void Register(Type type, SchemaTypeInfo info)
@@ -384,14 +478,16 @@ namespace Ceras.Format
                 // builder and the Type-value grammar; this is only the earliest door.
                 StructuralShape.RequireDescribableDescriptor(type, info);
 
-                var entry = new Entry(_nextId++, info, type);
+                var entry = new Entry(_nextId, info, type);
 
+                // The manifest's name invariant, before the entry becomes part of it: every name this entry
+                // answers for is claimed (or the registration is refused) while the registry still looks
+                // exactly as it did, so a rejected entry costs no id and leaves no name behind pointing at
+                // an entry that is not in the manifest.
+                ClaimNames(entry);
+
+                _nextId++;
                 _byType[type] = entry;
-
-                _byStableName[info.StableName] = entry;
-
-                foreach (var prev in info.PreviousTypeNames)
-                    _byStableName.TryAdd(prev, entry);
 
                 _fingerprint = null; // invalidate
             }
@@ -613,6 +709,23 @@ namespace Ceras.Format
         /// build resolve to null and are interpreted without being registered — so the out parameter is
         /// null exactly when this returns false, and every caller has to treat the two as one fact.
         /// A caller mapping a whole file's id space calls <c>RequireBakedManifest()</c> first.
+        /// <para>
+        /// Three identities answer, in this order, and nothing else does:
+        /// </para>
+        /// <list type="number">
+        /// <item>the manifest's own names — each registered entry's stable name and its
+        /// <c>[PreviousTypeName]</c> aliases (see <see cref="ClaimNames"/>);</item>
+        /// <item><c>Type.GetType</c>, for the framework and assembly-qualified spellings;</item>
+        /// <item>canonical names, whose definitions are resolved by <see cref="ResolveDefinitionName"/> —
+        /// and that is where the context's configured binder is consulted, and the only place.</item>
+        /// </list>
+        /// <para>
+        /// A name none of the three answers resolves to <b>nothing</b>. There is deliberately no fallback
+        /// that walks the loaded assemblies: which types a name stands for must be a fact about this
+        /// context, not about whatever happens to be loaded when the name is read. A save written on a
+        /// host with a plugin loaded would otherwise describe a different graph from the same bytes read
+        /// on a host without it.
+        /// </para>
         /// </summary>
         public bool TryResolveType(string stableName, [MaybeNullWhen(false)] out Type type)
         {
@@ -622,9 +735,9 @@ namespace Ceras.Format
                 return false;
             }
 
-            // Steps 1-3 consult the registry's own maps, so they run under the lock. Step 4 walks every
-            // loaded assembly, which must not happen under it (0.8.14): the bake holds the same lock and
-            // calls this, so a scan here would serialise the whole process behind one name lookup.
+            // Step 1 is the registry's own map, so it runs under the lock; steps 2 and 3 do not read it
+            // directly (ResolveDefinitionName takes the lock itself), so they stay outside - a binder call
+            // is user code and must not run under the lock this bake already holds.
             lock (_lock)
             {
                 // 1. Registered types are keyed by their canonical stable name. This covers generated
@@ -638,18 +751,18 @@ namespace Ceras.Format
             if (type != null) return true;
 
             // 3. Canonical names of closed generics / arrays / pointers that are not registered yet
-            //    (e.g. a structural collection discovered while baking the schema). Definitions are
-            //    resolved from the framework or loaded assemblies.
+            //    (e.g. a structural collection discovered while baking the schema). Their definitions are
+            //    resolved from the manifest, from Type.GetType, or through the configured binder.
             if (TypeIdentity.TryParseCanonicalName(stableName, ResolveDefinitionName, out var parsed))
             {
                 type = parsed;
                 return true;
             }
 
-            // 4. Last resort for genuinely-external/old names: an unqualified, non-canonical
-            //    Type.FullName or a definition name. Bounded scan of loaded assemblies, unlocked.
-            type = ScanLoadedAssemblies(stableName);
-            return type != null;
+            // 4. Nothing else. A name this context's manifest does not describe, that Type.GetType does
+            //    not know, and that the configured binder cannot bind, names no type here.
+            type = null;
+            return false;
         }
 
         /// <summary>
@@ -680,42 +793,155 @@ namespace Ceras.Format
         }
 
         /// <summary>
-        /// Looks a plain CLR name up in the loaded assemblies. Deliberately lock-free: it does not read
-        /// the registry, and a miss is not a correctness problem for the caller (a name that is absent
-        /// here is absent from the registry too, and <see cref="TryResolveType"/> is a cold path).
+        /// Installs the binder that may answer definition names this context's manifest does not hold.
+        /// <para>
+        /// This is the whole of Ceras' "reach outside the manifest" affordance, and it is explicit on
+        /// purpose: what a name stands for is the manifest's business, so a name the manifest does not
+        /// describe resolves to nothing unless the owner configured a binder that can bind it. A context
+        /// with no binder (the <c>internal</c> default, and every hand-built <c>SchemaRegistry</c> in a
+        /// test) resolves nothing outside itself.
+        /// </para>
+        /// <para>
+        /// Called once, from <c>CerasRobustConfig.Seal()</c> - the same setup-time door the robust custom
+        /// formatter policy check uses, so the binder that the writer and the interpreter both consult is
+        /// known before any save can exist. Installing a different one drops the memo: it was computed
+        /// from the previous binder's answers.
+        /// </para>
         /// </summary>
-        static Type? ScanLoadedAssemblies(string? name)
+        internal void SetTypeBinder(ITypeBinder? binder)
         {
-            if (string.IsNullOrEmpty(name)) return null;
-
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            lock (_lock)
             {
-                var type = assembly.GetType(name);
-                if (type != null) return type;
+                _typeBinder = binder;
+                _definitionNames.Clear();
             }
+        }
 
-            return null;
+        /// <summary>
+        /// The manifest's name invariant applied to the <b>binder's</b> names as well (see
+        /// <see cref="ClaimNames"/>, which states it for the manifest's own half).
+        /// <para>
+        /// A save file reaches the current model through two doors, and both have to agree: the manifest
+        /// (<see cref="TryResolveType"/> step 1) and the configured binder (what
+        /// <c>CerasRobustSerializer.BuildIdToType</c> asks when the manifest has no answer, and what
+        /// <see cref="SchemaTraversalEngine"/> resolves a stored <see cref="Type"/> value through). If the
+        /// binder names a type under a string that belongs to a *different* manifest entry, then the same
+        /// name in a save file binds to one type on one path and to another on the other - a silent
+        /// mis-binding, showing up as a wrong value long after the rename that caused it.
+        /// </para>
+        /// <para>
+        /// Asked once, at the seal, for every entry: cheap because it is one string per registered type
+        /// and it happens once per context, before any save or load. <see cref="SchemaTypeKind.GenericInstantiation"/>
+        /// is skipped because a binder names such an entry by its <em>definition</em>
+        /// (<c>Ns.Box`1</c>), which names the family rather than the closure — and that definition is an
+        /// ordinary entry whose own name is checked. A binder that cannot name a type at all (returns null,
+        /// or throws, which <see cref="SimpleTypeBinder.GetBaseName"/> does for a generic type parameter)
+        /// claims nothing and is skipped, exactly as <c>SchemaTraversalEngine.ResolveFullName</c>
+        /// normalizes a binder's "no such type" to null.
+        /// </para>
+        /// </summary>
+        internal void VerifyBinderNamesDoNotShadowManifest()
+        {
+            lock (_lock)
+            {
+                if (_typeBinder == null) return;
+
+                foreach (var entry in _byType.Values)
+                {
+                    if (entry.Info.Kind == SchemaTypeKind.GenericInstantiation) continue;
+
+                    var binderName = TryGetBinderName(_typeBinder, entry.Type);
+                    if (string.IsNullOrEmpty(binderName)) continue;
+                    if (!_byStableName.TryGetValue(binderName!, out var owner)) continue;
+
+                    // The one overlap that is not a conflict: the same entry, or another closure of the
+                    // same family (ClaimNames).
+                    if (ClaimTargetOf(owner.Type) == ClaimTargetOf(entry.Type)) continue;
+
+                    throw new Ceras.Exceptions.CerasSchemaException(
+                        $"The configured type binder names '{TypeIdentity.GetCanonicalName(entry.Type)}' as '{binderName}', but that name " +
+                        $"already belongs to '{TypeIdentity.GetCanonicalName(owner.Type)}' in this context's manifest. A save file that says " +
+                        $"'{binderName}' would be matched to '{TypeIdentity.GetCanonicalName(owner.Type)}' through the manifest and to " +
+                        $"'{TypeIdentity.GetCanonicalName(entry.Type)}' through the binder, depending on which of the two reads it - a silent " +
+                        "mis-binding of an otherwise valid save, visible only as a wrong value long after the rename that caused it. " +
+                        "Give the binder a name that stands for exactly one type (Config.TypeBinder), or rename one of the two types, then rebuild.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// What the binder calls <paramref name="type"/>, or null when the binder cannot say: a binder
+        /// reports an unnameable type either by returning null or by throwing
+        /// (<see cref="SimpleTypeBinder.GetBaseName"/> throws for a generic type parameter), and both are
+        /// the same answer here - this type claims no name, so nothing can be in conflict with it.
+        /// </summary>
+        static string? TryGetBinderName(ITypeBinder binder, Type type)
+        {
+            try
+            {
+                return binder.GetBaseName(type);
+            }
+            catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException)
+            {
+                return null;
+            }
         }
 
         /// <summary>
         /// Resolves a generic/array element *definition* name (no arguments) to a <see cref="Type"/>.
-        /// Used only by canonical-name parsing on cold paths, and called without <see cref="_lock"/> held
-        /// so the assembly scan cannot stall the registry (0.8.14). It answers null for a name this build
-        /// does not have, which is the contract <c>TypeIdentity.TryParseCanonicalName</c> is given.
+        /// Used only by canonical-name parsing on cold paths (the bake and the interpreter's plan builder),
+        /// and called without <see cref="_lock"/> held, so a binder call cannot stall the registry. It
+        /// answers null for a name this build does not have, which is the contract
+        /// <c>TypeIdentity.TryParseCanonicalName</c> is given.
+        /// <para>
+        /// Three sources, in this order: the manifest's own names, <c>Type.GetType</c> for the
+        /// framework spellings, and the configured <see cref="ITypeBinder"/> for everything else. The
+        /// last is the only one that is a choice somebody made rather than a fact of this context, which
+        /// is why it is reached last and memoized (<see cref="_definitionNames"/>): a binder is asked once
+        /// per name per context, hit or miss.
+        /// </para>
         /// </summary>
         Type? ResolveDefinitionName(string? definitionName)
         {
             if (string.IsNullOrEmpty(definitionName)) return null;
 
+            ITypeBinder? binder;
             lock (_lock)
             {
+                // The manifest is consulted first, and before the memo: the bake registers entries while
+                // it resolves names, so a memoized miss must not shadow an entry that has since joined.
                 if (_byStableName.TryGetValue(definitionName, out var e)) return AsNamedType(e.Type, definitionName);
+                if (_definitionNames.TryGetValue(definitionName, out var memoized)) return memoized;
+                binder = _typeBinder;
             }
 
-            var type = Type.GetType(definitionName);
-            if (type != null) return type;
+            // Type.GetType is a fact about the runtime, not a choice: a framework definition resolves
+            // whether or not this context configured a binder. Only the binder below is the choice, and it
+            // is the last thing asked.
+            var resolved = Type.GetType(definitionName)
+                           ?? (binder != null ? ResolveThroughBinder(binder, definitionName) : null);
 
-            return ScanLoadedAssemblies(definitionName);
+            lock (_lock)
+                _definitionNames[definitionName] = resolved;
+
+            return resolved;
+        }
+
+        /// <summary>
+        /// The binder's answer for a name, with "no such type" normalized to null. A binder reports it
+        /// either by returning null or by throwing - <see cref="SimpleTypeBinder.GetTypeFromBase"/> throws
+        /// after searching every loaded assembly - and both are a miss here, not a failure of the load.
+        /// </summary>
+        static Type? ResolveThroughBinder(ITypeBinder binder, string definitionName)
+        {
+            try
+            {
+                return binder.GetTypeFromBase(definitionName);
+            }
+            catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException)
+            {
+                return null;
+            }
         }
 
         /// <summary>Enumerates all registered entries in registration order.</summary>

@@ -11,8 +11,8 @@
 // No model is declared here. The current models these cases load as already exist in
 // `ArrayShapeNestedArgumentMigrationTests.cs` and `ArrayShapeChangeMigrationTests.cs`, and a second copy
 // under a different name would be a *conflict* rather than a test: a `[PreviousTypeName]` alias stands for
-// exactly one type, so claiming one twice is refused at bake time (the registry's own
-// `ValidateRenameAliasesLocked`). Reusing them is also the stronger check, because it means these assertions
+// exactly one type, so claiming one twice is refused where the second one is registered (the registry's own
+// `ClaimNames`). Reusing them is also the stronger check, because it means these assertions
 // run against the same declarations the rest of the suite pins.
 using System;
 using System.Collections.Generic;

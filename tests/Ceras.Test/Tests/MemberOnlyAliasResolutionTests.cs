@@ -4,9 +4,14 @@
 // manifest: the bake walks every field/element/argument name and registers what it finds there, and
 // SchemaRegistry.Register is also where a [PreviousTypeName] alias is indexed. So until the manifest
 // is baked, a *renamed* member-only type is invisible by its old name — while its *current* name
-// still resolves, through the loaded-assembly scan in SchemaRegistry.TryResolveType. That asymmetry
-// is what made the missing bake invisible: the rename worked, but only because Load happened to seal
-// the registry before it built the file's id map, and that ordering was nowhere but a comment.
+// still resolves, because the context's configured type binder can name a type this manifest does not
+// hold (SchemaRegistry.TryResolveType step 3, and the binder is installed by CerasRobustConfig.Seal).
+// That asymmetry is what made the missing bake invisible: the rename worked, but only because Load
+// happened to seal the registry before it built the file's id map, and that ordering was nowhere but a
+// comment. The asymmetry survived the removal of the old implicit loaded-assembly scan, but the reason
+// it survives is now an explicit, configured door rather than something that happened to be in the
+// process: which types a name stands for is now a fact about the context (its manifest, Type.GetType,
+// its binder), not about whatever assemblies happen to be loaded.
 //
 // The Banned namespace below is that shape, reached the way the generator produces it: CollectMinimalTypes
 // leaves enums to the runtime ("runtime derives enum schemas"), so a member enum the generator has no
@@ -15,8 +20,12 @@
 // formatter is the real-world case. The pattern matches only this namespace.
 //
 // What is pinned here:
-//   * the asymmetry itself (the old name needs the bake, the current name does not), for a manifest
-//     the generator actually produced;
+//   * the asymmetry itself, for a manifest the generator actually produced: with a binder configured
+//     the current name resolves before the bake and the old name does not;
+//   * the other half of it, with the binder removed: neither name resolves, and the bake cannot even
+//     discover the member - so the missing bake is now impossible to miss;
+//   * that the asymmetry no longer rests on an implicit loaded-assembly scan, so the current name's
+//     pre-bake resolvability is now a consequence of Config.TypeBinder rather than of the process;
 //   * the guard: CerasRobustSerializer.BuildIdToType — the one place a file's ids are mapped onto the
 //     current model — calls SchemaRegistry.RequireBakedManifest() before it resolves anything, so
 //     reordering the seal fails loudly instead of silently mis-resolving a renamed member-only type;
@@ -86,9 +95,23 @@ namespace Ceras.Test
             Assert.False(registry.IsDeclared(typeof(Banned.Tier)));
             Assert.False(registry.TryGetId(typeof(Banned.Tier), out _));
 
-            // … and the two names behave differently. The current name is found by the
-            // loaded-assembly scan; the old name exists only as the alias of a *registration*, so
-            // until the bake registers the type there is nothing to find it under.
+            // With the context's binder taken away, *neither* name resolves before the bake, and that
+            // is the change the removed assembly scan made. The old implicit scan used to answer the
+            // current name - a name the manifest does not hold and Type.GetType does not know - so the
+            // two names used to differ. With no binder, there is no third door: the enum is not in the
+            // manifest, so nothing stands for it under either spelling. The old name still cannot
+            // resolve, because it exists only as the alias a *registration* indexes and only the bake
+            // registers a member-only shape.
+            registry.SetTypeBinder(null);
+            Assert.False(registry.TryResolveType(CurrentTierName, out _));
+            Assert.False(registry.TryResolveType(OldTierName, out _));
+
+            // Re-installing the configured binder brings the current name back, through the one
+            // explicit door that is left: Config.TypeBinder, installed by CerasRobustConfig.Seal. So
+            // the asymmetry survives, but it is now a fact about what the owner configured rather than
+            // about whatever assemblies happened to be loaded - and the old name still has no such
+            // door, which is why only the bake can ever answer for it.
+            registry.SetTypeBinder(serializer.Config.TypeBinder);
             Assert.True(registry.TryResolveType(CurrentTierName, out var byCurrentName));
             Assert.Equal(typeof(Banned.Tier), byCurrentName);
             Assert.False(registry.TryResolveType(OldTierName, out _));
@@ -104,6 +127,42 @@ namespace Ceras.Test
             Assert.True(registry.TryGetInfo(typeof(Banned.Tier), out var info));
             Assert.Equal(SchemaTypeKind.Enum, info.Kind);
             Assert.Contains(OldTierName, info.PreviousTypeNames);
+        }
+
+        [Fact]
+        public void With_No_Binder_The_Current_Name_Resolves_Neither_Before_Nor_During_The_Bake()
+        {
+            // The complement of the asymmetry above, stated on its own. Take the binder away and the
+            // manifest is the only door left, so the current name - which no manifest entry holds and
+            // Type.GetType cannot know, because it is a bare user name in an assembly the runtime does
+            // not search by default - resolves to nothing. Before the scan was removed this name
+            // resolved anyway, which is exactly what let a missing bake go unnoticed.
+            var serializer = new CerasRobustSerializer(c => c.UseGeneratedFormatters("Banned"));
+            var registry = serializer.Config.SchemaRegistry;
+            registry.SetTypeBinder(null);
+
+            Assert.False(registry.TryResolveType(CurrentTierName, out _));
+            Assert.False(registry.TryResolveType(OldTierName, out _));
+
+            // The bake needs the same answer, for the same reason: it walks the field name
+            // 'Ceras.Test.Banned.Tier' in order to register the shape it describes, and with no binder
+            // nothing resolves that name. So this is not a manifest that bakes with a hole in it - the
+            // member-only shape cannot be discovered at all, and the bake refuses it by name rather
+            // than writing a schema section that omits the field.
+            var ex = Assert.Throws<CerasSchemaException>(() => registry.Seal());
+            Assert.Contains(CurrentTierName, ex.Message, StringComparison.Ordinal);
+            Assert.Contains("does not resolve", ex.Message, StringComparison.Ordinal);
+
+            // With the binder back, the very same manifest bakes: the binder names the member, the bake
+            // registers the shape, and Register then claims both of the type's names, so the manifest
+            // itself answers for it from then on.
+            registry.SetTypeBinder(serializer.Config.TypeBinder);
+            registry.Seal();
+
+            Assert.True(registry.TryResolveType(CurrentTierName, out var byCurrentName));
+            Assert.Equal(typeof(Banned.Tier), byCurrentName);
+            Assert.True(registry.TryResolveType(OldTierName, out var byOldName));
+            Assert.Equal(typeof(Banned.Tier), byOldName);
         }
 
         [Fact]

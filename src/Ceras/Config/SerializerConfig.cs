@@ -163,6 +163,17 @@ namespace Ceras
 			// setup, before a save can exist — instead of only at the first Save/Load
 			// (RobustCustomFormatterPolicy).
 			RobustCustomFormatterPolicy.VerifyNoUserCustomFormatters(this);
+
+			// The manifest resolves a name only for what it holds and for what Type.GetType knows; the
+			// configured binder is the one way outside that, and the seal is where it becomes known to the
+			// registry (SchemaRegistry.SetTypeBinder). Doing it here rather than at first use means the
+			// binder the writer, the baked manifest and the migration interpreter all consult is settled
+			// before a save can exist, and that a binder name shadowing a *different* manifest entry is
+			// reported at context setup — where the author can still fix it — instead of silently binding
+			// a save file to whichever of the two answers first
+			// (SchemaRegistry.VerifyBinderNamesDoNotShadowManifest).
+			SchemaRegistry.SetTypeBinder(TypeBinder);
+			SchemaRegistry.VerifyBinderNamesDoNotShadowManifest();
 			// (This used to also set RobustConfig.Locked, which nothing ever read: either it was meant to
 			// guard something that does not exist, or it is dead. The sealed state that *is* consulted is
 			// SizeLimits/CerasConfig's own, set by base.Seal().)
