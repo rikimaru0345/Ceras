@@ -200,12 +200,32 @@ namespace Ceras
             _config.SetOwningAssembly(Assembly.GetCallingAssembly());
         }
 
+        /// <summary>
+        /// What this context is, for a diagnostic dump or a compatibility decision taken without
+        /// producing a save: its context name, wire format version, layout fingerprint, manifest size, and
+        /// the producer build its saves record.
+        /// <para>
+        /// Reading it costs no <c>Save</c> and no <c>Load</c>, and seals nothing: a context that has not
+        /// been used yet reports <see cref="RobustCompatibilityDescriptor.IsFinal"/> false with
+        /// <see cref="RobustCompatibilityDescriptor.LayoutFingerprint"/> 0, and stays open. Both flip at
+        /// the first save or load, which is when the manifest is baked - see that property for why a
+        /// provisional fingerprint is never reported instead of none.
+        /// </para>
+        /// </summary>
+        public RobustCompatibilityDescriptor RobustCompatibility => CompatibilityDescriptors.For(_config);
+
         static CerasRobustConfig MakeConfig(Action<CerasRobustConfig>? configure, Assembly owningAssembly)
         {
             var config = new CerasRobustConfig();
             config.SetOwningAssembly(owningAssembly);
             InitializeRobustFormatters(config);
             configure?.Invoke(config);
+            // The formatters above are installed *before* the configuration callback, so a TypeBinder
+            // the callback assigns is not known yet — and the Type formatter is the one Type-value door
+            // that resolves a name. Re-pointing it here is what makes Config.TypeBinder reach the
+            // FullNameMarker read at all; without it this would hand the formatter the *default*
+            // binder and the bug would survive the change.
+            UseConfiguredTypeBinder(config);
             return config;
         }
 
@@ -218,7 +238,24 @@ namespace Ceras
 
             var typeConfig = config.ConfigType<Type>();
             if (!(typeConfig.CustomFormatter is RobustTypeFormatter))
-                typeConfig.CustomFormatter = new RobustTypeFormatter(config.SchemaRegistry);
+                typeConfig.CustomFormatter = new RobustTypeFormatter(config.SchemaRegistry, config.TypeBinder);
+        }
+
+        /// <summary>
+        /// Points the installed <see cref="RobustTypeFormatter"/> at the context's configured
+        /// <see cref="CerasConfig.TypeBinder"/> (see <see cref="MakeConfig"/> for why this is separate
+        /// from installing the formatters).
+        /// <para>
+        /// A Type custom formatter that <em>is</em> a <see cref="RobustTypeFormatter"/> is one
+        /// <see cref="InitializeRobustFormatters"/> installed — the type is internal, so no caller can
+        /// have supplied its own. Any other Type formatter is the caller's and is left untouched, which
+        /// keeps the "a configured formatter wins" ordering the single pass above already had.
+        /// </para>
+        /// </summary>
+        static void UseConfiguredTypeBinder(CerasRobustConfig config)
+        {
+            if (config.ConfigType<Type>().CustomFormatter is RobustTypeFormatter formatter)
+                formatter.UseTypeBinder(config.TypeBinder);
         }
 
 

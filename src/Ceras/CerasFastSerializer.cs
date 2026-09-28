@@ -61,5 +61,17 @@ namespace Ceras
         [return: MaybeNull]
         public new T Clone<T>(T obj) => base.Clone(obj);
         public new object UserContext { get => base.UserContext; set => base.UserContext = value; }
+
+        /// <summary>
+        /// What this context is, for a connection-time handshake or a diagnostic: its context name,
+        /// whether blittable structs use the reinterpret formatter, and the Ceras version.
+        /// <para>
+        /// It carries no layout fingerprint, and no member that could be mistaken for one: the transient
+        /// layout is not hashed and is not stable across compiles of your types, so the only thing that
+        /// can honestly be reported is that both ends must be the same build.
+        /// </para>
+        /// </summary>
+        public Ceras.Format.TransientCompatibilityDescriptor TransientCompatibility
+            => Ceras.Format.CompatibilityDescriptors.For(Config);
     }
 }

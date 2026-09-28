@@ -13,17 +13,31 @@ namespace Ceras.Format
     {
         readonly SchemaRegistry _registry;
 
-        // Private to this formatter rather than the context's Config.TypeBinder, and used only to read a
-        // FullNameMarker type value. The other Type-value doors do honour the configured binder
-        // (SchemaTraversalEngine.ResolveFullName, CerasRobustSerializer.BuildIdToType).
-        readonly ITypeBinder _typeBinder = new SimpleTypeBinder(); // Fallback binder
+        // The context's Config.TypeBinder, which every other Type-value door consults too
+        // (SchemaTraversalEngine.ResolveFullName, CerasRobustSerializer.BuildIdToType); read only for a
+        // FullNameMarker type value, a read-only path no Ceras writer emits (Format/LAYOUT.md).
+        ITypeBinder _typeBinder;
 
         const int FullNameMarker = 127; // Special marker for unregistered types
 
-        public RobustTypeFormatter(SchemaRegistry registry)
+        public RobustTypeFormatter(SchemaRegistry registry, ITypeBinder? typeBinder = null)
         {
             _registry = registry;
+            _typeBinder = typeBinder ?? new SimpleTypeBinder();
         }
+
+        /// <summary>
+        /// Points this formatter at <paramref name="typeBinder"/>. The context's formatters are installed
+        /// <em>before</em> the configuration callback runs, so a binder that callback assigns is not known
+        /// at construction time; this is the second half of the same fix, and
+        /// <see cref="CerasRobustSerializer"/> calls it once the configuration has settled.
+        /// <para>
+        /// The coalesce matches <c>SchemaTraversalEngine</c>: an unset <c>CerasConfig.TypeBinder</c> is a
+        /// <c>SimpleTypeBinder</c> and never null, so it only covers a caller that pushed null through
+        /// the non-nullable property — and it keeps this field non-null, which the read needs.
+        /// </para>
+        /// </summary>
+        internal void UseTypeBinder(ITypeBinder? typeBinder) => _typeBinder = typeBinder ?? new SimpleTypeBinder();
 
         public override void Serialize(IBufferWriter<byte> writer, Type value)
         {
