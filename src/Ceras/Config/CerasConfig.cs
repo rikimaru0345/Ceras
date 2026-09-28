@@ -279,11 +279,34 @@ namespace Ceras
 		/// Converts between Type and string for type names embedded in serialized data.
 		/// Override this to abbreviate type names, remap types between assemblies, etc.
 		/// <para>Default: <see cref="SimpleTypeBinder"/></para>
+		/// <para>
+		/// Never null, and a null assignment is refused. The property is declared non-nullable, so this
+		/// enforces the declared contract rather than adding a policy; the reason it is worth enforcing
+		/// is that the three places which resolve a stored type name each treated a null binder as a
+		/// different thing, so one config with a null binder answered the same string three ways within
+		/// a single load. The setter's message names the three, and what to assign instead.
+		/// </para>
 		/// </summary>
 		ITypeBinder _typeBinder = new SimpleTypeBinder();
-		public ITypeBinder TypeBinder { 
-			get => _typeBinder; 
-			set { ThrowIfSealed(); _typeBinder = value; } 
+		public ITypeBinder TypeBinder {
+			get => _typeBinder;
+			set
+			{
+				ThrowIfSealed();
+				if (value == null)
+					throw new ArgumentNullException(nameof(value),
+						"CerasConfig.TypeBinder cannot be null. A type binder is how a stored type name is resolved back to a CLR type, and the " +
+						"three places that resolve one disagree about a null, so one config carrying it answers the same name three ways inside a " +
+						"single load: the manifest's registry reads it as 'this context has no binder' (SchemaRegistry.SetTypeBinder), which also " +
+						"silently skips the check that a binder's name does not shadow a manifest entry " +
+						"(SchemaRegistry.VerifyBinderNamesDoNotShadowManifest); SchemaTraversalEngine substitutes a private SimpleTypeBinder; and " +
+						"CerasRobustSerializer.BuildIdToType dereferences it and reports the resulting NullReferenceException as if it were a schema " +
+						"problem, naming neither this property nor the fix. To configure no binder at all, leave TypeBinder unset - the default " +
+						"SimpleTypeBinder is the answer. To bind only some names, assign an ITypeBinder that answers for those and behaves as " +
+						"ITypeBinder documents for the rest. (A hand-built SchemaRegistry in a test does accept a null binder: it is 'this context has " +
+						"no binder', which is a state of the registry and not of a configured serializer.)");
+				_typeBinder = value;
+			}
 		}
 
 		/// <summary>
