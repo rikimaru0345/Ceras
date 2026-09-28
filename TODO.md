@@ -73,26 +73,11 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   `ReadOnlyCollection<T>` subclass is also admitted structurally but the dedicated
   formatter constructs the base wrapper, and `ReferenceFormatter` fails with a bare
   `ArgumentNullException("method")` on Save; reject or support this variant too.
-- **Polymorphic multidimensional arrays are rank-blind.** `object` containing
-  `int[,]` can decode as `int[]` and corrupt a following field even on the same
-  build: the Type-value tag records only the element type. **Decision:** reject
-  rank > 1 arrays before robust Save with an actionable error; keep raw format
-  behavior. Record rank and support these polymorphic shapes only with a reviewed
-  representation/format change in Milestone 1.
-- **Renamed open generic aliases miss closed file identities.** `[PreviousTypeName]`
-  on an open generic is registered verbatim, e.g. `Old.Box`1`, but a file names its
-  closed type `Old.Box`1<System.Int32>`; the alias never matches and an old save
-  cannot load even when the generic's shape migrates. Expand the alias for each
-  closed instantiation or match open aliases structurally, with a version-separated
-  test and no loose text-prefix matching of unrelated generic definitions.
-- **Closed generic schema member order differs from payload order.** A shared
-  open-definition formatter writes members in order of their declared generic types,
-  while some closed schema entries re-sort after substituting type arguments;
-  migration can silently populate the wrong field (e.g. `Wrap<T> { T Value; int Tag; }`).
-  There are no old files to preserve. **Decision:** keep the shared writer and make
-  every closed schema report its actual emitted order, with a cross-version test and
-  matching-layout control; do not emit per-closure writers or teach the reader to
-  reinterpret a lying schema.
+- **`System.Array`-declared slot on migration.** A rank-1 array held in a member
+  declared as `System.Array` round-trips on the generated path but the interpreter
+  treats the declared type as an empty class instead of decoding the polymorphic
+  array value; exact data-section consumption now rejects it. Pin a real old-build
+  fixture and make both readers agree without admitting rank>1 values.
 - **Bool width and malformed collection schema.** The alleged removed `List<bool>`
   corruption is a false positive for files written by this version: its normal skip
   path advances one byte. A hand-registered collection schema lacking element type
@@ -130,7 +115,9 @@ context after seal or parse the schema on a matching-layout load.
   them), but `SchemaRegistry.Register` can still deliberately register a lying schema,
   and reinterpret/reflection/resolver formatters may write bytes that no schema
   describes. Verify writer selection against the authoritative layout; the
-  manifest-coupled guard is not an unforgeable proof of schema truth.
+  manifest-coupled guard is not an unforgeable proof of schema truth. Record array
+  rank if robust polymorphic multidimensional arrays are ever supported; v4 rejects
+  them before Save because the current Type value only records an element type.
 - Split generator context registration/discovery from source emission as the layout
   model settles. `CerasFormatterGenerator.cs` and `RobustCodeEmitter.cs` still mirror
   some type/encoding decisions; converge on one canonical helper rather than
