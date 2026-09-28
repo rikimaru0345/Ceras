@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Ceras.Formatters;
 using Xunit;
 
@@ -80,7 +81,111 @@ namespace Ceras.Test
         static bool HasMarker(byte[] bytes) => Array.IndexOf(bytes, (byte)0xAB) >= 0;
 
         /// <summary>
-        /// The memo holds an integer and a slot index, never anything that leads to a formatter. A formatter would keep its
+        /// The bug this file exists for, at last: the note a closed type keeps about where its
+        /// formatter lives is shared between serializers, because it is a static, and one serializer
+        /// per thread is a supported arrangement. It was two fields - the owner's id and the slot - and
+        /// two threads writing them could interleave into one note holding thread A's slot under
+        /// thread B's id. B's check would then pass and B would encode with A's formatter, silently.
+        /// <para>
+        /// A sequential test cannot see that, and neither could any amount of repeating the
+        /// two-serializer test above: the window is between two writes.
+        /// </para>
+        /// <para>
+        /// Both serializers format the same shared type <see cref="Payload"/>, each writing its own
+        /// marker byte, and each thread reaches it through its own envelope type. If the shared note
+        /// ever names the other thread's formatter, that marker turns up in the wrong payload.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void TwoThreadsWithTheirOwnSerializersNeverUseEachOthersFormatters()
+        {
+            const byte MarkerA = 0xA1, MarkerB = 0xB2;
+            const int Iterations = 200_000;
+
+            var cerasA = new CerasFastSerializer();
+            cerasA.Config.ConfigType<Payload>().SetFormatter(new PayloadFormatter(MarkerA));
+            var cerasB = new CerasFastSerializer();
+            cerasB.Config.ConfigType<Payload>().SetFormatter(new PayloadFormatter(MarkerB));
+
+            var payload = new Payload { Value = 1 };
+            var start = new ManualResetEventSlim();
+            Exception failureA = null, failureB = null;
+
+            var threadA = new Thread(() =>
+            {
+                start.Wait();
+                failureA = Run(cerasA, payload, MarkerA, MarkerB, Iterations);
+            });
+            var threadB = new Thread(() =>
+            {
+                start.Wait();
+                failureB = Run(cerasB, payload, MarkerB, MarkerA, Iterations);
+            });
+
+            threadA.Start();
+            threadB.Start();
+            start.Set();
+            threadA.Join();
+            threadB.Join();
+
+            if (failureA != null) throw failureA;
+            if (failureB != null) throw failureB;
+        }
+
+        static Exception Run(CerasFastSerializer ceras, Payload payload, byte mine, byte theirs, int iterations)
+        {
+            try
+            {
+                // One round before the timed loop, so the failure being looked for is not just a
+                // cold-start artefact.
+                Check(ceras, payload, mine, theirs);
+
+                for (int i = 0; i < iterations; i++)
+                    Check(ceras, payload, mine, theirs);
+            }
+            catch (Exception e) { return e; }
+            return null;
+        }
+
+        static void Check(CerasFastSerializer ceras, Payload payload, byte mine, byte theirs)
+        {
+            var bytes = ceras.Serialize(new EnvelopeA { Value = payload });
+            if (Array.IndexOf(bytes, theirs) >= 0)
+                throw new InvalidOperationException($"encoded with the other serializer's formatter: 0x{theirs:X2} in a payload that should carry only 0x{mine:X2}");
+            if (Array.IndexOf(bytes, mine) < 0)
+                throw new InvalidOperationException($"encoded without this serializer's own formatter: no 0x{mine:X2} in the payload");
+        }
+
+        [CerasSerializable]
+        public class Payload { public int Value; }
+
+        [CerasSerializable]
+        public class EnvelopeA { public Payload Value; }
+
+        [CerasSerializable]
+        public class EnvelopeB { public Payload Value; }
+
+        /// <summary>Writes a marker byte, then the payload, so a borrowed formatter is visible.</summary>
+        class PayloadFormatter : IFormatter<Payload>
+        {
+            readonly byte _marker;
+            public PayloadFormatter(byte marker) => _marker = marker;
+
+            public void Serialize(IBufferWriter<byte> writer, Payload value)
+            {
+                var span = writer.GetSpan(5);
+                span[0] = _marker;
+                BinaryPrimitives.WriteInt32LittleEndian(span.Slice(1), value.Value);
+                writer.Advance(5);
+            }
+
+            public void Deserialize(ref SequenceReader<byte> reader, ref Payload value) => throw new NotSupportedException();
+            public void SerializeUntyped(IBufferWriter<byte> writer, object value) => Serialize(writer, (Payload)value);
+            public void DeserializeUntyped(ref SequenceReader<byte> reader, object container, System.Reflection.MemberInfo member) => throw new NotSupportedException();
+        }
+
+        /// <summary>
+        /// The note a closed type keeps holds an integer, never anything that leads to a formatter. A formatter would keep its
         /// serializer - config, caches, pools, everything it was configured with - reachable for as
         /// long as the type stays loaded, which is not a trade a library makes over a cache.
         /// </summary>
@@ -111,14 +216,18 @@ namespace Ceras.Test
         }
 
         /// <summary>
-        /// The table starts at sixteen slots and is replaced when it fills, which changes its identity
-        /// and invalidates every memo pointing at the old one. That has to cost a re-resolve and
-        /// nothing else: if a stale slot index were trusted, a type would be written with whichever
-        /// formatter happens to sit in that slot - a different type's - and the bytes would be wrong
-        /// with no error anywhere to notice.
+        /// Growing the table replaces the array, and the cells of the old one have to keep meaning the
+        /// same thing. A type whose cell was lost must be resolved again rather than encoded with
+        /// whichever formatter happened to inherit its index.
+        /// <para>
+        /// The fast path's null test is what actually guarantees that: a lost cell reads as null and
+        /// takes the slow path. That the copy keeps every cell is an optimisation on top - it is what
+        /// stops the re-resolve from happening at all - and replacing the growth with one that does not
+        /// copy is still correct, only slower. Removing the null test is not.
+        /// </para>
         /// </summary>
         [Fact]
-        public void MemoizedFormattersSurviveTheTableBeingReplaced()
+        public void AFormatterWhoseCellWasLostIsResolvedAgainRatherThanBorrowed()
         {
             var ceras = new CerasFastSerializer();
             var thing = new Thing();
