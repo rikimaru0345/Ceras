@@ -141,6 +141,10 @@ namespace Ceras.Format
 					// Baking walks field/element type names and may register the structural types it
 					// discovers, which is why registrations are allowed for its duration.
 					BakeLocked();
+
+					// Every alias a file can be matched by is now known, including the ones a shape
+					// that was reachable only as a member contributed.
+					ValidateRenameAliasesLocked();
 				}
 				finally
 				{
@@ -232,6 +236,59 @@ namespace Ceras.Format
 				if (WellKnownTypes.TryGetType(i, out var wk)) map[i] = wk;
 			foreach (var e in _byType.Values) map[e.Id] = e.Type;
 			return map;
+		}
+
+		/// <summary>
+		/// Rejects a rename alias that two different types could answer for.
+		/// <para>
+		/// An alias is how a save file is matched onto this build, so it has to name one type. Structural
+		/// matching of closed generics makes that sharper than it looks: an <b>open</b> alias
+		/// (<c>Old.Box`1</c>) is not matched as a name but closed with the file's arguments, so two
+		/// unrelated definitions claiming the same text would be resolved by whichever registered first
+		/// — a silent mis-binding on a save that is otherwise perfectly valid, and a hole that only shows
+		/// up as a wrong value long after the rename.
+		/// </para>
+		/// <para>
+		/// Several closures of the <i>same</i> definition claiming one open alias is the normal case, not
+		/// a conflict: the alias names the family, so every closure of it indexes that name. Only two
+		/// different targets are an error. Reported from the bake, which is the boundary that knows every
+		/// registered type — including a shape that was reachable only as a member and was registered
+		/// while baking.
+		/// </para>
+		/// </summary>
+		void ValidateRenameAliasesLocked()
+		{
+			// alias -> the thing the name can resolve to: a generic's definition (an alias names the
+			// family), or the type itself for everything else.
+			var target = new Dictionary<string, Type>(StringComparer.Ordinal);
+			var firstClaimant = new Dictionary<string, Type>(StringComparer.Ordinal);
+
+			foreach (var entry in _byType.Values)
+			{
+				var resolves = entry.Type.IsGenericType ? entry.Type.GetGenericTypeDefinition() : entry.Type;
+
+				foreach (var alias in entry.Info.PreviousTypeNames)
+				{
+					if (string.IsNullOrEmpty(alias)) continue;
+
+					if (target.TryGetValue(alias, out var existing))
+					{
+						if (existing == resolves) continue;
+
+						throw new Ceras.Exceptions.CerasSchemaException(
+							$"The rename alias '{alias}' is claimed by two different types: " +
+							$"'{TypeIdentity.GetCanonicalName(firstClaimant[alias])}' and " +
+							$"'{TypeIdentity.GetCanonicalName(entry.Type)}'. A save file names a type with one " +
+							"identity, so a [PreviousTypeName] alias can stand for exactly one type - or, for a " +
+							$"generic, for its whole family (every closure of '{TypeIdentity.GetCanonicalName(existing)}' " +
+							"may share the same open name). Give one of them the previous name that build actually " +
+							"used, then rebuild.");
+					}
+
+					target[alias] = resolves;
+					firstClaimant[alias] = entry.Type;
+				}
+			}
 		}
 
 		public bool IsSealed => _sealedWatermark != -1;
@@ -495,7 +552,7 @@ namespace Ceras.Format
             {
                 // 1. Registered types are keyed by their canonical stable name. This covers generated
                 //    closed generics and (after bake) structural arrays/collections.
-                if (_byStableName.TryGetValue(stableName, out var e)) { type = e.Type; return true; }
+                if (_byStableName.TryGetValue(stableName, out var e)) { type = AsNamedType(e.Type, stableName); return true; }
             }
 
             // 2. Assembly-qualified CLR names resolve directly. This is the legacy/old-save shape
@@ -513,6 +570,33 @@ namespace Ceras.Format
             //    Type.FullName or a definition name. Bounded scan of loaded assemblies, unlocked.
             type = ScanLoadedAssemblies(stableName);
             return type != null;
+        }
+
+        /// <summary>
+        /// What a name found in <c>_byStableName</c> stands for.
+        /// <para>
+        /// The map is keyed by each entry's own canonical name - which always carries its type
+        /// arguments, <c>Ns.Box`1&lt;System.Int32&gt;</c> - and by its <c>[PreviousTypeName]</c>
+        /// aliases, which are whatever the author wrote. A constructed type can therefore only be
+        /// reached under author text, and only an <b>open</b> alias can reach one: an open name such as
+        /// <c>Old.Box`1</c> is indexed by every closure of the generic, so the entry it finds is
+        /// whichever closure was registered first. The name asks for the family, not for that
+        /// arbitrary member of it, so the definition is what it resolves to - which is also what a
+        /// later <c>MakeGenericType</c> needs in order to close it with the file's own arguments.
+        /// </para>
+        /// <para>
+        /// The test is the name's own shape and nothing else: a canonical closed name (and the legacy
+        /// <c>Type.FullName</c> shape, and a hand-written closed alias) contains <c>&lt;</c>, so it
+        /// keeps the exact closure it was indexed with. Only a name that carries no arguments at all
+        /// is an alias for the family, so no other type can be picked up by accident.
+        /// </para>
+        /// </summary>
+        static Type AsNamedType(Type registered, string name)
+        {
+            if (!registered.IsGenericType || registered.IsGenericTypeDefinition) return registered;
+            if (name != null && name.IndexOf('<') >= 0) return registered;
+
+            return registered.GetGenericTypeDefinition();
         }
 
         /// <summary>
@@ -544,7 +628,7 @@ namespace Ceras.Format
 
             lock (_lock)
             {
-                if (_byStableName.TryGetValue(definitionName, out var e)) return e.Type;
+                if (_byStableName.TryGetValue(definitionName, out var e)) return AsNamedType(e.Type, definitionName);
             }
 
             var type = Type.GetType(definitionName);

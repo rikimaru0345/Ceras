@@ -111,6 +111,22 @@ external/legacy unqualified `Type.FullName` names.
   under its wire name, so the same attribute renames a member without a rename alias.
 - Members are written in the deterministic order; the schema records the order explicitly.
 
+### The order a closed generic's schema records
+
+The sort key uses each member's **declared** type, and every closure of a generic definition is written
+by one emitted class - the definition's. So the payload order of `Wrap<Coord>` is the order
+`Wrap<T>`'s members sort in, where `T Value` lands *after* `System.Int32 Tag`, and it is the same for
+every closure. A per-closure schema therefore records **that** order, not the order the closure's
+substituted members would sort in (`Legacy.Coord Value` before `System.Int32 Tag`). The two differ for
+most type arguments, and only a schema that lists the fields as they are written describes the bytes
+that follow.
+
+This is a property of the schema, not of the payload: correcting it changed no payload byte. What it
+changes is the schema section's field order and therefore the layout fingerprint, for the closures whose
+two orders differ. A file written before the correction recorded the substituted order for such a
+closure, so its own schema misdescribes its own bytes; no reader can recover that, because the order the
+file was written in is not recorded anywhere else in it.
+
 ## Primitive encodings (fixed-width default)
 
 | Type | Bytes | Encoding |

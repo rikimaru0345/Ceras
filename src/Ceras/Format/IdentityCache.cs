@@ -129,6 +129,15 @@ namespace Ceras.Format
         /// The name the file used for a current CLR type: its canonical stable name, or the first of its
         /// rename aliases the file also knows. Returns the canonical name when the file describes neither,
         /// so a lookup miss reports the name the reader was looking for.
+        /// <para>
+        /// A renamed <em>generic</em> cannot be found by either of those lookups, because neither string
+        /// is the one in the file: the file names the closed type <c>Old.Box`1&lt;System.Int32&gt;</c>
+        /// while this build only records the open alias <c>Old.Box`1</c>, and the arguments can be
+        /// renamed as well, so no expanded form can be spelled here either. The last step therefore asks
+        /// the registry instead: it resolves a file's name onto the current type structurally, so a name
+        /// that lands on <em>this</em> type is the name this file used for it. Ordered by the file's type
+        /// id so the answer never depends on dictionary iteration order.
+        /// </para>
         /// </summary>
         public string ResolveStableName(Type currentType, SchemaRegistry registry)
         {
@@ -139,7 +148,25 @@ namespace Ceras.Format
                     if (_byName.ContainsKey(previous)) return previous;
             }
 
+            if (registry != null)
+            {
+                foreach (var schema in ByIdOrder())
+                    if (registry.TryResolveType(schema.StableName, out var resolved) && resolved == currentType)
+                        return schema.StableName;
+            }
+
             return TypeIdentity.GetCanonicalName(currentType);
+        }
+
+        /// <summary>The file's schemas in type-id order, so every derived decision is deterministic.</summary>
+        IEnumerable<OldTypeSchema> ByIdOrder()
+        {
+            var ordered = new List<OldTypeSchema>(_byName.Count);
+            foreach (var s in _byName.Values)
+                if (s != null) ordered.Add(s);
+
+            ordered.Sort((a, b) => a.TypeId.CompareTo(b.TypeId));
+            return ordered;
         }
     }
 }

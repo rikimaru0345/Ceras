@@ -81,6 +81,14 @@ still load old data — but a rename has to be *recorded*, or it is not recognis
   declared default.
 - a renamed **class** needs `[PreviousTypeName]` with the old `[CerasSerializable("…")]` name.
   Without it the type does not resolve and the load fails rather than matching by structure.
+- a renamed **generic class or struct** needs `[PreviousTypeName]` with the old *open* name, and that
+  is enough for every closure of it. A save file names a closed type (`Old.Box`1<System.Int32>`), while
+  an attribute on `Box<T>` can only carry the open one (`Old.Box`1`), so the two are matched
+  structurally: the open name stands for the whole family, the file's own type arguments close it, and
+  a renamed argument resolves through its own alias. A name is never matched by prefix, so a type whose
+  name merely starts the same way (a different arity, or a generic nested inside the renamed one) is
+  not picked up by accident — and two *different* definitions claiming the same open name is refused at
+  bake time with a `CerasSchemaException` naming both, rather than resolved by registration order.
 - a renamed **enum member** needs either `[CerasStableName]` (pin the wire name once and the C# member
   can be renamed freely) or `[PreviousName]` carrying the old spelling — see
   [Enum Migration](#advanced-migration). Both schema paths record the *wire* name, so the two sides
@@ -167,7 +175,7 @@ the layouts match. That check needs the owning build to declare its timestamp wi
   `[CerasStableName]`, or the C# name when the attribute is absent — and then against its
   `[PreviousName]` aliases. There is no third fallback: an unmatched old field is reported in
   `MigrationContext.SkippedFields`.
-- **Type Mapping**: Classes and structs are matched by their `StableName` (from `[CerasSerializable]`), then by `[PreviousTypeName]` aliases.
+- **Type Mapping**: Classes and structs are matched by their `StableName` (from `[CerasSerializable]`), then by `[PreviousTypeName]` aliases. For a generic, the alias is the *open* name and stands for every closure: the file's closed name is split at its type arguments, the definition part is resolved exactly (an open alias can only be reached through a rename, so it is the definition), and the arguments are resolved the same way before it is closed with them.
 - **Enum Migration**: Enums are mapped by **name** rather than integer value, so members can be
   reordered or renumbered safely. The name is the member's *stable wire name* — its
   `[CerasStableName]`, or the C# name when the attribute is absent — and it is the name the schema

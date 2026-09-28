@@ -678,10 +678,14 @@ namespace Ceras.SourceGenerator
                 if (isClosedGeneric)
                 {
                     var definition = type.OriginalDefinition;
+
+                    // The definition's members, in the order the one shared writer emits them. Every
+                    // closure's schema needs that order, not only the first one emitted here, so it is
+                    // discovered outside the emission branch.
+                    var openMembers = DiscoverCached(definition);
+
                     if (emittedGenericDefs.Add(definition))
                     {
-                        var openMembers = DiscoverCached(definition);
-
                         var sbBase = new StringBuilder();
                         var sbHelpers = new StringBuilder();
                         AppendGeneratedHeader(sbBase);
@@ -693,7 +697,13 @@ namespace Ceras.SourceGenerator
                         context.AddSource($"{GenericFormatterEmitter.GenericBaseName(definition)}.generic.Ceras.g.cs", SourceText.From(sbBase.ToString(), Encoding.UTF8));
                     }
 
-                    GenericFormatterEmitter.WriteGenericDerived(sbFmt, type, definition, members, attrBag);
+                    // The schema lists its fields in the order the shared writer emits them, not in the
+                    // order this closure's members sort to once the type arguments are substituted: the
+                    // two differ for most arguments, and the migration reader walks a file's fields in
+                    // the order the file's schema lists them.
+                    var membersAsWritten = GenericFormatterEmitter.OrderMembersAsWritten(members, openMembers, type, context);
+
+                    GenericFormatterEmitter.WriteGenericDerived(sbFmt, type, definition, membersAsWritten, attrBag);
                 }
                 else
                 {
