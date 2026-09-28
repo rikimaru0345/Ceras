@@ -6,6 +6,7 @@ namespace Ceras.Formatters {
 	using System.Buffers;
 	using System.Collections.Generic;
 	using System.Diagnostics;
+	using System.Diagnostics.CodeAnalysis;
 	using System.Runtime.CompilerServices;
 	using System.Reflection;
 
@@ -207,6 +208,23 @@ namespace Ceras.Formatters {
 		}
 
 		
+		// The dependency is stated on this method because it is the only place
+		// ReflectionSerializationHelper<,> is ever closed: the closed type is a MakeGenericType
+		// result over two runtime types, so no compilation names it, and an annotation on the
+		// runtime `type` parameter could not be met anyway (see CerasSerializer.GetReferenceFormatter
+		// for why the requirement goes on the open definition rather than on that type).
+		//
+		// Constructors, because that is what Instantiator.Create binds; and PublicMethods, because
+		// the helper's only reason to exist is its interface implementation - `helper.Serialize` is a
+		// call through IReflectionSerializer<TBase>, and nothing else in the assembly ever touches the
+		// helper type. That is the difference from a FormatterBase<T> formatter, whose Serialize and
+		// Deserialize are the overrides the non-generic IFormatter contract already roots: this one
+		// overrides nothing, so it survives only because it is asked for.
+		[DynamicDependency(
+			DynamicallyAccessedMemberTypes.PublicConstructors
+			| DynamicallyAccessedMemberTypes.NonPublicConstructors
+			| DynamicallyAccessedMemberTypes.PublicMethods,
+			typeof(ReflectionSerializationHelper<,>))]
 		static SerializeDelegate<T> CreateSpecificSerializerDispatcher(Type type, IFormatter specificFormatter) {
 			// The by-name lookup belongs to the branch that binds a delegate to what it finds, and to
 			// nothing else. The branch below calls the formatter through IFormatter<T> instead, so it has
@@ -225,6 +243,15 @@ namespace Ceras.Formatters {
 			var helper = (IReflectionSerializer<T>)Instantiator.Create(helperType, specificFormatter);
 			return helper.Serialize;
 		}
+		// The mirror of CreateSpecificSerializerDispatcher's dependency, for the same two reasons:
+		// this is the only place ReflectionDeserializationHelper<,> is closed, and the method the
+		// helper exists to provide is the implementation of IReflectionDeserializer<TBase> that the
+		// `helper.Deserialize` call binds to.
+		[DynamicDependency(
+			DynamicallyAccessedMemberTypes.PublicConstructors
+			| DynamicallyAccessedMemberTypes.NonPublicConstructors
+			| DynamicallyAccessedMemberTypes.PublicMethods,
+			typeof(ReflectionDeserializationHelper<,>))]
 		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher(Type type, IFormatter specificFormatter) {
 			// As in CreateSpecificSerializerDispatcher: the lookup is needed only where a delegate is bound
 			// to it, and the interface-based branch below needs no MethodInfo at all.

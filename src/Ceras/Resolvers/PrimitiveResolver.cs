@@ -3,12 +3,22 @@
     using Formatters;
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics.CodeAnalysis;
 
     /// <summary>
     /// A really really boring resolver that produces formatters for all the "primitives" like bool, int, float, double, ... 
     /// </summary>
     public sealed class PrimitiveResolver : IFormatterResolver
     {
+        /// <summary>
+        /// Both enum formatters below are constructed with no arguments, so the parameterless
+        /// constructor is the whole set <c>Instantiator.Create</c> can bind. They are otherwise
+        /// ordinary <c>FormatterBase&lt;T&gt;</c> subclasses reached through the non-generic
+        /// <c>IFormatter</c>, so their own <c>Serialize</c>/<c>Deserialize</c> need no statement here.
+        /// </summary>
+        const DynamicallyAccessedMemberTypes ParameterlessConstructors =
+            DynamicallyAccessedMemberTypes.PublicParameterlessConstructor | DynamicallyAccessedMemberTypes.NonPublicConstructors;
+
         static Dictionary<Type, IFormatter> _primitiveFormatters = new Dictionary<Type, IFormatter>
         {
             [typeof(bool)] = new BoolFormatter(),
@@ -44,6 +54,24 @@
             _ceras = ceras;
         }
 
+        /// <summary>
+        /// The two enum formatters are the only types this resolver closes over a runtime
+        /// <see cref="Type"/>, and nothing in a compilation names them - an enum member reaches
+        /// Ceras as a closed <c>EnumFormatter&lt;TEnum&gt;</c> that nothing statically mentions, so the
+        /// closed type exists only as a <c>MakeGenericType</c> result. That is also why the
+        /// requirement cannot be written on <paramref name="type"/>: <see
+        /// cref="DynamicallyAccessedMembersAttribute"/> describes the members of a type the trimmer
+        /// can see, and a dependency on the open definition is the one form that covers every closed
+        /// construction, including an enum type that only appears in a payload.
+        /// <para>
+        /// <see cref="ReinterpretFormatter{T}"/> is the second of the two, and it is stated here as
+        /// well as nowhere else: <c>Resolvers/ReinterpretFormatterResolver.cs</c> closes the same
+        /// definition, and one dependency on the definition already covers every closed construction
+        /// of it, so the two sites cannot disagree about what has to survive.
+        /// </para>
+        /// </summary>
+        [DynamicDependency(ParameterlessConstructors, typeof(EnumFormatter<>))]
+        [DynamicDependency(ParameterlessConstructors, typeof(ReinterpretFormatter<>))]
         public IFormatter? GetFormatter(Type type)
         {
             if (_primitiveFormatters.TryGetValue(type, out var f))
