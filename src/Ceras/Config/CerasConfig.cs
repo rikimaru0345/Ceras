@@ -245,9 +245,24 @@ namespace Ceras
 		public SizeLimits SizeLimits { get; } = new SizeLimits();
 
 		/// <summary>
-		/// Custom equality comparer for the object reference cache.
-		/// Only needed if your types override object equality in unusual ways.
-		/// <para>Default: null (uses default reference equality)</para>
+		/// Decides which values the object reference cache treats as "the same value": a value
+		/// whose id is already in the cache is written as a back-reference, so the comparer
+		/// controls whether two occurrences share one deserialized object.
+		/// <para>Default: null, which means reference identity
+		/// (<c>System.Collections.Generic.ReferenceEqualityComparer.Instance</c>). Your types'
+		/// own <c>Equals</c>/<c>GetHashCode</c> are never consulted.</para>
+		/// <para>
+		/// Setting a comparer is a deliberate trade, and an identity-losing one: a comparer that
+		/// calls <c>Equals</c> makes a second, merely-equal instance collapse into a
+		/// back-reference to the first, so it is read back as that first object rather than as a
+		/// copy of itself. That is only what you want if equal instances are interchangeable by
+		/// definition - an interned or immutable value object, say - because then the loaded graph
+		/// still means the same thing and the save is smaller. It is not what you want for a type
+		/// whose instances are distinct entities that merely compare equal, and a comparer whose
+		/// hash changes while a value is cached additionally breaks the id bookkeeping (the value
+		/// stops being found, and is written a second time as if it were new). Leave it null
+		/// unless you are sure about that.
+		/// </para>
 		/// </summary>
 		IEqualityComparer<object> _objectCacheComparer;
 		public IEqualityComparer<object> ObjectCacheComparer { 
