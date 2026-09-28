@@ -116,9 +116,10 @@ context after seal or parse the schema on a matching-layout load.
   references in `Game.Rebuild`, and serializes its game clock as generated state; its
   logic tests assert recipe identity, paused time, and loaded-world simulation. It
   checks in two older experimental robust saves (`populated-world-v1.bin` and
-  `-v2.bin`) as migration fixtures. These are not shipped/player data and the v5
-  format break is permitted, but the game's fixture tests must be updated explicitly
-  after v5 lands — never overwrite these files as a side effect of a scratch test.
+  `-v2.bin`) as migration fixtures. **Owner decision:** all existing saves are
+  disposable; the v5 break does not need a v4 reader. After v5 lands, remove or replace
+  those fixtures and update the game's tests deliberately, rather than treating their
+  failure as a Ceras regression. Do not overwrite them accidentally in a scratch run.
 - Extend the generator's `CERAS019` duplicate-name check to aliases, per context,
   and to types it currently skips: the runtime already refuses a name two manifest
   entries claim (`SchemaRegistry.ClaimNames`), but that is a save/load-time error
