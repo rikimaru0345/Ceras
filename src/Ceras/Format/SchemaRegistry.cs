@@ -194,9 +194,33 @@ namespace Ceras.Format
 
 					// Baking walks field/element type names and may register the structural types it
 					// discovers, which is why registrations are allowed for its duration. It publishes the
-					// frozen region only once it holds all four parts, so a claim refused on the way (a
-					// structural shape whose derived name is already taken) leaves the registry unsealed and
-					// unbaked, exactly as if it had never been asked to seal.
+					// frozen region only once it holds all four parts, so a bake refused on the way (a
+					// structural shape whose derived name is already taken, a member whose type name
+					// resolves to nothing) leaves the registry unsealed and unbaked.
+					//
+					// Those two facts are the whole of what a refused seal rolls back, and they are what the
+					// rollback is for: the four frozen fields are published atomically, so no caller can
+					// observe half a bake, and RequireBakedManifest keeps refusing to resolve a file's ids
+					// until a bake has really succeeded.
+					//
+					// What a refused seal does *not* roll back is the registrations that had already
+					// happened: the ones the loop above made for the declared roots, and the ones the bake
+					// made through SchemaSection.ResolveId -> Register before it reached the bad member.
+					// Those entries keep their id, their SchemaTypeInfo and the names they claimed in
+					// _byStableName, and _nextId stays advanced past them - so a registry whose seal was
+					// refused is NOT the state a registry that was never asked to seal is in, and the
+					// precondition RequireBakedManifest states is a fact about the *frozen region* only, not
+					// about what the registry holds. (A refusal in the declared-root loop also leaves the
+					// pending declarations pending, because _declaredRoots.Clear() is only reached once the
+					// whole loop has run: the next Seal refuses on the same declaration, which is what a
+					// context with an unfixable root shape wants.)
+					//
+					// Harmless through Save/Load, which is the only caller: a load seals again (the early
+					// return above needs IsSealed, and a refused seal never set the watermark), and
+					// BuildIdToType refuses a file's ids until a bake has succeeded. Documented rather than
+					// rolled back because unwinding it would mean letting a bake retract an entry that
+					// something else may already have observed - a riskier change than the comment it
+					// replaces. RefusedSealStateTests pins the state as it is.
 					BakeLocked();
 				}
 				finally

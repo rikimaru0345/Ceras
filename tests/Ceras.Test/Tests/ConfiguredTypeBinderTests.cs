@@ -161,6 +161,79 @@ namespace Ceras.Test.TypeBinderDoor
             Assert.ThrowsAny<Exception>(() => ReadFullNameTypeValue(formatter, "uri"));
         }
 
+        // ── a null binder is a configuration error, not a third way to resolve a name ───────────
+
+        /// <summary>
+        /// <c>CerasConfig.TypeBinder</c> is declared non-nullable and defaults to a
+        /// <see cref="SimpleTypeBinder"/>, so "no binder" is not a state a config can be in. The setter
+        /// used to accept null anyway, and the three places that resolve a stored type name each treated
+        /// that null as a different thing - so one misconfigured context answered the same name three
+        /// ways inside a single load, and the loudest of the three said only "Object reference not set to
+        /// an instance of an object". The setter refuses it now, on both config types.
+        /// </summary>
+        public static TheoryData<string> ConfigKinds => new() { "CerasRobustConfig", "CerasRawConfig" };
+
+        [Theory]
+        [MemberData(nameof(ConfigKinds))]
+        public void Configuring_A_Null_TypeBinder_Is_Refused(string configKind)
+        {
+            var config = NewConfig(configKind);
+
+            var ex = Assert.Throws<ArgumentNullException>(() => config.TypeBinder = null);
+
+            // The cause, and the door the old message never named: this assignment used to surface three
+            // saves later as a NullReferenceException inside CerasRobustSerializer.BuildIdToType.
+            Assert.Contains("TypeBinder", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("cannot be null", ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("BuildIdToType", ex.Message, StringComparison.Ordinal);
+
+            // ...and the fix, which is "leave it unset" rather than "assign something clever".
+            Assert.Contains("unset", ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(nameof(SimpleTypeBinder), ex.Message, StringComparison.Ordinal);
+        }
+
+        [Theory]
+        [MemberData(nameof(ConfigKinds))]
+        public void A_Refused_Null_Binder_Leaves_The_Context_As_It_Was(string configKind)
+        {
+            var config = NewConfig(configKind);
+            var before = config.TypeBinder;
+
+            Assert.Throws<ArgumentNullException>(() => config.TypeBinder = null);
+
+            // Not half an assignment: the property reads back what it read before, so a caller that
+            // swallows the exception gets the default binder rather than the null it just tried to set.
+            Assert.Same(before, config.TypeBinder);
+            Assert.IsType<SimpleTypeBinder>(config.TypeBinder);
+        }
+
+        [Fact]
+        public void A_Real_Binder_Is_Still_Accepted_And_Still_The_One_That_Answers()
+        {
+            // The control for the two tests above: without it, "always throws" would satisfy both.
+            var binder = new AbbreviatingTypeBinder();
+            var config = new CerasRobustConfig();
+            config.TypeBinder = binder;
+
+            Assert.Same(binder, config.TypeBinder);
+
+            var serializer = new CerasRobustSerializer(c =>
+            {
+                c.UseGeneratedFormatters(Ctx);
+                c.TypeBinder = binder;
+            });
+
+            Assert.Equal(typeof(Uri), ReadFullNameTypeValue(InstalledTypeFormatter(serializer), "uri"));
+            Assert.Equal(new[] { "uri" }, binder.Asked);
+        }
+
+        static CerasConfig NewConfig(string kind) => kind switch
+        {
+            "CerasRobustConfig" => new CerasRobustConfig(),
+            "CerasRawConfig" => new CerasRawConfig(),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+        };
+
         [Fact]
         public void A_Robust_Context_Refuses_A_Custom_Type_Formatter_Outright_So_The_Rebinding_Has_Nothing_Of_The_Callers_To_Overwrite()
         {
