@@ -9,7 +9,7 @@ using static Ceras.SourceGenerator.MemberExplorer;
 namespace Ceras.SourceGenerator
 {
     /// <summary>
-    /// Phase 2.4: emits one open generic formatter template per user generic type definition and a
+    /// Emits one open generic formatter template per user generic type definition and a
     /// thin per-closed-type subclass carrying the closed schema. Serialize/Deserialize are written
     /// once for the definition and reused by every closed instantiation.
     ///
@@ -148,7 +148,8 @@ namespace Ceras.SourceGenerator
                 else
                 {
                     // Seed the local from the existing member value so Load(ref existing) reuses it in
-                    // place (TODO Phase 3.2). This must NOT be gated on m.Type.IsReferenceType: for an
+                    // place (see ConstructionReuseContractTests). This must NOT be gated on
+                    // m.Type.IsReferenceType: for an
                     // open type parameter T that property is always false, so a closed reference-type
                     // instantiation would hand `default` to the injected ReferenceFormatter<T> and
                     // allocate a fresh object, violating the reuse contract. Seeding a value-type

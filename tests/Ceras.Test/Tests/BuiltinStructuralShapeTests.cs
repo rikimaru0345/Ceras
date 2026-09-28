@@ -43,7 +43,7 @@ namespace Ceras.Test.BuiltinShapes
     }
 
     /// <summary>
-    /// TODO 0.5 item 3: nullable, tuple/value-tuple, KeyValuePair and generic user value/reference types
+    /// Nullable, tuple/value-tuple, KeyValuePair and generic user value/reference types
     /// must carry a representation schema (definition + ordered arguments), because a reserved generic
     /// definition ID alone does not describe an instance. Coverage is exercised both with the current CLR
     /// type available (fast + interpreter) and with the old CLR type absent (an independently built file
@@ -136,7 +136,7 @@ namespace Ceras.Test.BuiltinShapes
             // Nullable-like structural shape whose *names* do not resolve in this build: only the
             // definition id + argument id are available, exactly the old-type-absent case. The decoder
             // must consume the field by shape (definition + argument) and keep the following field aligned
-            // rather than defaulting or desyncing (TODO 0.5 item 3).
+            // rather than defaulting or desyncing.
             var bytes = BuildLegacyFile(BsNullableOnlyHolderId, "Ceras.Test.BuiltinShapes.BsNullableOnlyHolder", new[]
             {
                 new SchemaFieldInfo("Maybe", Array.Empty<string>(), "Legacy.Nullable`1<System.Int32>", true),

@@ -19,7 +19,7 @@ namespace Ceras.Test.BuiltinShapes
     }
 
     /// <summary>
-    /// TODO 0.6 item 8: header offsets, ordering, ranges, flags, counts and integer conversions are
+    /// Header offsets, ordering, ranges, flags, counts and integer conversions are
     /// validated before indexing/allocating, and malformed/truncated data is rejected with clear errors.
     /// Fixtures keep the CRC valid so the CRC can never mask a decoder defect.
     /// </summary>

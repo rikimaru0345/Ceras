@@ -17,7 +17,7 @@ namespace Ceras.Test.RobustV3
     }
 
     /// <summary>
-    /// Phase 3.3: two-region format and frozen schema.
+    /// The two-region format (v4) and the frozen schema.
     /// </summary>
     public class RobustFormatV3Tests : TestBase
     {

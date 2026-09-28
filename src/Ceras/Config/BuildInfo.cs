@@ -80,7 +80,7 @@ namespace Ceras
     }
 
     /// <summary>
-    /// Resolves the owning build's producer timestamp (TODO 0.6 item 7). The value comes from the
+    /// Resolves the owning build's producer timestamp (see BuildTimestampTests). The value comes from the
     /// <see cref="CerasBuildTimestampAttribute"/> on the assembly, so it is fixed once per build and is
     /// not derived from serializer construction or save time. Kept out of the deterministic layout
     /// fingerprint: it is ordering metadata, not part of the byte layout contract.

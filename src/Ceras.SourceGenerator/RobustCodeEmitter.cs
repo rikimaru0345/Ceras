@@ -186,7 +186,8 @@ namespace Ceras.SourceGenerator {
 						// Seed the local from the existing member value so that Load(ref existing) and
 						// field-initialized containers are populated in place instead of being replaced.
 						// This mirrors ReferenceFormatter.DeserializeUntyped and the confirmed reuse
-						// contract (TODO Phase 3.2): reuse iff non-null and exact stored type; collections
+						// contract (see ConstructionReuseContractTests): reuse iff non-null and exact stored
+						// type; collections
 						// clear+refill; arrays reuse only on exact length; null sets null; aliases resolve
 						// through the object cache. Members that cannot be read start from default.
 						string initial = (m.Type.IsReferenceType && MemberExplorer.CanReadMember(m))
@@ -607,7 +608,7 @@ namespace Ceras.SourceGenerator {
 		/// <summary>
 		/// Builds the <c>new SchemaTypeInfo(...)</c> expression for a (closed) type. Used both as the
 		/// static field of a non-generic formatter and as the static field of a per-closed generic
-		/// subclass (Phase 2.4).
+		/// subclass.
 		/// <para>
 		/// <see cref="stableTypeName"/>, <see cref="prevTypeNames"/>, each member's
 		/// <see cref="SerializedMember.StableName"/>/<see cref="SerializedMember.PreviousNames"/> and each
@@ -641,7 +642,7 @@ namespace Ceras.SourceGenerator {
 			sb.AppendLine($"                fields: new global::Ceras.Format.SchemaFieldInfo[]");
 			sb.AppendLine($"                {{");
 			foreach (var m in members) {
-				// Canonical field-type identity (TODO Phase 2.3/3.3): never Type.FullName, which is
+				// Canonical field-type identity (see CanonicalIdentityTests): never Type.FullName, which is
 				// assembly-version-qualified for closed generics and would make the fingerprint
 				// runtime-dependent. Must match Ceras.Format.TypeIdentity.GetCanonicalName exactly.
 				string fieldTypeName = GetRobustName(m.Type);

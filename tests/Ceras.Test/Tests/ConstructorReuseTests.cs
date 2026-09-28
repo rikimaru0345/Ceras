@@ -3,7 +3,7 @@ using Xunit;
 using Ceras;
 using Ceras.Generated;
 
-// Priority 0.4.1 — a reused object must not run its constructor (or field initializers) again.
+// A reused object must not run its constructor (or field initializers) again.
 // The generated reader is handed an instance by the reference wrapper even for a fresh load
 // (robust construction is uninitialized), so it is told whether that instance is new via
 // CerasSerializer.ConsumeCurrentObjectFresh(). A fresh load must construct exactly once; a

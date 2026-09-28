@@ -6,7 +6,7 @@ using Ceras;
 using Ceras.Format;
 using Ceras.Generated;
 
-// Priority 0.4.3 / 0.4.4 — the construction and reuse contract must match between the generated
+// The construction and reuse contract must match between the generated
 // reader and the migration interpreter. Every test here runs both readers over identical bytes.
 namespace Ceras.Test.ConstructionContract
 {

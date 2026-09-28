@@ -10,7 +10,7 @@ namespace Ceras.SourceGenerator
     /// <summary>
     /// Centralizes generation of member/constructor access for the robust formatters.
     ///
-    /// Rules (see TODO.md Phase 1.2):
+    /// Rules (all implemented; see AccessorConsolidationTests):
     ///  * Accessible members use ordinary direct access (<c>value.Member</c>).
     ///  * Inaccessible members on a non-generic declaring type use a plain
     ///    <c>[UnsafeAccessor]</c> emitted directly in the formatter.

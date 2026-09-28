@@ -1,4 +1,4 @@
-// TODO P0 0.8.9: `Try*`/`Can*` predicates that throw.
+// `Try*`/`Can*` predicates that must not throw.
 //
 // `WellKnownTypes.TryResolveCollectionShape` used to raise `CerasSchemaException` for a Queue<>/Stack<>
 // subclass, and it was reached from `SchemaSection.CanAutoRegister` — itself a `Can*` that raised — so a

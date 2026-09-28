@@ -1,4 +1,6 @@
-// TODO P0, "Detect trailing migration payload bytes": the exact-payload-consumption detector.
+// The exact-payload-consumption detector: what CerasRobustSerializer's
+// VerifyDataSectionConsumedExactly enforces, pinned here for both the generated reader and the
+// interpreter.
 //
 // A robust save's data section is, by construction, exactly the declared root type id followed by the
 // root's payload — Save starts the payload string table at the byte right after the last payload byte
