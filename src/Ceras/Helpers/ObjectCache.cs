@@ -127,7 +127,10 @@
             _deserializationCache.Add(p);
 
             if (DebugTraceEnabled)
-                _deserializeTrace.Add(overrideType?.FullName ?? typeof(T).FullName);
+                // This is debug-trace text, so the name is only there to be read. FullName is null for a
+                // type that has no qualified name at all (an unbound generic has none), and an empty
+                // line would be the one entry in the trace that says nothing; Name always exists.
+                _deserializeTrace.Add(overrideType?.FullName ?? typeof(T).Name);
 
             return p;
         }
@@ -214,8 +217,10 @@
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public override void ResetAndReturn()
             {
-                // Make sure we don't hold any references!
-                _value = default;
+                // Make sure we don't hold any references! The field is declared non-null because that is
+                // the state a caller sees between renting the proxy and setting the value into it; here
+                // it is deliberately empty, and the pool is what hands the (empty) proxy out again.
+                _value = default!;
                 // Go back to the pool
                 RefProxyPool<T>.Return(this);
             }

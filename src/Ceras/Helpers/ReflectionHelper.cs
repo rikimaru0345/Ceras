@@ -367,10 +367,22 @@
         /// <summary>
         /// Find the MethodInfo that matches the given name and specific parameters on the given type. 
         /// All parameter types must be "closed" (not contain any unspecified generic parameters). 
+        /// <para>
+        /// A match is required, so the method never answers null: the caller is a dispatcher that has
+        /// nothing to call without it. A miss therefore throws
+        /// <see cref="Ceras.Exceptions.CerasException"/> naming the type it searched, the method it
+        /// wanted and the parameter types it asked for. (Answering null left the report to
+        /// <see cref="Delegate.CreateDelegate(Type, object, MethodInfo)"/>, which named neither the
+        /// formatter nor the method.) More than one match still throws
+        /// <see cref="AmbiguousMatchException"/>, as it always has.
+        /// </para>
         /// </summary>
         /// <param name="declaringType">The type in which to look for the method</param>
         /// <param name="name">The name of the method (method group) to find</param>
         /// <param name="parameters">The specific parameters</param>
+        /// <exception cref="Ceras.Exceptions.CerasException">
+        /// The type declares no method with that name taking those parameter types.
+        /// </exception>
         public static MethodInfo ResolveMethod(Type declaringType, string name, Type[] parameters)
         {
             var methods = declaringType
@@ -380,6 +392,18 @@
                           .ToArray();
 
             var match = SelectMethod(methods, parameters);
+            if (match == null)
+            {
+                var searched = Ceras.Format.TypeIdentity.GetCanonicalName(declaringType);
+                var wanted = string.Join(", ", parameters.Select(p => Ceras.Format.TypeIdentity.GetCanonicalName(p)));
+                throw new CerasException(
+                    $"Ceras cannot dispatch to '{searched}': it declares no '{name}({wanted})'. " +
+                    $"A formatter has to declare that method under that name, with those parameter types, for the type it " +
+                    $"is registered for. A method that implements the interface explicitly does not count: reflection names " +
+                    $"such a method after the interface rather than '{name}', so it is never found here. Declare " +
+                    $"'{name}' directly, or derive from FormatterBase<T> for the type being formatted.");
+            }
+
             return match;
         }
 

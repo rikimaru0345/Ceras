@@ -208,9 +208,17 @@ namespace Ceras.Formatters {
 
 		
 		static SerializeDelegate<T> CreateSpecificSerializerDispatcher(Type type, IFormatter specificFormatter) {
-			var method = specificFormatter.GetType().ResolveSerializeMethod(type);
+			// The by-name lookup belongs to the branch that binds a delegate to what it finds, and to
+			// nothing else. The branch below calls the formatter through IFormatter<T> instead, so it has
+			// no use for a MethodInfo - and that is what keeps a formatter which implements the interface
+			// explicitly usable through a base-typed slot: reflection names such a method after the
+			// interface, so this lookup does not find it (and says exactly which method it wanted). Asking
+			// for it where nothing binds it would refuse a dispatch that works.
 			if (type == typeof(T))
+			{
+				var method = specificFormatter.GetType().ResolveSerializeMethod(type);
 				return (SerializeDelegate<T>)Delegate.CreateDelegate(typeof(SerializeDelegate<T>), specificFormatter, method);
+			}
 
 			// Use a helper class to avoid boxing and object[] allocation
 			var helperType = typeof(ReflectionSerializationHelper<,>).MakeGenericType(typeof(T), type);
@@ -218,9 +226,13 @@ namespace Ceras.Formatters {
 			return helper.Serialize;
 		}
 		static DeserializeDelegate<T> CreateSpecificDeserializerDispatcher(Type type, IFormatter specificFormatter) {
-			var method = specificFormatter.GetType().ResolveDeserializeMethod(type);
+			// As in CreateSpecificSerializerDispatcher: the lookup is needed only where a delegate is bound
+			// to it, and the interface-based branch below needs no MethodInfo at all.
 			if (type == typeof(T))
+			{
+				var method = specificFormatter.GetType().ResolveDeserializeMethod(type);
 				return (DeserializeDelegate<T>)Delegate.CreateDelegate(typeof(DeserializeDelegate<T>), specificFormatter, method);
+			}
 
 			// Use a helper class to avoid boxing ref struct
 			var helperType = typeof(ReflectionDeserializationHelper<,>).MakeGenericType(typeof(T), type);
