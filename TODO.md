@@ -205,6 +205,8 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
   generated availability, context-only roots and attributed collections.
 - Replace colliding sanitized generated identifiers with deterministic collision-
   resistant names; improve incremental discovery without losing cross-assembly types.
+  Also drop the two dead `TargetMembers` strings in the generator: a user-facing
+  diagnostic message naming a config option that does not exist, and a comment.
 - Preserve explicit inaccessible-signature diagnostics and generic accessor semantics;
   revisit ref-return accessors only for a demonstrated need.
 - Clean build warnings and smoke-test realistic trimming/NativeAOT; optionally omit
