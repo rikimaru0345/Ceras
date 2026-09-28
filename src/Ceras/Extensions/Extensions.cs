@@ -7,7 +7,9 @@ namespace Ceras.Helpers
 {
     public static class CerasNetworkingExampleExtensions
     {
-        [ThreadStatic] static byte[] _streamBuffer;
+        // Thread-static and null until this thread's first Serialize fills it (the buffer is handed
+        // back by ref so it is reused); the annotation is the one RobustContext._current uses.
+        [ThreadStatic] static byte[] _streamBuffer = null!;
 
         public static void WriteToStream(this CerasFastSerializer ceras, Stream stream, object obj)
         {

@@ -10,7 +10,9 @@ namespace Ceras.Format
     public sealed class StringInternTable
     {
         readonly Dictionary<string, int> _stringToIndex = new(StringComparer.Ordinal);
-        readonly List<string> _indexToString = new() { null };
+        // Index 0 is the null sentinel: GetIndex(null) hands it back, nothing is ever written for it,
+        // and a decoded table carries the same sentinel at [0] (StringTable.Load below).
+        readonly List<string> _indexToString = new() { null! };
 
         public int Count => _indexToString.Count - 1;
 

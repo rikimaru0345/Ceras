@@ -6,6 +6,7 @@ namespace Ceras.Helpers
 {
     using System.Collections;
     using System.Diagnostics;
+    using System.Diagnostics.CodeAnalysis;
     using System.Runtime.CompilerServices;
 
     // Based on: 
@@ -137,7 +138,7 @@ namespace Ceras.Helpers
         /// <param name="key">Key to look for</param>
         /// <param name="value">Value found, otherwise default(TValue)</param>
         /// <returns>true if the key is present, otherwise false</returns>
-        public bool TryGetValue(Type key, out TValue value)
+        public bool TryGetValue(Type key, [MaybeNullWhen(false)] out TValue value)
         {
             if (key == null)
                 throw new ArgumentNullException(nameof(key));
@@ -160,6 +161,9 @@ namespace Ceras.Helpers
                 collisionCount++;
             }
 
+            // A miss hands back default(TValue), which is null for every reference-typed instantiation
+            // (TypeMetaData, IFormatter, DispatcherEntry); MaybeNullWhen above is what says so, the same
+            // contract Dictionary.TryGetValue states. A value-typed instantiation is unaffected by it.
             value = default;
             return false;
         }

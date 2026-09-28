@@ -33,6 +33,7 @@ namespace Ceras.Format
     /// emits a static <c>Schema</c> field on every formatter class and registers that very instance for
     /// the type, so the manifest entry and the installed formatter's own declaration are the same object.
     /// A formatter is the context's own only when that holds.
+    /// </para>
     /// <para>
     /// The residual limit is explicit: <see cref="SchemaRegistry.Register"/> is public, so a caller can
     /// register a schema of its own and thereby satisfy the identity check with a hand-written formatter
@@ -124,9 +125,10 @@ namespace Ceras.Format
 
         /// <summary>
         /// The <c>internal static readonly SchemaTypeInfo Schema</c> the generator emits on every formatter
-        /// class, read off the formatter's runtime type.
+        /// class, read off the formatter's runtime type. The out is nullable because a formatter the
+        /// generator did not emit declares no such field, which is the <c>false</c> answer.
         /// </summary>
-        static bool TryGetDeclaredSchema(Type formatterType, out SchemaTypeInfo schema)
+        static bool TryGetDeclaredSchema(Type formatterType, out SchemaTypeInfo? schema)
         {
             var field = formatterType.GetField(GeneratedSchemaFieldName,
                 BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);

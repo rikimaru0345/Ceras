@@ -295,7 +295,9 @@ namespace Ceras.Format
             if (backingType != null && backingType.GetConstructor(Type.EmptyTypes) != null)
                 backing = Activator.CreateInstance(backingType);
 
-            if (backing != null)
+            // backing is only ever assigned from a non-null backingType above, and the wrapping
+            // constructor is looked up by that same type, so the narrowing is stated, not assumed.
+            if (backingType != null && backing != null)
             {
                 var wrappingCtor = FindWrappingConstructor(collectionType, backingType);
                 if (wrappingCtor != null)
@@ -370,7 +372,11 @@ namespace Ceras.Format
 
             foreach (var name in new[] { "Add", "Enqueue", "Push" })
             {
-                var add = fillTarget.GetType().GetMethod(name, new[] { elementType });
+                // A null element type is not a shape this lookup can serve, and it is not treated as one
+                // here: it goes into the parameter list unchanged, where reflection rejects it with
+                // ArgumentNullException("types") - the same outcome as before this annotation. Only the
+                // array's element type is asserted, because that is what reflection's signature demands.
+                var add = fillTarget.GetType().GetMethod(name, new[] { elementType! });
                 if (add != null)
                     return (target, value) => add.Invoke(target, new[] { value });
             }
@@ -379,10 +385,16 @@ namespace Ceras.Format
 
         public static Action<object, object?, object?>? ResolveEntryAdder(object fillTarget, Type? keyType, Type? valueType)
         {
+            // The key is whatever the payload holds - the interpreter passes the coerced value in
+            // unchanged - while the non-generic IDictionary declares the parameter non-nullable. The
+            // annotation is asserted at the call rather than by narrowing the delegate's own parameter
+            // type, which would put the same mismatch on the interpreter side of this API.
             if (keyType != null && valueType != null && fillTarget is System.Collections.IDictionary dictionary)
-                return (target, key, value) => dictionary.Add(key, value);
+                return (target, key, value) => dictionary.Add(key!, value);
 
-            var add = fillTarget.GetType().GetMethod("Add", new[] { keyType, valueType });
+            // As in ResolveElementAdder: a null key/value type is carried into the parameter list
+            // unchanged and rejected by reflection, not resolved to anything.
+            var add = fillTarget.GetType().GetMethod("Add", new[] { keyType!, valueType! });
             if (add != null)
                 return (target, key, value) => add.Invoke(target, new[] { key, value });
 
