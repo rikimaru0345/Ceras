@@ -42,7 +42,9 @@ namespace Ceras
             }
             else if (methodBase is ConstructorInfo c)
             {
-                resultType = c.DeclaringType; // the "result" of a ctor is its declaring type
+                // A ConstructorInfo's declaring type is only null-annotated because the same member
+                // is inherited from the general reflection surface; a constructor always has one.
+                resultType = c.DeclaringType ?? throw new ArgumentException($"The constructor '{c.Name}' has no declaring type, so there is nothing to construct.", nameof(methodBase));
             }
             else
                 throw new NotImplementedException("this helper method cannot handle a member info of type " + methodBase.GetType().FullName);
@@ -67,7 +69,10 @@ namespace Ceras
             foreach (var parameterInfo in parameters)
             {
                 // Are we still missing a mapping for this member?
-                if (!map.TryGetValue(parameterInfo, out MemberInfo sourceMember))
+                // Nullable because TryGetValue's out-parameter is [MaybeNullWhen(false)]: this
+                // branch is the one where the key was *not* found, and the else branch below is
+                // the one where it was, so only the else branch reads it.
+                if (!map.TryGetValue(parameterInfo, out MemberInfo? sourceMember))
                 {
                     var caseInsensitiveMatches = memberConfigs.Where(mc => string.Equals(parameterInfo.Name, mc.Member.Name, StringComparison.OrdinalIgnoreCase)).ToArray();
                     if (SetMatchOrThrow(parameterInfo, caseInsensitiveMatches))
@@ -95,7 +100,7 @@ namespace Ceras
                     // We already have a user-provided match, but is it part of the serialization?
                     var sourceMemberConfig = TypeConfig.Members.First(mc => mc.Member == sourceMember);
                     if (!sourceMemberConfig.ComputeFinalInclusionFast())
-                        throw new CerasException($"The construction mode for the type '{Format.TypeIdentity.GetCanonicalNameOrUnknown(TypeConfig.Type)}' is invalid because the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}' is supposed to be initialized from the member '{sourceMember.FieldOrPropType().FriendlyName()} {sourceMember.Name}', but that member is not part of the serialization, so it will not be available at deserialization-time.");
+                        throw new CerasException($"The construction mode for the type '{Format.TypeIdentity.GetCanonicalNameOrUnknown(TypeConfig.Type)}' is invalid because the parameter '{parameterInfo.ParameterType.FriendlyName()} {parameterInfo.Name}' is supposed to be initialized from the member '{Format.TypeIdentity.GetCanonicalNameOrUnknown(sourceMember.FieldOrPropType())} {sourceMember.Name}', but that member is not part of the serialization, so it will not be available at deserialization-time.");
                 }
             }
 
@@ -141,24 +146,39 @@ namespace Ceras
         ConstructNull() { }
 
         internal override bool HasDataArguments => false;
-        internal override Func<object>? GetRefFormatterConstructor() => () => null;
+        // The factory itself is never null - it is the object it hands back that is, because a
+        // formatter-constructed type is built by its own formatter, not by a constructor. The
+        // call sites cast the result to a reference type, where null is a legal value, so the
+        // null-forgiving operator is used rather than pretending Func<object> cannot return null.
+        internal override Func<object> GetRefFormatterConstructor() => () => null!;
     }
 
     class SpecificConstructor : TypeConstruction
     {
         internal ConstructorInfo Constructor;
 
-        public SpecificConstructor(ConstructorInfo constructor)
+        /// <summary>
+        /// <paramref name="constructor"/> is nullable only because <c>Expression.New</c> reports null
+        /// for a value type - <c>() =&gt; new MyStruct()</c> compiles to a <see cref="NewExpression"/>
+        /// with no constructor behind it. That is not something a reader can construct from, and the
+        /// error is worth naming rather than letting it surface later as a null dereference.
+        /// </summary>
+        public SpecificConstructor(ConstructorInfo? constructor)
         {
+            if (constructor == null)
+                throw new ArgumentException("A 'new' expression on a value type has no constructor to call. Use ConstructByUninitialized(), or select a factory method that returns the value.", nameof(constructor));
+
             Constructor = constructor;
         }
 
         internal override bool HasDataArguments => Constructor.GetParameters().Length > 0;
-        internal override Func<object>? GetRefFormatterConstructor()
+        internal override Func<object> GetRefFormatterConstructor()
         {
             var ctor = Constructor;
             if (ctor.GetParameters().Length == 0)
-                return () => ctor.Invoke(null);
+                // Invoke throws when the constructor throws, so it never returns without an
+                // instance; the cast at the call site only needs a non-null annotation.
+                return () => ctor.Invoke(null)!;
 
             throw new NotSupportedException($"Parameterized constructors (Type: {Format.TypeIdentity.GetCanonicalNameOrUnknown(ctor.DeclaringType)}) are no longer supported because the fixup system was removed. Use a parameterless constructor or 'ConstructByUninitialized()'.");
         }
@@ -170,7 +190,14 @@ namespace Ceras
     class ConstructByMethod : TypeConstruction
     {
         internal readonly MethodInfo Method;
-        internal readonly object TargetObject;
+
+        /// <summary>
+        /// The instance an instance method is called on, or null for a static method. The
+        /// constructor only assigns it in the instance-method path, and the only method that reads
+        /// it (<see cref="GetRefFormatterConstructor"/>) is reached exclusively for a static one,
+        /// where reflection ignores the target entirely.
+        /// </summary>
+        internal readonly object? TargetObject;
 
         internal ConstructByMethod(MethodInfo staticMethod)
         {
@@ -180,7 +207,7 @@ namespace Ceras
             Method = staticMethod;
         }
 
-        internal ConstructByMethod(object targetObject, MethodInfo instanceMethod)
+        internal ConstructByMethod(object? targetObject, MethodInfo instanceMethod)
         {
             if (instanceMethod.IsStatic)
                 throw new InvalidOperationException("You have provided target-instance but the given method is a static method");
@@ -193,15 +220,17 @@ namespace Ceras
 
 
         internal override bool HasDataArguments => Method.GetParameters().Length > 0;
-        internal override Func<object>? GetRefFormatterConstructor()
+        internal override Func<object> GetRefFormatterConstructor()
         {
             if (Method.GetParameters().Length > 0)
                 throw new NotSupportedException($"Factory methods with parameters (Method: {Format.TypeIdentity.GetCanonicalNameOrUnknown(Method.DeclaringType)}.{Method.Name}) are no longer supported because the fixup system was removed. Use a parameterless method or 'ConstructByUninitialized()'.");
 
+            // Invoke throws when the method throws, so it never returns without a result; the cast
+            // at the call site only needs a non-null annotation.
             if (Method.IsStatic)
-                return () => Method.Invoke(null, null);
+                return () => Method.Invoke(null, null)!;
             else
-                return () => Method.Invoke(TargetObject, null);
+                return () => Method.Invoke(TargetObject, null)!;
         }
 
         internal override void VerifyReturnType() => VerifyMethodReturn(Method);
@@ -214,7 +243,7 @@ namespace Ceras
 
         internal override bool HasDataArguments => _directConstructor != null && _directConstructor.GetParameters().Length > 0;
 
-        internal override Func<object>? GetRefFormatterConstructor()
+        internal override Func<object> GetRefFormatterConstructor()
         {
             var t = TypeConfig.Type;
             return () => RuntimeHelpers.GetUninitializedObject(t);

@@ -53,7 +53,11 @@ namespace Ceras.Formatters
             TypeConfigDefaults.CheckStructWithAutoProps(typeConfig);
 
             var meta = isStatic ? _ceras.GetStaticTypeMetaData(type) : _ceras.GetTypeMetaData(type);
-            var schema = meta.PrimarySchema;
+
+            // PrimarySchema is null for exactly the four kinds of type this formatter cannot describe
+            // member-by-member, and the distinction decides what the caller should do about it, so
+            // it is named rather than left to surface as a null dereference below.
+            var schema = meta.PrimarySchema ?? throw new InvalidOperationException(NoSchemaMessage(type, isStatic));
 
             _members = new (MemberInfo member, IFormatter formatter, bool isMonomorphic)[schema.Members.Count];
             for (int i = 0; i < schema.Members.Count; i++)
@@ -67,10 +71,26 @@ namespace Ceras.Formatters
 
                 // Monomorphic members (value types, sealed classes) skip ReferenceFormatter markers in generated code.
                 // We must match this behavior for byte identity.
+                //
+                // "Skip the marker" is not the same as "skip the reference formatter", and for a
+                // *sealed reference* type it makes all the difference. The generated formatter binds
+                // ReferenceFormatter_KnownSealedType<T> for such a member - no type id, but still the
+                // null / new-value marker - and that is the only thing that can represent a null
+                // member. The specific formatter has no such concept: given null it tries to read
+                // the members off a null instance, and FieldInfo.GetValue(null) throws
+                // TargetException("Non-static field requires a target"). So a null sealed member
+                // could not be serialized at all, and a non-null one was written without the marker
+                // the reader expects.
+                //
+                // For a value type the two are the same object anyway: GetReferenceFormatter
+                // delegates straight to GetSpecificFormatter when the type is a value type, so the
+                // value-type branch below is not a shortcut, it is the identical formatter.
                 _ceras.PushContext(type, m.Member);
                 try
                 {
-                    var formatter = m.IsMonomorphic ? _ceras.GetSpecificFormatter(m.MemberType) : _ceras.GetReferenceFormatterRequired(m.MemberType);
+                    var formatter = m.IsMonomorphic && m.MemberType.IsValueType
+                        ? _ceras.GetSpecificFormatter(m.MemberType)
+                        : _ceras.GetReferenceFormatterRequired(m.MemberType);
                     _members[i] = (m.Member, formatter, m.IsMonomorphic);
                 }
                 finally
@@ -83,6 +103,30 @@ namespace Ceras.Formatters
             _onAfterSerialize = GetMethodByAttribute(type, typeof(OnAfterSerializeAttribute));
             _onBeforeDeserialize = GetMethodByAttribute(type, typeof(OnBeforeDeserializeAttribute));
             _onAfterDeserialize = GetMethodByAttribute(type, typeof(OnAfterDeserializeAttribute));
+        }
+
+        /// <summary>
+        /// Why a type has no reflected member layout, and what to do instead. The branches are the
+        /// same tests <see cref="CerasSerializer.CreatePrimarySchema(Type, bool)"/> made when it
+        /// returned null, in the same order, so each message names the actual cause. Every branch is
+        /// a type a member-by-member formatter cannot exist for, so the fix is always a different
+        /// route to the type, never a different member configuration.
+        /// </summary>
+        static string NoSchemaMessage(Type type, bool isStatic)
+        {
+            var kind = isStatic ? "static members of " : "";
+            var scoped = Ceras.Format.TypeIdentity.GetCanonicalNameOrUnknown(type);
+
+            if (CerasSerializer.IsPrimitiveType(type))
+                return $"The reflection fallback cannot build a formatter for the serialization primitive '{scoped}', because its format is defined by a built-in formatter and not by a list of members. Register a custom formatter for it, or leave it undeclared so the built-in one is used.";
+
+            // IsAbstract() is the codebase's "abstract but not a static class" test, which is the
+            // one CreatePrimarySchema used.
+            if (type.IsAbstract() || type.IsInterface)
+                return $"The reflection fallback cannot build a formatter for '{scoped}', because an abstract type or an interface has no {kind}member list of its own. Mark the concrete types with [CerasSerializable] so they get generated formatters, or register a custom formatter for this one.";
+
+            // The only remaining cause: ContainsGenericParameters.
+            return $"The reflection fallback cannot build a formatter for the open generic type '{scoped}', because its members are only known once the type arguments are filled in. Declare the closed form (for example '{scoped}<int>') with [CerasSerializable] or register a custom formatter for it.";
         }
 
         public override void Serialize(IBufferWriter<byte> writer, T value)

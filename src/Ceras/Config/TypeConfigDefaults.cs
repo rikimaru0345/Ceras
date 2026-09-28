@@ -181,13 +181,27 @@ namespace Ceras
             var prevName = memberInfo.GetCustomAttribute<PreviousNameAttribute>();
             if (prevName != null)
             {
+                // The old name becomes the wire name only when nothing else already picked one:
+                // an explicit [CerasStableName] wins, because it is the spelling a file written by
+                // this build uses. PersistentName never returns null or empty (it falls back to the
+                // member's own name), so this is really the "no stable name was configured" test.
                 if (string.IsNullOrEmpty(memberConfig.PersistentName) || memberConfig.PersistentName == memberInfo.Name)
+                {
+                    // A null Name means the attribute records alternative names only, with no
+                    // primary old name to adopt. Assigning it clears the override, so PersistentName
+                    // falls back to the member's own name again - the intended "no old name" state,
+                    // and the same value the getter produced a line above.
                     memberConfig.PersistentName = prevName.Name;
+                }
 
                 if (prevName.Name != null)
                     CerasHelpers.VerifyName(prevName.Name);
 
-                foreach (var n in prevName.AlternativeNames)
+                // Every alternative is an old wire name and has to satisfy the same rules, so a
+                // malformed one is reported here rather than as a corrupt-file error on load. The
+                // array is only null-annotated because the attribute's params overload stores
+                // whatever it was handed, including a null array.
+                foreach (var n in prevName.AlternativeNames ?? Array.Empty<string>())
                     CerasHelpers.VerifyName(n);
             }
         }

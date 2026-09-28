@@ -27,10 +27,11 @@ namespace Ceras.Formatters
     /// <para>
     /// Only the types the wire format stores as a fixed-width field are handled. Everything else -
     /// including <c>decimal</c>, which is variable-width, and any struct - returns false so the
-    /// caller falls back to the element-at-a-time path. <typeparamref name="T"/> is unconstrained
-    /// because that is how the formatters declare their element type, so the reinterpretation goes
-    /// through <see cref="Unsafe.As{TFrom, TTo}(ref TFrom)"/>; it is only reached for a primitive
-    /// <see cref="IsFixedWidth{T}"/> has already accepted, where the widths match by construction.
+    /// caller falls back to the element-at-a-time path. The <c>T</c> of <see cref="TryWrite{T}"/> is
+    /// unconstrained because that is how the formatters declare their element type, so the
+    /// reinterpretation goes through <see cref="Unsafe.As{TFrom, TTo}(ref TFrom)"/>; it is only
+    /// reached for a primitive <see cref="IsFixedWidth{T}"/> has already accepted, where the widths
+    /// match by construction.
     /// </para>
     /// </summary>
     static class FixedWidthBulkWriter

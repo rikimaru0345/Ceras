@@ -68,7 +68,13 @@ namespace Ceras
 		internal static bool IsPrimitiveType(Type type)
 		{
 			if (type.IsPrimitive) return true;
-			if (type.IsArray) return IsPrimitiveType(type.GetElementType());
+			if (type.IsArray)
+			{
+				// GetElementType is only null for a type that is not an array, so the check is dead
+				// here - it exists because the same reflection member is shared with that case.
+				var elementType = type.GetElementType();
+				return elementType != null && IsPrimitiveType(elementType);
+			}
 			if (type == typeof(string) || type == typeof(Type)) return true;
 			if (type == _rtTypeType) return true;
 			return false;
@@ -167,7 +173,11 @@ namespace Ceras
 			void SetFormatters(Type type, IFormatter specific, IFormatter reference) { var meta = GetTypeMetaData(type); meta.SpecificFormatter = specific; meta.ReferenceFormatter = reference; }
 		}
 
-		protected internal byte[]? Serialize<T>(T obj)
+		/// <summary>
+		/// The serialized bytes of <paramref name="obj"/>. Never null: the result is a fresh array
+		/// holding everything the write produced (an empty input produces an empty array, not null).
+		/// </summary>
+		protected internal byte[] Serialize<T>(T obj)
 		{
 			var writer = new ArrayBufferWriter<byte>();
 			Serialize(writer, obj);
@@ -347,6 +357,11 @@ namespace Ceras
 			public Span<byte> GetSpan(int sizeHint = 0) { SerializerBinary.EnsureCapacity(ref Buffer, Offset, sizeHint); return Buffer.AsSpan(Offset); }
 		}
 
+		/// <summary>
+		/// Serializes <paramref name="obj"/> and reads it back. Returns null (or <c>default</c>)
+		/// when the object was null, exactly like <see cref="Deserialize{T}(byte[])"/>.
+		/// </summary>
+		[return: MaybeNull]
 		protected internal T Clone<T>(T obj) => Deserialize<T>(Serialize(obj));
 
 		protected async ValueTask SaveAsync<T>(T obj, Stream stream)
@@ -356,7 +371,12 @@ namespace Ceras
 			await stream.WriteAsync(writer.WrittenMemory);
 		}
 
-		protected async ValueTask<T> LoadAsync<T>(Stream stream)
+		/// <summary>
+		/// Reads the value from a whole stream. Returns null (or <c>default</c>) when the bytes
+		/// describe a null value, exactly like <see cref="Deserialize{T}(byte[])"/> — which is why
+		/// the result is nullable rather than a promise of a live instance.
+		/// </summary>
+		protected async ValueTask<T?> LoadAsync<T>(Stream stream)
 		{
 			// For a real implementation we'd read in chunks, but for now we read everything
 			// to fulfill the API requirement.
@@ -365,12 +385,12 @@ namespace Ceras
 			return Deserialize<T>(ms.ToArray());
 		}
 
-		internal byte[]? SerializeStatic(Type type) { var writer = new ArrayBufferWriter<byte>(); SerializeStatic(type, writer); return writer.WrittenSpan.ToArray(); }
-		internal void SerializeStatic(Type type, IBufferWriter<byte> writer) { var meta = GetStaticTypeMetaData(type)!; if (meta.StaticSerialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticSerialize!(writer); }
+		internal byte[] SerializeStatic(Type type) { var writer = new ArrayBufferWriter<byte>(); SerializeStatic(type, writer); return writer.WrittenSpan.ToArray(); }
+		internal void SerializeStatic(Type type, IBufferWriter<byte> writer) { var meta = GetStaticTypeMetaData(type)!; (meta.StaticSerialize ?? PrepareStaticSerializationDispatchers(meta).ser)(writer); }
 		internal int SerializeStatic(Type type, ref byte[] buffer, ref int offset) { var writer = new FixedArrayBufferWriter(buffer, offset); SerializeStatic(type, writer); buffer = writer.Buffer; int size = writer.Offset - offset; offset = writer.Offset; return size; }
 		internal void DeserializeStatic(Type type, byte[] buffer) { int offset = 0; DeserializeStatic(type, buffer, ref offset); }
 		internal int DeserializeStatic(Type type, byte[] buffer, ref int offset) { var seq = new ReadOnlySequence<byte>(buffer, offset, buffer.Length - offset); var reader = new SequenceReader<byte>(seq); DeserializeStatic(type, ref reader); int size = (int)reader.Consumed; offset += size; return size; }
-		internal void DeserializeStatic(Type type, ref SequenceReader<byte> reader) { var meta = GetStaticTypeMetaData(type)!; if (meta.StaticDeserialize == null) PrepareStaticSerializationDispatchers(meta); meta.StaticDeserialize!(ref reader); }
+		internal void DeserializeStatic(Type type, ref SequenceReader<byte> reader) { var meta = GetStaticTypeMetaData(type)!; (meta.StaticDeserialize ?? PrepareStaticSerializationDispatchers(meta).deser)(ref reader); }
 
 		internal void VerifyReflectionFallbackAllowed(Type type)
 		{
@@ -392,7 +412,15 @@ namespace Ceras
 		internal void PushContext(Type type, MemberInfo member) => _contextStack.Push((type, member));
 		internal void PopContext() => _contextStack.Pop();
 
-		void PrepareStaticSerializationDispatchers(TypeMetaData meta)
+		/// <summary>
+		/// Builds the static (static-member) dispatcher pair for a type and caches it on its metadata.
+		/// <para>
+		/// Returned rather than only stored so the call sites do not have to re-read a field the
+		/// compiler cannot prove was filled: the pair is always produced together, and either both
+		/// delegates are cached or the build threw.
+		/// </para>
+		/// </summary>
+		(StaticSerializeDelegate ser, StaticDeserializeDelegate deser) PrepareStaticSerializationDispatchers(TypeMetaData meta)
 		{
 			VerifyReflectionFallbackAllowed(meta.Type);
 			var formatterType = typeof(ReflectionFallbackFormatter<>).MakeGenericType(meta.Type);
@@ -405,15 +433,31 @@ namespace Ceras
 			var createDelegates = typeof(CerasSerializer).GetMethod(nameof(CreateStaticDelegates), BindingFlags.NonPublic | BindingFlags.Static)!.MakeGenericMethod(meta.Type);
 			var result = ((StaticSerializeDelegate ser, StaticDeserializeDelegate deser))createDelegates!.Invoke(null, new object[] { f })!;
 			meta.StaticSerialize = result.ser; meta.StaticDeserialize = result.deser;
+			return result;
 		}
 
 		static (StaticSerializeDelegate, StaticDeserializeDelegate) CreateStaticDelegates<T>(IFormatter<T> formatter)
 		{
 			T dummy = default!;
-			return ((writer) => formatter.Serialize(writer, default), (ref SequenceReader<byte> reader) => formatter.Deserialize(ref reader, ref dummy));
+			// The static write passes 'default' as the value: a static formatter never reads an
+			// instance, so the contract's non-nullable value parameter has nothing to give it.
+			return ((writer) => formatter.Serialize(writer, default!), (ref SequenceReader<byte> reader) => formatter.Deserialize(ref reader, ref dummy));
 		}
 
-		internal Type? PeekType(byte[] buffer) { var seq = new ReadOnlySequence<byte>(buffer); var reader = new SequenceReader<byte>(seq); Type t = null; GetFormatter<Type>().Deserialize(ref reader, ref t); return t; }
+		/// <summary>
+		/// Reads the <see cref="Type"/> written at the head of a buffer (the robust reader's quick peek),
+		/// or null when the bytes hold the null marker.
+		/// </summary>
+		internal Type? PeekType(byte[] buffer)
+		{
+			var seq = new ReadOnlySequence<byte>(buffer);
+			var reader = new SequenceReader<byte>(seq);
+			// The seed exists only to satisfy IFormatter<Type>'s non-nullable 'ref' parameter; the
+			// read always overwrites it, including with null for the null marker.
+			Type t = null!;
+			GetFormatter<Type>().Deserialize(ref reader, ref t);
+			return t;
+		}
 		internal IEnumerable<IFormatterResolver> GetFormatterResolvers() { foreach (var r in _resolvers) yield return r; yield return _dynamicResolver; }
 		internal IFormatterResolver? GetFormatterResolver<TResolver>() where TResolver : IFormatterResolver => GetFormatterResolvers().OfType<TResolver>().FirstOrDefault();
 		/// <summary>
@@ -426,9 +470,9 @@ namespace Ceras
 				   $"Ceras could not create a reference formatter for '{Format.TypeIdentity.GetCanonicalNameOrUnknown(type)}'. " +
 				   "The type is not registered and could not be resolved; declare it with [CerasSerializable] or configure it.");
 
-		internal IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
+		internal IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetReferenceFormatterRequired(typeof(T));
 		internal IFormatter<T> GetSpecificFormatter<T>() => (IFormatter<T>)GetSpecificFormatter(typeof(T));
-		internal IFormatter<T> GetReferenceFormatter<T>() => (IFormatter<T>)GetReferenceFormatter(typeof(T));
+		internal IFormatter<T> GetReferenceFormatter<T>() => (IFormatter<T>)GetReferenceFormatterRequired(typeof(T));
 
 		/// <summary>
 		/// The reference formatter for a type, or null when the type has none (an unresolvable or
@@ -457,8 +501,16 @@ namespace Ceras
 				throw new InvalidOperationException(msg);
 			}
 
-			if (!meta.IsPrimitive && meta.TypeConfig.CustomFormatter != null) { meta.SpecificFormatter = meta.TypeConfig.CustomFormatter; FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type); PrepareFormatter(meta.SpecificFormatter); return meta.SpecificFormatter; }
-			if (!meta.IsPrimitive && meta.TypeConfig.CustomResolver != null) { var f = meta.TypeConfig.CustomResolver(this, type); meta.SpecificFormatter = f ?? throw new InvalidOperationException("Null formatter"); FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type); PrepareFormatter(meta.SpecificFormatter); return meta.SpecificFormatter; }
+			// TypeMetaData.TypeConfig is null exactly for a serialization primitive, and a primitive
+			// has no configuration to consult: its formatter comes from PrimitiveResolver below. An
+			// open generic has no config either, but it threw above. So this null check and the
+			// IsPrimitive checks below select the same set of types - the null one only says which.
+			var typeConfig = meta.TypeConfig;
+			if (typeConfig != null)
+			{
+				if (typeConfig.CustomFormatter != null) { meta.SpecificFormatter = typeConfig.CustomFormatter; FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type); PrepareFormatter(meta.SpecificFormatter); return meta.SpecificFormatter; }
+				if (typeConfig.CustomResolver != null) { var f = typeConfig.CustomResolver(this, type); meta.SpecificFormatter = f ?? throw new InvalidOperationException("Null formatter"); FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type); PrepareFormatter(meta.SpecificFormatter); return meta.SpecificFormatter; }
+			}
 			if (!meta.IsPrimitive) foreach (var r in _userResolvers) { var f = r(this, type); if (f != null) { meta.SpecificFormatter = f; FormatterHelper.ThrowOnMismatch(f, type); PrepareFormatter(f); return f; } }
 			foreach (var r in _resolvers) { var f = r.GetFormatter(type); if (f != null) { meta.SpecificFormatter = f; PrepareFormatter(f); return f; } }
 			var df = _dynamicResolver.GetFormatter(type); if (df != null) { meta.SpecificFormatter = df; PrepareFormatter(df); return df; }
@@ -490,13 +542,21 @@ namespace Ceras
 			return meta;
 		}
 
+		/// <summary>
+		/// The member-by-member layout Ceras derives from reflection, or null for a type that has no
+		/// such layout: a serialization primitive, an abstract/interface type, or an open generic.
+		/// Null is a real answer here, not a missing one — the format of those types is decided by a
+		/// built-in formatter (or refused outright) instead of by a member list — so every consumer
+		/// has to handle it, and the ones that can only work with a member list reject it by name.
+		/// </summary>
 		Schema? CreatePrimarySchema(Type type, bool isStatic)
 		{
 			if (IsPrimitiveType(type) || type.IsAbstract() || type.IsInterface || type.ContainsGenericParameters)
 				return null;
 
-			var tc = Config.GetTypeConfig(type, isStatic);
-			tc!.Seal();
+			// Closed type (the open-generic case returned above), so a config always exists here.
+			var tc = Config.GetTypeConfigForClosedType(type, isStatic);
+			tc.Seal();
 
 			var s = new Schema(type, isStatic);
 			foreach (var mc in tc._allMembers)
@@ -583,14 +643,17 @@ namespace Ceras
 					if (targetType != null!) PushContext(targetType, null!);
 					try
 					{
-						if (ft.IsGenericType && ft.GetGenericTypeDefinition() == typeof(IFormatter<>)) SafeInject(formatter, f, noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatter(fmtType));
+						// An injected IFormatter field is a non-nullable field of a formatter that is about to
+						// run, so a member type with no formatter is a configuration error here, not a "no
+						// value": GetReferenceFormatterRequired reports it instead of injecting null.
+						if (ft.IsGenericType && ft.GetGenericTypeDefinition() == typeof(IFormatter<>)) SafeInject(formatter, f, noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatterRequired(fmtType));
 						else if (ReflectionHelper.IsAssignableToGenericType(ft, typeof(IFormatter<>)))
 						{
 							// If the field is typed to a specific formatter implementation (like CollectionFormatter),
 							// we should use GetSpecificFormatter to ensure we get a matching instance.
 							// ReferenceFormatter<T> is usually not assignable to CollectionFormatter<T, TItem>.
-							var rf = noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatter(fmtType);
-							if (ft.IsAssignableFrom(rf!.GetType()))
+							var rf = noRef ? GetSpecificFormatter(fmtType) : GetReferenceFormatterRequired(fmtType);
+							if (ft.IsAssignableFrom(rf.GetType()))
 							{
 								SafeInject(formatter, f, rf);
 							}
@@ -646,13 +709,38 @@ namespace Ceras
 		internal void Finish() { _isClosed = true; _checksum = (int)_hash.Digest(); }
 	}
 
+	/// <summary>
+	/// Everything Ceras knows about one type on one serializer. Built once per (type, static/instance)
+	/// and then filled in lazily: the formatters and the static dispatchers are created on first use,
+	/// which is why they are nullable and every reader has to say what an absent one means.
+	/// </summary>
 	class TypeMetaData
 	{
 		public readonly Type Type; public readonly bool IsFrameworkType; public readonly bool IsPrimitive;
-		public readonly TypeConfig TypeConfig;
-		public IFormatter SpecificFormatter, ReferenceFormatter;
-		public Schema PrimarySchema;
-		public StaticSerializeDelegate StaticSerialize; public StaticDeserializeDelegate StaticDeserialize;
-		public TypeMetaData(Type type, TypeConfig typeConfig, bool isFrameworkType, bool isSerializationPrimitive) { Type = type; IsFrameworkType = isFrameworkType; IsPrimitive = isSerializationPrimitive; TypeConfig = typeConfig; }
+
+		/// <summary>
+		/// The type's configuration, or null for a serialization primitive — Ceras refuses to
+		/// configure those (see <c>TypeConfig.CanNotConfigurePrimitives</c>), so there is nothing to
+		/// hold. A primitive's formatter is selected by <c>PrimitiveResolver</c> instead.
+		/// </summary>
+		public readonly TypeConfig? TypeConfig;
+
+		/// <summary>The value (non-reference) formatter, created on first use; null until then.</summary>
+		public IFormatter? SpecificFormatter;
+
+		/// <summary>The reference formatter, created on first use; null until then.</summary>
+		public IFormatter? ReferenceFormatter;
+
+		/// <summary>
+		/// The member list Ceras reflects out of the type, or null when the type has none (a
+		/// primitive, abstract/interface, or open generic — see
+		/// <see cref="CerasSerializer.CreatePrimarySchema(Type, bool)"/>).
+		/// </summary>
+		public Schema? PrimarySchema;
+
+		/// <summary>The static-member dispatchers, created together on first use; null until then.</summary>
+		public StaticSerializeDelegate? StaticSerialize; public StaticDeserializeDelegate? StaticDeserialize;
+
+		public TypeMetaData(Type type, TypeConfig? typeConfig, bool isFrameworkType, bool isSerializationPrimitive) { Type = type; IsFrameworkType = isFrameworkType; IsPrimitive = isSerializationPrimitive; TypeConfig = typeConfig; }
 	}
 }

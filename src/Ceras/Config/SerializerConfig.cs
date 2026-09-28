@@ -73,7 +73,14 @@ namespace Ceras
 
 		long _buildTimestamp;
 		bool _buildTimestampSet;
-		System.Reflection.Assembly _owningAssembly;
+
+		/// <summary>
+		/// The assembly handed to <see cref="SetOwningAssembly"/>, kept for diagnostics. Null only
+		/// before a serializer has constructed this config — which cannot happen through either
+		/// public constructor path, because both call <see cref="SetOwningAssembly"/> while building
+		/// the config.
+		/// </summary>
+		System.Reflection.Assembly? _owningAssembly;
 
 		/// <summary>
 		/// The assembly whose <see cref="CerasBuildTimestampAttribute"/> supplies the default producer

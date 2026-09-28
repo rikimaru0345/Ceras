@@ -69,8 +69,10 @@ namespace Ceras
 			_advanced.Seal();
 		}
 
-		CerasSerializer _claimedBy;
-		internal CerasSerializer Serializer => _claimedBy;
+		CerasSerializer? _claimedBy;
+
+		/// <summary>The serializer that claimed this config, or null while nobody has.</summary>
+		internal CerasSerializer? Serializer => _claimedBy;
 		internal bool Claim(CerasSerializer ceras)
 		{
 			if (_claimedBy != null && !ReferenceEquals(_claimedBy, ceras)) return false;
@@ -193,8 +195,12 @@ namespace Ceras
 		/// Called the first time Ceras encounters a type. Use this to configure types you don't know in advance
 		/// (e.g. open generics, private types from external assemblies). Only one callback is allowed —
 		/// consolidate all logic into one function.
+		/// <para>
+		/// Null until assigned: Ceras treats "no callback" and "a callback" as the two states, and fires it
+		/// only when there is one.
+		/// </para>
 		/// </summary>
-		public Action<TypeConfig> OnConfigNewType
+		public Action<TypeConfig>? OnConfigNewType
 		{
 			get => _onConfigNewType;
 			set
@@ -205,7 +211,7 @@ namespace Ceras
 					throw new InvalidOperationException($"{nameof(OnConfigNewType)} is already set. Multiple callbacks would overwrite each other's settings. Consolidate all configuration logic into a single function.");
 			}
 		}
-		Action<TypeConfig> _onConfigNewType;
+		Action<TypeConfig>? _onConfigNewType;
 
 		#endregion
 
@@ -264,8 +270,8 @@ namespace Ceras
 		/// unless you are sure about that.
 		/// </para>
 		/// </summary>
-		IEqualityComparer<object> _objectCacheComparer;
-		public IEqualityComparer<object> ObjectCacheComparer { 
+		IEqualityComparer<object>? _objectCacheComparer;
+		public IEqualityComparer<object>? ObjectCacheComparer {
 			get => _objectCacheComparer; 
 			set { ThrowIfSealed(); _objectCacheComparer = value; } 
 		}

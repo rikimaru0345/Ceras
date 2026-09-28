@@ -185,7 +185,7 @@ namespace Ceras
             _config.SetOwningAssembly(Assembly.GetCallingAssembly());
         }
 
-        static CerasRobustConfig MakeConfig(Action<CerasRobustConfig> configure, Assembly owningAssembly)
+        static CerasRobustConfig MakeConfig(Action<CerasRobustConfig>? configure, Assembly owningAssembly)
         {
             var config = new CerasRobustConfig();
             config.SetOwningAssembly(owningAssembly);
@@ -527,7 +527,14 @@ namespace Ceras
                 {
                     var engine = new SchemaTraversalEngine(fileSchemas, payloadTable, robustVersion, this, slowPlans);
                     InstanceData.DeserializeCallbacks = null!;
-                    value = engine.ReadRoot<T>(ref reader, value);
+
+                    // ReadRoot is [return: MaybeNull]: a file may hold a null root (the payload's
+                    // null marker), and null is a legal value for the caller's seed slot — the
+                    // generated path writes that same null into this same slot for the same
+                    // marker. `ref T value` *is* that slot, not a promise about the result, so the
+                    // null is written through rather than replaced by a default.
+                    T? readRoot = engine.ReadRoot<T>(ref reader, value);
+                    value = readRoot!;
 
                     // Before the deferred callbacks, and that ordering is the point: a load that did not
                     // read the whole declared data section is not a successful load, and [OnAfterDeserialize]
@@ -799,6 +806,13 @@ namespace Ceras
                 $"or declare it with [assembly: CerasKnownType<...>], so it is part of that context's generated " +
                 $"manifest; then configure the serializer with UseGeneratedFormatters(name) for that context.");
 
+        /// <summary>
+        /// One schema entry in the shape <see cref="DumpEntry"/> prints. Every collection is
+        /// normalized to a non-null (possibly empty) array here rather than at the print site:
+        /// <see cref="SchemaTypeInfo"/> and <see cref="OldTypeSchema"/> both guarantee it in their
+        /// constructors, so a null here would be a bug in one of the two - and a debug dump is the
+        /// last place that should be the code to find out.
+        /// </summary>
         struct NormalizedTypeSchema
         {
             public int TypeId;
@@ -816,10 +830,10 @@ namespace Ceras
                 StableName = info.StableName;
                 PreviousNames = info.PreviousTypeNames;
                 Kind = info.Kind;
-                EnumValues = info.EnumValues?.Select(ev => (ev.Name, ev.Value)).ToArray();
-                Fields = info.Fields?.Select(f => (f.StableName, f.TypeName, f.IsMonomorphic)).ToArray();
+                EnumValues = info.EnumValues?.Select(ev => (ev.Name, ev.Value)).ToArray() ?? Array.Empty<(string, ulong)>();
+                Fields = info.Fields?.Select(f => (f.StableName, f.TypeName, f.IsMonomorphic)).ToArray() ?? Array.Empty<(string, string, bool)>();
                 DefinitionName = info.UnderlyingTypeName;
-                ArgTypeNames = info.ArgTypeNames;
+                ArgTypeNames = info.ArgTypeNames ?? Array.Empty<string>();
             }
 
             public NormalizedTypeSchema(OldTypeSchema fs, Func<int, string> resolve)
@@ -828,10 +842,10 @@ namespace Ceras
                 StableName = fs.StableName;
                 PreviousNames = fs.PreviousNames;
                 Kind = fs.Kind;
-                EnumValues = fs.EnumValues?.Select(ev => (ev.Name, ev.Value)).ToArray();
-                Fields = fs.Fields?.Select(f => (f.StableName, resolve(f.TypeId), f.IsMonomorphic)).ToArray();
+                EnumValues = fs.EnumValues?.Select(ev => (ev.Name, ev.Value)).ToArray() ?? Array.Empty<(string, ulong)>();
+                Fields = fs.Fields?.Select(f => (f.StableName, resolve(f.TypeId), f.IsMonomorphic)).ToArray() ?? Array.Empty<(string, string, bool)>();
                 DefinitionName = resolve(fs.DefinitionTypeId);
-                ArgTypeNames = fs.ArgTypeIds?.Select(resolve).ToArray();
+                ArgTypeNames = fs.ArgTypeIds?.Select(resolve).ToArray() ?? Array.Empty<string>();
             }
         }
 
