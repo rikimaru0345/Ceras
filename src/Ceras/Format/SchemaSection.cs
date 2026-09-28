@@ -373,56 +373,17 @@ namespace Ceras.Format
             return ResolveId(clrName, typeToId, queue, registry, declaringTypeName, memberDescription);
         }
 
+        /// <summary>
+        /// The reserved id a canonical type name stands for, or -1 when it stands for none.
+        /// <para>
+        /// A delegation to <see cref="WellKnownTypes.TryGetIdByCanonicalName"/> rather than a second
+        /// spelling of the reserved table: the bake resolves every member and argument name through here,
+        /// and <c>SchemaRegistry</c> refuses a manifest entry that claims one of these names, so a name
+        /// that meant two different ids in two tables would be a defect in only one of them.
+        /// </para>
+        /// </summary>
         static int ResolveWellKnownId(string typeName)
-        {
-            if (typeName == null) return -1;
-            return typeName switch
-            {
-                "System.Boolean"  => WellKnownTypes.Bool,
-                "System.Byte"     => WellKnownTypes.Byte,
-                "System.SByte"    => WellKnownTypes.SByte,
-                "System.Char"     => WellKnownTypes.Char,
-                "System.Int16"    => WellKnownTypes.Int16,
-                "System.UInt16"   => WellKnownTypes.UInt16,
-                "System.Int32"    => WellKnownTypes.Int32,
-                "System.UInt32"   => WellKnownTypes.UInt32,
-                "System.Single"   => WellKnownTypes.Single,
-                "System.Int64"    => WellKnownTypes.Int64,
-                "System.UInt64"   => WellKnownTypes.UInt64,
-                "System.Double"   => WellKnownTypes.Double,
-                "System.Decimal"  => WellKnownTypes.Decimal,
-                "System.String"   => WellKnownTypes.String,
-                "System.Object"   => WellKnownTypes.Object,
-                "System.DateTime" => WellKnownTypes.DateTime,
-                "System.DateTimeOffset" => WellKnownTypes.DateTimeOffset,
-                "System.TimeSpan" => WellKnownTypes.TimeSpan,
-                "System.Guid"     => WellKnownTypes.Guid,
-                "System.Type"     => WellKnownTypes.Type,
-                "System.Array"    => WellKnownTypes.Array,
-                "System.Collections.Generic.List`1" => WellKnownTypes.List,
-                "System.Collections.Generic.Dictionary`2" => WellKnownTypes.Dictionary,
-                "System.Collections.Generic.HashSet`1" => WellKnownTypes.HashSet,
-                "System.Collections.Generic.Queue`1" => WellKnownTypes.Queue,
-                "System.Collections.Generic.Stack`1" => WellKnownTypes.Stack,
-                "System.Nullable`1" => WellKnownTypes.Nullable,
-                "System.Collections.Generic.KeyValuePair`2" => WellKnownTypes.KeyValuePair,
-                "System.Tuple`1" => WellKnownTypes.Tuple1,
-                "System.Tuple`2" => WellKnownTypes.Tuple2,
-                "System.Tuple`3" => WellKnownTypes.Tuple3,
-                "System.Tuple`4" => WellKnownTypes.Tuple4,
-                "System.Tuple`5" => WellKnownTypes.Tuple5,
-                "System.Tuple`6" => WellKnownTypes.Tuple6,
-                "System.Tuple`7" => WellKnownTypes.Tuple7,
-                "System.ValueTuple`1" => WellKnownTypes.VTuple1,
-                "System.ValueTuple`2" => WellKnownTypes.VTuple2,
-                "System.ValueTuple`3" => WellKnownTypes.VTuple3,
-                "System.ValueTuple`4" => WellKnownTypes.VTuple4,
-                "System.ValueTuple`5" => WellKnownTypes.VTuple5,
-                "System.ValueTuple`6" => WellKnownTypes.VTuple6,
-                "System.ValueTuple`7" => WellKnownTypes.VTuple7,
-                _                 => -1,
-            };
-        }
+            => WellKnownTypes.TryGetIdByCanonicalName(typeName, out int id) ? id : -1;
 
         public static Dictionary<string, OldTypeSchema> Read(byte[] buffer, ref int offset, string[] stringTable)
         {

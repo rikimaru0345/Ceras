@@ -30,7 +30,8 @@
 //     record the order the *closure's* substituted members sort in. That is fixed in the generator and
 //     pinned by GenericMemberOrderTests;
 //   * that a root which is a *different* closure is still rejected by name, and that an alias two
-//     definitions claim is refused at bake time rather than resolved by registration order.
+//     definitions claim is refused where the second of them is registered rather than resolved by
+//     registration order.
 using System;
 using System.Collections.Generic;
 using Ceras;
@@ -290,17 +291,17 @@ namespace Ceras.Test.GenericAliasFixtures
         }
 
         [Fact]
-        public void An_Alias_Two_Different_Definitions_Claim_Is_Rejected_At_The_Bake()
+        public void An_Alias_Two_Different_Definitions_Claim_Is_Rejected_At_Registration()
         {
             // Structural matching is what makes an open alias a *name for a family*, and that only works
             // while the family is one definition. Two unrelated generics claiming the same open name would
             // otherwise be resolved by registration order - a silent mis-binding, on a save that is
-            // otherwise fine, visible only as a wrong value much later. The bake is where every alias is
-            // known, so that is where it is refused.
-            var registry = new CerasRobustSerializer(c => c.UseGeneratedFormatters("GenericAliasAmbiguous"))
-                .Config.SchemaRegistry;
-
-            var ex = Assert.Throws<CerasSchemaException>(() => registry.Seal());
+            // otherwise fine, visible only as a wrong value much later. A name a manifest entry answers
+            // for is claimed where the entry is registered, so that is where it is refused: the claim is
+            // the first thing the two declarations below share, and it is made before any schema byte
+            // exists, so the context never gets as far as a half-built manifest.
+            var ex = Assert.Throws<CerasSchemaException>(() =>
+                new CerasRobustSerializer(c => c.UseGeneratedFormatters("GenericAliasAmbiguous")));
 
             Assert.Contains("Legacy.Box`1", ex.Message);
             Assert.Contains("Ceras.Test.GenericAliasAmbiguity.First`1<System.Int32>", ex.Message);

@@ -138,12 +138,12 @@ namespace Ceras.Test.GenericAliasFixtures
 namespace Ceras.Test.GenericAliasAmbiguity
 {
     // A context of its own, because what follows is a *declaration* error that has to be reported: the two
-    // types can only coexist in a manifest that is never successfully baked.
+    // types can only coexist in a manifest that is never successfully built.
     //
     // Both claim the same open alias. That is not a cosmetic overlap. An alias is what a save file is
     // matched against, so "Legacy.Box`1" would answer for two unrelated definitions and the closure a file
     // named would be bound to whichever registered first - silently, on a save that is otherwise perfectly
-    // valid. The bake refuses it instead, naming both types.
+    // valid. Registering the second one refuses it instead, naming both types.
     [CerasContext("GenericAliasAmbiguous")]
     [CerasSerializable]
     [PreviousTypeName("Legacy.Box`1")]

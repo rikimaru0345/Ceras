@@ -179,6 +179,14 @@ namespace Ceras.Format
 
         static readonly Dictionary<int, Type> IdToTypeMap = new();
 
+        // The same table read the other way: the canonical name a reserved id stands for. Built from
+        // IdToTypeMap rather than written out, so a reserved id and its name cannot be added, renamed or
+        // dropped on one side only. Only ids below UserTypeBase are in it, which is what
+        // TryGetIdByCanonicalName promises: a *closed* name such as
+        // "System.Collections.Generic.List`1<System.Int32>" is a manifest entry of its own, not a
+        // reserved name, and resolves to nothing here.
+        static readonly Dictionary<string, int> CanonicalNameToIdMap = new(StringComparer.Ordinal);
+
         static WellKnownTypes()
         {
             FixedSizes[Byte]     = 1;
@@ -205,6 +213,9 @@ namespace Ceras.Format
             foreach (var kv in GenericDefToId) IdToTypeMap[kv.Value] = kv.Key;
             foreach (var kv in TupleDefToId) IdToTypeMap[kv.Value] = kv.Key;
             IdToTypeMap[Array] = typeof(Array);
+
+            foreach (var kv in IdToTypeMap)
+                CanonicalNameToIdMap[TypeIdentity.GetCanonicalName(kv.Value)] = kv.Key;
         }
 
         public static bool TryGetId(Type type, out int id)
@@ -490,6 +501,29 @@ namespace Ceras.Format
             bool found = IdToTypeMap.TryGetValue(id, out var mapped);
             type = mapped;
             return found;
+        }
+
+        /// <summary>
+        /// The reserved type id a canonical name stands for, for the reserved id space only (ids below
+        /// <see cref="UserTypeBase"/>). This is the reverse of <see cref="TryGetType"/> and shares its
+        /// table, so the name and the id cannot disagree: the bake resolves a member's type name through
+        /// it, and <c>SchemaRegistry</c> refuses a manifest entry that would claim one of these names.
+        /// <para>
+        /// Only a <em>reserved</em> name answers. A closed canonical name —
+        /// <c>System.Collections.Generic.List`1&lt;System.Int32&gt;</c>, <c>System.Int32[]</c> — is an
+        /// ordinary manifest entry that happens to mention a reserved definition, and a name outside the
+        /// canonical form is not a well-known name at all; both resolve to nothing here.
+        /// </para>
+        /// </summary>
+        public static bool TryGetIdByCanonicalName(string canonicalName, out int id)
+        {
+            if (string.IsNullOrEmpty(canonicalName))
+            {
+                id = -1;
+                return false;
+            }
+
+            return CanonicalNameToIdMap.TryGetValue(canonicalName, out id);
         }
 
         /// <summary>
