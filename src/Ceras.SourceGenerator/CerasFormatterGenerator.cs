@@ -67,7 +67,7 @@ namespace Ceras.SourceGenerator
 
             // Also include assembly-level [CerasSerializable] and [CerasKnownType] targets as roots.
             // CerasKnownType explicitly authorizes closed instantiations (and their transitive
-            // closure) that are hidden behind object/interface members (TODO Phase 2.1).
+            // closure) that are hidden behind object/interface members (see KnownTypeTests).
             var knownTypeAttr = compilation.GetTypeByMetadataName("Ceras.CerasKnownTypeAttribute");
             var knownTypeGenericAttr = compilation.GetTypeByMetadataName("Ceras.CerasKnownTypeAttribute`1");
 
@@ -111,7 +111,7 @@ namespace Ceras.SourceGenerator
             // independently from its own roots; the union of all contexts' discovered types is what
             // gets a generated formatter (a formatter is context-independent). Registration is
             // emitted per context, so selecting a context only ever registers that context's
-            // manifest (TODO Phase 2 "Contexts").
+            // manifest (see ContextTests).
             // ------------------------------------------------------------------------------------
             var contextRoots = new SortedDictionary<string, HashSet<INamedTypeSymbol>>(StringComparer.Ordinal);
 
@@ -311,7 +311,8 @@ namespace Ceras.SourceGenerator
             var finalTypesSet = new HashSet<INamedTypeSymbol>(finalTypes, SymbolEqualityComparer.Default);
 
             // Canonical identity guard: two distinct types must never share a stable type name,
-            // otherwise schema/migration resolution is ambiguous (TODO Phase 2.3).
+            // otherwise schema/migration resolution is ambiguous (CERAS019; see
+            // GeneratorDiagnosticsTests).
             var stableNameOwners = new Dictionary<string, INamedTypeSymbol>(StringComparer.Ordinal);
             foreach (var type in finalTypes)
             {
@@ -444,7 +445,8 @@ namespace Ceras.SourceGenerator
             }
 
             // ------------------------------------------------------------------------------------
-            // Diagnostic: unsupported constructor-dependent immutable cycles (TODO Phase 3.2).
+            // Diagnostic: unsupported constructor-dependent immutable cycles (CERAS026; see
+            // ImmutableCycleDiagnosticTests).
             //
             // Runs over the types that actually get a generated formatter (they are the only ones
             // whose construction Ceras controls here). The check is a pure compile-time member-graph
@@ -474,7 +476,7 @@ namespace Ceras.SourceGenerator
             // Minimal registrations for referenced-but-not-generated types.
             //
             // The generated manifest must be complete enough to bake the schema without runtime
-            // auto-registration (TODO Phase 3.4). A member can reference a concrete type that is
+            // auto-registration. A member can reference a concrete type that is
             // intentionally not part of the closure: blacklisted/engine types (e.g. a GodotObject
             // subclass with a user-provided custom formatter) or external types served by the
             // reflection fallback. Such a type is not discovered, so it gets no generated schema;
@@ -708,7 +710,7 @@ namespace Ceras.SourceGenerator
                 var sbFmt = new StringBuilder();
                 AppendGeneratedHeader(sbFmt);
 
-                // Phase 2.4: for a closed generic, reuse one open generic formatter template per
+                // For a closed generic, reuse one open generic formatter template per
                 // definition and emit only a thin per-closed-type subclass carrying the closed schema.
                 bool isClosedGeneric = type.IsGenericType && !IsOpenType(type);
                 if (isClosedGeneric)
@@ -814,7 +816,7 @@ namespace Ceras.SourceGenerator
             // minimal schemas. These types have no generated formatters but may appear as fields or as
             // generic type arguments in serialized collections (e.g. List<ILogicalEntity>) or as members
             // served by a user-provided custom formatter (e.g. a blacklisted engine object). Without
-            // pre-registration the bake cannot resolve their type ids (TODO Phase 3.4).
+            // pre-registration the bake cannot resolve their type ids.
             foreach (var type in ordered)
             {
                 if (type.TypeKind != TypeKind.Interface && !type.IsAbstract) continue;

@@ -17,7 +17,7 @@ namespace Ceras.Test.BuiltinShapes
     }
 
     /// <summary>
-    /// TODO 0.5 (folded "Review later"): DateTimeOffset is consistently supported end-to-end as a
+    /// DateTimeOffset is consistently supported end-to-end as a
     /// fixed-width scalar (8-byte ticks + 2-byte offset minutes), following the DateTime/TimeSpan/Guid
     /// pattern. Covered as root and member on the fast path and the interpreter, with pinned bytes.
     /// </summary>

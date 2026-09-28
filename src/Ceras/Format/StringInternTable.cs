@@ -182,7 +182,7 @@ namespace Ceras.Format
             uint count = SchemaSection.ReadLeb128(ref reader);
 
             // Every entry is at least one leb128 length byte, so a count larger than the remaining bytes
-            // is corrupt. Reject before allocating (TODO 0.6 item 8).
+            // is corrupt. Reject before allocating (see ProtocolValidationTests).
             if (count > (uint)sequence.Length)
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
                     $"Corrupt string table: declared {count} entries but only {sequence.Length} bytes remain.");

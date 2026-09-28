@@ -46,7 +46,7 @@ namespace Ceras.Test.BuiltinShapes
     }
 
     /// <summary>
-    /// TODO 0.5 item 4: the finite-context rule must hold through structural registration. Knowing an
+    /// The finite-context rule must hold through structural registration. Knowing an
     /// open generic (List<>, or a user generic) does not authorize every closed combination: only the
     /// closed generic reachable from a context root (or declared with [CerasKnownType]) is registered.
     /// </summary>

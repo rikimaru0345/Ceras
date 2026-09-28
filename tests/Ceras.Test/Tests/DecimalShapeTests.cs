@@ -17,7 +17,7 @@ namespace Ceras.Test.BuiltinShapes
     }
 
     /// <summary>
-    /// TODO 0.5 (folded "Review later"): decimal is a fully supported fixed-width scalar. Well-known id
+    /// decimal is a fully supported fixed-width scalar. Well-known id
     /// 13, 16 bytes, the four <see cref="decimal.GetBits(decimal)"/> words (lo, mid, hi, flags) each
     /// little-endian. Covered as root and member on both the matching fast path and the migration
     /// interpreter, with pinned bytes and boundary/precision values.

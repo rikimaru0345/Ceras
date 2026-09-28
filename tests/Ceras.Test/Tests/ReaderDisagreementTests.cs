@@ -59,7 +59,7 @@ namespace Ceras.Test.ReaderDisagreement
     public class RdTypeHolder { public Type T; public int After; }
 
     /// <summary>
-    /// Regression coverage for TODO 0.3: the migration interpreter (slow path, forced by a
+    /// Regression coverage: the migration interpreter (slow path, forced by a
     /// fingerprint mismatch) must agree with the generated/formatter readers for ordinary values.
     /// Each case asserts the value on the matching-layout fast path and on the interpreter path,
     /// and the scalar-layout tests pin the exact payload bytes so a shared writer/reader mistake

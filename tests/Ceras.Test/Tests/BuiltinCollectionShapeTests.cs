@@ -142,7 +142,7 @@ namespace Ceras.Test.BuiltinShapes
         {
             // A Queue<>/Stack<> subclass cannot be described by the built-in collection formatter (it has
             // no Add, and the built-in QueueFormatter would lose the subclass). It must fail loudly when
-            // the manifest is baked, not silently misread at load (TODO 0.5).
+            // the manifest is baked, not silently misread at load.
             var q = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(
                 () => SchemaRegistry.TryBuildStructuralSchema(typeof(BsPlainQueue), out _));
             Assert.Contains("Queue", q.Message);

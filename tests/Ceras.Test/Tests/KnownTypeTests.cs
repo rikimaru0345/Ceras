@@ -3,7 +3,7 @@ using Xunit;
 using Ceras;
 using Ceras.Generated;
 
-// Phase 2.1: explicitly declare a closed generic (and its transitive closure) that is hidden
+// Explicitly declare a closed generic (and its transitive closure) that is hidden
 // behind object/interface members and therefore not reachable by walking member types.
 [assembly: CerasKnownType<List<Ceras.Test.Known.KnownHidden>>]
 

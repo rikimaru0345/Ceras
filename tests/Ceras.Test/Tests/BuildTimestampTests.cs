@@ -16,7 +16,7 @@ namespace Ceras.Test.BuiltinShapes
     public class BsBuildHolder { public int Value; }
 
     /// <summary>
-    /// TODO 0.6 item 7: the producer build timestamp is supplied once per owning build via an
+    /// The producer build timestamp is supplied once per owning build via an
     /// assembly-level <see cref="CerasBuildTimestampAttribute"/> (MSBuild-friendly), recorded in the
     /// header, kept out of the layout fingerprint, and used to reject a newer save before payload
     /// decoding. Unknown is an explicit, visible mode.

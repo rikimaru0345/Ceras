@@ -17,7 +17,7 @@ namespace Ceras.Test
     public class RobustInterningVerificationTests : TestBase
     {
         /// <summary>
-        /// Phase 3.3 two-region format: schema strings live in their own region (between the schema
+        /// The two-region format (v4): schema strings live in their own region (between the schema
         /// bytes and the data section) and are NOT shared with the payload string table. Payload
         /// strings still intern within the payload table.
         /// </summary>

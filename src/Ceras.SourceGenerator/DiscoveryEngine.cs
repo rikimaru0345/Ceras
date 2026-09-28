@@ -54,7 +54,7 @@ namespace Ceras.SourceGenerator
 
                 // Always explore generic arguments of a constructed/known type so the closed set is
                 // complete even when the type itself is a well-known generic (e.g. List<KnownItem>
-                // declared via [CerasKnownType<List<KnownItem>>]) (TODO Phase 2.1).
+                // declared via [CerasKnownType<List<KnownItem>>]).
                 if (currentType.IsGenericType)
                 {
                     foreach (var arg in currentType.TypeArguments)

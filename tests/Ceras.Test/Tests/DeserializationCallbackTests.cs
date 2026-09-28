@@ -5,7 +5,7 @@ using Ceras;
 using Ceras.Format;
 using Ceras.Generated;
 
-// Priority 0.4.2 — deserialization callbacks must be consistent across the generated reader and
+// Deserialization callbacks must be consistent across the generated reader and
 // the migration interpreter, run exactly once per instance, and be deferred until the whole root
 // graph is populated so a callback can inspect parent/sibling/shared/cyclic references.
 namespace Ceras.Test.DeserializationCallbacks

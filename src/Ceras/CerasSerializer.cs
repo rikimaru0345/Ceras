@@ -126,7 +126,7 @@ namespace Ceras
 			// Seal the config before resolving any formatter. A config subclass may install standalone
 			// custom formatters (and finalize size limits / the type binder) from its Seal() override;
 			// resolving the string/Type formatters first would cache their pre-seal values, so a formatter
-			// supplied during sealing would be silently ignored (TODO "Review later": sealing gap).
+			// supplied during sealing would be silently ignored (see ConfigSealingTests).
 			// Sealing first also makes OnResolveFormatter callbacks added during sealing visible to the
 			// resolver list captured just below.
 			Config.Seal();

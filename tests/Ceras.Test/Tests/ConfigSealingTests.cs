@@ -5,7 +5,7 @@ using Ceras.Formatters;
 using Ceras.Generated;
 using Xunit;
 
-// Regressions for two config-sealing gaps (TODO "Review later"):
+// Regressions for two config-sealing gaps, both now closed (FIX 1 / FIX 2 below):
 //  1. CerasRobustConfig.StringTableCompression could be changed after Seal().
 //  2. A standalone custom formatter installed from a config's Seal() override was ignored for the
 //     formatters the base constructor resolves eagerly (string / System.Type).
