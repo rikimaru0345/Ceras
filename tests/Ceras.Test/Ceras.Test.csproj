@@ -35,4 +35,18 @@
     <None Include="Fixtures\**\*.bin" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!--
+    Probes/*.cs is *not* part of this compilation. It is the source of a small console
+    program that BanVerdictCacheColdPathTests compiles at test time and runs as a fresh child process,
+    because the ban verdict cache is only empty at the start of a process and the shared xUnit
+    process cannot observe "the first lookup". It is a .cs file so it stays readable and navigable,
+    but it must be excluded from the build here - a Main and a Program class in a test assembly would
+    be ambiguous, and the probe deliberately has no xunit dependency. BanVerdictCacheColdPathTests
+    asserts that it still compiles, so a stale probe fails the suite instead of passing quietly.
+  -->
+  <ItemGroup>
+    <Compile Remove="Probes\**" />
+    <None Include="Probes\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
