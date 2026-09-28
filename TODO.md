@@ -3,10 +3,11 @@
 Remaining work, reconciled with the 2026-09-27 review. Completed implementation history
 belongs in git, tests, and the format/API documentation, not this checklist.
 
-**Start with Priority 0 below. Do not jump to optimization or later milestones while
-these correctness gates are open.** Robust save/load is the first delivery priority.
-Networking shares its generator foundations and receives its dedicated execution path later.
-The settled contracts below are targets; they are not claims that the code already meets them.
+**Priority 0 (the save/load correctness gates) is closed.** Milestone 1 (authoritative
+layouts and finite contexts) is the next correctness milestone; Milestone 3
+(optimization) is already proceeding on the now-merged save/load fast path. Networking
+shares its generator foundations and receives its dedicated execution path later. The
+settled contracts below are targets; they are not claims that the code already meets them.
 
 ## Settled goals and contracts
 
@@ -57,35 +58,6 @@ The settled contracts below are targets; they are not claims that the code alrea
 - **Game-data IDs:** context-specific formatters write recipe/item/etc. IDs and resolve them
   to existing local objects on receipt. The same type may serialize differently in saves.
 
-## Priority 0 — correctness gates before release or optimization
-
-Robust save/load is first. Matching-layout reads must remain generated and must not parse
-schemas. Add regressions on both paths, including real historical-writer fixtures when
-claiming migration coverage. The fixtures in `fixtures/Ceras.HistoricalWriter` are checked
-in; reader tests must not reference the historical writer assembly. Do not infer
-cross-version compatibility from a fingerprint flip or a same-version roundtrip.
-
-- **Bool width and malformed collection schema.** The alleged removed `List<bool>`
-  corruption is a false positive for files written by this version: its normal skip
-  path advances one byte. A hand-registered collection schema lacking element type
-  arguments can still fail or desync in skip/read paths. Validate or reject that
-  malformed shape consistently; setting bool's fixed width to one is safe but not
-  a substitute for schema validation.
-- **Dead branches (former 0.8.13).** Remove the always-true include guard in
-  `MemberExplorer`, the unreachable reflective `CollectionFormatter` branch, and
-  stale `WellKnownTypes` width comments where still present; validate behavior before
-  deleting. Do not conflate this with a change to default member selection.
-- **Warnings.** Nullable is enabled project-wide. The five assignment/argument
-  warning families (`CS8601`, `CS8604`, `CS8618`, `CS8600`, `CS8603`) are now clear
-  under `src/Ceras/Formatters/`, but remain elsewhere. Make per-site
-  contract/check/default decisions; no broad suppression. Maintain zero dereference
-  warnings. The generator and all project props now pin C# 14; the generated-output
-  syntax/binding test enforces that consumer version.
-- **Roadmap and public claim drift.** Remove completed narratives from this file and
-  stale `TODO Phase` comments, outdated expected-failure tests and package claims
-  (`zero-allocations`, universal types, Unity/IL2CPP). Keep `Format/LAYOUT.md`, README,
-  and experimental compatibility wording aligned with verified bytes and behavior.
-
 ## Milestone 1 — authoritative layouts and finite contexts
 
 Build on existing manifests, canonical identities, fixed-width primitives, baked
@@ -129,9 +101,13 @@ context after seal or parse the schema on a matching-layout load.
 
 ## Milestone 2 — old-data graph and migration
 
-Replace the streaming interpreter's discard-and-assign limitation; retain Priority 0
-regressions if it supersedes interim reader fixes. Historical writer fixtures are
-already present but need expansion for the cases below.
+Replace the streaming interpreter's discard-and-assign limitation; retain the existing
+reader regressions if it supersedes interim reader fixes. Historical writer fixtures are
+already present but need expansion for the cases below. Matching-layout reads must stay
+generated and must not parse the schema, and reader tests must not reference the
+historical writer assembly: pin migration coverage with real historical-writer fixtures on
+both readers, and never infer cross-version compatibility from a fingerprint flip or a
+same-version roundtrip.
 
 - Decode bytes into an identity-preserving graph of old type identities, stable fields,
   scalar values, collections and references; expose it to application migration code,
