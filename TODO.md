@@ -234,23 +234,32 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
 - Preserve explicit inaccessible-signature diagnostics and generic accessor semantics;
   revisit ref-return accessors only for a demonstrated need.
 - Build warnings are clean; omit the unsupported legacy Unity addon from the default build.
-- **Trimming and NativeAOT are known broken** and are now measured rather than assumed.
-  `samples/TrimAotSmoke/run-smoke.sh` builds the library's consumer app four ways — jit,
-  self-contained, trimmed, AOT — and runs each, so a failure is attributable; it is outside
-  the solution and costs the normal build nothing. Self-contained-untrimmed passes and
-  trimmed/AOT fail, so the failures are genuinely caused by trimming. Ordered defects:
-  1. the trimmer deletes `ReferenceFormatter<>`/`ReferenceFormatter_KnownSealedType<>`
-     constructors, which are only ever built reflectively (`IL2067`); hand the generator's
-     already-typed `[CerasInject]` factory down instead of `MakeGenericType`, or annotate;
-  2. `Assembly.GetCallingAssembly()` throws on NativeAOT, so `CerasRobustSerializer` cannot
-     be constructed at all — and its only consumer is the optional build timestamp;
-  3. a closed generic nothing names statically has no native code, so `TypeConfig<T>` and
-     `MemberConfig<T>` fail under AOT; construct them directly instead of via `Activator`;
-  4. the remaining `MakeGenericType`/`Array.CreateInstance`/`MakeGenericMethod` sites are
-     latent instances of the same class;
-  5. the read path resolves saved type *names* back to `Type`s, so a trimmed app that kept
-     the writer but dropped the type cannot load its own old saves — the failure most likely
-     to reach the field, and the one to fix by resolving against the generated manifest.
+- **Trimming works; NativeAOT is parked by owner decision (2026-09-28).** Not a target
+  until it becomes one, and the owner will say when. Keep the repeatable check either way —
+  `samples/TrimAotSmoke/run-smoke.sh` builds the library's consumer app four ways (jit,
+  self-contained, trimmed, AOT) and runs each, so a failure is attributable, and it is outside
+  the solution so it costs the normal build nothing. Measured state:
+  - `jit`, `sc` and `trim` all pass, all three sections (raw round trip, robust round trip,
+    robust schema migration). Trimming is therefore *not* a live risk, and the earlier
+    "trimmed/AOT fail" claim is stale.
+  - `aot` still fails. Four of the five originally ordered defects are fixed: reference
+    formatter constructors are rooted on their open generic definitions; the owning assembly is
+    an explicit input instead of an `Assembly.GetCallingAssembly()` stack walk, gated on
+    `RuntimeFeature.IsDynamicCodeSupported`; the resolver-constructed formatter families and the
+    generated formatters and their manifest members are rooted; and the library's own
+    `TypeConfig<T>`/`MemberConfig<T>` are constructed directly. What remains is a *different*
+    class of problem: `ArrayFormatter<int>` reports "missing native code or metadata", because
+    rooting members keeps a `MakeGenericType`-closed generic loadable but NativeAOT has no
+    compiled instantiation for a closed generic it only learns about at runtime. No amount of
+    rooting fixes that; the compiler has to be told, and only the source generator knows which
+    closed types exist. The obvious route is extending the generator's existing
+    `TrimmingRoots` emission, but note the honest limit that any such fix has: the transient
+    path can be asked to serialize a type no generated context knows about, which is what the
+    reflection fallback is for.
+  - The unfixed read-path defect stands and is the one that would matter if AOT ever became a
+    target: the read path resolves saved type *names* back to `Type`s, so a trimmed app that
+    kept the writer but dropped a type cannot load its own saves. Fix it by resolving against
+    the generated manifest — which is the same work as Milestone 1's manifest identities.
 
 ## Deferred
 
