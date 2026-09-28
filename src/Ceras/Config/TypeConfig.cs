@@ -208,26 +208,53 @@
 			Type = type;
 			IsStatic = isStatic;
 
-			var configType = typeof(MemberConfig<>).MakeGenericType(type);
+			// CreateMemberConfig, not Activator inline: TypeConfig<T> overrides it and constructs
+			// MemberConfig<T> directly, and that is the only place in the library where the closed
+			// instantiation is visible to a compiler. Calling it from the constructor is safe here
+			// because the override cannot observe anything of TypeConfig<T> that is not set yet: the
+			// only derived type is TypeConfig<T> itself (its constructor is internal, so nothing
+			// outside this assembly can extend it) and its constructor body is empty. The defaults are
+			// applied below, in the same order as before.
+			var members = isStatic ? type.GetAllStaticDataMembers() : type.GetAllDataMembers();
+			var allMembers = new List<MemberConfig>();
+			foreach (var m in members)
+				allMembers.Add(CreateMemberConfig(m));
 
-			// Activator returns object?; the constructed type is a MemberConfig<> over the very type
-			// reflected over here, and its arguments are two real instances, so a null would be a
-			// broken deployment rather than a runtime condition.
-			var members = from m in isStatic ? type.GetAllStaticDataMembers() : type.GetAllDataMembers()
-						  let a = new object[] { this, m }
-						  select (MemberConfig)Activator.CreateInstance(configType,
-																	  BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-																	  null,
-																	  a,
-																	  null)!;
-
-			_allMembers = members.ToList();
+			_allMembers = allMembers;
 
 			TypeConfigDefaults.ApplySpecializedDefaults(this); // apply special handling first
 
 			TypeConfigDefaults.ApplyTypeAttributes(this); // then attributes on the type and members
 			foreach (var m in _allMembers)
 				TypeConfigDefaults.ApplyMemberAttributes(m);
+		}
+
+		/// <summary>
+		/// Builds the config for one member this type exposes.
+		/// <para>
+		/// Called from the constructor, once per member, before any other construction runs: an
+		/// override must not read state its own constructor has not assigned yet.
+		/// </para>
+		/// <para>
+		/// The implementation here constructs the closed <c>MemberConfig&lt;T&gt;</c> reflectively, which
+		/// a NativeAOT compiler can only satisfy once that closed type has been named statically
+		/// somewhere - see <see cref="TypeConfig{T}"/>, which is the override that names it. A type
+		/// reached only reflectively (through <see cref="CerasConfig.ConfigType(Type)"/>) otherwise
+		/// gets <c>NotSupportedException: ... no code was generated for it</c> for a value-type
+		/// argument.
+		/// </para>
+		/// </summary>
+		protected virtual MemberConfig CreateMemberConfig(MemberInfo member)
+		{
+			// Activator returns object?; the constructed type is a MemberConfig<> over the very type
+			// reflected over here, and its arguments are two real instances, so a null would be a
+			// broken deployment rather than a runtime condition.
+			return (MemberConfig)Activator.CreateInstance(
+				typeof(MemberConfig<>).MakeGenericType(Type),
+				BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+				null,
+				new object[] { this, member },
+				null)!;
 		}
 
 		internal MemberConfig GetMemberConfig(MemberInfo memberInfo)
@@ -422,6 +449,14 @@
 	public class TypeConfig<T> : TypeConfig
 	{
 		internal TypeConfig(CerasConfig config, bool isStatic) : base(config, typeof(T), isStatic) { }
+
+		/// <summary>
+		/// Constructs <c>MemberConfig&lt;T&gt;</c> directly instead of going through the reflective
+		/// <see cref="TypeConfig.CreateMemberConfig"/>. This single line is what makes a closed
+		/// <c>MemberConfig&lt;T&gt;</c> exist under NativeAOT: ILC emits native code for a closed generic
+		/// only when some code in the compilation names it, and this is the only place Ceras does.
+		/// </summary>
+		protected override MemberConfig CreateMemberConfig(MemberInfo member) => new MemberConfig<T>(this, member);
 
 		#region Construction
 

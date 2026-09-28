@@ -50,12 +50,19 @@ namespace Ceras.Test
                     configGotCalled = true;
             };
 
-            // Configuring primitives should not be possible
-            foreach (var t in primitiveTypes)
-                ExpectException(() => config.ConfigType(t));
+            // Configuring primitives should not be possible.
+            // Through the generic overload, which is what an application (and the generated
+            // registration) uses. ConfigType(Type) is the same call behind
+            // [RequiresUnreferencedCode]/[RequiresDynamicCode], and it can only be justified for a
+            // type computed at runtime - the opposite of this fixed list.
+            ExpectException(() => config.ConfigType<Type>());
+            ExpectException(() => config.ConfigType<byte>());
+            ExpectException(() => config.ConfigType<int>());
+            ExpectException(() => config.ConfigType<float>());
+            ExpectException(() => config.ConfigType<string>());
 
             // Enum is not a real type (it's an abstract base class)
-            ExpectException(() => config.ConfigType(typeof(Enum)));
+            ExpectException(() => config.ConfigType<Enum>());
 
 
             if (configGotCalled)
