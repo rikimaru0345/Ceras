@@ -231,6 +231,28 @@ namespace Ceras.Format
 
                     SkipPolymorphicValue(WellKnownTypes.Object, ref reader);
                     return null;
+                case WellKnownTypes.Array:
+                    // The *declared* type is System.Array itself, and that declaration is a polymorphic
+                    // slot exactly like System.Object above: it names no element type, so the writer
+                    // reaches it through ReferenceFormatter<Array> and writes a reference marker, the
+                    // concrete runtime type as a Type value, and then that type's own payload. (A
+                    // *concrete* array is a different identity entirely — a manifest entry of kind
+                    // GenericInstantiation with definition Array — and it is written by
+                    // ArrayFormatter with no marker in front of it; see ReadGenericInstantiation.)
+                    //
+                    // This case used to fall through to the default branch, which treats an id below
+                    // the manifest base it does not recognize as "nothing describable here" and
+                    // returns without consuming a byte. So the slot came back null with its whole
+                    // payload still in the stream, and every member after it decoded from the wrong
+                    // offset — which the exact-consumption check then reports as a layout
+                    // disagreement. The two readers have to agree on the *bytes*, and these are the
+                    // bytes; the rank>1 refusal stays where it is, on the write side, because the
+                    // rank is not in the type value either.
+                    if (mode == WalkMode.Read)
+                        return ReadPolymorphicValue(WellKnownTypes.Array, targetType, ref reader, existingObject);
+
+                    SkipPolymorphicValue(WellKnownTypes.Array, ref reader);
+                    return null;
                 default:
                 {
                     if (typeId < WellKnownTypes.UserTypeBase)
@@ -1593,6 +1615,12 @@ namespace Ceras.Format
                     // The mirror of the array exception below: an array-typed member is written by
                     // ArrayFormatter with no reference marker, so a *removed* one has to be skipped the same
                     // way. Without this the skip reads a marker where the writer wrote a count.
+                    //
+                    // A member declared as System.Array is deliberately NOT that case, and the id keeps the
+                    // two apart on its own: a declared concrete array is a manifest entry the file
+                    // describes, so IsArrayPayload finds it, while the well-known id of the declared type
+                    // System.Array is never a schema entry. It falls to SkipValue, which reads it as the
+                    // polymorphic slot it is — marker, type value, count, elements.
                     if (mapping.NewField == null && IsArrayPayload(mapping.OldField.TypeId))
                         SkipCollectionPayload(PayloadShape.Array, SkipSchemaOf(mapping.OldField.TypeId), ref reader);
                     else
@@ -1609,6 +1637,12 @@ namespace Ceras.Format
                     // An array-typed member is written by ArrayFormatter with no reference marker (the
                     // declared type is exactly an array), so it must be read through the structural
                     // array reader instead of the polymorphic path.
+                    //
+                    // A member declared as System.Array is the other case and falls through to ReadValue
+                    // below, which reads the well-known declared-type id as a polymorphic slot. The two
+                    // conditions cannot be satisfied at once, because a declared System.Array is not an
+                    // array type in reflection (`typeof(Array).IsArray` is false) and a declared `T[]` is a
+                    // manifest entry rather than that id.
                     object value;
                     if (mapping.NewField.FieldType.IsArray &&
                         _file.TryGetById(mapping.OldField.TypeId, out var fieldSchema) &&
