@@ -103,6 +103,23 @@ namespace Ceras
 		readonly List<IFormatterResolver> _resolvers = new List<IFormatterResolver>();
 		readonly TypeDictionary<TypeMetaData> _metaData = new TypeDictionary<TypeMetaData>();
 		readonly TypeDictionary<TypeMetaData> _staticMetaData = new TypeDictionary<TypeMetaData>();
+
+		/// <summary>
+		/// This serializer's resolved formatters, indexed by <see cref="FormatterSlotId{T}"/>. Per
+		/// serializer, so two serializers never share a cell however they are used, and a formatter -
+		/// and through it this whole serializer, its config, its caches and its pools - dies with the
+		/// serializer that built it.
+		/// <para>
+		/// Grown by <see cref="Array.Resize{T}(ref T[], int)"/>, which copies, so every index a
+		/// <see cref="FormatterSlotId{T}"/> has handed out still names the same formatter. Correctness
+		/// does not depend on that: an index that is out of range, or a cell that reads null, takes the
+		/// slow path and is resolved again. Copying is what stops that from happening on every type
+		/// after a growth, and an index shared between two types could not be recovered that way at all
+		/// - which is why the indices come from one counter.
+		/// </para>
+		/// </summary>
+		IFormatter?[] _formatterTable = new IFormatter?[16];
+
 		readonly NoLockFactoryPool<InstanceData> _instanceDataPool;
 		readonly Stack<InstanceData> _recursionStack = new Stack<InstanceData>();
 		internal InstanceData InstanceData;
@@ -612,7 +629,41 @@ namespace Ceras
 				   $"Ceras could not create a reference formatter for '{Format.TypeIdentity.GetCanonicalNameOrUnknown(type)}'. " +
 				   "The type is not registered and could not be resolved; declare it with [CerasSerializable] or configure it.");
 
-		internal IFormatter<T> GetFormatter<T>() => (IFormatter<T>)GetReferenceFormatterRequired(typeof(T));
+		internal IFormatter<T> GetFormatter<T>()
+		{
+			// Fast path: one static read, one bounds-checked load, one null test. The type is already
+			// known here - the call site closed over T - so its index is a constant for this call, and
+			// the cell it names belongs to this serializer alone.
+			int slot = FormatterSlotId<T>.Id;
+			var table = _formatterTable;
+			if (slot != 0 && (uint)slot < (uint)table.Length && table[slot] is IFormatter<T> cached)
+				return cached;
+
+			return ResolveAndStoreFormatter<T>(slot);
+		}
+
+		IFormatter<T> ResolveAndStoreFormatter<T>(int slot)
+		{
+			// Re-read, rather than trusting a value another thread may have moved in the meantime: what
+			// matters is the index every thread will agree on, and only a read gives that.
+			slot = FormatterSlotId<T>.Get();
+			var formatter = (IFormatter<T>)GetReferenceFormatterRequired(typeof(T));
+
+			// Resolving one type can resolve others - a reference formatter builds the formatters of the
+			// types it can hold - so the cell is grown into after, never before. Reserving first and
+			// growing second would leave a formatter in a cell of an array nothing reads any more.
+			var table = _formatterTable;
+			if (slot >= table.Length)
+			{
+				int size = table.Length;
+				while (slot >= size) size *= 2;
+				Array.Resize(ref _formatterTable, size);
+				table = _formatterTable;
+			}
+
+			table[slot] = formatter;
+			return formatter;
+		}
 		internal IFormatter<T> GetSpecificFormatter<T>() => (IFormatter<T>)GetSpecificFormatter(typeof(T));
 		internal IFormatter<T> GetReferenceFormatter<T>() => (IFormatter<T>)GetReferenceFormatterRequired(typeof(T));
 
@@ -849,6 +900,69 @@ namespace Ceras
 		internal ProtocolChecksum() { _hash.Init(0); }
 		internal void Add(string name) { if (_isClosed) throw new InvalidOperationException("Closed"); var bytes = Encoding.UTF8.GetBytes(name); _hash.Update(bytes); }
 		internal void Finish() { _isClosed = true; _checksum = (int)_hash.Digest(); }
+	}
+
+	/// <summary>
+	/// Why a closed type is given a slot at all: reaching the formatter through
+	/// <see cref="CerasSerializer.GetFormatter{T}"/> measured 17.7 ns of a 35 ns single-field encode,
+	/// and only the <see cref="Ceras.Helpers.TypeDictionary{TValue}"/> search in it was a real hash
+	/// lookup - the rest was unwinding the same metadata again on every call. A static per closed type
+	/// is the only place a call site that already knows <c>T</c> can keep a note without a lookup.
+	/// <para>
+	/// Nothing here leads to a formatter. The formatter lives in the serializer that built it, so a
+	/// note that reached one statically would keep that serializer - its config, its caches, its
+	/// pools - reachable for as long as the type stays loaded, which is not a trade a library makes
+	/// with its caller over a cache. An earlier version remembered the table's identity, which is
+	/// faster and leaks: the table holds the formatters, the formatters hold the serializer, so the
+	/// note reached it after all, by a longer chain than intended.
+	/// </para>
+	/// </summary>
+	/// <summary>
+	/// One counter for every closed type, so no two are ever handed the same index. It is separate
+	/// from the per-type class because a generic static is per closed type, and two types sharing one
+	/// would share an index and overwrite each other's formatter.
+	/// </summary>
+	static class FormatterSlotCounter
+	{
+		public static int Next;
+	}
+
+	/// <summary>
+	/// The index into a serializer's <c>_formatterTable</c> at which this closed type's formatter
+	/// lives. Zero means unassigned.
+	/// <para>
+	/// One int per closed type, written once and only read thereafter. Two serializers used by two
+	/// threads is a supported arrangement and both of them read this field, so it is the only mutable
+	/// state on the lookup path and it has to be a single value: an earlier version kept the owner's
+	/// id and the slot as two fields, and two threads writing them could interleave into one memo
+	/// holding thread A's slot under thread B's id, after which B's check passed and B encoded with
+	/// A's formatter. Silently, on a path whose whole job is to be right. A lone int cannot tear.
+	/// </para>
+	/// <para>
+	/// What makes this correct rather than merely untorn is that the table it indexes is the
+	/// <em>serializer's</em>, not shared. Two serializers give the same type the same index and store
+	/// their own formatter in their own copy, so there is nothing to interleave in the first place.
+	/// The alternative - one memo object per type naming the serializer that owns it - is also
+	/// untorn, and worse: whichever serializer wrote last owns it, so two threads alternating
+	/// between the two would miss forever and take the slow path on every call, each miss allocating.
+	/// Sharing the index and not the storage makes the two independent.
+	/// </para>
+	/// </summary>
+	static class FormatterSlotId<T>
+	{
+		public static int Id;
+
+		/// <summary>
+		/// Hands out this type's index, assigning one on first use. Threads racing here may each
+		/// allocate an index and discard one of them, which costs a table slot and nothing else -
+		/// the value read back is the one every thread will agree on.
+		/// </summary>
+		public static int Get()
+		{
+			while (Id == 0)
+				Id = System.Threading.Interlocked.Increment(ref FormatterSlotCounter.Next);
+			return Id;
+		}
 	}
 
 	/// <summary>

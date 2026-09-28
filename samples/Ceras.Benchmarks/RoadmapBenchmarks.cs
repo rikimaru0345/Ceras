@@ -241,6 +241,21 @@ namespace Ceras.Benchmarks
             Add(rows, "Network encode pooled chat", 200000, encodePooledChat, $"{chatBytes.Length} B, no result array");
             CerasBufferPool.Return(pooledBuffer);
 
+            // The same encode at two field counts, so the per-field cost and the fixed cost of an
+            // operation are both visible. Subtracting these two rows gives the per-field cost; the
+            // 1-field row is what a message costs before any field is written.
+            var wide1 = new Wide1 { F0 = 1 };
+            var wide81 = BenchData.MakeWide81();
+            Action encodeWide1 = () => { pooledOffset = 0; fast.Serialize(wide1, ref pooledBuffer, ref pooledOffset); };
+            Action encodeWide81 = () => { pooledOffset = 0; fast.Serialize(wide81, ref pooledBuffer, ref pooledOffset); };
+            var wideBuffer = CerasBufferPool.Rent(64 * 1024);
+            fast.Serialize(wide1, ref wideBuffer, ref pooledOffset);
+            pooledOffset = 0;
+            Add(rows, "Network encode pooled 1 field", 200000, encodeWide1, "fixed cost of an operation, ~no fields");
+            Add(rows, "Network encode pooled 81 fields", 60000, encodeWide81, "fixed cost + 80 more fields");
+            if (Environment.GetEnvironmentVariable("CERAS_FIXED") == "1") { Console.WriteLine("=== FIXED COST PROBE ==="); FixedCostProbe.Run(); }
+            CerasBufferPool.Return(wideBuffer);
+
             // ------------------------------------------------------------------
             // Cold setup vs steady state, and the game's per-operation construction.
             // ------------------------------------------------------------------
