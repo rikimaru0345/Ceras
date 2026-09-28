@@ -65,17 +65,6 @@ claiming migration coverage. The fixtures in `fixtures/Ceras.HistoricalWriter` a
 in; reader tests must not reference the historical writer assembly. Do not infer
 cross-version compatibility from a fingerprint flip or a same-version roundtrip.
 
-- **Temporarily reject problematic collection shapes.** A wrap-only `List<T>` or
-  `Dictionary<K,V>` subclass throws on the generated path but can **silently load
-  empty** on migration because its wrapping constructor copies an empty backing
-  collection before the interpreter fills it. `ReadOnlyCollection<T>` subclasses
-  fail Save with untyped exceptions; even the base type loses self-cycles on the
-  generated path. **Decision:** reject *all* `List<T>`/`Dictionary<K,V>` subclasses
-  and `ReadOnlyCollection<T>`/`ReadOnlyDictionary<K,V>` (base and subclasses) early
-  on both robust and raw paths, including generated diagnostics and migration reads.
-  Exact base `List<T>` and `Dictionary<K,V>` stay supported. The game has no concrete
-  use of the deferred shapes; `IReadOnly*` API signatures are not themselves these
-  collection types. Defer their construction/cycle/comparer contract until needed.
 - **Reject array-to-polymorphic member type changes early on migration.** Changing a
   member's declared type between concrete `T[]` and `System.Array`/`object` changes
   its reference-marker grammar. The file is currently rejected late by unread-byte
@@ -241,4 +230,8 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
 
 Borrowed ref-struct packet views; opaque framing for custom payloads; lazy old-data
 graphs; broad speculative specializations, compression
-or interning redesign, and JIT tuning without representative evidence.
+or interning redesign, and JIT tuning without representative evidence. Support for
+`ReadOnlyCollection<T>`/`ReadOnlyDictionary<K,V>` (including subclasses) and
+`List<T>`/`Dictionary<K,V>` subclasses is deferred in both raw and robust modes;
+the base `List<T>`/`Dictionary<K,V>` remain supported. The refused families need a
+reviewed construction, cycle and comparer contract before support is restored.
