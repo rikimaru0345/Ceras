@@ -100,7 +100,12 @@ namespace Ceras.Test.InheritedMigration
 
     public static class InheritedMigrationProbe
     {
-        public static MigrationContext? LastContext;
+        // Left null by Reset() until an [OnAfterDeserialize] hands one over, so the reads below say
+        // so with `!` at the point of use. The test project builds with nullable annotations off --
+        // the same reason SystemArraySlotMigrationTests.LabelFor's parameter carries no annotation --
+        // so the field is a plain reference field and a `?` here is CS8632. Runtime behaviour is
+        // either way: MigrationContext is a class, so `T?` would only have been an annotation.
+        public static MigrationContext LastContext;
         public static void Reset() => LastContext = null;
     }
 
