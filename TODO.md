@@ -82,7 +82,15 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   detection. **Decision:** no new wire markers; diagnose the incompatible old/new
   declaration at robust Load during schema mapping, before reading the root payload,
   and advise renaming the member and migrating intentionally. A generator cannot
-  diagnose an old file it has not seen. This does not change Save bytes or speed.
+  diagnose an old file it has not seen. Reject incompatible changes inside structural
+  generic arguments too (`List<int[]>` ↔ `List<object>`, `List<int>` → `List<long>`),
+  unless the old alias resolves to the same current type; don't let them desynchronize
+  or leak reflection exceptions. This does not change Save bytes or speed.
+- **Canonical rank-one array identity.** `TypeIdentity.TryParseCanonicalName` uses
+  `MakeArrayType(1)` for a canonical `T[]`, producing non-vector `T[*]` instead of
+  `T[]`; a normal `List<int[]>` can therefore fail even on a same-build interpreter
+  read. Resolve vector arrays as vectors and pin matching-layout and migration
+  collection arguments before claiming the array-transition guard covers them.
 - **Bool width and malformed collection schema.** The alleged removed `List<bool>`
   corruption is a false positive for files written by this version: its normal skip
   path advances one byte. A hand-registered collection schema lacking element type
