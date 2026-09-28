@@ -83,13 +83,6 @@ cross-version compatibility from a fingerprint flip or a same-version roundtrip.
   declaration at robust Load during schema mapping, before reading the root payload,
   and advise renaming the member and migrating intentionally. A generator cannot
   diagnose an old file it has not seen. This does not change Save bytes or speed.
-- **Object-cache identity, not value equality.** `ObjectCache` constructs a
-  `Dictionary<object,int>` with the default comparer when no override is configured;
-  distinct objects that compare equal can collapse into one back-reference. The
-  config comment promises reference equality, and an existing regression is skipped.
-  Make reference identity the default, preserve the explicit comparer option if its
-  semantics are intentional, and pin both distinct-equal and genuinely shared objects
-  in raw and robust contexts.
 - **Bool width and malformed collection schema.** The alleged removed `List<bool>`
   corruption is a false positive for files written by this version: its normal skip
   path advances one byte. A hand-registered collection schema lacking element type
