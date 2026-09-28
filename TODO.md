@@ -90,6 +90,28 @@ context after seal or parse the schema on a matching-layout load.
   opaque schema and formatter-selection fingerprint metadata after the P0 temporary
   rejection. Custom payloads have no automatic upgrade promise; an unframed value
   that cannot be consumed during migration must fail loudly.
+  **This is the highest-value item on the whole roadmap, and the reason is a real
+  consumer, not a hypothetical.** The game at `/games/wt-robustsave` (branch
+  `wave-robustsave`) had four custom formatters in a robust context and could not save
+  *or* load at all: `RobustCustomFormatterPolicy` refuses the type at construction, and
+  `Save()` and `Load()` both build the serializer, so the save feature did not work in
+  that build. Its tracker records the policy as a one-day-old commit against a path that
+  had worked for months, and confirms nothing has shipped and no savegame exists to
+  load — so the compatibility promise has no real cost to keep here. Two of the four
+  were load-bearing and removing them was a *semantic* change, not a free win:
+  - a recipe reference became a fresh copy rather than a registry-identical reference,
+    so `ReferenceEquals` breaks and the file carries the whole recipe table per factory.
+    This is precisely the "context-specific recipe/item ID lookup" this project settled
+    on, and it is **unreachable in a robust context today**;
+  - a relative-time value (`value - now`, so "expires in 5 s" survives a load) became an
+    absolute double, so an old save's `RevealedUntil = 40.5` is stale the instant it
+    loads. Note the general lesson, which outlives this consumer: **rebasing a value
+    against load time is not expressible as an `IFormatter<T>` in a robust context, and
+    never was** — it needs a post-load pass over the loaded graph, not a custom writer.
+  The game works around this today with a same-version round trip only. Its own note is
+  that until this is resolved *no save-compatibility claim in its tracker is verified*,
+  and the raw `CerasFastSerializer` round trip standing in for it proves less than it
+  appears to.
 - Extend the generator's `CERAS019` duplicate-name check to aliases, per context,
   and to types it currently skips: the runtime already refuses a name two manifest
   entries claim (`SchemaRegistry.ClaimNames`), but that is a save/load-time error
