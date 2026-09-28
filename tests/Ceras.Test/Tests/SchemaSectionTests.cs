@@ -393,11 +393,12 @@ namespace Ceras.Test
         [Fact] public void Write_WithTinyInitialBuffer_GrowsAndSucceeds()
         {
             var registry = CreateRegistry();
-            var buffer = new byte[1]; // far too small
+            var buffer = CerasBufferPool.Rent(1); // far too small; pooled, so growth can return the replaced one
             int offset = 0;
             var intern = new StringInternTable();
             SchemaSection.Write(ref buffer, ref offset, registry, intern); // must not throw
             Assert.True(offset > 0);
+            CerasBufferPool.Return(buffer);
         }
 
         // ── Idempotency ───────────────────────────────────────────────────────

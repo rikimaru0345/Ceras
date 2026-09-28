@@ -284,10 +284,11 @@ namespace Ceras.Test
             var intern = new StringInternTable();
             intern.Intern("hello");
             intern.Intern("world");
-            var buf    = new byte[1];
+            var buf    = CerasBufferPool.Rent(1); // pooled, so growth can return the replaced array
             int offset = 0;
             intern.Flush(ref buf, ref offset);
             Assert.True(offset > 0);
+            CerasBufferPool.Return(buf);
         }
     }
 }
