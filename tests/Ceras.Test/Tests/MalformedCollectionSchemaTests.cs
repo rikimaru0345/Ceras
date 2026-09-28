@@ -722,6 +722,80 @@ namespace Ceras.Test.MalformedCollectionSchemas
             Assert.Equal(Sentinel, New(RemovedCtx).Load<McsRemovedHolder>(sound, 1).After);
         }
 
+        /// <summary>
+        /// The same promise, for the file whose <em>only</em> defect is the third clause: an argument
+        /// identity nothing describes. <c>Load</c> refuses it — the section parser's two clauses are both
+        /// satisfied, and it is <c>MigrationPlanBuilder.BuildAll</c> that catches it — so a dump that
+        /// asked only those two clauses reported the section as clean. That is the one answer a dump must
+        /// not give about the file a caller is holding, because the caller has just been refused and
+        /// reached for the dump to find out why.
+        /// <para>
+        /// The refusal and the dump are compared on the same bytes, through the same builder, and the
+        /// sound control is the same one the previous test uses — so this cannot be satisfied by a dump
+        /// that reports everything.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void The_Schema_Dump_Agrees_With_A_Load_About_An_Argument_Identity_Nothing_Describes()
+        {
+            const string listName = "System.Collections.Generic.List`1<System.Int32>";
+
+            var file = File(
+                root: typeof(McsRemovedHolder),
+                writeEntries: (s) =>
+                {
+                    s.Class(RootId, Name(typeof(McsRemovedHolder)), ("Items", EntryId), ("After", WellKnownTypes.Int32));
+                    // A well-formed List entry whose only defect is the identity of its element: the
+                    // definition takes one argument and one is recorded, so only the third clause can fire.
+                    s.Generic(EntryId, listName, WellKnownTypes.List, UndescribedId);
+                },
+                writePayload: (w, _) =>
+                {
+                    SchemaSection.WriteLeb128(w, RootId);
+                    SameType(w);
+                    SameType(w);
+                    SerializerBinary.WriteUInt32Bias(w, 2, Protocol.CollectionBias);
+                    SerializerBinary.WriteInt32Fixed(w, 11);
+                    SerializerBinary.WriteInt32Fixed(w, 12);
+                    SerializerBinary.WriteInt32Fixed(w, Sentinel);
+                });
+
+            // The load refuses it…
+            var refused = Record.Exception(() => New(RemovedCtx).Load<McsRemovedHolder>(file, 1));
+            var schema = Assert.IsType<CerasSchemaException>(refused);
+            Assert.Contains("argument 0", schema.Message);
+
+            // …and the dump says the same thing about the same entry, naming the same clause.
+            var dump = CerasRobustSerializer.DumpSchema(file);
+            Assert.Contains(listName, dump);
+            Assert.Contains("REFUSED BY LOAD", dump);
+            Assert.Contains("argument 0", dump);
+            Assert.Contains($"type id {UndescribedId}", dump);
+            Assert.Contains("schema section", dump);
+
+            // The control: the identical file with the element type recorded loads, and the dump says
+            // nothing is wrong with it — so the marker above is a verdict, not a constant.
+            var sound = File(
+                root: typeof(McsRemovedHolder),
+                writeEntries: (s) =>
+                {
+                    s.Class(RootId, Name(typeof(McsRemovedHolder)), ("Items", EntryId), ("After", WellKnownTypes.Int32));
+                    s.Generic(EntryId, listName, WellKnownTypes.List, WellKnownTypes.Int32);
+                },
+                writePayload: (w, _) =>
+                {
+                    SchemaSection.WriteLeb128(w, RootId);
+                    SameType(w);
+                    SameType(w);
+                    SerializerBinary.WriteUInt32Bias(w, 2, Protocol.CollectionBias);
+                    SerializerBinary.WriteInt32Fixed(w, 11);
+                    SerializerBinary.WriteInt32Fixed(w, 12);
+                    SerializerBinary.WriteInt32Fixed(w, Sentinel);
+                });
+            Assert.DoesNotContain("REFUSED BY LOAD", CerasRobustSerializer.DumpSchema(sound));
+            Assert.Equal(Sentinel, New(RemovedCtx).Load<McsRemovedHolder>(sound, 1).After);
+        }
+
         // ── Door 3 as the interpreter's own boundary ───────────────────────────────────────────
 
         /// <summary>

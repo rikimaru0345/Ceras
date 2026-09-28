@@ -340,14 +340,21 @@ namespace Ceras
                         {
                             SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
                             Serialize(writer, rootObject);
-
-                            // Growth replaces the array, so the local has to take it back before the string
-                            // table and the header are written into it.
-                            buffer = writer.Buffer;
-                            offset = writer.Offset;
                         }
                         finally
                         {
+                            // Read back here, in the `finally`, and not after the `try` — the same shape
+                            // CerasSerializer.Serialize(obj, ref buffer, ref offset) uses, and for the same
+                            // reason. Growth replaces the array, ExpandBuffer has already returned the
+                            // replaced one to the pool, and only the writer still holds the new one, so a
+                            // read-back the exception could skip would leave `buffer` naming an array the
+                            // pool already has: the outer `finally` would hand it back a second time, and
+                            // ArrayPool does not deduplicate, so two later renters would be given the same
+                            // array and would write over each other's output. The array the writer grew to
+                            // would be leaked at the same time, since the released writer is the only thing
+                            // that ever referred to it.
+                            buffer = writer.Buffer;
+                            offset = writer.Offset;
                             ReturnWriter(writer);
                         }
 
@@ -366,8 +373,11 @@ namespace Ceras
                 _lastSaveLength = offset;
 
                 // The result is a fresh array, so the working buffer is dead here and goes back to
-                // the pool - on the failure path too, since `buffer` may have been replaced by a
-                // larger one while the graph was written.
+                // the pool. On the failure path too, and that is only true because the writer block
+                // above reads the writer's own (possibly grown) array back into `buffer` in its own
+                // `finally`: this line therefore always names the array the save actually ended up
+                // holding, and every array it replaced was already returned by ExpandBuffer on the way
+                // through, so one array is returned per array rented however many times the buffer grew.
                 return buffer[..offset];
             }
             finally
@@ -1016,7 +1026,7 @@ namespace Ceras
 
             // The raw parse, deliberately: a *diagnostic* has to be able to show a section the load path
             // refuses, which is exactly when it is most needed. The structural invariant is not skipped —
-            // it is reported, one comment line per defective entry, below.
+            // all three of its clauses are reported, one comment line per defective entry, below.
             var parsedEntries = new List<OldTypeSchema>();
             var fileSchemas = SchemaSection.ReadUnvalidated(ref schemaReader, schemaStrings, parsedEntries);
 
@@ -1036,6 +1046,14 @@ namespace Ceras
             // A section whose entries contradict the format is refused by Load, with the same reason. A
             // dump that hid that would be useless on exactly the file the caller is trying to understand,
             // so the defect is stated here rather than thrown.
+            //
+            // All three clauses are asked, because Load asks all three — the argument count and the
+            // definition identity at the section parser, the argument identities at the migration plan
+            // builder — and asking only the first two is how a file whose *only* defect is an argument
+            // identity nothing describes came back from this dump as clean while Load refused it. A caller
+            // debugging that refused load is told here that the section is fine, which is the one answer
+            // the dump must never give about the file in hand. The clauses stay in the load's own order,
+            // and the first one to fire is the one printed, so the dump names the same defect Load would.
             var defects = new List<string>();
             var describedIds = new HashSet<int>();
             foreach (var entry in parsedEntries) describedIds.Add(entry.TypeId);
@@ -1043,6 +1061,7 @@ namespace Ceras
             {
                 var verdict = StructuralShape.InspectShape(entry);
                 if (!verdict.IsDefect) verdict = StructuralShape.InspectDefinition(entry, describedIds.Contains);
+                if (!verdict.IsDefect) verdict = StructuralShape.InspectArgumentIdentities(entry, describedIds.Contains);
                 if (verdict.IsDefect)
                     defects.Add("// REFUSED BY LOAD: " + StructuralShape.Describe(entry, verdict));
             }
