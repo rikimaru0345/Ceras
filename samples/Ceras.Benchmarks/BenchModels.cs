@@ -159,6 +159,14 @@ namespace Ceras.Benchmarks
 
         public static BenchMove MakeMove() => new BenchMove { Id = 7, X = 1.5f, Y = -2.5f };
 
+        /// <summary>Spread over the varint width range, so the field count is not 81 one-byte values.</summary>
+        public static Wide81 MakeWide81()
+        {
+            var w = new Wide81();
+            w.F0 = 1; w.J9 = 300; w.I19 = 70000; w.H5 = 5; w.G17 = 12;
+            return w;
+        }
+
         /// <summary>
         /// Invalidates the stored layout fingerprint (keeping a valid CRC) so the next Load takes the
         /// schema-traversal interpreter path. Used to measure the upgrade cost separately.
@@ -198,4 +206,33 @@ namespace Ceras.Benchmarks
             return SchemaSection.Read(data, ref offset, schemaStrings);
         }
     }
+
+
+    /// <summary>
+    /// Field-count probes. The gap between encoding a 1-field and an 81-field struct is the cost
+    /// <em>per field</em>; what the 1-field case costs is the fixed cost of an operation - the
+    /// formatter lookup, entering and leaving recursion, and the per-operation caches. Devirtualizing
+    /// only removes part of the first of those, so the split is what decides whether it is worth
+    /// doing: on a three-field network message the fixed cost is most of the total.
+    /// </summary>
+    [CerasContext(BenchContext.Name)]
+    [CerasSerializable]
+    public struct Wide1 { public int F0; }
+
+    [CerasSerializable]
+    public struct Wide9 { public int F0, F1, F2, F3, F4, F5, F6, F7, F8; }
+
+    [CerasContext(BenchContext.Name)]
+
+    [CerasContext(BenchContext.Name)]
+    [CerasSerializable]
+    public struct Wide81
+    {
+        public int F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19;
+        public int G0, G1, G2, G3, G4, G5, G6, G7, G8, G9, G10, G11, G12, G13, G14, G15, G16, G17, G18, G19;
+        public int H0, H1, H2, H3, H4, H5, H6, H7, H8, H9, H10, H11, H12, H13, H14, H15, H16, H17, H18, H19;
+        public int I0, I1, I2, I3, I4, I5, I6, I7, I8, I9, I10, I11, I12, I13, I14, I15, I16, I17, I18, I19;
+        public int J0, J1, J2, J3, J4, J5, J6, J7, J8, J9;
+}
+
 }
