@@ -165,37 +165,79 @@ namespace Ceras.Test
 
         /// <summary>
         /// The other door, so the comment's wording is not read as covering only the bake. A declared-root
-        /// claim refused inside the loop above the bake leaves the same partial state - the roots already
+        /// shape refused inside the loop above the bake leaves the same partial state - the roots already
         /// folded in are registered - and leaves the pending declarations pending, because
         /// <c>_declaredRoots.Clear()</c> is only reached once the whole loop has run. So the next seal
         /// refuses on the same declaration, which is the point: the same actionable message, not a silent
         /// skip of a root the author declared.
+        /// <para>
+        /// The refusal is a real declaration error rather than a forgery, because the forgery this test used
+        /// to stand on no longer exists: claiming a name the bake derives from a CLR type is refused where
+        /// the claim is made, in <c>Register</c> through <c>RequireOwnDerivedName</c>, so such a root can
+        /// never reach the loop at all. What is left is a declaration no manifest can express - an enum with
+        /// two members under one wire name - which <c>BuildDeclaredSchema</c> refuses while the loop builds
+        /// the root's descriptor. No earlier door rejects it: <c>DeclareRoot</c> only asks whether the shape
+        /// is one it can declare, and both roots here are legal declarations, so the failure has to happen
+        /// inside <c>Seal</c>, above the bake.
+        /// </para>
         /// </summary>
         [Fact]
         public void A_Refused_Declared_Root_Claim_Also_Keeps_What_The_Loop_Had_Registered()
         {
             var registry = new SchemaRegistry();
+            registry.DeclareRoot(typeof(FoldedInFirst));
+            registry.DeclareRoot(typeof(RefusedSecond));
 
-            // int[]'s derived name is claimed by an entry, so folding in the two declared roots fails on
-            // int[] - the second in canonical-name order, so List<int> has already been registered.
-            registry.Register(typeof(Holder), new SchemaTypeInfo(
-                StructuralTypeName, Array.Empty<string>(),
-                SchemaTypeKind.Class, Array.Empty<SchemaFieldInfo>(), 0));
-            registry.DeclareRoot(typeof(int[]));
-            registry.DeclareRoot(typeof(List<int>));
+            // The premise, in the order the loop folds declared roots in: canonical-name order, ordinal.
+            // Both roots are enums declared here for a naming reason: a structural root like List<int> is a
+            // System.* name, and every Ceras.Test name sorts before every System.* one, so the refused root
+            // would then be folded in first and there would be no partial state to observe at all. 'F' before
+            // 'R' is what makes the premise true, and it is asserted rather than assumed, so renaming either
+            // root fails the test instead of quietly emptying it.
+            Assert.True(StringComparer.Ordinal.Compare(
+                TypeIdentity.GetCanonicalName(typeof(FoldedInFirst)),
+                TypeIdentity.GetCanonicalName(typeof(RefusedSecond))) < 0,
+                "the good root has to be folded in before the refusal, or this test observes nothing");
+            Assert.False(registry.TryGetId(typeof(FoldedInFirst), out _));
 
-            Assert.Throws<CerasSchemaException>(() => registry.Seal());
+            var ex = Assert.Throws<CerasSchemaException>(() => registry.Seal());
+
+            // The refusal is the enum-name check on the declared root, and not some earlier door: it names
+            // the wire name the two members of RefusedSecond would share.
+            Assert.Contains("SameStep", ex.Message, StringComparison.Ordinal);
 
             Assert.False(registry.IsSealed);
             Assert.False(registry.HasBakedSchema);
 
-            // The partial registration is kept, exactly as in the bake case.
-            Assert.True(registry.TryGetId(typeof(List<int>), out _));
-            Assert.False(registry.TryGetId(typeof(int[]), out _));
+            // The partial registration is kept, exactly as in the bake case, while the root the loop could
+            // not describe never became an entry at all.
+            Assert.True(registry.TryGetId(typeof(FoldedInFirst), out _));
+            Assert.False(registry.TryGetId(typeof(RefusedSecond), out _));
 
             // And the declaration that could not be honoured is still pending, so sealing again reports
             // the same problem rather than quietly dropping the root.
-            Assert.Throws<CerasSchemaException>(() => registry.Seal());
+            var again = Assert.Throws<CerasSchemaException>(() => registry.Seal());
+            Assert.Equal(ex.Message, again.Message);
+        }
+
+        /// <summary>
+        /// A root shape the loop can describe: an ordinary enum, so folding it in registers an entry and
+        /// gives the seal something to be half-finished about. Its canonical name is
+        /// <c>Ceras.Test.RefusedSealStateTests+FoldedInFirst</c>, and that string is what the ordinal
+        /// comparison in the test above actually orders the two roots by.
+        /// </summary>
+        enum FoldedInFirst { One, Two }
+
+        /// <summary>
+        /// A root shape no manifest can express: its two members would both be recorded under the wire name
+        /// <c>SameStep</c>, and an enum member is identified by that name, so <c>BuildDeclaredSchema</c>
+        /// refuses the whole root. A fact about the enum rather than about the context, which is the point -
+        /// nothing here is forged, and the generated path reports the same declaration at compile time.
+        /// </summary>
+        enum RefusedSecond
+        {
+            [CerasStableName("SameStep")] Up = 1,
+            [CerasStableName("SameStep")] Down = 2,
         }
 
         sealed class Holder { }
