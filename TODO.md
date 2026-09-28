@@ -3,11 +3,11 @@
 Remaining work, reconciled with the 2026-09-27 review. Completed implementation history
 belongs in git, tests, and the format/API documentation, not this checklist.
 
-**Priority 0 (the save/load correctness gates) is closed.** Milestone 1 (authoritative
-layouts and finite contexts) is the next correctness milestone; Milestone 3
-(optimization) is already proceeding on the now-merged save/load fast path. Networking
-shares its generator foundations and receives its dedicated execution path later. The
-settled contracts below are targets; they are not claims that the code already meets them.
+**Priority 0's original gates are closed, not a claim of full save compatibility.**
+Finish the v5 opaque-formatter change and verify it against the game, then make the
+layout model authoritative and connect the old-data graph to the migration reader.
+Do not prioritize NativeAOT, speculative tuning, or networking ahead of game saves.
+The settled contracts below are targets, not claims that the code already meets them.
 
 ## Settled goals and contracts
 
@@ -40,9 +40,10 @@ settled contracts below are targets; they are not claims that the code already m
 - **Compatibility promise:** starts with the next documented robust format. Current
   experimental saves need not remain readable. Retain decoders for supported releases
   after that starting point. Older binaries must reject newer saves clearly.
-- **Custom formatters:** permitted; authors own their byte compatibility and migration.
-  Saves containing arbitrary custom payloads have no automatic upgrade guarantee.
-  Opaque framing/isolation is deferred.
+- **Custom formatters:** permitted only when the robust schema describes their framed
+  opaque bytes and the fingerprint records formatter selection; authors own byte
+  compatibility and migration. There is no automatic upgrade guarantee for arbitrary
+  custom payloads. This is being implemented as experimental v5, not yet merged.
 - **Networking:** transient format, compatibility exchanged at connection setup. No
   per-message schema, layout hashes, Ceras checksums, or compatibility negotiation during
   gameplay. Ordinary buffer bounds/length checks remain. No reference tracking or runtime
@@ -120,20 +121,10 @@ context after seal or parse the schema on a matching-layout load.
   stop treating `SpecialType` types as exempt (a `[CerasSerializable("X")]` on two
   differently-kinded types currently produces no diagnostic). Include
   `contextMinimalTypes` and declared structural roots.
-- Expose an immutable, mode-specific context compatibility descriptor for diagnostics
-  and network handshakes. It must not report a layout fingerprint before the manifest is
-  sealed and baked: `ComputeFingerprint` is provisional until then and excludes pending
-  `DeclareRoot` entries, so report `IsFinal`/`LayoutFingerprint` together or not at all.
-  The runtime never learns the generated context name, so either add an explicit
-  `SetContextName` or expose an immutable copy of the manifest's stable names.
-- `RobustTypeFormatter` resolves a stored `FullNameMarker` type value through a
-  *private* `SimpleTypeBinder` rather than the context's `Config.TypeBinder`, so a
-  context that abbreviates or remaps type names cannot read back its own name
-  spelling. Pass `Config.TypeBinder` in from `CerasRobustSerializer` (it is built
-  there already); the other `Type`-value doors honour the configured binder, so the
-  disagreement is confined to this one path.
-- Exercise `samples/GodotIntegration` and `/games/godot-factory-test` in editor play,
-  assembly reload and exported execution with real private/generic save graphs.
+- Exercise `samples/GodotIntegration` and the active `/games/wt-robustsave` project in
+  editor play, assembly reload and exported execution with real private/generic save
+  graphs. The immutable compatibility descriptor and configured `TypeBinder` path are
+  already implemented; verify them in the integration rather than reimplementing them.
 
 ## Milestone 2 — old-data graph and migration
 
@@ -145,9 +136,11 @@ historical writer assembly: pin migration coverage with real historical-writer f
 both readers, and never infer cross-version compatibility from a fingerprint flip or a
 same-version roundtrip.
 
-- Decode bytes into an identity-preserving graph of old type identities, stable fields,
-  scalar values, collections and references; expose it to application migration code,
-  then materialize current objects without historical CLR types.
+- Connect the implemented old-data graph node model (`OldDataGraph.cs`, plus generic
+  `IdentityCache<T>`) to a file-faithful decoder, expose the populated graph to application
+  migration code, then materialize current objects without historical CLR types. The
+  model exists; no runtime reader constructs it yet. Pin matching-layout allocations
+  and ensure this work cannot put graph construction on the generated-reader path.
 - Preserve references whose first occurrence is in a removed field and later use is
   retained; test wrappers, aliases, sharing, cycles and unknown polymorphic types.
   Pin two shared collection references followed by a distinct object so a shifted
@@ -182,23 +175,6 @@ Only after correctness and runnable baselines; no changed bytes or reuse semanti
   beyond `List<T>`; test segmented input, reuse, limits and truncation.
 - Move `SerializerBinary.ReadDecimal`'s unnecessary fast-path `stackalloc` to the
   segmented branch, subject to measurement; check `ReinterpretFormatter` similarly.
-- **A blittable struct's transient bytes depend on whether it got a generated
-  formatter.** The generated path and the reflection fallback order members by the
-  same rule and therefore agree; the disagreement comes from
-  `ReinterpretFormatterResolver`, which is selected by default (`UseReinterpretFormatter`
-  defaults to true) for any blittable value type and writes a raw CLR memory blit —
-  in CLR field order, including padding, and *before* the reflection fallback is
-  ever reached. So a struct declared `One, Two, Three` writes `One, Two, Three`
-  through the blit and `One, Three, Two` through either sorted path, silently, and
-  a transient save stops being readable once the type gains a generated formatter.
-  Robust contexts are unaffected (the resolver declines them). This contradicts the
-  settled rule that raw primitive encoding does not persist CLR struct layout, and
-  no test catches it because the existing cross-mode comparisons use differently
-  typed members. The fix is in *selection*, not ordering: do not touch the two sort
-  keys (they agree, and the closed-generic divergence between the generated
-  per-closed schema and the runtime one is deliberate and separately pinned).
-  Narrow the resolver's predicate, or require an explicit per-type opt-in for the
-  blit, as `decimal` is already carved out.
 - Generate closed specializations only for measured hot instantiations and
   cross-read them with generic writers/readers and the migration decoder.
 - Typed factories remain open, and should wait for evidence: devirtualizing the
@@ -245,6 +221,9 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
   close the configuration surfaces that still accept a write after `Seal()`:
   `OnResolveFormatter`, `ConfigType*`, `TypeConfig<T>.MapParameters`, and
   `UnsafeGetAllMembersIncludingCompilerGenerated`.
+- Guard the public pooled `Serialize` overload against caller-owned buffers: it currently
+  treats a replacement buffer as pooled, so a mistaken ownership flag can offer a caller's
+  array to another renter. Keep the ownership contract explicit and pin the failure path.
 - Update README/tutorials/samples/format docs with verified contracts and remove
   obsolete runtime-generation, universal-type, Unity/AOT and diagnostic claims.
 - Review concrete formatter selection and unsupported-type diagnostics against
@@ -264,7 +243,7 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
   - `jit`, `sc` and `trim` all pass, all three sections (raw round trip, robust round trip,
     robust schema migration). Trimming is therefore *not* a live risk, and the earlier
     "trimmed/AOT fail" claim is stale.
-  - `aot` still fails. Four of the five originally ordered defects are fixed: reference
+  - On merged master, `aot` still fails. Four of the five originally ordered defects are fixed: reference
     formatter constructors are rooted on their open generic definitions; the owning assembly is
     an explicit input instead of an `Assembly.GetCallingAssembly()` stack walk, gated on
     `RuntimeFeature.IsDynamicCodeSupported`; the resolver-constructed formatter families and the
