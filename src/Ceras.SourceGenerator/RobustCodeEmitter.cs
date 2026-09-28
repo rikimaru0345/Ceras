@@ -97,28 +97,12 @@ namespace Ceras.SourceGenerator {
 				}
 
 				var serializeMembers = members;
-				foreach (var m in serializeMembers) {
-					string fieldName = MakeFormatterFieldName(m.Type);
-					string getAccess = accessors.MemberReadExpression(m, "value");
-
-					if (TypeHelpers.IsFastPrimitive(m.Type)) {
-						string writeMethod = GetPrimitiveWriteMethod(m.Type);
-						string valueExp = getAccess;
-						// The primitive Write* overloads take the integer width they write. Cast the
-						// member to that width so char/sbyte members compile and so the bytes match the
-						// formatter/interpreter readers (which already read back through a cast).
-						if (m.Type.SpecialType == SpecialType.System_Boolean)
-							valueExp = $"(byte)({valueExp} ? 1 : 0)";
-						else if (m.Type.SpecialType == SpecialType.System_SByte)
-							valueExp = $"(byte)({valueExp})";
-						else if (m.Type.SpecialType == SpecialType.System_Char)
-							valueExp = $"(short)({valueExp})";
-						sb.AppendLine($"            global::Ceras.SerializerBinary.{writeMethod}(writer, {valueExp});");
-					}
-					else {
-						sb.AppendLine($"            {fieldName}.Serialize(writer, {getAccess});");
-					}
-				}
+				BatchedMemberEmitter.EmitWrites(
+					sb,
+					serializeMembers,
+					m => accessors.MemberReadExpression(m, "value"),
+					m => MakeFormatterFieldName(m.Type),
+					"            ");
 
 				if (afterSerialize != null) {
 					sb.AppendLine($"            {accessors.CallbackCallExpression(afterSerialize, "value", CallbackArgument(afterSerialize, "_ceras"))};");

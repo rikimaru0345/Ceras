@@ -466,7 +466,7 @@ namespace Ceras
 			public DeserializeCallback(object target, Action<CerasSerializer, object> callback) { Target = target; Callback = callback; }
 		}
 
-		public class FixedArrayBufferWriter : IBufferWriter<byte>
+		public sealed class FixedArrayBufferWriter : IBufferWriter<byte>
 		{
 			public byte[] Buffer; public int Offset;
 

@@ -280,30 +280,31 @@ namespace Ceras.Test
             }
         }
 
-        // Distinct closed types, so each one claims its own slot in the table.
-        [CerasSerializable] class F0 { public int V; }
-        [CerasSerializable] class F1 { public int V; }
-        [CerasSerializable] class F2 { public int V; }
-        [CerasSerializable] class F3 { public int V; }
-        [CerasSerializable] class F4 { public int V; }
-        [CerasSerializable] class F5 { public int V; }
-        [CerasSerializable] class F6 { public int V; }
-        [CerasSerializable] class F7 { public int V; }
-        [CerasSerializable] class F8 { public int V; }
-        [CerasSerializable] class F9 { public int V; }
-        [CerasSerializable] class F10 { public int V; }
-        [CerasSerializable] class F11 { public int V; }
-        [CerasSerializable] class F12 { public int V; }
-        [CerasSerializable] class F13 { public int V; }
-        [CerasSerializable] class F14 { public int V; }
-        [CerasSerializable] class F15 { public int V; }
-        [CerasSerializable] class F16 { public int V; }
-        [CerasSerializable] class F17 { public int V; }
-        [CerasSerializable] class F18 { public int V; }
-        [CerasSerializable] class F19 { public int V; }
-        [CerasSerializable] class F20 { public int V; }
-        [CerasSerializable] class F21 { public int V; }
-        [CerasSerializable] class F22 { public int V; }
-        [CerasSerializable] class F23 { public int V; }
+        // Distinct closed types, so each one claims its own slot in the table. They have no members:
+        // the point is that each is a separate closed type Ceras must resolve, not what is in it.
+        [CerasSerializable] class F0 { }
+        [CerasSerializable] class F1 { }
+        [CerasSerializable] class F2 { }
+        [CerasSerializable] class F3 { }
+        [CerasSerializable] class F4 { }
+        [CerasSerializable] class F5 { }
+        [CerasSerializable] class F6 { }
+        [CerasSerializable] class F7 { }
+        [CerasSerializable] class F8 { }
+        [CerasSerializable] class F9 { }
+        [CerasSerializable] class F10 { }
+        [CerasSerializable] class F11 { }
+        [CerasSerializable] class F12 { }
+        [CerasSerializable] class F13 { }
+        [CerasSerializable] class F14 { }
+        [CerasSerializable] class F15 { }
+        [CerasSerializable] class F16 { }
+        [CerasSerializable] class F17 { }
+        [CerasSerializable] class F18 { }
+        [CerasSerializable] class F19 { }
+        [CerasSerializable] class F20 { }
+        [CerasSerializable] class F21 { }
+        [CerasSerializable] class F22 { }
+        [CerasSerializable] class F23 { }
     }
 }

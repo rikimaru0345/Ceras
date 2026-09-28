@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using Ceras;
 
 namespace Ceras.Benchmarks
 {
@@ -44,9 +45,59 @@ namespace Ceras.Benchmarks
 
             // The formatter lookup on its own, which is the memo's whole subject.
             Min("GetFormatter<Wide1>()", 2000000, () => { var x = s.GetFormatter<Wide1>(); });
+
+            // The per-field slope, measured the only way it can be measured: as the difference
+            // between two field counts, so the fixed cost cancels. The devirtualization question is
+            // entirely about this number, and it is small enough that reading it off a single row -
+            // or off a single run - is hopeless.
+            var one = new Wide1 { F0 = 1 };
+            var nine = new Wide9 { F0 = 1, F8 = 1 };
+            var eightyone = BenchData.MakeWide81();
+
+            double t1 = Min("encode  1 field", 2000000, () => Encode(s, one));
+            double t9 = Min("encode  9 fields", 2000000, () => Encode(s, nine));
+            double t81 = Min("encode 81 fields", 400000, () => Encode(s, eightyone));
+
+            Console.WriteLine();
+            Console.WriteLine($"  per-field cost, 1 -> 9 fields : {(t9 - t1) / 8,7:F3} ns/field");
+            Console.WriteLine($"  per-field cost, 1 -> 81 fields: {(t81 - t1) / 80,7:F3} ns/field");
+            Console.WriteLine($"  fixed cost of an operation   : {t1 - (t81 - t1) / 80,7:F2} ns");
+
+            // The floor. Eighty-one varint writes with no formatter, no interface and no dispatch
+            // around them, which is what devirtualizing the writer could at best get the encode down
+            // to. Comparing this against the 81-field row above is the whole size of the prize; if the
+            // two are close there is nothing there, and no amount of refactoring will show it.
+            double floor81 = Min("81 varint writes, no formatter", 400000, () =>
+            {
+                var b = CerasBufferPool.Rent(64 * 1024);
+                int o = 0;
+                for (int i = 0; i < 81; i++) SerializerBinary.WriteInt32(ref b, ref o, WideValues[i]);
+                CerasBufferPool.Return(b);
+            });
+            Console.WriteLine();
+            Console.WriteLine($"  floor for 81 fields          : {floor81,7:F2} ns  ({(floor81 - t1) / 80,6:F3} ns/field)");
+            Console.WriteLine($"  encode 81 fields             : {t81,7:F2} ns  ({(t81 - t1) / 80,6:F3} ns/field)");
+            Console.WriteLine($"  -> the most devirtualizing the writer could return: {t81 - floor81,6:F2} ns of {t81:F0}");
         }
 
-        static void Min(string name, int n, Action body)
+        static readonly int[] WideValues =
+        {
+            1, 300, 70000, 5, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0,
+        };
+
+        static void Encode<T>(CerasFastSerializer s, T value)
+        {
+            var b = CerasBufferPool.Rent(64 * 1024);
+            int o = 0;
+            s.Serialize(value, ref b, ref o);
+            CerasBufferPool.Return(b);
+        }
+
+        static double Min(string name, int n, Action body)
         {
             for (int i = 0; i < 50000; i++) body();
             double best = double.MaxValue;
@@ -59,6 +110,7 @@ namespace Ceras.Benchmarks
                 if (ns < best) best = ns;
             }
             Console.WriteLine($"  {name,-30} {best,8:F2} ns   (min of 7 x {n / 1000}k)");
+            return best;
         }
     }
 }

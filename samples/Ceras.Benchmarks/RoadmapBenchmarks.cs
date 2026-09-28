@@ -254,6 +254,7 @@ namespace Ceras.Benchmarks
             Add(rows, "Network encode pooled 1 field", 200000, encodeWide1, "fixed cost of an operation, ~no fields");
             Add(rows, "Network encode pooled 81 fields", 60000, encodeWide81, "fixed cost + 80 more fields");
             if (Environment.GetEnvironmentVariable("CERAS_FIXED") == "1") { Console.WriteLine("=== FIXED COST PROBE ==="); FixedCostProbe.Run(); }
+            if (Environment.GetEnvironmentVariable("CERAS_SPIKE") == "1") { Console.WriteLine("=== DEVIRT SPIKE ==="); DevirtSpike.Run(); }
             CerasBufferPool.Return(wideBuffer);
 
             // ------------------------------------------------------------------
