@@ -134,7 +134,9 @@ context after seal or parse the schema on a matching-layout load.
   execution are **not automated**; neither project has an export preset. Build an
   explicit safe harness before claiming those paths verified. The immutable
   compatibility descriptor and configured `TypeBinder` path already exist; verify
-  them in integration rather than reimplementing them.
+  them in integration rather than reimplementing them. **Pre-v5 baseline:** game logic
+  suite 536/536, and the Ceras sample on Godot 4.7.2 headless imports and prints
+  `CERAS_GODOT_INTEGRATION_OK` (exit 0). Re-run both after the format change.
 
 ## Milestone 2 — old-data graph and migration
 
