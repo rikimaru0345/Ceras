@@ -1,0 +1,192 @@
+using System;
+using System.Buffers;
+using System.Runtime.CompilerServices;
+using Ceras.Formatters;
+using Xunit;
+
+namespace Ceras.Test
+{
+    /// <summary>
+    /// The write path reuses one <c>FixedArrayBufferWriter</c> per recursion level rather than
+    /// allocating one per message.
+    /// <para>
+    /// That is only sound because no two live writers share a level. The property is not visible
+    /// from the formatter contract - a formatter is handed a writer and is expected to write and
+    /// return - so it is pinned here directly, by a formatter that re-enters the write path from
+    /// inside its own <c>Serialize</c> and keeps writing afterwards. If the writers were shared, the
+    /// outer call would resume at whatever offset the nested call finished at, and the bytes would
+    /// be wrong in a way no round-trip test can distinguish from a legitimate layout.
+    /// </para>
+    /// </summary>
+    public class ReusedWriteWriterTests
+    {
+        [CerasSerializable]
+        public struct Inner
+        {
+            public int A;
+            public int B;
+        }
+
+        [CerasSerializable]
+        public struct Outer
+        {
+            public int Head;
+            public Inner Nested;
+            public int Tail;
+        }
+
+        /// <summary>
+        /// Writes a marker, then makes a nested pooled write into its own buffer - the shape a
+        /// callback that serializes, or a formatter that embeds another value, produces - then
+        /// writes a second marker.
+        /// </summary>
+        class ReentrantFormatter : IFormatter<Outer>
+        {
+            readonly CerasSerializer _ser;
+
+            public ReentrantFormatter(CerasSerializer ser) => _ser = ser;
+
+            public void Serialize(IBufferWriter<byte> writer, Outer value)
+            {
+                var head = writer.GetSpan(4);
+                head[0] = 0xF0; head[1] = 0xF1; head[2] = 0xF2; head[3] = 0xF3;
+                writer.Advance(4);
+
+                byte[] nested = CerasBufferPool.Rent(1024);
+                int offset = 0;
+                _ser.Serialize(value.Nested, ref nested, ref offset);
+                CerasBufferPool.Return(nested);
+
+                var tail = writer.GetSpan(4);
+                tail[0] = 0xE0; tail[1] = 0xE1; tail[2] = 0xE2; tail[3] = 0xE3;
+                writer.Advance(4);
+            }
+
+            public void Deserialize(ref SequenceReader<byte> reader, ref Outer value) => throw new NotSupportedException();
+
+            public void SerializeUntyped(IBufferWriter<byte> writer, object value) => Serialize(writer, (Outer)value);
+            public void DeserializeUntyped(ref SequenceReader<byte> reader, object container, System.Reflection.MemberInfo member) => throw new NotSupportedException();
+        }
+
+        /// <summary>
+        /// The decisive case: the outer call writes four bytes, re-enters, writes four more, and all
+        /// eight must land contiguously in the outer call's own buffer. A shared writer would resume
+        /// the outer write at the nested call's offset - 0, since the nested call wrote into its own
+        /// buffer - and overwrite the head marker.
+        /// <para>
+        /// <c>Outer</c> is a struct, so there is no null-flag in front of the formatter's own bytes.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void ANestedWriteDoesNotDisturbTheWriterItWasMadeFrom()
+        {
+            var ceras = new CerasFastSerializer();
+            ceras.Config.ConfigType<Outer>().SetFormatter(new ReentrantFormatter(ceras));
+
+            var value = new Outer { Head = 1, Nested = new Inner { A = 2, B = 3 }, Tail = 4 };
+
+            byte[] buffer = CerasBufferPool.Rent(256);
+            try
+            {
+                int offset = 0;
+                int written = ceras.Serialize(value, ref buffer, ref offset);
+
+                Assert.Equal(8, written);
+                Assert.Equal(8, offset);
+                Assert.Equal(0xF0, buffer[0]);
+                Assert.Equal(0xF3, buffer[3]);
+                Assert.Equal(0xE0, buffer[4]);
+                Assert.Equal(0xE3, buffer[7]);
+            }
+            finally { CerasBufferPool.Return(buffer); }
+        }
+
+        /// <summary>
+        /// Nesting must keep working across a run, not just once: a reused writer that leaked its
+        /// previous buffer or offset would show up on the second call.
+        /// </summary>
+        [Fact]
+        public void NestingKeepsWorkingAcrossRepeatedCalls()
+        {
+            var ceras = new CerasFastSerializer();
+            ceras.Config.ConfigType<Outer>().SetFormatter(new ReentrantFormatter(ceras));
+
+            byte[] buffer = CerasBufferPool.Rent(256);
+            try
+            {
+                for (int i = 0; i < 8; i++)
+                {
+                    int offset = 0;
+                    Assert.Equal(8, ceras.Serialize(new Outer(), ref buffer, ref offset));
+                    Assert.Equal(0xF0, buffer[0]);
+                    Assert.Equal(0xE3, buffer[7]);
+                }
+            }
+            finally { CerasBufferPool.Return(buffer); }
+        }
+
+        /// <summary>
+        /// What the reuse is for. A message loop is the shape that matters: tens of writes per frame
+        /// into one buffer, and nothing allocated per message.
+        /// </summary>
+        [Fact]
+        public void AMessageLoop_StopsAllocatingPerMessage()
+        {
+            var ceras = new CerasFastSerializer();
+            var messages = new Inner[32];
+            for (int i = 0; i < messages.Length; i++) messages[i] = new Inner { A = i, B = i * 2 };
+
+            byte[] buffer = CerasBufferPool.Rent(4096);
+            try
+            {
+                // Once to pay for anything the first call creates (formatters, caches).
+                int warm = 0;
+                ceras.Serialize(messages[0], ref buffer, ref warm);
+                warm = 0;
+
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                for (int i = 0; i < messages.Length; i++)
+                    ceras.Serialize(messages[i], ref buffer, ref warm);
+                long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+                // The writers are reused and the pooled buffer is already large enough not to grow,
+                // so a loop of messages allocates nothing at all.
+                Assert.Equal(0, allocated);
+            }
+            finally { CerasBufferPool.Return(buffer); }
+        }
+
+        /// <summary>
+        /// A spare writer must not hold the buffer it last wrote into, or a long-lived serializer
+        /// pins an array for the rest of the process.
+        /// <para>
+        /// The array is the caller's own, not a rental: a pooled one would be kept alive by the pool
+        /// regardless of what the writer does, and the test would pass for the wrong reason. It is
+        /// written in a separate frame so the only possible remaining reference is the writer's.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void ASpareWriterDoesNotKeepTheLastBufferAlive()
+        {
+            var ceras = new CerasFastSerializer();
+            var reference = WriteToACallerBuffer(ceras, new Inner { A = 1, B = 2 });
+
+            for (int i = 0; i < 4; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+
+            Assert.False(reference.IsAlive, "a retained writer is still holding the last buffer");
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static WeakReference WriteToACallerBuffer(CerasSerializer ceras, Inner value)
+        {
+            var buffer = new byte[1024];
+            int offset = 0;
+            Assert.Equal(8, ceras.Serialize(value, ref buffer, ref offset));
+            return new WeakReference(buffer);
+        }
+    }
+}

@@ -50,6 +50,13 @@ namespace Ceras.Format
             return index;
         }
 
+        /// <summary>
+        /// Writes the interned strings (and, compressed, the count that precedes them) into
+        /// <paramref name="buffer"/>, and returns the offset the section started at.
+        /// </summary>
+        /// <param name="buffer">The destination. Replaced through this parameter if it has to grow.</param>
+        /// <param name="offset">Where the section starts; advanced past what was written.</param>
+        /// <param name="compression">Deflate the section, or write it as-is.</param>
         /// <param name="bufferIsPooled">
         /// True only if <paramref name="buffer"/> came from <see cref="CerasBufferPool.Rent"/>, so that
         /// growing it may return the replaced array. False for a caller's own array - the schema bake
