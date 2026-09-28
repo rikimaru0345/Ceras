@@ -102,16 +102,45 @@ rather than as a load that happens to succeed.
 
 The reader-side counterpart is `tests/Ceras.Test/Tests/HistoricalPolymorphicFixtureTests.cs`.
 
+## The `System.Array`-slot fixtures (`V1ArraySlotModel.cs`)
+
+A member declared as the abstract `System.Array` base class reaches the writer through
+`ReferenceFormatter<Array>` rather than `ReferenceFormatter<object>`: a reference marker, the concrete
+array type as a `Type` value, then that array's own payload. The bytes are the same grammar as the
+polymorphic fixtures above, so they live in their own context (`HistoricalV1ArraySlot`) purely to keep
+the other fixtures' ids still — and their crates end in the same fixed-width `uint` sentinel, for the
+same reason. They exist because the interpreter did not follow this slot at all: it read the declared
+type `System.Array` as an unrecognized well-known id, consumed nothing, and left the slot's bytes in
+the stream. (The declared type `System.Array` is the well-known id `16`, which is *also* the `Array`
+tag inside a `Type` value and the `Array` definition id of a `GenericInstantiation` entry — see
+`Format/LAYOUT.md`, "A declared `System.Array` is that same slot, under a different declared-type id".)
+
+| Aspect | Fixture | Old (v1) | Current |
+| --- | --- | --- | --- |
+| Rank-1 array in a `System.Array` slot | `ArraySlotInts.bin` | `int[]` (3 elements) behind a marker and a type value | rebuilt element by element; sentinel intact |
+| Jagged array in a `System.Array` slot | `ArraySlotJagged.bin` | `int[][]` (3 rows, one empty) | every row rebuilt |
+| Non-primitive element | `ArraySlotStrings.bin` | `string[]` | rebuilt from the payload string table |
+| Empty array is not a null one | `ArraySlotEmpty.bin` | `int[0]`: marker, type value, count `0` | a zero-length array, not null |
+| Null array is the marker alone | `ArraySlotNull.bin` | `null` | null; the marker is the whole value |
+| Shared array in two slots | `ArraySlotShared.bin` | the same `int[]` twice | one instance; sentinel intact |
+| Removed `System.Array` slot | `ArraySlotRemoved.bin` | `Array Slot` + `uint Marker` | slot gone — marker, type value, count and elements all consumed, sentinel intact |
+
+The reader-side counterpart is `tests/Ceras.Test/Tests/SystemArraySlotMigrationTests.cs`, which also
+carries the matching-layout controls (one set of bytes, read by both readers) and the reuse case, since
+neither needs a cross-version file.
+
 ## Changing a fixture
 
 1. Change the old model: `V1Model.cs` for the `HistoricalV1` context, `V1PooledModel.cs` for the
-   `HistoricalV1Pooled` one, `V1EnumNamesModel.cs` for the `HistoricalV1EnumNames` one and
-   `V1PolyModel.cs` for the `HistoricalV1Poly` one. All four live in separate contexts on purpose, so
-   adding a type to one of them cannot renumber the ids in the fixtures written through another.
+   `HistoricalV1Pooled` one, `V1EnumNamesModel.cs` for the `HistoricalV1EnumNames` one,
+   `V1PolyModel.cs` for the `HistoricalV1Poly` one and `V1ArraySlotModel.cs` for the
+   `HistoricalV1ArraySlot` one. All five live in separate contexts on purpose, so adding a type to one
+   of them cannot renumber the ids in the fixtures written through another.
 2. Change the current model in the matching reader test to match, keeping the `[PreviousName]` /
    `[PreviousTypeName]` / `[CerasStableName]` attributes the migration needs
    (`tests/Ceras.Test/Tests/HistoricalFixtureTests.cs` for the `HistoricalV1` fixtures,
    `HistoricalConstructionFixtureTests.cs` for the pooled ones, `EnumWireNameMigrationTests.cs` for
-   `Loadout.bin`, and `HistoricalPolymorphicFixtureTests.cs` for the polymorphic ones).
+   `Loadout.bin`, `HistoricalPolymorphicFixtureTests.cs` for the polymorphic ones and
+   `SystemArraySlotMigrationTests.cs` for the `System.Array`-slot ones).
 3. Regenerate (command above) and review the byte diff.
 4. Run `dotnet test tests/Ceras.Test -f net10.0`.

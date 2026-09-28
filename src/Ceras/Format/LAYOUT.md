@@ -289,6 +289,30 @@ generated reader and the interpreter agree on this, and both are pinned by a rea
 A *type tag* of `object` is unreachable — a tag is written only when the declared and runtime types
 differ, and nothing derives from `object` except itself — so a doctored one is refused as corruption.
 
+**A declared `System.Array` is that same slot, under a different declared-type id.** A member (or root,
+or collection element) declared as the abstract `System.Array` names no element type, so the writer
+reaches it through `ReferenceFormatter<Array>`: a reference marker, the concrete array type as a `Type`
+value, and then that array's own payload — the identical grammar the paragraph above describes for
+`object`, which is why the same code reads both. The difference is only in *identity*, and the number
+`16` is the whole of it. It means three different things depending on where it appears:
+
+| where `16` appears | what it is | payload |
+|---|---|---|
+| a member's, root's or element's declared type id in the schema section | the declared type `System.Array` | reference marker, then the `Type` value, then the payload |
+| the definition id of a `GenericInstantiation` entry (`System.Int32[]`, `System.Int32[][]`, …) | a *declared concrete* array, written by `ArrayFormatter` | a biased element count, then the elements — **no marker, no type value** |
+| a `Type` value's tag | the concrete runtime type of a polymorphic value that is an array | the element type, then that same count-plus-elements payload |
+
+So the three must never be conflated, in either direction: a declared-`System.Array` member skipped as
+though it had no marker leaves a marker, a type value and a count in the stream, and a declared-`T[]`
+member read as one that has a marker reads its element count as a reference marker. The interpreter keeps
+them apart by the id itself — `SchemaTraversalEngine.WalkValue` answers the declared-type id as a
+polymorphic slot, `ReadGenericInstantiation` answers the `GenericInstantiation` entry — and the
+`ArraySlot*.bin` cross-version fixtures pin it on both directions (read and skip) with a trailing
+sentinel as the witness. Note also that the array of a *polymorphic* slot is registered in the object
+cache (the reference wrapper registers it) while the array of a member declared as that concrete array
+type is not (`ArrayFormatter` writes it by value): which is why the same array in two `System.Array`
+slots is a back-reference to the first, and the same array in two `int[]` members is written twice.
+
 Bounded on purpose: a type-id LEB128 that does not fit in a non-negative `int` is refused before it can
 be read as a small well-known id; an argument count is checked against the definition's own arity (at
 most 7, the tuple family) *and* against the bytes that remain before anything is allocated from it; one
@@ -422,3 +446,13 @@ the layout.
   to the current member, so application migration code cannot examine the old graph as data.
   Reparenting a type, inlining/removed types and lossy conversions are consequently refused rather
   than transformed.
+- A member whose declared type changes *between* a concrete array and a polymorphic slot — `int[] Slot`
+  becoming `Array Slot` (or `object Slot`) or the reverse. That change moves the reference marker, so
+  the two layouts have no common reading: the file's member type id says "a count, no marker" while
+  the current member says "a marker", and the interpreter follows the current one
+  (`SchemaTraversalEngine.ReadAndApplyFields` decides the array case from the *current* field type).
+  Such a file is rejected today, by the exact-consumption check, which is the honest outcome for a
+  shape neither reader can decode. Making it migratable needs a decision about which side wins — the
+  file's grammar, as everywhere else, or a refusal at bake time — rather than a reader tweak. (The
+  generated fast path is never reached for such a file anyway: a changed member type changes the
+  fingerprint, so the interpreter is always the reader.)

@@ -15,6 +15,7 @@ using System.IO;
 using Ceras;
 using Ceras.Generated;
 using Ceras.HistoricalWriter.V1;
+using Ceras.HistoricalWriter.V1ArraySlot;
 using Ceras.HistoricalWriter.V1EnumNames;
 using Ceras.HistoricalWriter.V1Poly;
 using Ceras.HistoricalWriter.V1Pooled;
@@ -27,6 +28,7 @@ namespace Ceras.HistoricalWriter
         const string PooledContext = "HistoricalV1Pooled";
         const string EnumNamesContext = "HistoricalV1EnumNames";
         const string PolyContext = "HistoricalV1Poly";
+        const string ArraySlotContext = "HistoricalV1ArraySlot";
 
         static int Main(string[] args)
         {
@@ -67,6 +69,7 @@ namespace Ceras.HistoricalWriter
             foreach (var fixture in PooledFixtures()) yield return fixture;
             foreach (var fixture in EnumNameFixtures()) yield return fixture;
             foreach (var fixture in PolymorphicFixtures()) yield return fixture;
+            foreach (var fixture in ArraySlotFixtures()) yield return fixture;
         }
 
         static IEnumerable<(string Name, byte[] Bytes)> SaveGameFixtures()
@@ -283,6 +286,81 @@ namespace Ceras.HistoricalWriter
             {
                 Head = new PolyBeast { Hit = 7 },
                 Mid = new object(),
+                Marker = Sentinel,
+            }, 1));
+        }
+
+        /// <summary>
+        /// The same polymorphic grammar reached through the <c>System.Array</c> base class instead of
+        /// <c>object</c>. A member declared <c>System.Array</c> names no element type, so the writer
+        /// reaches it through <c>ReferenceFormatter&lt;Array&gt;</c> and writes a reference marker, the
+        /// concrete array type as a <c>Type</c> value (Array, element type) and then the array payload —
+        /// byte for byte the grammar above, under a declared-type id (<c>System.Array</c> = 16) that is
+        /// also the <c>Array</c> tag inside a type value and the <c>Array</c> definition id of a
+        /// <c>GenericInstantiation</c> entry, and is a different identity from a member declared as a
+        /// concrete <c>T[]</c> (a manifest entry written by <c>ArrayFormatter</c> with no marker at all).
+        /// Its own context, its own trailing sentinel, and the same reason for it.
+        /// </summary>
+        static IEnumerable<(string Name, byte[] Bytes)> ArraySlotFixtures()
+        {
+            var serializer = NewSerializer(ArraySlotContext);
+            const uint Sentinel = 0x5A5A5A5Au;
+
+            // The ordinary case: a rank-1 array of primitives, behind a marker and a type value.
+            yield return ("ArraySlotInts.bin", serializer.Save(new ArrayCrate
+            {
+                Slot = new[] { 10, 20, 30 },
+                Marker = Sentinel,
+            }, 1));
+
+            // A jagged array: two levels of Array, each level behind its own reference marker, so the
+            // element's declared type is an array in its own right. One row is empty and one row is a
+            // different length, so a flatten-and-rebuild reader cannot pass by accident.
+            yield return ("ArraySlotJagged.bin", serializer.Save(new ArrayCrate
+            {
+                Slot = new[] { new[] { 1, 2 }, new int[0], new[] { 3 } },
+                Marker = Sentinel,
+            }, 1));
+
+            // A non-primitive element type: the element identity is in the type value, not in the slot,
+            // so this pins that the reader takes the element type from the tag (and reads the elements
+            // through the payload string table) rather than assuming the slot's own shape.
+            yield return ("ArraySlotStrings.bin", serializer.Save(new ArrayCrate
+            {
+                Slot = new[] { "left", "right" },
+                Marker = Sentinel,
+            }, 1));
+
+            // An empty array and a null array, which are different on the wire: a null is the reference
+            // marker alone, an empty one is the marker, the type value and a count of zero.
+            yield return ("ArraySlotEmpty.bin", serializer.Save(new ArrayCrate
+            {
+                Slot = new int[0],
+                Marker = Sentinel,
+            }, 1));
+            yield return ("ArraySlotNull.bin", serializer.Save(new ArrayCrate
+            {
+                Slot = null,
+                Marker = Sentinel,
+            }, 1));
+
+            // The same instance in two slots: written once and then as a back-reference, because the
+            // reference wrapper registered it in the object cache. A reader that did not reserve the
+            // slot the writer reserved would resolve the back-reference to whatever came first.
+            var shared = new[] { 5, 6 };
+            yield return ("ArraySlotShared.bin", serializer.Save(new ArrayPair
+            {
+                First = shared,
+                Second = shared,
+                Marker = Sentinel,
+            }, 1));
+
+            // The skip side: a slot the current model has removed. Its marker, its type value, its
+            // element count and every element have to be consumed, and the sentinel after them has to
+            // hold the written number.
+            yield return ("ArraySlotRemoved.bin", serializer.Save(new ArrayEmptyCrate
+            {
+                Slot = new[] { 7, 8, 9 },
                 Marker = Sentinel,
             }, 1));
         }

@@ -17,9 +17,10 @@
 // base-class member, an `object` element of a declared collection, an `object` behind another `object`, and
 // a `Type` value); the refusal is a `CerasSchemaException` naming the runtime type, its rank, the slot, why
 // that slot cannot carry it and what to use instead; nothing is committed, so the next save is still correct;
-// rank 1 and jagged arrays through those slots still round-trip on *both* readers; the raw serializer still
-// round-trips multidimensional arrays; the declared-shape refusals are unchanged; and a hand-written
-// same-version file that already carries one does not load quietly on either reader.
+// rank 1 and jagged arrays through those slots still round-trip on *both* readers (a `System.Array`-declared
+// member was the one slot the interpreter could not follow — see `SystemArraySlotMigrationTests`); the raw
+// serializer still round-trips multidimensional arrays; the declared-shape refusals are unchanged; and a
+// hand-written same-version file that already carries one does not load quietly on either reader.
 //
 // Not pinned here: no framework *interface* can be the slot at all. A member declared as `IList`,
 // `IEnumerable` or any other type the format cannot describe is a compile-time `CERAS029` (pinned in
@@ -163,15 +164,6 @@ namespace Ceras.Test.PolymorphicArrays
             check(s.Load<T>(SlowPath(bytes), 1));
         }
 
-        /// <summary>
-        /// The matching-layout reader alone. A <c>System.Array</c>-declared member is the one slot the
-        /// migration interpreter cannot follow: it maps the declared type onto an ordinary class with no
-        /// members instead of a polymorphic slot, consumes the member marker and stops. Read-side and
-        /// pre-existing (a rank-1 array is written byte-identically either way), so reported, not pinned.
-        /// </summary>
-        static void MatchingLayoutReader<T>(CerasRobustSerializer s, T value, Action<T> check)
-            => check(s.Load<T>(s.Save(value, 1), 1));
-
         // ── The refusal: every position a rank > 1 array can reach ──────────────────────────────
 
         /// <summary>
@@ -281,11 +273,20 @@ namespace Ceras.Test.PolymorphicArrays
                 Assert.Equal(1, c.After);
             });
 
-            // The one slot the interpreter cannot follow, so the matching-layout reader only.
-            MatchingLayoutReader(s, new PmagArrayBaseSlot { Value = rank1, After = 2 }, c =>
+            BothReaders(s, new PmagArrayBaseSlot { Value = rank1, After = 2 }, c =>
             {
                 Assert.Equal(rank1, Assert.IsType<int[]>(c.Value));
                 Assert.Equal(2, c.After);
+            });
+
+            // A jagged array through the same slot, which adds a second `Array` type value at a level
+            // of its own, behind its own marker.
+            BothReaders(s, new PmagArrayBaseSlot { Value = jagged, After = 6 }, c =>
+            {
+                var loaded = Assert.IsType<int[][]>(c.Value);
+                Assert.Equal(new[] { 1, 2 }, loaded[0]);
+                Assert.Equal(new[] { 3 }, loaded[1]);
+                Assert.Equal(6, c.After);
             });
 
             BothReaders(s, new PmagObjectList { Items = new List<object> { rank1 }, After = 3 }, c =>
