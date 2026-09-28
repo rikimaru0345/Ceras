@@ -129,18 +129,87 @@ The reader-side counterpart is `tests/Ceras.Test/Tests/SystemArraySlotMigrationT
 carries the matching-layout controls (one set of bytes, read by both readers) and the reuse case, since
 neither needs a cross-version file.
 
+## The declared-array-shape fixtures (`V1ArrayShapeModel.cs`, `V1ArrayShapeSameModel.cs`)
+
+A member declared as a concrete `T[]` and a member declared as `System.Array` or `object` do not start at
+the same byte: the concrete array is written by `ArrayFormatter` as a bare biased element count, and the
+polymorphic slot goes through a `ReferenceFormatter` and is preceded by a reference marker. A member whose
+declared type changes between them therefore has no common reading, and the load is refused up front rather
+than desynchronizing everything after the slot. The bytes below are what makes that claim checkable rather
+than asserted: each one is a real old-build save, and the reader test walks its payload byte by byte.
+
+**One context per rejected direction** (`HistoricalV1ArrayShapeToObject`, `…FromArray`, `…FromObject`,
+`…ToList`). That is not cosmetic: the migration plans are built for every type the file's schema section
+describes, and a rejected change aborts the whole load, so a context holding two rejected types could only
+ever report whichever of them came first. The shapes that must keep loading live together in
+`HistoricalV1ArrayShapeSame`, where nothing is rejected.
+
+| Aspect | Fixture | Old (v1) | Current |
+| --- | --- | --- | --- |
+| Concrete array → polymorphic slot | `ArrayShapeToObject.bin` | `int[] Slot` — a bare biased count | `object Slot` — **refused** |
+| Polymorphic slot → concrete array | `ArrayShapeFromArray.bin` | `Array Slot` — marker, then a `Type` value | `int[] Slot` — **refused** |
+| …through the declared `object` | `ArrayShapeFromObject.bin` | `object Slot` — marker, then a `Type` value | `int[] Slot` — **refused** |
+| Where the refusal stops | `ArrayShapeToList.bin` | `object Slot` | `List<int> Slot` — refused by the *existing* "no defined conversion" rule, not by the array one |
+| Unchanged shape: array both sides | `ArrayShapeKept.bin` | `int[] Slot` (3 elements) | `int[] Slot` — loaded, sentinel intact |
+| …with a null array | `ArrayShapeKeptNull.bin` | `int[] Slot` = `null`, the biased count `-1` | `int[] Slot` — null, not a marker |
+| Removed array member | `ArrayShapeRemoved.bin` | `int[] Slot` + `uint Marker` | slot gone — count and elements consumed, sentinel intact |
+| Jagged array in a polymorphic slot | `ArrayShapeJaggedSlot.bin` | `Array Slot` holding `int[][]` | still `Array Slot` — every row rebuilt |
+
+The reader-side counterpart is `tests/Ceras.Test/Tests/ArrayShapeChangeMigrationTests.cs`, which also
+carries the matching-layout controls and asserts that an allowed shape keeps the exact bytes and the exact
+fingerprint the v1 writer gave it.
+
+## The nested-argument fixtures (`V1NestedArrayModel.cs`)
+
+The same change one level in: the member keeps its collection family on both sides and a **generic
+argument** moves between a concrete array and a polymorphic slot. The member's own bytes are identical
+either way — a `List<X>` member is a marker, a biased count and then the elements in both builds — so
+nothing above the argument can see that anything moved. What can is the argument tree, because the schema
+section records every closed generic as its own entry with ordered argument type ids. One context per
+rejected direction here too, for the same reason as above.
+
+| Aspect | Fixture | Old (v1) | Current |
+| --- | --- | --- | --- |
+| Element changed shape | `NestedListToObject.bin` | `List<int[]>` — each element a bare biased count | `List<object>` — **refused** |
+| …the other direction | `NestedListFromObject.bin` | `List<object>` holding arrays — marker *and* a `Type` value | `List<int[]>` — **refused** |
+| Only the value argument moves | `NestedDictToObject.bin` | `Dictionary<string, int[]>` | `Dictionary<string, object>` — **refused** |
+| Two argument levels down | `NestedDeepToObject.bin` | `List<List<int[]>>` | `List<List<object>>` — **refused** |
+| Argument is no longer the same type | `NestedWidenedList.bin` | `List<int>` | `List<long>` — **refused** (the reader's element coercion cannot be reached, so it is not an accidental feature) |
+| …with a matching definition | `NestedListToArray.bin` | `List<List<int>>` | `List<int[]>` — **refused** |
+| Only the key argument changed | `NestedDictKeyChange.bin` | `Dictionary<string, int>` | `Dictionary<int, int>` — **refused** |
+| Argument tree unchanged | `NestedSameList.bin`, `NestedSameDict.bin` | `List<int[]>` / `Dictionary<string, int[]>` | the same — loads and reads back |
+| A repeated array element | `NestedSameListShared.bin` | the same `int[]` in two elements | one instance after loading (the writer registers it) |
+| Two levels, no array anywhere | `NestedSameNestedList.bin` | `List<List<int>>` | the same — loads and reads back |
+| Renamed argument type | `NestedRenamedArgList.bin` | `List<Ping>` | `List<Pong>` via `[PreviousTypeName]` — loads and reads back |
+| Removed member | `NestedRemovedList.bin` | `List<int[]>` + `uint Marker` | slot gone — count and elements consumed, sentinel intact |
+
+The two refusals are told apart by their wording: the array-payload one is about a **reference marker
+moving** between a declared array and a polymorphic slot, and the identity one about a position **not
+naming the same current type**. `List<List<int>>` against `List<int[]>` is both, and is reported by the
+more specific of the two. The only thing that satisfies the identity check is that both sides resolve to
+the same current CLR type — which is why a renamed argument type is fine (an alias resolves to the very type
+the current declaration has). A *direct* member's or an array element's widening is a different path
+(a scalar is not a closed generic, an array is not a generic type in reflection) and stays supported.
+
+The reader-side counterpart is `tests/Ceras.Test/Tests/ArrayShapeNestedArgumentMigrationTests.cs`. The
+shared fixture plumbing both reader test files use lives in `tests/Ceras.Test/Base/HistoricalFixtureFiles.cs`.
+
 ## Changing a fixture
 
 1. Change the old model: `V1Model.cs` for the `HistoricalV1` context, `V1PooledModel.cs` for the
    `HistoricalV1Pooled` one, `V1EnumNamesModel.cs` for the `HistoricalV1EnumNames` one,
-   `V1PolyModel.cs` for the `HistoricalV1Poly` one and `V1ArraySlotModel.cs` for the
-   `HistoricalV1ArraySlot` one. All five live in separate contexts on purpose, so adding a type to one
-   of them cannot renumber the ids in the fixtures written through another.
+   `V1PolyModel.cs` for the `HistoricalV1Poly` one, `V1ArraySlotModel.cs` for the
+   `HistoricalV1ArraySlot` one, `V1ArrayShapeModel.cs` / `V1ArrayShapeSameModel.cs` for the
+   declared-array-shape ones and `V1NestedArrayModel.cs` for the nested-argument ones. Each lives in its own context(s) on purpose: a context's manifest is
+   fingerprinted as a whole, so adding a type to one of them would change the bytes of every fixture
+   already written through it.
 2. Change the current model in the matching reader test to match, keeping the `[PreviousName]` /
    `[PreviousTypeName]` / `[CerasStableName]` attributes the migration needs
    (`tests/Ceras.Test/Tests/HistoricalFixtureTests.cs` for the `HistoricalV1` fixtures,
    `HistoricalConstructionFixtureTests.cs` for the pooled ones, `EnumWireNameMigrationTests.cs` for
-   `Loadout.bin`, `HistoricalPolymorphicFixtureTests.cs` for the polymorphic ones and
-   `SystemArraySlotMigrationTests.cs` for the `System.Array`-slot ones).
+   `Loadout.bin`, `HistoricalPolymorphicFixtureTests.cs` for the polymorphic ones,
+   `SystemArraySlotMigrationTests.cs` for the `System.Array`-slot ones,
+   `ArrayShapeChangeMigrationTests.cs` for the declared-array-shape ones and
+   `ArrayShapeNestedArgumentMigrationTests.cs` for the nested-argument ones).
 3. Regenerate (command above) and review the byte diff.
 4. Run `dotnet test tests/Ceras.Test -f net10.0`.

@@ -393,6 +393,16 @@ namespace Ceras
 
             var slowIdToType = BuildIdToType(fileSchemas, registry, Config.TypeBinder);
 
+            // Validate the file's schema against the current model *before* any payload byte is
+            // interpreted - not even the root type id has been read yet. Building the old-to-current plans
+            // is what refuses a member the two sides write incompatibly (a field whose declared type
+            // changed in a way Ceras cannot convert, a member whose reference marker moved because it
+            // changed between a concrete array and a polymorphic slot). Those are facts about the schema
+            // alone, so deciding them needs no payload; asking after the root type id would only mean
+            // that a load which cannot succeed had already started interpreting one, and could already
+            // have fired an [OnBeforeDeserialize] callback against a half-read graph.
+            var slowPlans = MigrationPlanBuilder.BuildAll(fileSchemas, registry);
+
             int storedSlowRootId = (int)SchemaSection.ReadLeb128(ref reader); // root type id
             ValidateStoredRootType(storedSlowRootId, typeof(T), slowIdToType, registry, fingerprintMatched: false);
 
@@ -400,7 +410,7 @@ namespace Ceras
             {
                 using (RobustContext.BeginRead(payloadTable, slowIdToType, _config.SizeLimits.MaxStringLength))
                 {
-                    var engine = new SchemaTraversalEngine(fileSchemas, payloadTable, robustVersion, this);
+                    var engine = new SchemaTraversalEngine(fileSchemas, payloadTable, robustVersion, this, slowPlans);
                     InstanceData.DeserializeCallbacks = null!;
                     value = engine.ReadRoot<T>(ref reader, value);
 

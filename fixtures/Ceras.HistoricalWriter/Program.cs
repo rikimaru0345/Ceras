@@ -15,7 +15,22 @@ using System.IO;
 using Ceras;
 using Ceras.Generated;
 using Ceras.HistoricalWriter.V1;
+using Ceras.HistoricalWriter.V1ArrayShape.FromArray;
+using Ceras.HistoricalWriter.V1ArrayShape.FromObject;
+using Ceras.HistoricalWriter.V1ArrayShape.ToList;
+using Ceras.HistoricalWriter.V1ArrayShape.ToObject;
+using Ceras.HistoricalWriter.V1ArrayShapeSame;
 using Ceras.HistoricalWriter.V1ArraySlot;
+using Ceras.HistoricalWriter.V1Nested.DeepToObject;
+using Ceras.HistoricalWriter.V1Nested.DictKeyChange;
+using Ceras.HistoricalWriter.V1Nested.DeepArgChange;
+using Ceras.HistoricalWriter.V1Nested.DictToObject;
+using Ceras.HistoricalWriter.V1Nested.FromObject;
+using Ceras.HistoricalWriter.V1Nested.ListToArray;
+using Ceras.HistoricalWriter.V1Nested.RemovedArg;
+using Ceras.HistoricalWriter.V1Nested.Same;
+using Ceras.HistoricalWriter.V1Nested.ToObject;
+using Ceras.HistoricalWriter.V1Nested.Widened;
 using Ceras.HistoricalWriter.V1EnumNames;
 using Ceras.HistoricalWriter.V1Poly;
 using Ceras.HistoricalWriter.V1Pooled;
@@ -29,6 +44,27 @@ namespace Ceras.HistoricalWriter
         const string EnumNamesContext = "HistoricalV1EnumNames";
         const string PolyContext = "HistoricalV1Poly";
         const string ArraySlotContext = "HistoricalV1ArraySlot";
+
+        // One context per rejected direction, plus one for the shapes that must keep loading — see
+        // V1ArrayShapeModel.cs for why a rejected type needs a context of its own.
+        const string ArrayShapeToObjectContext = "HistoricalV1ArrayShapeToObject";
+        const string ArrayShapeFromArrayContext = "HistoricalV1ArrayShapeFromArray";
+        const string ArrayShapeFromObjectContext = "HistoricalV1ArrayShapeFromObject";
+        const string ArrayShapeToListContext = "HistoricalV1ArrayShapeToList";
+        const string ArrayShapeSameContext = "HistoricalV1ArrayShapeSame";
+
+        // One context per rejected argument-shape direction, plus one for the argument trees that must keep
+        // loading — see V1NestedArrayModel.cs for why a rejected type needs a context of its own.
+        const string NestedToObjectContext = "HistoricalV1NestedToObject";
+        const string NestedFromObjectContext = "HistoricalV1NestedFromObject";
+        const string NestedDictToObjectContext = "HistoricalV1NestedDictToObject";
+        const string NestedDeepArgContext = "HistoricalV1NestedDeepArgChange";
+        const string NestedDeepToObjectContext = "HistoricalV1NestedDeepToObject";
+        const string NestedWidenedContext = "HistoricalV1NestedWidened";
+        const string NestedListToArrayContext = "HistoricalV1NestedListToArray";
+        const string NestedDictKeyChangeContext = "HistoricalV1NestedDictKeyChange";
+        const string NestedRemovedArgContext = "HistoricalV1NestedRemovedArg";
+        const string NestedSameContext = "HistoricalV1NestedSame";
 
         static int Main(string[] args)
         {
@@ -70,6 +106,8 @@ namespace Ceras.HistoricalWriter
             foreach (var fixture in EnumNameFixtures()) yield return fixture;
             foreach (var fixture in PolymorphicFixtures()) yield return fixture;
             foreach (var fixture in ArraySlotFixtures()) yield return fixture;
+            foreach (var fixture in ArrayShapeFixtures()) yield return fixture;
+            foreach (var fixture in NestedArrayShapeFixtures()) yield return fixture;
         }
 
         static IEnumerable<(string Name, byte[] Bytes)> SaveGameFixtures()
@@ -363,6 +401,172 @@ namespace Ceras.HistoricalWriter
                 Slot = new[] { 7, 8, 9 },
                 Marker = Sentinel,
             }, 1));
+        }
+
+        /// <summary>
+        /// A member whose declared type changes *between a concrete array and a polymorphic slot* — the two
+        /// shapes whose reference markers differ, so neither reader can follow the file and the current model
+        /// at once. Each crate keeps the same trailing sentinel as the slot fixtures above, which is what
+        /// makes a load that ignored the change visible as a wrong number instead of a success.
+        /// <para>
+        /// A serializer per direction, because a rejected type needs a context of its own: the migration plans
+        /// are built for every type the file describes, so a context holding two rejected types could only
+        /// report whichever of them came first. See <c>V1ArrayShapeModel.cs</c>.
+        /// </para>
+        /// </summary>
+        static IEnumerable<(string Name, byte[] Bytes)> ArrayShapeFixtures()
+        {
+            const uint Sentinel = 0xC3C3C3C3u;
+
+            // ── Refused: the declared type changed shape, in both directions ─────────────────────────
+
+            // Concrete array -> object. The file records a manifest `int[]` entry and writes a biased count
+            // where the current model expects a reference marker.
+            yield return ("ArrayShapeToObject.bin", NewSerializer(ArrayShapeToObjectContext).Save(
+                new ConcreteArrayCrate { Slot = new[] { 4, 5, 6 }, Marker = Sentinel }, 1));
+
+            // System.Array -> concrete array. Here the *file* has the marker and the count, and the current
+            // member has only a count, so the marker is what a following reader would have to swallow. The
+            // value is a plain rank-1 int[] so the refusal cannot be blamed on the shape.
+            yield return ("ArrayShapeFromArray.bin", NewSerializer(ArrayShapeFromArrayContext).Save(
+                new ArraySlotCrate { Slot = new[] { 7, 8 }, Marker = Sentinel }, 1));
+
+            // The same, through the declared type `object`.
+            yield return ("ArrayShapeFromObject.bin", NewSerializer(ArrayShapeFromObjectContext).Save(
+                new ObjectSlotCrate { Slot = new[] { 9, 10, 11, 12 }, Marker = Sentinel }, 1));
+
+            // ── Where the refusal stops ──────────────────────────────────────────────────────────────
+
+            // object -> List<int>: a declared-type change with no array in it, so nothing about the
+            // array-shape refusal applies. The reader test compares the two refusals side by side.
+            yield return ("ArrayShapeToList.bin", NewSerializer(ArrayShapeToListContext).Save(
+                new ObjectToListCrate { Slot = new List<int> { 6, 7 }, Marker = Sentinel }, 1));
+
+            // ── Allowed: the array-ness is unchanged, so these still load ───────────────────────────
+
+            var unchanged = NewSerializer(ArrayShapeSameContext);
+
+            // Concrete array on both sides, across a type rename. A real array...
+            yield return ("ArrayShapeKept.bin", unchanged.Save(
+                new SameArrayCrate { Slot = new[] { 1, 2, 3 }, Marker = Sentinel }, 1));
+
+            // ...and a null one, which on this grammar is the biased count -1 and *not* the reference marker
+            // a polymorphic slot would use for null. A rule that keyed on "is the value an array" rather than
+            // on the declared type would refuse this one.
+            yield return ("ArrayShapeKeptNull.bin", unchanged.Save(
+                new SameArrayCrate { Slot = null, Marker = Sentinel }, 1));
+
+            // A concrete array member the current model removed: the skip path, which has no current
+            // declaration to disagree with.
+            yield return ("ArrayShapeRemoved.bin", unchanged.Save(
+                new RemovedArrayCrate { Slot = new[] { 3, 1, 4 }, Marker = Sentinel }, 1));
+
+            // A jagged array in a polymorphic slot, kept polymorphic in the current model: the shape that is
+            // already supported and that the refusal must not reach.
+            yield return ("ArrayShapeJaggedSlot.bin", unchanged.Save(
+                new JaggedSlotCrate { Slot = new[] { new[] { 1, 2 }, new int[0], new[] { 3 } }, Marker = Sentinel }, 1));
+        }
+        /// <summary>
+        /// The same array-payload shape change as <c>ArrayShapeFixtures</c>, one level in: the member keeps
+        /// its collection family on both sides and the <b>argument</b> changes instead. The member's grammar
+        /// is therefore identical in both builds — a biased count and the elements — so only the argument
+        /// tree can tell that anything moved.
+        /// </summary>
+        static IEnumerable<(string Name, byte[] Bytes)> NestedArrayShapeFixtures()
+        {
+            const uint Sentinel = 0x3C3C3C3Cu;
+
+            // ── Refused: the argument changed shape ──────────────────────────────────────────────────
+
+            // List<int[]> -> List<object>: each element is a bare biased count here and a reference marker
+            // plus a type value there. Two elements, so a per-element misread shows up in the sentinel.
+            yield return ("NestedListToObject.bin", NewSerializer(NestedToObjectContext).Save(
+                new ListOfArraysCrate { Slot = new List<int[]> { new[] { 1, 2 }, new[] { 3 } }, Marker = Sentinel }, 1));
+
+            // The mirror: each element is a polymorphic slot here and a concrete array there.
+            yield return ("NestedListFromObject.bin", NewSerializer(NestedFromObjectContext).Save(
+                new ListOfObjectsCrate { Slot = new List<object> { new[] { 4, 5 }, new[] { 6, 7, 8 } }, Marker = Sentinel }, 1));
+
+            // A keyed shape: only the value argument moves, so the key stays a plain string-table index and
+            // pins that the walk is per argument position rather than per member.
+            yield return ("NestedDictToObject.bin", NewSerializer(NestedDictToObjectContext).Save(
+                new DictOfArraysCrate
+                {
+                    Slot = new Dictionary<string, int[]> { ["a"] = new[] { 9 }, ["b"] = new[] { 10, 11 } },
+                    Marker = Sentinel,
+                }, 1));
+
+            // Two levels down: the outer list and the inner list are unchanged, and the array is the inner
+            // list's element. A check that only compared the outermost argument would let this through.
+            yield return ("NestedDeepToObject.bin", NewSerializer(NestedDeepToObjectContext).Save(
+                new DeepListCrate
+                {
+                    Slot = new List<List<int[]>> { new List<int[]> { new[] { 12 } }, new List<int[]>() },
+                    Marker = Sentinel,
+                }, 1));
+
+            // List<int> -> List<long>: same family, different argument type. The reader has an element
+            // coercion written for it, but nothing can reach it (see the model's own note), so this is
+            // refused rather than becoming an accidental migration feature.
+            yield return ("NestedWidenedList.bin", NewSerializer(NestedWidenedContext).Save(
+                new WidenedListCrate { Slot = new List<int> { 21, 22 }, Marker = Sentinel }, 1));
+
+            // List<List<int>> -> List<int[]>: the definition matches, the single argument does not.
+            yield return ("NestedListToArray.bin", NewSerializer(NestedListToArrayContext).Save(
+                new ListOfListsCrate { Slot = new List<List<int>> { new List<int> { 31, 32 } }, Marker = Sentinel }, 1));
+
+            // Dictionary<string,int> -> Dictionary<int,int>: argument 0 changed, argument 1 did not.
+            yield return ("NestedDictKeyChange.bin", NewSerializer(NestedDictKeyChangeContext).Save(
+                new DictKeyCrate { Slot = new Dictionary<string, int> { ["a"] = 51, ["b"] = 52 }, Marker = Sentinel }, 1));
+
+            // List<List<int>> -> List<List<long>>: the outer argument is unchanged and only the inner one
+            // moved, so this is what a check that stopped at the first argument level would let through.
+            yield return ("NestedDeepArgChange.bin", NewSerializer(NestedDeepArgContext).Save(
+                new DeepArgCrate { Slot = new List<List<int>> { new List<int> { 71, 72 } }, Marker = Sentinel }, 1));
+
+            // ── Allowed: an argument type this build no longer has ──────────────────────────────────
+
+            // List<Vanished> -> List<int>, where `Vanished` has no counterpart in the current model at all.
+            // Not a schema change and not refused: the reader consumes a removed type structurally, so the
+            // member's element becomes the current type's default and the sentinel after it still lines up.
+            yield return ("NestedRemovedArg.bin", NewSerializer(NestedRemovedArgContext).Save(
+                new RemovedArgCrate { Slot = new List<Vanished> { new Vanished { Beat = 61 } }, Marker = Sentinel }, 1));
+
+            // ── Allowed: the argument tree is unchanged, or already migrates ─────────────────────────
+
+            var same = NewSerializer(NestedSameContext);
+
+            // The same list, unchanged, across a type rename.
+            yield return ("NestedSameList.bin", same.Save(
+                new SameListOfArraysCrate { Slot = new List<int[]> { new[] { 1, 2 }, new[] { 3 } }, Marker = Sentinel }, 1));
+
+            // The same dictionary, unchanged.
+            yield return ("NestedSameDict.bin", same.Save(
+                new SameDictOfArraysCrate
+                {
+                    Slot = new Dictionary<string, int[]> { ["a"] = new[] { 9 }, ["b"] = new[] { 10, 11 } },
+                    Marker = Sentinel,
+                }, 1));
+
+            // List<List<int>>, unchanged: two argument levels deep, and the one nested control that reads
+            // its values back rather than only proving the guard stayed quiet.
+            yield return ("NestedSameNestedList.bin", same.Save(
+                new SameNestedListCrate { Slot = new List<List<int>> { new List<int> { 41, 42 }, new List<int>() }, Marker = Sentinel }, 1));
+
+            // A renamed element type: List<Ping> -> List<Pong>, reached through [PreviousTypeName].
+            yield return ("NestedRenamedArgList.bin", same.Save(
+                new ListOfRenamedCrate { Slot = new List<Ping> { new Ping { Beat = 33 } }, Marker = Sentinel }, 1));
+
+            // The same instance in two elements. Unlike a member declared as a concrete `T[]`, an element
+            // goes through ReferenceFormatter, so the writer registers it: the second element is a
+            // back-reference and the reader has to resolve it to the *same* array.
+            var shared = new[] { 7, 8 };
+            yield return ("NestedSameListShared.bin", same.Save(
+                new SameListOfArraysCrate { Slot = new List<int[]> { shared, shared }, Marker = Sentinel }, 1));
+
+            // A removed member: skipped by the file's own grammar, with no current argument tree to compare.
+            yield return ("NestedRemovedList.bin", same.Save(
+                new RemovedListOfArraysCrate { Slot = new List<int[]> { new[] { 5, 6 } }, Marker = Sentinel }, 1));
         }
     }
 }
