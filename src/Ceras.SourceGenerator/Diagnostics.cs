@@ -220,6 +220,15 @@ namespace Ceras.SourceGenerator
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
 
+        // The last remedy in CERAS029 — "keep the type out of every [CerasContext] if you only use the
+        // reflection-based CerasSerializer" — reads like the fixed-buffer advice that was wrong, and is not:
+        // it is true here and false there. A System.Uri / BigInteger / Version is written and read back
+        // correctly by the reflection path (measured), so a user who does not want a robust context really
+        // can drop the type from one and carry on. A C# `fixed` buffer is the one shape no path can encode —
+        // the reflection fallback refused it too, and before that it wrote 5 bytes for a 32-byte value and
+        // reported no error — so for that shape the sentence is not advice, it is the bug. It must not be
+        // reintroduced into a fixed-buffer message; CERAS035 is where that shape is refused, and it says
+        // only what FixedBufferGuard.Advice says.
         public static readonly DiagnosticDescriptor UnsupportedFrameworkMemberType = new(
             id: "CERAS029",
             title: "Member type has no built-in representation in the robust format",
@@ -272,6 +281,44 @@ namespace Ceras.SourceGenerator
             id: "CERAS034",
             title: "Declaration names a collection shape Ceras does not support",
             messageFormat: "The declaration names '{0}', whose type is '{1}' - a collection shape Ceras does not support: ReadOnlyCollection<T> / ReadOnlyDictionary<TKey,TValue> (neither the built-in type nor any subclass), and any subclass of List<T> or Dictionary<TKey,TValue>. The exact List<T> and Dictionary<TKey,TValue> are supported and unaffected. A context root or declared type of this shape cannot be given a formatter or a schema, so the bake would refuse the context; declare a root shape the format does describe (a one-dimensional array, the built-in collections, KeyValuePair, a tuple or an enum) instead",
+            category: "Ceras.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
+        /// <summary>
+        /// The sentence that says <em>why</em> a fixed buffer cannot be written, in the words both
+        /// messages use. The runtime states it as <c>Ceras.Formatters.FixedBufferGuard.Cause</c> and this
+        /// file states it again, because the generator cannot reference that <c>internal const</c>: the two
+        /// are separate compilations and the generator references no Ceras assembly. That is the same
+        /// situation as the CERAS033/CERAS034 pair above, and it is why
+        /// <c>FixedBufferDiagnosticTests.The_Two_Refusals_Say_The_Same_Thing</c> pins the rendered text of
+        /// <em>both</em> messages against the runtime's copy: one sentence, written in two places
+        /// because the toolchain gives no other way, and a test that fails the moment the two drift.
+        /// <para>
+        /// Nothing here is reflection-specific. A compile error has no reflection in it, so a reason
+        /// phrased around what reflection sees would be false in one of the two places — the failure mode
+        /// this constant exists to make impossible.
+        /// </para>
+        /// </summary>
+        internal const string FixedBufferCause =
+            "A fixed buffer is not an array: the compiler replaces it with a generated one-element struct and " +
+            "keeps the declared length in an attribute on the field, so the length is nowhere in the member's " +
+            "type and no member-by-member encoding can see it.";
+
+        /// <summary>
+        /// CERAS035 — a member declared as a C# <c>fixed</c> buffer. It gets its own diagnostic, exactly as a
+        /// multidimensional array gets <c>CERAS027</c> rather than the framework-type one: the shape is not
+        /// a type the format has no representation for, it is a member Ceras cannot describe at all, and
+        /// CERAS029's story (a <c>System.*</c> type the user could have declared or formatted) is simply not
+        /// its story. See <see cref="MemberExplorer.IsFixedBufferField"/> for how the shape is recognised.
+        /// </summary>
+        public static readonly DiagnosticDescriptor UnsupportedFixedBufferMember = new(
+            id: "CERAS035",
+            title: "Member is a C# fixed buffer",
+            messageFormat: "Member '{1}' in '{0}' is a C# fixed buffer ({2}), and Ceras cannot write it as a member. " +
+                FixedBufferCause + " " +
+                "Store the buffer as a byte[] member instead, mark the member [Exclude] if it is intentionally not " +
+                "serialized, or register a custom IFormatter<{0}> for the type and write the buffer in it.",
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);

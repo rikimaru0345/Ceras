@@ -25,7 +25,8 @@ namespace Ceras.Formatters
     /// </description></item>
     /// <item><description>
     /// the source generator resolves the C# declaration, sees the <c>byte*</c> the surface really has,
-    /// and refuses the type at compile time (<c>CERAS029</c>).
+    /// and refuses the type at compile time (<c>CERAS035</c> — a fixed buffer has its own diagnostic
+    /// rather than the framework-type one, because the framework-type reason is not its reason).
     /// </description></item>
     /// </list>
     /// <para>
@@ -47,9 +48,9 @@ namespace Ceras.Formatters
     /// <em>was</em> one — the reflection fallback's, measured at 5 bytes against the image's 32 — so
     /// the exemption was not protecting against a hypothetical disagreement, it was covering up a
     /// present one. And the blit's safety depended on the generator refusing the type: the moment
-    /// <c>CERAS029</c> learns fixed buffers, the same build would blit one shape and member-write
-    /// another, which is precisely the failure the blit-selection rule exists to prevent. See
-    /// <c>Format/LAYOUT.md</c>, "Which types the raw path may reinterpret".
+    /// <c>CERAS035</c> stops reporting the shape as a framework type, the same build would blit one shape
+    /// and member-write another, which is precisely the failure the blit-selection rule exists to prevent.
+    /// See <c>Format/LAYOUT.md</c>, "Which types the raw path may reinterpret".
     /// </para>
     /// <para>
     /// A member the payload does not contain is not this guard's business: <c>[Exclude]</c> and
@@ -69,6 +70,21 @@ namespace Ceras.Formatters
         internal const string Advice =
             "Store the buffer as a byte[] member instead, mark the member [Exclude] if it is intentionally " +
             "not serialized, or register a custom IFormatter<{0}> for the type and write the buffer in it.";
+
+        /// <summary>
+        /// The reason, in the one sentence the source generator's <c>CERAS035</c> states too
+        /// (<c>Ceras.SourceGenerator.Diag.FixedBufferCause</c>). The two cannot share a constant: the
+        /// generator is a separate compilation that references no Ceras assembly. So the sentence is written
+        /// once here and once there, and
+        /// <c>FixedBufferDiagnosticTests.The_Two_Refusals_Say_The_Same_Thing</c> pins both rendered messages
+        /// against this copy. It deliberately names nothing runtime-specific — a compile error has no
+        /// reflection in it, and a reason phrased around what reflection sees would be false in one of the
+        /// two places.
+        /// </summary>
+        internal const string Cause =
+            "A fixed buffer is not an array: the compiler replaces it with a generated one-element struct and " +
+            "keeps the declared length in an attribute on the field, so the length is nowhere in the member's " +
+            "type and no member-by-member encoding can see it.";
 
         /// <summary>
         /// The consequence, stated as a measurement rather than as a principle, because that is what
@@ -131,9 +147,7 @@ namespace Ceras.Formatters
                 $"{(buffers.Count == 1 ? "Member" : "Members")} {named} of {(isStatic ? "static " : "")}type " +
                 $"'{scoped}' {(buffers.Count == 1 ? "is a C# fixed buffer" : "are C# fixed buffers")}, and Ceras " +
                 $"cannot write {(buffers.Count == 1 ? "it" : "them")} as {(buffers.Count == 1 ? "a member" : "members")}. " +
-                $"A fixed buffer is not an array to reflection: the compiler replaces it with a generated " +
-                $"one-element struct and keeps the declared length in an attribute on the field, so the length is " +
-                $"nowhere in the member's type and no member-by-member encoding can see it. Writing " +
+                $"{Cause} Writing " +
                 $"{(buffers.Count == 1 ? "it" : "them")} anyway would lose data silently, because " +
                 $"{LossDescription(worst.field, worst.declared)}. Ceras refuses the type on every path instead, " +
                 $"the raw path's memory-image blit included, so that the one shape Ceras cannot describe is not " +
