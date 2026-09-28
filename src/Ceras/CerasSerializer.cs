@@ -177,16 +177,15 @@ namespace Ceras
 		/// The serialized bytes of <paramref name="obj"/>. Never null: the result is a fresh array
 		/// holding everything the write produced (an empty input produces an empty array, not null).
 		/// <para>
-		/// Convenient, and allocates twice - once for the working buffer, once for the result. To
-		/// write repeatedly without allocating, rent a buffer from <see cref="CerasBufferPool"/> once
-		/// and use <see cref="Serialize{T}(T, ref byte[])"/>, which is the shape a per-frame message
-		/// loop wants.
+		/// Convenient, and allocates once - the result. The working buffer is rented and returned
+		/// rather than allocated, so a caller that has not asked to manage a buffer does not pay for
+		/// one on every message. To avoid even that, rent a buffer from <see cref="CerasBufferPool"/>
+		/// once and use <see cref="Serialize{T}(T, ref byte[])"/>, which is the shape a per-frame
+		/// message loop wants and allocates nothing per message once the buffer is big enough.
 		/// </para>
 		/// </summary>
 		protected internal byte[] Serialize<T>(T obj)
 		{
-			// Rented rather than allocated: a caller that has not asked to manage a buffer should not
-			// pay for a fresh working array on every message, only for the one it receives back.
 			byte[] buffer = CerasBufferPool.Rent(DefaultBufferSize);
 			try
 			{
@@ -257,7 +256,10 @@ namespace Ceras
 		protected internal int Serialize<T>(T obj, ref byte[] buffer, ref int offset)
 		{
 			int start = offset;
-			var writer = new FixedArrayBufferWriter(buffer, offset);
+			// pooled: the contract for this overload is that the buffer is a rental, so growing it
+			// may return the replaced array. See EnsureCapacity for why that has to be stated rather
+			// than inferred.
+			var writer = new FixedArrayBufferWriter(buffer, offset, bufferIsPooled: true);
 			Serialize(writer, obj);
 
 			// Any growth already returned the arrays it replaced to the pool (ExpandBuffer does it, on
@@ -402,10 +404,26 @@ namespace Ceras
 		public class FixedArrayBufferWriter : IBufferWriter<byte>
 		{
 			public byte[] Buffer; public int Offset;
-			public FixedArrayBufferWriter(byte[] buffer, int offset) { Buffer = buffer ?? CerasBufferPool.Rent(0x4000); Offset = offset; }
+
+			// Whether Buffer is an array the pool rented, and so may go back to it when this writer
+			// grows it. See SerializerBinary.EnsureCapacity for why this cannot be inferred. A writer
+			// that rented its own buffer always owns it, so that case needs no flag.
+			readonly bool _bufferIsPooled;
+
+			/// <param name="bufferIsPooled">
+			/// True only if <paramref name="buffer"/> came from <see cref="CerasBufferPool.Rent"/>, in
+			/// which case a grown-out array is returned to the pool. False for a caller's own array.
+			/// </param>
+			public FixedArrayBufferWriter(byte[] buffer, int offset, bool bufferIsPooled = false)
+			{
+				Buffer = buffer ?? CerasBufferPool.Rent(0x4000);
+				Offset = offset;
+				_bufferIsPooled = bufferIsPooled || buffer == null;
+			}
+
 			public void Advance(int count) => Offset += count;
-			public Memory<byte> GetMemory(int sizeHint = 0) { SerializerBinary.EnsureCapacity(ref Buffer, Offset, sizeHint); return Buffer.AsMemory(Offset); }
-			public Span<byte> GetSpan(int sizeHint = 0) { SerializerBinary.EnsureCapacity(ref Buffer, Offset, sizeHint); return Buffer.AsSpan(Offset); }
+			public Memory<byte> GetMemory(int sizeHint = 0) { SerializerBinary.EnsureCapacity(ref Buffer, Offset, sizeHint, _bufferIsPooled); return Buffer.AsMemory(Offset); }
+			public Span<byte> GetSpan(int sizeHint = 0) { SerializerBinary.EnsureCapacity(ref Buffer, Offset, sizeHint, _bufferIsPooled); return Buffer.AsSpan(Offset); }
 		}
 
 		/// <summary>

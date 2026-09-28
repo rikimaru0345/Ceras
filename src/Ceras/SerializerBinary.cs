@@ -863,15 +863,31 @@ namespace Ceras
 
         const int MaximumArraySize = 0x7fffffc7;
 
+        /// <summary>
+        /// Ensures <paramref name="buffer"/> can hold <paramref name="size"/> more bytes at
+        /// <paramref name="offset"/>, growing it if not.
+        /// <para>
+        /// <paramref name="replacedBufferIsPooled"/> must be true only when
+        /// <paramref name="buffer"/> is an array <see cref="CerasBufferPool"/> rented. That is what
+        /// lets the replaced array go back to the pool when the buffer grows, and it is not
+        /// something that can be guessed: <see cref="System.Buffers.ArrayPool{T}"/>.Return
+        /// <em>adopts</em> an array whose length happens to be one of its bucket sizes - so a
+        /// caller's own 4096-byte buffer would be silently handed to an unrelated renter, who would
+        /// then be reading a span the caller still believes it owns. It throws for lengths that are
+        /// not bucket sizes, so the same mistake surfaces as an ArgumentException from inside an
+        /// otherwise-successful write. Both outcomes are avoided by requiring the caller to say
+        /// which case this is. It defaults to false, so a new call site is safe by default.
+        /// </para>
+        /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void EnsureCapacity(ref byte[] buffer, int offset, int size)
+        public static void EnsureCapacity(ref byte[] buffer, int offset, int size, bool replacedBufferIsPooled = false)
         {
             int newSize = offset + size;
             if (buffer.Length >= newSize) return;
-            ExpandBuffer(ref buffer, newSize);
+            ExpandBuffer(ref buffer, newSize, replacedBufferIsPooled);
         }
 
-        internal static void ExpandBuffer(ref byte[] buffer, int newSize)
+        internal static void ExpandBuffer(ref byte[] buffer, int newSize, bool replacedBufferIsPooled)
         {
             if (newSize > MaximumArraySize || newSize < 0) throw new InvalidOperationException("Buffer too large");
             int currentSize = buffer.Length;
@@ -882,13 +898,13 @@ namespace Ceras
             byte[] newBuffer = CerasBufferPool.Rent(targetSize);
             buffer.AsSpan(0, currentSize).CopyTo(newBuffer);
 
-            // Every buffer that reaches here came from CerasBufferPool - Save rents its own, and the
-            // public write path requires the caller's to be a rental too - so the replaced array is
-            // ours to hand back. Not doing so leaks it: growth is exactly when the pool is asked for
-            // more, and dropping what it just gave up means the pool keeps allocating instead of
-            // reusing. (This used to be skipped to protect a caller-allocated buffer, which the pooled
-            // write API no longer accepts.)
-            CerasBufferPool.Return(buffer);
+            // Only the caller's word for it - see EnsureCapacity. Growth is exactly when the pool is
+            // asked for more, so dropping what it just gave up means the pool keeps allocating
+            // instead of reusing; handing back one it never gave out means giving a stranger a
+            // buffer someone is still writing to.
+            if (replacedBufferIsPooled)
+                CerasBufferPool.Return(buffer);
+
             buffer = newBuffer;
         }
 

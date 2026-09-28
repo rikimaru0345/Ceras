@@ -37,9 +37,14 @@ namespace Ceras
 
         public const int Size = 56;
 
-        public static void WritePlaceholder(ref byte[] buffer, ref int offset, uint formatVersion, uint gameVersion, long buildTimestamp)
+        /// <param name="bufferIsPooled">
+        /// True only if <paramref name="buffer"/> came from <see cref="CerasBufferPool.Rent"/>, so that
+        /// growing it may return the replaced array. See <see cref="SerializerBinary.EnsureCapacity"/>
+        /// for why that has to be stated rather than inferred.
+        /// </param>
+        public static void WritePlaceholder(ref byte[] buffer, ref int offset, uint formatVersion, uint gameVersion, long buildTimestamp, bool bufferIsPooled = false)
         {
-            SerializerBinary.EnsureCapacity(ref buffer, offset, Size);
+            SerializerBinary.EnsureCapacity(ref buffer, offset, Size, bufferIsPooled);
             buffer.AsSpan(offset, Size).Clear();
 
             buffer[offset + MagicOffset + 0] = (byte)'C';
@@ -244,16 +249,19 @@ namespace Ceras
             {
                 int offset = 0;
 
-                RobustHeader.WritePlaceholder(ref buffer, ref offset, FormatVersion, robustVersion, _config.BuildTimestamp);
+                // Every growth point below is told the buffer is a rental, because it is: Save rented it
+                // above. That is what lets each replaced array go back to the pool instead of being
+                // dropped, and it has to be said at each one rather than assumed.
+                RobustHeader.WritePlaceholder(ref buffer, ref offset, FormatVersion, robustVersion, _config.BuildTimestamp, bufferIsPooled: true);
 
                 // Schema region: [schema bytes][schema string table]. The schema string table is separate
                 // from the payload string table so skipping schema interpretation never decodes metadata names.
-                SerializerBinary.EnsureCapacity(ref buffer, offset, schemaBytes.Length);
+                SerializerBinary.EnsureCapacity(ref buffer, offset, schemaBytes.Length, replacedBufferIsPooled: true);
                 schemaBytes.CopyTo(buffer.AsSpan(offset));
                 offset += schemaBytes.Length;
 
                 int schemaStringOffset = offset;
-                SerializerBinary.EnsureCapacity(ref buffer, offset, schemaStrings.Length);
+                SerializerBinary.EnsureCapacity(ref buffer, offset, schemaStrings.Length, replacedBufferIsPooled: true);
                 schemaStrings.CopyTo(buffer.AsSpan(offset));
                 offset += schemaStrings.Length;
 
@@ -280,7 +288,7 @@ namespace Ceras
                         // changes. `offset` is the fill level of `buffer` and is exactly where the data section
                         // starts (dataStart above), so the writer continues the file rather than starting a
                         // new one.
-                        var writer = new FixedArrayBufferWriter(buffer, offset);
+                        var writer = new FixedArrayBufferWriter(buffer, offset, bufferIsPooled: true);
                         SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
                         Serialize(writer, rootObject);
 
@@ -289,7 +297,7 @@ namespace Ceras
                         buffer = writer.Buffer;
                         offset = writer.Offset;
 
-                        stringTableStart = payloadStrings.Flush(ref buffer, ref offset, _config.StringTableCompression);
+                        stringTableStart = payloadStrings.Flush(ref buffer, ref offset, _config.StringTableCompression, bufferIsPooled: true);
                     }
                 }
                 finally

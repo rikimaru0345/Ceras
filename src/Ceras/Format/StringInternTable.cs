@@ -50,7 +50,13 @@ namespace Ceras.Format
             return index;
         }
 
-        public int Flush(ref byte[] buffer, ref int offset, StringTableCompression compression = StringTableCompression.Disabled)
+        /// <param name="bufferIsPooled">
+        /// True only if <paramref name="buffer"/> came from <see cref="CerasBufferPool.Rent"/>, so that
+        /// growing it may return the replaced array. False for a caller's own array - the schema bake
+        /// flushes into a plain <c>new byte[256]</c>, for instance. See
+        /// <see cref="SerializerBinary.EnsureCapacity"/> for why that has to be stated.
+        /// </param>
+        public int Flush(ref byte[] buffer, ref int offset, StringTableCompression compression = StringTableCompression.Disabled, bool bufferIsPooled = false)
         {
             var writer = new ArrayBufferWriter<byte>();
             int count = _indexToString.Count - 1;
@@ -72,7 +78,7 @@ namespace Ceras.Format
                     deflate.Write(data);
                 }
                 var compressed = ms.ToArray();
-                SerializerBinary.EnsureCapacity(ref buffer, offset, compressed.Length);
+                SerializerBinary.EnsureCapacity(ref buffer, offset, compressed.Length, bufferIsPooled);
                 compressed.CopyTo(buffer.AsSpan(offset));
                 int start = offset;
                 offset += compressed.Length;
@@ -80,7 +86,7 @@ namespace Ceras.Format
             }
             else
             {
-                SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length);
+                SerializerBinary.EnsureCapacity(ref buffer, offset, data.Length, bufferIsPooled);
                 data.CopyTo(buffer.AsSpan(offset));
                 int start = offset;
                 offset += data.Length;
