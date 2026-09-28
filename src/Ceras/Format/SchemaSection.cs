@@ -433,7 +433,35 @@ namespace Ceras.Format
             return result;
         }
 
+        /// <summary>
+        /// Reads a file's schema section and holds it to the structural invariant
+        /// (<see cref="StructuralShape"/>) before returning it, so a caller can never be handed an entry
+        /// whose definition or arguments describe no payload. The refusal is a
+        /// <see cref="Ceras.Exceptions.CerasDataCorruptionException"/>: the section contradicts itself,
+        /// which is a property of the bytes alone and needs nothing from this build's model.
+        /// </summary>
+        /// <remarks>
+        /// <c>ReadUnvalidated</c> is the raw parse, for a diagnostic that has to be able to *show* a section
+        /// the load path refuses — see <c>CerasRobustSerializer.DumpSchema</c>. Nothing that interprets a
+        /// payload may use it.
+        /// </remarks>
         public static Dictionary<string, OldTypeSchema> Read(ref SequenceReader<byte> reader, string[] stringTable)
+        {
+            var parsed = new List<OldTypeSchema>();
+            var byName = ReadUnvalidated(ref reader, stringTable, parsed);
+
+            RequireDescribableEntries(parsed);
+            return byName;
+        }
+
+        /// <summary>
+        /// The raw parse, with no structural validation. <paramref name="parsed"/> receives every entry in
+        /// the order it appeared, including one a later entry overwrote under the same name: the invariant
+        /// is a property of the bytes, and a name the section contradicts is just as broken whether or not
+        /// a reader happens to look it up.
+        /// </summary>
+        internal static Dictionary<string, OldTypeSchema> ReadUnvalidated(
+            ref SequenceReader<byte> reader, string[] stringTable, List<OldTypeSchema> parsed)
         {
             var byName = new Dictionary<string, OldTypeSchema>(StringComparer.Ordinal);
 
@@ -521,8 +549,37 @@ namespace Ceras.Format
 
                 byName[stableName] = schema;
                 foreach (var pn in prevNames) if (pn != null) byName[pn] = schema;
+                parsed.Add(schema);
             }
+
             return byName;
+        }
+
+        /// <summary>
+        /// The earliest door for a malformed collection/array/tuple description: a section whose own entries
+        /// contradict it cannot be read safely, and both clauses asked here need nothing but the section
+        /// itself — the argument count against the definition it names, and the definition against the ids
+        /// the section records. Both are asked before the root type id is read, so nothing in the payload has
+        /// been interpreted at all.
+        /// <para>
+        /// The third clause, an argument identity nothing describes, is deliberately <em>not</em> asked
+        /// here: that one is the migration layer's question, and the per-member walk there reports it with
+        /// the member and the position inside its shape named, which is the more useful message. See
+        /// <c>MigrationPlanBuilder.BuildAll</c>.
+        /// </para>
+        /// </summary>
+        internal static void RequireDescribableEntries(List<OldTypeSchema> parsed)
+        {
+            var describedIds = new HashSet<int>();
+            foreach (var entry in parsed) describedIds.Add(entry.TypeId);
+
+            for (int i = 0; i < parsed.Count; i++)
+            {
+                var verdict = StructuralShape.InspectShape(parsed[i]);
+                if (!verdict.IsDefect) verdict = StructuralShape.InspectDefinition(parsed[i], describedIds.Contains);
+                if (verdict.IsDefect)
+                    throw StructuralShape.CorruptSection(parsed[i], verdict, i);
+            }
         }
 
         /// <summary>

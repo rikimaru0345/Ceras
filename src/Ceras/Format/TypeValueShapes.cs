@@ -155,7 +155,11 @@ namespace Ceras.Format
         /// <item>a manifest id (>= 128) or a well-known scalar: terminal, nothing follows;</item>
         /// <item><c>Array</c> (16): exactly one nested <c>Type</c> value, the element type;</item>
         /// <item>a well-known generic definition (the collections, <c>Nullable</c>, <c>KeyValuePair</c>,
-        /// the tuple families): an argument count, then that many nested <c>Type</c> values;</item>
+        /// the tuple families): an argument count, then that many nested <c>Type</c> values. The count has
+        /// to be exactly the definition's arity, so a value naming any other number is refused here rather
+        /// than becoming a payload whose elements cannot be counted (see <see cref="StructuralShape"/>);
+        /// this is the fourth door of that invariant, and the only one reachable after a file's schema
+        /// section has already been parsed, because these entries are synthesized mid-decode;</item>
         /// <item>a reserved but unassigned well-known id (43–126), which the writer cannot produce: refused.</item>
         /// </list>
         /// A <c>Null</c> tag is terminal and legal as a whole value, but never as an argument or an element
@@ -217,7 +221,7 @@ namespace Ceras.Format
 
             if (WellKnownTypes.TryGetType(tag, out var definition) && definition.IsGenericTypeDefinition)
             {
-                int argCount = ReadBoundedArgCount(ref reader, definition.Name);
+                int argCount = ReadBoundedArgCount(ref reader, definition.Name, tag);
                 var args = new TypeShape[argCount];
                 for (int i = 0; i < argCount; i++)
                 {
@@ -419,14 +423,16 @@ namespace Ceras.Format
             return null;
         }
 
-        static int ReadBoundedArgCount(ref SequenceReader<byte> reader, string definitionName)
+        static int ReadBoundedArgCount(ref SequenceReader<byte> reader, string definitionName, int definitionId)
         {
             long remaining = reader.Sequence.Length - reader.Consumed;
             int argCount = SchemaSection.ReadTypeIdLeb128(ref reader, $"the argument count of '{definitionName}'");
 
             // Every argument costs at least one byte, so the bytes that remain bound the count; a larger
             // value is a corrupt field, not a real type. The definition's own arity bounds it far more
-            // tightly, and it is checked first because this count sizes an array.
+            // tightly, and it is checked first because this count sizes an array. These two are the
+            // resource guards, and they answer "is this field sane at all" before the semantic question
+            // below is even asked.
             if (argCount > MaxDefinitionArity)
                 throw new CerasDataCorruptionException(
                     $"Corrupt System.Type payload: '{definitionName}' declares {argCount} generic arguments. The largest " +
@@ -435,6 +441,25 @@ namespace Ceras.Format
                 throw new CerasDataCorruptionException(
                     $"Corrupt System.Type payload: '{definitionName}' declares {argCount} generic arguments but only " +
                     $"{remaining} bytes remain.");
+
+            // The definition fixes how many arguments it takes, and a type value naming a different number
+            // does not name a concrete type at all. This is the same fact the schema section records as
+            // ordered argument ids, and this is where a Type value records it (StructuralShape) — the fourth
+            // door of that invariant, and the only one reachable after a file's section has already been
+            // parsed, because these entries are synthesized mid-decode. It is checked here rather than left
+            // to MakeGenericType, which on the read path reports a wrong count as a bare reflection
+            // ArgumentException and on the skip path — which never closes a CLR type at all — would have
+            // consumed nothing per element and desynchronized the rest of the save.
+            int required = StructuralShape.RequiredArity(definitionId);
+            if (argCount != required)
+            {
+                throw new CerasDataCorruptionException(
+                    $"Corrupt System.Type payload: '{definitionName}' declares {argCount} generic argument" +
+                    $"{(argCount == 1 ? "" : "s")}, but the definition takes exactly {required}. A Type value names a concrete " +
+                    "runtime type, so a wrong argument count does not name a type at all, and the payload that follows it " +
+                    "cannot be counted.");
+            }
+
             return argCount;
         }
 

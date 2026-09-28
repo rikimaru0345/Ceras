@@ -430,15 +430,30 @@ namespace Ceras.Test.CollectionShapes
             return buffer[..offset];
         }
 
+        /// <summary>How many ordered arguments a definition name's <c>`N</c> suffix says it takes.</summary>
+        static int DefinitionArity(string definitionName)
+        {
+            int tick = definitionName.LastIndexOf('`');
+            return tick < 0 ? 0 : int.Parse(definitionName.Substring(tick + 1));
+        }
+
         /// <summary>
         /// A complete robust file with a hand-written schema section: the root <see cref="CsrDecodeHolder"/>
         /// whose <c>Items</c> member is recorded as <paramref name="collectionType"/> described as
-        /// <c><paramref name="definitionName"/> + Int32</c>. The fingerprint is 0, so loading it takes the
-        /// migration interpreter, and the file's stable name is what resolves the old entry to the current
-        /// CLR type — which is how an unsupported shape reaches the decoder at all. The payload is
-        /// <c>root id | root marker | member marker | count | elements | After</c>, so a decode that stops
-        /// short of <c>After</c> is visibly wrong. (Same shape as the legacy-file builder in
-        /// <c>ReviewFindingsTests</c>.)
+        /// <c><paramref name="definitionName"/> + one Int32 per argument</c>. The fingerprint is 0, so
+        /// loading it takes the migration interpreter, and the file's stable name is what resolves the old
+        /// entry to the current CLR type — which is how an unsupported shape reaches the decoder at all.
+        /// The payload is <c>root id | root marker | member marker | count | elements | After</c>, so a
+        /// decode that stops short of <c>After</c> is visibly wrong. (Same shape as the legacy-file builder
+        /// in <c>ReviewFindingsTests</c>.)
+        /// <para>
+        /// The argument names are derived from the definition's own arity rather than written per row,
+        /// because a descriptor that does not record a definition's arguments is refused outright
+        /// (<c>SchemaRegistry.Register</c> → <c>StructuralShape</c>) and these rows are about the collection
+        /// <em>policy</em>, not about a malformed schema. <c>Int32</c> for every argument also keeps the
+        /// hand-written element bytes self-consistent; none of the rows reaches them anyway, since the
+        /// refusal precedes the element count.
+        /// </para>
         /// </summary>
         static byte[] LegacyCollectionMemberFile(Type collectionType, string definitionName, int count, int[] elements = null)
         {
@@ -453,10 +468,11 @@ namespace Ceras.Test.CollectionShapes
                 0));
             // An explicit schema, so the "old" build describes a shape no Ceras build can: the file a build
             // without the Queue<>/Stack<> restriction would have written.
+            var argNames = Enumerable.Repeat("System.Int32", DefinitionArity(definitionName)).ToArray();
             old.Register(collectionType, new SchemaTypeInfo(
                 Name(collectionType), Array.Empty<string>(), SchemaTypeKind.GenericInstantiation,
                 Array.Empty<SchemaFieldInfo>(), 0, underlyingTypeName: definitionName,
-                argTypeNames: new[] { "System.Int32" }));
+                argTypeNames: argNames));
             old.TryGetId(typeof(CsrDecodeHolder), out int holderId);
 
             var buffer = new byte[1024];

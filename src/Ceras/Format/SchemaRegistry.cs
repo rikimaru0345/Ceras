@@ -301,6 +301,13 @@ namespace Ceras.Format
 		/// type (idempotent).
 		/// A <c>null</c> <paramref name="info"/> declares the type structurally/minimally; it never
 		/// walks CLR fields.
+		/// <para>
+		/// With an explicit <paramref name="info"/> this is also the documented public forge: it is how a
+		/// historical file's shape is described by hand. Such a descriptor is held to the structural
+		/// invariant — a <c>GenericInstantiation</c> of one of the format's own definitions has to record
+		/// exactly that definition's argument count — so a malformed one is refused here rather than
+		/// reaching a reader that could not honour it. See <see cref="StructuralShape"/>.
+		/// </para>
 		/// </summary>
 		public void Register(Type type, SchemaTypeInfo info)
         {
@@ -329,6 +336,15 @@ namespace Ceras.Format
                     if (WellKnownTypes.IsWellKnown(type)) return;
                     info = BuildDeclaredSchema(type);
                 }
+
+                // The authoring half of the structural invariant (StructuralShape): an explicit descriptor
+                // is the one door a caller can open by hand, so a malformed one is refused here, where the
+                // author can still see it, rather than surfacing as a mis-decode or a desync on a later load.
+                // The derived descriptors above cannot fail this: TryBuildStructuralSchema builds the entry
+                // from the CLR type, so the argument count is whatever the definition takes. The invariant
+                // itself is stated in one place and asked again at the section parser, the migration plan
+                // builder and the Type-value grammar; this is only the earliest door.
+                StructuralShape.RequireDescribableDescriptor(type, info);
 
                 var entry = new Entry { Id = _nextId++, Info = info, Type = type };
 

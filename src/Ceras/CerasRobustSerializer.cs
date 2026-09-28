@@ -394,13 +394,17 @@ namespace Ceras
             var slowIdToType = BuildIdToType(fileSchemas, registry, Config.TypeBinder);
 
             // Validate the file's schema against the current model *before* any payload byte is
-            // interpreted - not even the root type id has been read yet. Building the old-to-current plans
-            // is what refuses a member the two sides write incompatibly (a field whose declared type
-            // changed in a way Ceras cannot convert, a member whose reference marker moved because it
-            // changed between a concrete array and a polymorphic slot). Those are facts about the schema
-            // alone, so deciding them needs no payload; asking after the root type id would only mean
-            // that a load which cannot succeed had already started interpreting one, and could already
-            // have fired an [OnBeforeDeserialize] callback against a half-read graph.
+            // interpreted - not even the root type id has been read yet. Reading the section is where the
+            // file's own description is first checked for self-consistency (SchemaSection.Read, via
+            // StructuralShape: a collection/array/tuple entry that carries no readable definition and
+            // arguments describes no payload at all), and building the old-to-current plans is what refuses
+            // a member the two sides write incompatibly (a field whose declared type changed in a way
+            // Ceras cannot convert, a member whose reference marker moved because it changed between a
+            // concrete array and a polymorphic slot) and an entry whose identities the file does not
+            // describe. Those are facts about the schema alone, so deciding them needs no payload; asking
+            // after the root type id would only mean that a load which cannot succeed had already started
+            // interpreting one, and could already have fired an [OnBeforeDeserialize] callback against a
+            // half-read graph.
             var slowPlans = MigrationPlanBuilder.BuildAll(fileSchemas, registry);
 
             int storedSlowRootId = (int)SchemaSection.ReadLeb128(ref reader); // root type id
@@ -822,7 +826,12 @@ namespace Ceras
             int schemaOffset = RobustHeader.Size;
             var sequence = new System.Buffers.ReadOnlySequence<byte>(data, schemaOffset, (int)schemaStringOffset - schemaOffset);
             var schemaReader = new System.Buffers.SequenceReader<byte>(sequence);
-            var fileSchemas = SchemaSection.Read(ref schemaReader, schemaStrings);
+
+            // The raw parse, deliberately: a *diagnostic* has to be able to show a section the load path
+            // refuses, which is exactly when it is most needed. The structural invariant is not skipped —
+            // it is reported, one comment line per defective entry, below.
+            var parsedEntries = new List<OldTypeSchema>();
+            var fileSchemas = SchemaSection.ReadUnvalidated(ref schemaReader, schemaStrings, parsedEntries);
 
             var sb = new StringBuilder();
             sb.AppendLine($"// File fingerprint: {schemaFingerprint:X16}");
@@ -836,6 +845,23 @@ namespace Ceras
             foreach (var s in fileSchemas.Values) idToName[s.TypeId] = s.StableName;
 
             string Resolve(int id) => idToName.TryGetValue(id, out var name) ? name : $"ID:{id}";
+
+            // A section whose entries contradict the format is refused by Load, with the same reason. A
+            // dump that hid that would be useless on exactly the file the caller is trying to understand,
+            // so the defect is stated here rather than thrown.
+            var defects = new List<string>();
+            var describedIds = new HashSet<int>();
+            foreach (var entry in parsedEntries) describedIds.Add(entry.TypeId);
+            foreach (var entry in parsedEntries)
+            {
+                var verdict = StructuralShape.InspectShape(entry);
+                if (!verdict.IsDefect) verdict = StructuralShape.InspectDefinition(entry, describedIds.Contains);
+                if (verdict.IsDefect)
+                    defects.Add("// REFUSED BY LOAD: " + StructuralShape.Describe(entry, verdict));
+            }
+            foreach (var defect in defects) sb.AppendLine(defect);
+            if (defects.Count > 0)
+                sb.AppendLine($"// ({defects.Count} entr{(defects.Count == 1 ? "y" : "ies")} a Load would refuse; see the reason above.)");
 
             foreach (var kv in fileSchemas.OrderBy(x => x.Key, StringComparer.Ordinal))
             {

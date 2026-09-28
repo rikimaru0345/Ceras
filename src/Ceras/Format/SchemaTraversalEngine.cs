@@ -75,6 +75,15 @@ namespace Ceras.Format
             // to be interpreted before the load can be known to be impossible. A caller that does not have
             // them (a test driving this engine directly) gets them built here, which is the same call and the
             // same refusals — only later.
+            //
+            // The same is true of the structural invariant (StructuralShape), which is why the read and the
+            // skip paths below need no entry-level guard of their own: MigrationPlanBuilder.BuildAll refuses a
+            // GenericInstantiation entry that carries no readable definition/arguments, and it is the one
+            // constructor argument that both routes supply — a prebuilt plan set here always came from that
+            // same call. So by the time a payload byte is read, every described entry in the file is one
+            // whose shape both directions can read identically, and neither can be handed a malformed one to
+            // disagree about. The exception is a Type-value entry, which is synthesized long after the
+            // section was parsed; TypeValueShapes holds the invariant for those, before its payload starts.
             _plans = plans ?? MigrationPlanBuilder.BuildAll(_file.ByName, _registry);
 
             // Pre-build the callback invokers. The migration context is identical for every instance
@@ -727,6 +736,14 @@ namespace Ceras.Format
         /// Reads one element of a collection payload, or consumes and discards it when the file did not
         /// record the element's type identity. A fixed-size element can still be skipped from its current
         /// CLR type; anything else fails loudly rather than desyncing the stream.
+        /// <para>
+        /// Defence in depth, not the check that makes this safe. A well-formed file cannot get here: a
+        /// <c>GenericInstantiation</c> of one of the format's own definitions always records exactly that
+        /// definition's arguments (<see cref="StructuralShape"/>), so the id these callers ask for is
+        /// always there. The reason this stays is that "the element type is not fixed, and nothing says
+        /// what it is" has to end in a typed error rather than a wrong value, whichever layer let it
+        /// through — the same reason <see cref="ArgId"/>'s length guard stays.
+        /// </para>
         /// </summary>
         object? SkipAndReturnDefault(Type? elementType, ref SequenceReader<byte> reader)
         {
