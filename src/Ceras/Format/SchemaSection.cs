@@ -445,6 +445,14 @@ namespace Ceras.Format
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
                     $"Corrupt schema section: declared {count} entries but only {remaining} bytes remain.");
 
+            // Scratch space for one enum value's eight raw little-endian bytes, hoisted out of the
+            // loop over entries: a stackalloc inside a loop reserves fresh stack on every iteration,
+            // so a file whose schema declares many entries could grow the frame without bound.
+            // Reuse is byte-for-byte identical to a per-entry allocation — the span is exactly the
+            // eight bytes TryCopyTo fills, and it is filled (or the read throws) before every
+            // ReadUInt64LittleEndian, so no value ever observes a byte left by a previous entry.
+            Span<byte> rawEnumValue = stackalloc byte[8];
+
             for (uint i = 0; i < count; i++)
             {
                 int    typeId     = (int)ReadLeb128(ref reader);
@@ -464,7 +472,6 @@ namespace Ceras.Format
                         int underlyingId = (int)ReadLeb128(ref reader);
                         uint valCount = ReadBoundedCount(ref reader, nameof(valCount));
                         var vals = new OldEnumValue[valCount];
-                        Span<byte> rawEnumValue = stackalloc byte[8];
                         for (uint j = 0; j < valCount; j++)
                         {
                             string name = ReadInternedString(ref reader, stringTable);
@@ -586,7 +593,7 @@ namespace Ceras.Format
         /// Reads a LEB128 that has to be a <b>type id</b> — a type-value tag, a manifest type id, a
         /// definition id or an argument id.
         /// <para>
-        /// <see cref="ReadLeb128"/> is a <c>uint</c> and accepts five bytes, so it can legitimately return
+        /// <see cref="ReadLeb128(ref SequenceReader{byte})"/> is a <c>uint</c> and accepts five bytes, so it can legitimately return
         /// a value above <see cref="int.MaxValue"/>. Casting that to <c>int</c> yields a <em>negative</em>
         /// number, and every id space in the format starts at 0 with nothing above <see cref="int.MaxValue"/>
         /// — a negative id then reads as a small well-known id, which is a different type entirely, and the

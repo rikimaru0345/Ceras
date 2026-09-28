@@ -34,6 +34,64 @@ namespace Ceras.Test
 
     public class SchemaSectionTests : TestBase
     {
+        // Two enums whose values differ in every one of the eight raw bytes, so a value read back
+        // can only be correct if all eight bytes came off the wire and none was carried over from a
+        // buffer a previous value (or a previous schema entry) left behind. Not [CerasSerializable],
+        // so the generator emits no schema for them and the manifest the other tests assert on is
+        // unchanged; both are registered by hand below.
+        enum RawBytesA : ulong
+        {
+            Zero = 0x0000000000000000,
+            Ascending = 0x0123456789ABCDEF,
+            Descending = 0xFEDCBA9876543210,
+            AlternatingHigh = 0xAAAAAAAAAAAAAAAA,
+            AlternatingLow = 0x5555555555555555,
+        }
+
+        enum RawBytesB : ulong
+        {
+            Ones = 0x0101010101010101,
+            Twos = 0x0202020202020202,
+            Fifteens = 0x0F0F0F0F0F0F0F0F,
+        }
+
+        /// <summary>
+        /// Two enums in a single section, so the eight raw bytes per value are read into one reused
+        /// buffer across both entries as well as across every value inside each entry.
+        /// </summary>
+        SchemaRegistry CreateEnumRegistry()
+        {
+            var config = new CerasRobustConfig();
+            RobustFormatters.UseRobustFormatters(config, "Tests");
+            var registry = ((CerasRobustConfig)config).SchemaRegistry;
+
+            registry.Register(typeof(RawBytesA), new SchemaTypeInfo(
+                "Ceras.Test.RawBytesA", Array.Empty<string>(), SchemaTypeKind.Enum,
+                Array.Empty<SchemaFieldInfo>(), 0,
+                new[]
+                {
+                    new SchemaEnumValueInfo("Zero", 0x0000000000000000),
+                    new SchemaEnumValueInfo("Ascending", 0x0123456789ABCDEF),
+                    new SchemaEnumValueInfo("Descending", 0xFEDCBA9876543210),
+                    new SchemaEnumValueInfo("AlternatingHigh", 0xAAAAAAAAAAAAAAAA),
+                    new SchemaEnumValueInfo("AlternatingLow", 0x5555555555555555),
+                },
+                underlyingTypeName: "System.UInt64"));
+
+            registry.Register(typeof(RawBytesB), new SchemaTypeInfo(
+                "Ceras.Test.RawBytesB", Array.Empty<string>(), SchemaTypeKind.Enum,
+                Array.Empty<SchemaFieldInfo>(), 0,
+                new[]
+                {
+                    new SchemaEnumValueInfo("Ones", 0x0101010101010101),
+                    new SchemaEnumValueInfo("Twos", 0x0202020202020202),
+                    new SchemaEnumValueInfo("Fifteens", 0x0F0F0F0F0F0F0F0F),
+                },
+                underlyingTypeName: "System.UInt64"));
+
+            return registry;
+        }
+
         SchemaRegistry CreateRegistry()
         {
             var config = new CerasRobustConfig();
@@ -213,6 +271,83 @@ namespace Ceras.Test
             var registry = CreateRegistry();
             var map = RoundTrip(registry);
             Assert.Equal(0, map["Ceras.Test.Weapon"].FixedByteSize);
+        }
+
+        // ── Enums ─────────────────────────────────────────────────────────────
+
+        [Fact] public void EnumKind_RoundTrips()
+        {
+            var registry = CreateEnumRegistry();
+            var map = RoundTrip(registry);
+
+            Assert.Equal(SchemaTypeKind.Enum, map["Ceras.Test.RawBytesA"].Kind);
+            Assert.Equal(SchemaTypeKind.Enum, map["Ceras.Test.RawBytesB"].Kind);
+        }
+
+        [Fact] public void EnumUnderlyingTypeId_RoundTrips()
+        {
+            var registry = CreateEnumRegistry();
+            var map = RoundTrip(registry);
+
+            Assert.Equal(WellKnownTypes.UInt64, map["Ceras.Test.RawBytesA"].DefinitionTypeId);
+        }
+
+        /// <summary>
+        /// Every one of the eight raw bytes survives, for every value, in both enums. The reader fills
+        /// a single reused eight-byte buffer, so this is the assertion that pins the reuse: a value
+        /// that inherited even one byte from the value read before it would show up here.
+        /// </summary>
+        [Fact] public void EnumValues_RoundTrip_AllEightRawBytes()
+        {
+            var registry = CreateEnumRegistry();
+            var map = RoundTrip(registry);
+
+            var a = map["Ceras.Test.RawBytesA"].EnumValues;
+            Assert.Equal(new[] { "Zero", "Ascending", "Descending", "AlternatingHigh", "AlternatingLow" },
+                         a.Select(ev => ev.Name));
+            Assert.Equal(new ulong[]
+                         {
+                             0x0000000000000000, 0x0123456789ABCDEF, 0xFEDCBA9876543210,
+                             0xAAAAAAAAAAAAAAAA, 0x5555555555555555
+                         },
+                         a.Select(ev => ev.Value));
+
+            var b = map["Ceras.Test.RawBytesB"].EnumValues;
+            Assert.Equal(new[] { "Ones", "Twos", "Fifteens" }, b.Select(ev => ev.Name));
+            Assert.Equal(new ulong[] { 0x0101010101010101, 0x0202020202020202, 0x0F0F0F0F0F0F0F0F },
+                         b.Select(ev => ev.Value));
+        }
+
+        /// <summary>
+        /// The same values read twice out of one buffer. Read is what writes, so this catches a buffer
+        /// that only looks right on the first pass because the second read lands on different offsets.
+        /// </summary>
+        [Fact] public void EnumValues_ReReadFromTheSameBuffer_AreIdentical()
+        {
+            var registry = CreateEnumRegistry();
+
+            var buffer = new byte[4096];
+            int offset = 0;
+            var intern = new StringInternTable();
+            SchemaSection.Write(ref buffer, ref offset, registry, intern);
+
+            int tableOffset = offset;
+            int start = tableOffset;
+            intern.Flush(ref buffer, ref tableOffset);
+            var stringTable = StringTable.Load(buffer, start, tableOffset - start);
+
+            var first = new byte[buffer.Length];
+            buffer.CopyTo(first, 0);
+            int firstRead = 0;
+            var firstMap = SchemaSection.Read(first, ref firstRead, stringTable);
+
+            int secondRead = 0;
+            var secondMap = SchemaSection.Read(buffer, ref secondRead, stringTable);
+
+            Assert.Equal(firstRead, secondRead);
+            Assert.Equal(
+                firstMap["Ceras.Test.RawBytesA"].EnumValues.Select(ev => (ev.Name, ev.Value)),
+                secondMap["Ceras.Test.RawBytesA"].EnumValues.Select(ev => (ev.Name, ev.Value)));
         }
 
         // ── LEB128 encoding ───────────────────────────────────────────────────
