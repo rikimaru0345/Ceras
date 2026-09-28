@@ -25,12 +25,13 @@ namespace NetworkExample
             _tcpClient = tcpClient;
             _netStream = tcpClient.GetStream();
 
-            // We want to keep "learned" types
-            // That means when the other side sends us a type (using the full name) we never want to transmit that again,
-            // the type should (from then on) be known as a some ID.
-            // We configure both serializers identically so they share the same type-cache behaviour
-            _sendCeras    = new CerasFastSerializer(c => c.Advanced.PersistTypeCache = true);
-            _receiveCeras = new CerasFastSerializer(c => c.Advanced.PersistTypeCache = true);
+            // "Learned" types are not a thing any more. The type cache is per-operation state, cleared
+            // after every Serialize/Deserialize, so a Type the other side sends is written by name
+            // again in each message; and the setting that used to be configured here
+            // (c.Advanced.PersistTypeCache) does not affect the wire. What does matter, per
+            // CerasRawConfig, is that both ends use the same build of your types.
+            _sendCeras    = new CerasFastSerializer();
+            _receiveCeras = new CerasFastSerializer();
 
             StartReceivingMessages();
         }

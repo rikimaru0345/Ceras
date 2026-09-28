@@ -35,11 +35,15 @@
     <!-- Missing XML comment for type... -->
     <NoWarn>1591;</NoWarn>
     <!--
-      Nullable reference analysis, project-wide (TODO 0.0a item 7). The library hands out null in plenty of
+      Nullable reference analysis, project-wide. The library hands out null in plenty of
       places on purpose - a formatter for an unknown member, the "no plan" case, an unresolvable type - so the
       annotations are the only thing that records which of those are contracts and which are accidents. It is on
       for the whole project rather than per file so a new file cannot silently opt out, and the warnings are
-      meant to be fixed rather than suppressed: Nullable and WarningsAsErrors are the gate.
+      meant to be fixed rather than suppressed.
+      Status: not yet a build gate. Neither `WarningsAsErrors` nor `TreatWarningsAsErrors` is set
+      anywhere in this repository, so a new warning does not fail the build; this project still
+      emits a substantial number of CS8601/CS8603/CS8604/CS8600/CS8618 sites. Clearing them is
+      tracked by TODO.md (Priority 0 -> Warnings), not by this file.
     -->
     <Nullable>enable</Nullable>
   </PropertyGroup>

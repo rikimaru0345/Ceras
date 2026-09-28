@@ -23,12 +23,17 @@ namespace NetworkExample
             _netStream = _client.GetStream();
 
 
-            // Now we need our serializer
-            // !! Important:
-            // !! The settings of the serializers for client and server must be the same!
-            // We configure both serializers identically so they share the same type-cache behaviour
-            _sendCeras    = new CerasFastSerializer(c => c.Advanced.PersistTypeCache = true);
-            _receiveCeras = new CerasFastSerializer(c => c.Advanced.PersistTypeCache = true);
+            // Now we need our serializer.
+            //
+            // !! Important: CerasFastSerializer writes no schema header and its wire format is NOT
+            // !! stable across builds, so both ends must use the same build of your types.
+            // !!
+            // !! The setting this used to configure (c.Advanced.PersistTypeCache) does not affect the
+            // !! wire: the transient type cache is per-operation state, cleared after every
+            // !! Serialize/Deserialize, so a Type is written by name again in each message rather
+            // !! than being "learned" once. Neither side configures anything.
+            _sendCeras    = new CerasFastSerializer();
+            _receiveCeras = new CerasFastSerializer();
 
             // Start a thread that receives and reacts to messages from the server
             StartReceiving();
@@ -41,7 +46,11 @@ namespace NetworkExample
             // First thing is sending our login message, and then some random stuff
             Send(new ClientLogin { Name = "riki", Password = "123" });
 
-            // Since every type of object is supported we could also send strings directly 
+            // Strings can be sent directly without wrapping them in a message type.
+            // (Not *every* type is supported: delegates, reflection metadata, enumerators and
+            // engine-native objects are refused, as are ReadOnlyCollection<T>/ReadOnlyDictionary<K,V>
+            // and any List<T>/Dictionary<K,V> subclass. See the README's "When should I not use
+            // this?" for the full list.)
             Send("Hello I'm the client, sending a string directly! :)");
             // And we can even send numbers and stuff...
             Send(500.678);
