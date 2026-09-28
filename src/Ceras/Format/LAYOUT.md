@@ -184,7 +184,9 @@ primitive and is documented at its use site: reference/polymorphism markers, wri
 [Collections and arrays](#collections-and-arrays) for the per-shape rule. Those biases and constants
 are **not** hashed into the fingerprint individually — only `FormatVersion` is. They are covered only
 insofar as a change to them is accompanied by a deliberate `FormatVersion` bump; see
-[Not yet implemented](#not-yet-implemented). Raw primitive encoding never persists CLR struct padding.
+[Not yet implemented](#not-yet-implemented). Raw primitive encoding never persists CLR struct padding:
+a padded value is refused by the reinterpret fast path rather than blitted, so its padding is never
+written — see [Which types the raw path may reinterpret](#which-types-the-raw-path-may-reinterpret).
 
 `decimal` is the one primitive whose documented order is **not** its CLR memory order: the runtime
 lays the struct out as `_flags, _hi, _lo, _mid`, so blitting a decimal would write the flags word
@@ -193,6 +195,58 @@ excluded from the reinterpret fast path (`ReflectionHelper.IsBlittableType`), wh
 serializer writes the **same** `GetBits` layout for a standalone `decimal`, a `decimal[]` element, a
 `KeyValuePair<decimal, _>` entry and any struct that merely contains one. The raw (transient) path
 has exactly one decimal encoding, and it is the row above.
+
+### Which types the raw path may reinterpret
+
+A **raw/transient** context (`CerasRawConfig`, and only there) offers a fast path that copies a
+value's memory image instead of writing it member by member: `ReinterpretFormatter<T>` writes
+`Unsafe.SizeOf<T>()` bytes of CLR memory, and `ReinterpretArrayFormatter<T>` writes `count` of them
+back to back. That is a *second* encoding for the same value, so a type is only offered the fast path
+when the two are provably the same bytes. `ReflectionHelper.IsBlittableType` is the whole rule, and
+it asks three questions about a composite struct:
+
+1. **The same members.** A field the member list leaves out — one carrying `[Exclude]` or
+   `[NonSerialized]`, or a compiler-generated field that is not an auto-property's backing field — has
+   bytes in the image and nothing in the payload, so it cannot be reinterpreted.
+2. **The same order.** The CLR lays fields out in declaration order, and Ceras writes a type's members
+   in the [member layout](#member-layout) order — by member type name first, so same-typed members fall
+   through to the member name alone. `struct S { int One; int Two; int Three; }` therefore sorts to
+   **One, Three, Two** while its memory image is One, Two, Three, and a blit would have written the
+   declaration order. The comparison is made with the same comparer the runtime sorts a real member list
+   with (`SchemaMemberComparer`), not with a restatement of its key.
+3. **The same width, with no padding.** A padded struct differs in width as well as in order:
+   `struct { byte B; int I; }` is 8 bytes of memory for 5 bytes of payload, so the blit would write
+   three bytes no reader accounts for. The check is `SizeOf(T) == sum of the members' widths`, which
+   also refuses a struct with no members at all, whose image is a single padding byte. A
+   `[StructLayout(Pack = 1)]` struct that genuinely has no padding is unaffected and stays on the fast
+   path — the rule refuses padding, not narrow fields.
+
+**Why the question is asked at all:** the raw path's bytes used to depend on whether a type happened to
+have a generated formatter, which is not a property of the value or of the build — a type is
+reinterpreted until it is marked `[CerasSerializable]`, and silently member-written afterwards. Both
+encodings round-trip, so nothing failed; a transient buffer simply stopped being readable at the moment
+a formatter was generated for the type. Robust contexts were never affected (the resolver requires
+`CerasRawConfig`), and neither are the checked-in fixtures: a type that qualified before and qualifies
+now keeps its bytes, and `FormatVersion` is unchanged. The rule narrows the selection only — the two
+member orders are untouched, and the closed-generic divergence between a generated per-closed schema
+and the runtime one is a separate, deliberately pinned property (see above).
+
+Two exemptions. The first is the same question `decimal` asks, answered the other way round:
+
+- **`Guid`** is blittable even though its eleven private fields (`_a, _b, _c, _d.._k`) do **not** sort
+  into layout order, because `SerializerBinary.WriteGuid` is an unaligned copy of those 16 bytes and a
+  member of type `Guid` is written by exactly that. The image and the member encoding are the same 16
+  bytes whatever order the fields sort in, so a `Guid` — and any struct containing one, if its own
+  members qualify — keeps the fast path with unchanged bytes.
+
+The second is not about a competing encoding, but about the absence of one:
+
+- **A struct declaring a `fixed` buffer** is blittable because nothing else can encode it. A fixed buffer
+  is a `byte*` to the source generator, so declaring such a type `[CerasSerializable]` is a build error
+  (`CERAS029`), and the reflection fallback sees the buffer as its generated one-element struct and writes
+  a single byte for the whole buffer. Declining the blit there would not remove a disagreement, it would
+  replace the only lossless encoding with a lossy one, so such a struct keeps exactly the behaviour it had
+  before this rule — and what is left is the raw path's own contract: both sides run the same build.
 
 ## Collections and arrays
 

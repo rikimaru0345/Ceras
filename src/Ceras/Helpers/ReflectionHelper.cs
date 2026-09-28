@@ -263,6 +263,42 @@
         }
 
 
+        /// <summary>
+        /// May the raw (transient) path write a value of <paramref name="type"/> by copying its
+        /// memory image — an <c>Unsafe.WriteUnaligned</c> of <c>Unsafe.SizeOf</c> bytes — rather than
+        /// member by member?
+        /// <para>
+        /// This is not only a question about the CLR. The same value has to come out the same bytes
+        /// whether or not the type happens to have a generated formatter, and the member-by-member
+        /// encoding is what both the generated formatter and the reflection fallback write, in
+        /// <see cref="SchemaMemberComparer"/> order. So two things have to hold:
+        /// </para>
+        /// <list type="number">
+        /// <item><description>
+        /// Ceras must not already encode this type some other way. A type whose bytes are decided by a
+        /// built-in formatter — <see cref="decimal"/>, whose payload is the <c>GetBits</c> order —
+        /// must never be reinterpreted, or the same value would be written two ways. That is what
+        /// the exclusions below are for; the <see cref="Guid"/> exemption is the same question asked
+        /// the other way round, since its encoding *is* a copy of its memory image. (An enum is the
+        /// same case, and needs no exemption: in a raw context it is served by
+        /// <c>ReinterpretFormatter</c> too, i.e. by its own bytes.)
+        /// </description></item>
+        /// <item><description>
+        /// The memory image must *be* the member-by-member encoding: the same members, in the same
+        /// order, at the same widths, with no padding. A composite struct whose CLR field order
+        /// differs from the member order, or which carries padding, would otherwise serialize to
+        /// different bytes depending on whether it got a generated formatter — silently, because
+        /// both encodings are self-consistent. <see cref="MemberLayoutMatchesMemoryImage"/> is that
+        /// test; it recurses through the field types, because the check above recurses too. The one
+        /// shape it exempts is a struct declaring a <c>fixed</c> buffer, which has no member
+        /// encoding to disagree with at all.
+        /// </description></item>
+        /// </list>
+        /// <para>
+        /// The answer depends only on the type's shape, never on a field's contents, so a caller may
+        /// treat it as a decision about the type.
+        /// </para>
+        /// </summary>
         public static bool IsBlittableType(Type type)
         {
             if (!type.IsValueType)
@@ -286,6 +322,19 @@
             if (type.IsPrimitive)
                 return true; // any other primitive can definitely be blitted
 
+            if (type == typeof(Guid))
+            {
+                // The mirror image of the decimal exclusion, and it is here for the same reason: the
+                // only question is whether blitting writes something other than what the format
+                // documents. For a Guid it does not. SerializerBinary.WriteGuid is an unaligned copy of
+                // the Guid's 16 bytes, and a member of type Guid is written by exactly that, so the image
+                // and the member encoding are the same 16 bytes whatever order the members sort in.
+                // That has to be said rather than left to the check below, because Guid's 11 private
+                // fields (_a, _b, _c, _d.._k) do NOT sort into layout order — they sort _d.._k, _b, _c, _a,
+                // since the key starts with the member's type name. Without this, Guid and every struct
+                // containing one would lose the fast path for no gain: the bytes are the same either way.
+                return true;
+            }
 
             if (type.ContainsGenericParameters)
                 return false; // open types are not real (yet), so they can't be blitted
@@ -316,7 +365,122 @@
                     return false;
             }
 
-            return true;
+            return MemberLayoutMatchesMemoryImage(type);
+        }
+
+        /// <summary>
+        /// Is the memory image of <paramref name="type"/> byte-for-byte the member-by-member encoding
+        /// of the same value? That needs three things, and each is a way the two can differ:
+        /// <list type="number">
+        /// <item><description>
+        /// the same members. A field the member list leaves out — one carrying an attribute that
+        /// removes it from the payload — has bytes in the image and nothing in the encoding.
+        /// </description></item>
+        /// <item><description>
+        /// the same order. The CLR lays fields out in declaration order, Ceras writes them in
+        /// <see cref="SchemaMemberComparer"/> order, and a struct whose two orders differ
+        /// (<c>struct S { int One; int Two; int Three; }</c> sorts to One, Three, Two) is written one
+        /// way by the blit and another way by any member-by-member formatter. The comparison is done
+        /// with the runtime's own comparer rather than a restatement of its key, so the two cannot
+        /// drift apart.
+        /// </description></item>
+        /// <item><description>
+        /// the same width, with no padding. The blit writes <c>SizeOf</c> bytes, the encoding writes
+        /// the sum of the members' widths, and a padded struct (<c>struct { byte B; int I; }</c> is 8
+        /// bytes for 5 bytes of data) differs in width as well as in order. This also rules out a
+        /// struct with no members at all, whose image is one padding byte.
+        /// </description></item>
+        /// </list>
+        /// <para>
+        /// A struct that declares a <c>fixed</c> buffer is exempt, and deliberately so, because nothing
+        /// else can encode it. It is the one member shape Ceras cannot describe member-by-member *at
+        /// all*: to the source generator a fixed buffer is a <c>byte*</c>, so declaring such a type
+        /// <c>[CerasSerializable]</c> is a build error, and the reflection fallback sees the buffer as
+        /// its generated one-element struct and writes a single byte for the whole buffer. There is no
+        /// second encoding here that the image could disagree with, so declining the blit would not
+        /// remove a disagreement, it would replace the only lossless encoding with a lossy one. Such a
+        /// struct therefore keeps exactly the behaviour it had before this test existed; what is left is
+        /// the raw path's own documented contract, that both sides run the same build.
+        /// </para>
+        /// </summary>
+        static bool MemberLayoutMatchesMemoryImage(Type type)
+        {
+            // Declaration order, which is also the order the CLR lays the fields out in (the type is
+            // known not to be auto-layout, so the runtime does not get to reorder them).
+            var fields = GetAllDataMembers(type, fields: true, properties: false).Cast<FieldInfo>().ToArray();
+
+            // Asked first, so the exemption really is "unchanged behaviour" and not "the other checks
+            // happen to pass too".
+            if (fields.Any(f => f.GetCustomAttribute<FixedBufferAttribute>() != null))
+                return true;
+
+            if (type.GetCustomAttribute<Ceras.ExcludeAttribute>() != null)
+                return false; // every member of an excluded type is left out of the payload
+
+            foreach (var f in fields)
+                if (!IsWrittenAsMember(f))
+                    return false;
+
+            // The same comparer CerasSerializer.CreatePrimarySchema sorts the real member list with.
+            var written = new List<SchemaMember>(fields.Length);
+            foreach (var f in fields)
+                written.Add(new SchemaMember(f.Name, f));
+            written.Sort(SchemaMemberComparer.Instance);
+
+            for (int i = 0; i < fields.Length; i++)
+                if (!ReferenceEquals(written[i].Member, fields[i]))
+                    return false; // the member order is not the layout order
+
+            int payload = 0;
+            foreach (var f in fields)
+                payload += UnsafeGetSize(f.FieldType);
+
+            return payload == UnsafeGetSize(type);
+        }
+
+        /// <summary>
+        /// Does Ceras write <paramref name="f"/> as a member of its declaring type? Mirrors the rules
+        /// in <see cref="MemberConfig"/> / <c>TypeConfigDefaults.ApplyMemberAttributes</c> that decide
+        /// which fields a payload contains, without needing a config: the ones that remove a field.
+        /// <para>
+        /// A compiler-generated field is kept when it is an auto-property's backing field, because a
+        /// property is never a member and the field is what stands in for it — and then the property's
+        /// own attributes apply to the field, exactly as they do there.
+        /// </para>
+        /// </summary>
+        static bool IsWrittenAsMember(FieldInfo f)
+        {
+            if (f.GetCustomAttribute<Ceras.ExcludeAttribute>() != null)
+                return false; // [Exclude] on the field itself
+
+            if (f.GetCustomAttribute<NonSerializedAttribute>() != null)
+                return false; // left out while RespectNonSerializedAttribute is on, which is the default
+
+            if (f.FieldType.GetCustomAttribute<Ceras.ExcludeAttribute>() != null)
+                return false; // a member whose type is excluded is left out, whatever the field itself says
+
+            if (f.GetCustomAttribute<CompilerGeneratedAttribute>() == null)
+                return true;
+
+            var property = AutoPropertyOf(f);
+            if (property == null)
+                return false; // an event's backing field, a closure cache, ...: never a member
+
+            return property.GetCustomAttribute<Ceras.ExcludeAttribute>() == null;
+        }
+
+        /// <summary>
+        /// The auto-property <paramref name="f"/> is the backing field of, or null when it is not one.
+        /// </summary>
+        static PropertyInfo? AutoPropertyOf(FieldInfo f)
+        {
+            const string Suffix = ">k__BackingField";
+            if (!f.Name.StartsWith("<", StringComparison.Ordinal) || !f.Name.EndsWith(Suffix, StringComparison.Ordinal))
+                return null;
+
+            var propertyName = f.Name.Substring(1, f.Name.Length - 1 - Suffix.Length);
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+            return f.DeclaringType?.GetProperty(propertyName, flags);
         }
 
         public static int GetSize(Type type)
