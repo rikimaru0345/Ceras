@@ -103,6 +103,14 @@ namespace Ceras.Format
         }
 
         /// <summary>
+        /// Smallest scratch block the bounded Deflate expansion reads through. Not a cap: a larger
+        /// table is read over as many iterations as it needs. This is only the size of the first
+        /// request, and it is pooled, so a save whose string table is a few hundred bytes no longer
+        /// allocates (and discards) 64 KB to read them.
+        /// </summary>
+        const int DeflateReadBlockFloor = 512;
+
+        /// <summary>
         /// Decodes a string-table region. <paramref name="maxStringLength"/> bounds each entry and
         /// <paramref name="maxDecompressedSize"/> bounds the Deflate output, so neither an entry length
         /// nor a small compressed region can pick an unbounded allocation. Both are checked before the
@@ -122,15 +130,22 @@ namespace Ceras.Format
             if (compression == StringTableCompression.Deflate)
             {
                 // Bounded expansion: DeflateStream.CopyTo would take an unbounded output buffer, so a
-                // small compressed region could expand until the process died (a zip bomb). Copy in
-                // bounded blocks and stop as soon as the cap is passed.
-                const int blockSize = 64 * 1024;
+                // small compressed region could expand until the process died (a zip bomb). The
+                // expansion is therefore read in bounded blocks and stopped as soon as the cap is
+                // passed.
+                //
+                // The block is pooled and its size is a floor on the *first* read rather than a
+                // fixed 64 KB: a 64 KB scratch buffer allocated per load was two thirds of everything
+                // loading a save allocated, thrown away immediately, for a string table that is
+                // typically a few hundred bytes. ReadByte reads one byte at a time and its own
+                // buffer is only the slack the stream returns per call, so a small block costs
+                // nothing and a large table simply takes more iterations.
+                var block = CerasBufferPool.Rent(DeflateReadBlockFloor);
                 try
                 {
                     using var ms = new MemoryStream(data, offset, length);
                     using var deflate = new DeflateStream(ms, CompressionMode.Decompress);
                     using var decompressedMs = new MemoryStream();
-                    var block = new byte[blockSize];
                     long total = 0;
                     int read;
                     while ((read = deflate.Read(block, 0, block.Length)) > 0)
@@ -152,6 +167,10 @@ namespace Ceras.Format
                     throw new Ceras.Exceptions.CerasDataCorruptionException(
                         $"Corrupt string table: the region at [{offset}, {offset + length}) could not be decompressed " +
                         $"({e.GetType().Name}: {e.Message}).", e);
+                }
+                finally
+                {
+                    CerasBufferPool.Return(block);
                 }
             }
             else
