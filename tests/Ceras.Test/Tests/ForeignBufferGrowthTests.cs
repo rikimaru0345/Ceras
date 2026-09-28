@@ -65,5 +65,34 @@ namespace Ceras.Test
             Assert.Equal(graph.Blobs.Count, clone.Blobs.Count);
             Assert.Equal(graph.Blobs[0].Data[0], clone.Blobs[0].Data[0]);
         }
+
+        /// <summary>
+        /// The documented ownership rule: after a growth the array handed back is the pool's, so it
+        /// may be returned to <see cref="CerasBufferPool"/>, while the caller's own original may not
+        /// - the pool rejects an array it never rented. Both halves are asserted, because "replaced"
+        /// and "safe to return" are separate claims and either could change alone.
+        /// </summary>
+        [Fact]
+        public void AfterGrowth_TheReplacedArrayIsTheOnesThatCanGoBackToThePool()
+        {
+            var ceras = new CerasFastSerializer();
+            var graph = MakeBig(64, 1024);
+
+            var callerOwned = new byte[20_000];
+            int originalLength = callerOwned.Length;
+            int offset = 0;
+            int written = ceras.Serialize(graph, ref callerOwned, offset);
+
+            Assert.True(written > 0);
+            Assert.True(callerOwned.Length > originalLength, "expected the buffer to have been replaced");
+
+            // The replacement came from the shared pool, so returning it is correct.
+            CerasBufferPool.Return(callerOwned);
+
+            // The array the caller allocated is not the pool's, and must be rejected rather than
+            // silently accepted - this is the bug that motivated the note on Serialize.
+            var notRented = new byte[20_000];
+            Assert.Throws<ArgumentException>(() => CerasBufferPool.Return(notRented));
+        }
     }
 }

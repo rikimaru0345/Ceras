@@ -174,6 +174,31 @@ namespace Ceras
 			return writer.WrittenSpan.ToArray();
 		}
 
+		/// <summary>
+		/// Writes <paramref name="obj"/> into <paramref name="buffer"/> at <paramref name="offset"/>
+		/// and returns the number of bytes written.
+		/// <para>
+		/// <b>The buffer can change, and the caller must read it back.</b> If the object does not
+		/// fit, the array is replaced by a larger one and <paramref name="buffer"/> is reassigned -
+		/// which is why it is a <see langword="ref"/> parameter and why the old contents of the
+		/// variable are not a safe thing to keep reading. The array you passed in is not modified
+		/// beyond the bytes actually written, but it may be a different array afterwards.
+		/// </para>
+		/// <para>
+		/// <b>Ownership after a replacement is not yours to assume.</b> When the buffer has to grow,
+		/// the replacement comes from <see cref="CerasBufferPool"/> (the shared
+		/// <see cref="System.Buffers.ArrayPool{T}"/>). So of the two arrays, the one you supplied is
+		/// yours and the one you were handed back is the pool's. Passing the replacement to
+		/// <see cref="CerasBufferPool.Return"/> is fine; passing your own original there throws,
+		/// because the pool rejects an array it never rented. The array you passed is never returned
+		/// to the pool on your behalf - growth deliberately leaves it to the collector rather than
+		/// pushing a caller's memory into a pool it does not belong to.
+		/// </para>
+		/// <para>
+		/// To avoid the question entirely, either size the buffer generously up front so it never
+		/// grows, or use the <see cref="IBufferWriter{T}"/> overload with a writer you own.
+		/// </para>
+		/// </summary>
 		protected internal int Serialize<T>(T obj, ref byte[] buffer, int offset = 0)
 		{
 			var writer = new FixedArrayBufferWriter(buffer, offset);

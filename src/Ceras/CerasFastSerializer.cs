@@ -23,6 +23,12 @@ namespace Ceras
 
         public new byte[]? Serialize<T>(T obj) => base.Serialize(obj);
         public new void Serialize<T>(IBufferWriter<byte> writer, T obj) => base.Serialize(writer, obj);
+        /// <inheritdoc cref="CerasSerializer.Serialize{T}(T, ref byte[], int)"/>
+        /// <remarks>
+        /// The buffer can be replaced by a larger one - read it back after the call. If it was, the
+        /// array you were handed is the shared pool's rather than yours, so only that one may be
+        /// passed to <see cref="CerasBufferPool.Return(byte[])"/>.
+        /// </remarks>
         public new int Serialize<T>(T obj, ref byte[] buffer, int offset = 0) => base.Serialize(obj, ref buffer, offset);
 
         public new T Deserialize<T>(byte[] buffer) => base.Deserialize<T>(buffer);
