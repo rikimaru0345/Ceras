@@ -112,6 +112,8 @@
 				ThrowIfSealed();
 				if (_overrideFormatter != null)
 					ThrowCantSetResolverAndFormatter();
+				if (value != null)
+					ThrowIfTypeIsNotConfigurable();
 				_customResolver = value;
 			}
 		}
@@ -138,6 +140,7 @@
 
 				if (value != null)
 				{
+					ThrowIfTypeIsNotConfigurable();
 					FormatterHelper.ThrowOnMismatch(value, Type);
 					_overrideFormatter = value;
 				}
@@ -146,6 +149,50 @@
 					_overrideFormatter = null;
 				}
 			}
+		}
+
+		/// <summary>
+		/// Refuses a custom formatter for a type whose formatter Ceras would ignore anyway.
+		/// <para>
+		/// Resolution short-circuits every user hook for anything
+		/// <see cref="Ceras.CerasSerializer.IsPrimitiveType"/> reports as primitive: the built-in
+		/// formatter is chosen first, so a formatter configured here for, say, <see cref="int"/> was
+		/// silently discarded and the save still used the library's own encoding. Silently ignoring
+		/// configuration is the worst of the three outcomes - the code reads as though it took
+		/// effect, the payload says otherwise, and the only symptom is a file that does not decode
+		/// the way its writer expected - so this is refused up front instead.
+		/// </para>
+		/// <para>
+		/// The escape hatch is to give the value a type of its own: a struct or a class with the
+		/// shape you want and a formatter for that. That is not a workaround imposed for the sake of
+		/// this check, it is how every other custom encoding in Ceras is already expressed, and it
+		/// works with the source generator, the schema and the migration interpreter - none of which
+		/// have a special case for a redefined <see cref="int"/>.
+		/// </para>
+		/// <para>
+		/// <see cref="string"/> and <see cref="Type"/> are the deliberate exceptions, and they are
+		/// not a loophole: their encodings are not fixed by the platform. A string's length limit is
+		/// enforced by wrapping the formatter (<c>MaxSizeStringFormatter</c>,
+		/// <c>RobustStringFormatter</c>), and a <see cref="Type"/> has to be written as a schema id
+		/// rather than a name in the robust format. Both are configured through this same property,
+		/// and both genuinely take effect.
+		/// </para>
+		/// </summary>
+		void ThrowIfTypeIsNotConfigurable()
+		{
+			if (Type == typeof(string) || Type == typeof(Type))
+				return;
+
+			if (!Ceras.CerasSerializer.IsPrimitiveType(Type))
+				return;
+
+			throw new CerasException(
+				$"Ceras cannot use a custom formatter for '{Type.FriendlyName(true)}', because the built-in " +
+				$"encoding for this type is chosen before any user configuration is consulted, so the formatter " +
+				$"would be silently ignored. Give the value a type of its own instead - a struct or class with " +
+				$"the shape you want, and a custom formatter for that - and Ceras will use it everywhere, " +
+				$"including in the schema and when migrating older saves. ('string' and 'Type' are the exceptions: " +
+				$"their encodings are not fixed, so a formatter for them does take effect.)");
 		}
 
 		void ThrowCantSetResolverAndFormatter() => throw new InvalidOperationException("You can only set a custom resolver or a custom formatter instance, not both.");
