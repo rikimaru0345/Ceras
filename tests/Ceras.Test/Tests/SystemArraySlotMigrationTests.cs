@@ -277,8 +277,10 @@ namespace Ceras.Test.HistoricalArraySlotFixtures
                 (Action<object>)(o => { var a = Assert.IsType<int[][]>(o); Assert.Equal(new[] { 1, 2 }, a[0]); Assert.Empty(a[1]); Assert.Equal(new[] { 3 }, a[2]); }) };
         }
 
-        /// <summary>The label a matching-layout case's slot must carry, so the table above cannot drift.</summary>
-        static string LabelFor(object? slot) => slot switch
+        /// <summary>The label a matching-layout case's slot must carry, so the table above cannot drift.
+        /// A null slot is a case of its own, and it is a plain null reference: the test project builds with
+        /// nullable annotations off, so the parameter carries no annotation (a `?` here would be CS8632).</summary>
+        static string LabelFor(object slot) => slot switch
         {
             null => "null",
             int[] a when a.Length == 0 => "empty",
@@ -291,7 +293,7 @@ namespace Ceras.Test.HistoricalArraySlotFixtures
         [Theory]
         [MemberData(nameof(MatchingLayoutCases))]
         public void A_Matching_Layout_Reads_The_Same_Values_Through_Both_Readers(
-            string name, object? slot, Action<object?> check)
+            string name, object slot, Action<object> check)
         {
             var writer = Current();
             var bytes = writer.Save(new Crate { Slot = slot as Array, Marker = Sentinel }, 1);
