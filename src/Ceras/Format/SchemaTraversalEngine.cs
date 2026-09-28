@@ -41,8 +41,16 @@ namespace Ceras.Format
             string[]                          stringTable,
             uint                              robustVersion,
             CerasSerializer                   serializer,
-            Dictionary<string, TypeMigrationPlan> plans = null!)
+            Dictionary<string, TypeMigrationPlan>? plans = null)
         {
+            if (serializer == null) throw new ArgumentNullException(nameof(serializer));
+
+            // The config is what this engine reads its type binder, its manifest and its size limits
+            // from, and the cast is the one place that says the caller handed it a robust config at
+            // all. Reading it once means neither fact has to be re-established (and re-annotated)
+            // again below.
+            var config = (CerasRobustConfig)serializer.Config;
+
             _file            = new FileSchemaView(oldSchemas);
             _factory         = new CurrentObjectFactory(serializer);
             _stringTable     = stringTable;
@@ -52,11 +60,11 @@ namespace Ceras.Format
             // file's type ids with Config.TypeBinder, so a configured binder was honoured by one half of the
             // interpreter and ignored by the other - the same name could resolve to two different types in
             // one Load. Take the configured one.
-            _typeBinder = serializer?.Config?.TypeBinder ?? new SimpleTypeBinder();
-            _serializer      = serializer;
+            _typeBinder = config.TypeBinder ?? new SimpleTypeBinder();
+            _serializer = serializer;
             // The robust serializer is the only caller and always passes one with a robust config.
-        _registry        = ((CerasRobustConfig)serializer!.Config).SchemaRegistry;
-            _maxCollectionSize = serializer.Config.SizeLimits.MaxCollectionSize;
+        _registry        = config.SchemaRegistry;
+            _maxCollectionSize = config.SizeLimits.MaxCollectionSize;
 
             // The decoder for the Type *value* a polymorphic value carries. It resolves a manifest id
             // through the same map every other id in this engine resolves through, so a renamed type used
@@ -100,7 +108,12 @@ namespace Ceras.Format
             }
         }
 
-        static Action<CerasSerializer, object>? MakeInvoker(MethodInfo method, CallbackArgumentKind kind, MigrationContext context)
+        /// <summary>
+        /// The cached invoker for one callback, or null when the type has no such callback — the plan
+        /// stores the invoker rather than the method, so a callback's presence and the shape it is
+        /// invoked with are one fact rather than two that could disagree.
+        /// </summary>
+        static Action<CerasSerializer, object>? MakeInvoker(MethodInfo? method, CallbackArgumentKind kind, MigrationContext context)
         {
             if (method == null) return null;
 
@@ -117,19 +130,29 @@ namespace Ceras.Format
 
         // ── Public entry point ────────────────────────────────────────────────
 
+        /// <summary>
+        /// The root value, or null when the file holds a null there. <b>Null is a value a save can
+        /// legitimately carry</b> — a reference-typed root behind a null marker, a collection whose
+        /// biased count is -1 — so it is stated on the return rather than defaulted away.
+        /// </summary>
+        [return: MaybeNull]
         public T ReadRoot<T>(byte[] data, ref int offset)
         {
             var sequence = new ReadOnlySequence<byte>(data, offset, data.Length - offset);
             var reader = new SequenceReader<byte>(sequence);
 
-			T result = ReadRoot<T>(ref reader);
+            T? result = ReadRoot<T>(ref reader);
 
 			offset += (int)reader.Consumed;
             return result;
         }
 
+        /// <summary>
+        /// The root value, or null when the file holds a null there, or when the file's own schema does
+        /// not describe the type this root was written as.
+        /// </summary>
         [return: MaybeNull]
-        public T ReadRoot<T>(ref SequenceReader<byte> reader, T rootObject = default)
+        public T ReadRoot<T>(ref SequenceReader<byte> reader, [AllowNull] T rootObject = default)
         {
             // Roots are declared types, so the stored root id and this CLR type were already
             // validated to match. Dispatch on the encoding shape rather than assuming every root
@@ -607,9 +630,16 @@ namespace Ceras.Format
             }
         }
 
-        object? ReadUserTypeByStableName(string stableName, Type targetType, ref SequenceReader<byte> reader, object existingObject = null!)
+        /// <summary>
+        /// The value the file's schema records under <paramref name="stableName"/>, or null when the
+        /// file has no such entry — the case for a type this build's own schema never described, and
+        /// for a name the reader could not resolve at all. Neither produces a value, so the null is
+        /// the answer rather than something the caller has to tell apart from one.
+        /// </summary>
+        object? ReadUserTypeByStableName(string stableName, Type targetType, ref SequenceReader<byte> reader,
+            object? existingObject = null)
         {
-            if (stableName != null && _file.TryGetByName(stableName, out var oldSchema))
+            if (_file.TryGetByName(stableName, out var oldSchema))
             {
                 return ReadUserType(oldSchema.TypeId, targetType, ref reader, existingObject);
             }
@@ -625,8 +655,10 @@ namespace Ceras.Format
             RejectUndescribableShape(oldSchema, currentType);
 
             // Reuse is only valid for an exact runtime-type match; a subtype/supertype mismatch must
-            // allocate a new instance (matching the generated reference wrapper).
-            if (existingObject != null && !CurrentObjectFactory.IsExactType(existingObject, currentType))
+            // allocate a new instance (matching the generated reference wrapper). A current type this
+            // build does not have has no exact match either, so the reuse is dropped there too — which
+            // is what the factory's own predicate already answers for a null type.
+            if (existingObject != null && (currentType == null || !CurrentObjectFactory.IsExactType(existingObject, currentType)))
                 existingObject = null;
 
             if (oldSchema.Kind == SchemaTypeKind.Struct || (currentType != null && currentType.IsValueType))
@@ -695,20 +727,12 @@ namespace Ceras.Format
 
             if (ctorArgs != null)
             {
-                var values = new object?[ctorArgs.Parameters.Length];
-                var assignments = new List<(FieldInfo Field, object? Value)>();
-                ReadAndApplyFields(oldSchema, plan, null, ref reader, ctorArgs, values, assignments);
-
-                // A parameter no serialized member feeds is transient construction input and gets its own
-                // declared default, exactly like the generated reader passes default(T).
-                for (int i = 0; i < values.Length; i++)
-                {
-                    if (!ctorArgs.IsMapped(i)) values[i] = ctorArgs.DefaultFor(i);
-                }
+                var ctorValues = new CtorArgumentValues(ctorArgs);
+                ReadAndApplyFields(oldSchema, plan, null, ref reader, ctorValues);
 
                 try
                 {
-                    ctorArgs.Constructor.Invoke(obj, values);
+                    ctorArgs.Constructor.Invoke(obj, ctorValues.Arguments());
                 }
                 catch (TargetInvocationException e) when (e.InnerException != null)
                 {
@@ -720,8 +744,11 @@ namespace Ceras.Format
                         e.InnerException);
                 }
 
-                foreach (var (field, value) in assignments)
-                    field.SetValue(obj, value);
+                // The constructor path is only entered for a type this build has (the plan resolves to
+                // nothing without one), so the instance the factory built is there. The check is the
+                // compiler's, not a decision: a null here would mean the factory declined the very type
+                // whose constructor is about to be invoked, which is not a state to assign members into.
+                if (obj != null) ctorValues.ApplyPendingAssignments(obj);
             }
             else
             {
@@ -779,7 +806,7 @@ namespace Ceras.Format
             // plus its elements/entries, so every collection is read through the single collection
             // reader, never through the ordinary user-type path (which would consume a reference marker
             // that was never written). This check must come BEFORE any well-known definition dispatch.
-            if (CurrentObjectFactory.IsCollectionShape(currentType))
+            if (currentType != null && CurrentObjectFactory.IsCollectionShape(currentType))
                 return ReadCollectionShape(currentType, targetType, oldSchema, ref reader, cacheIndex, existingObject);
 
             // The file describes a collection payload, but this build has no concrete collection type for
@@ -788,7 +815,7 @@ namespace Ceras.Format
             if (IsCollectionPayload(oldSchema.DefinitionTypeId))
                 return ReadUnknownCollectionPayload(oldSchema, ref reader);
 
-            if (existingObject != null && !CurrentObjectFactory.IsExactType(existingObject, currentType))
+            if (existingObject != null && (currentType == null || !CurrentObjectFactory.IsExactType(existingObject, currentType)))
                 existingObject = null;
 
             if (currentType != null && currentType.IsValueType)
@@ -842,7 +869,7 @@ namespace Ceras.Format
             int? oldKeyTid = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
             int? oldValTid = oldSchema.ArgTypeIds.Length > 1 ? (int?)oldSchema.ArgTypeIds[1] : null;
 
-            if (keyType == null || valType == null || oldKeyTid == null || oldValTid == null)
+            if (targetType == null || keyType == null || valType == null || oldKeyTid == null || oldValTid == null)
             {
                 SkipValue(oldKeyTid ?? WellKnownTypes.Object, ref reader);
                 SkipValue(oldValTid ?? WellKnownTypes.Object, ref reader);
@@ -944,7 +971,7 @@ namespace Ceras.Format
         /// <c>Item1</c>…, while <c>Tuple</c> keeps them in <c>m_Item1</c>…, so both spellings are
         /// accepted; the item is then written straight into the field.
         /// </summary>
-        static FieldInfo[] GetTupleItemFields(Type tupleType)
+        static FieldInfo[]? GetTupleItemFields(Type tupleType)
         {
             const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             var byIndex = new FieldInfo[8]; // 0..6 = Item1..Item7, 7 = Rest
@@ -1357,7 +1384,11 @@ namespace Ceras.Format
 
         object? ReadDictionaryShape(Type? currentType, Type? keyType, Type? valType, int? oldKeyId, int? oldValId, int count, ref SequenceReader<byte> reader, int? cacheIndex, object? existingObject)
         {
-            var fill = _factory.CreateCollection(currentType, typeof(Dictionary<,>), new[] { keyType, valType },
+            // A shape whose key or value type is unknown cannot be built as a closed generic, and the
+            // factory declines a null argument for exactly that reason — so a missing argument is passed
+            // as no arguments at all rather than as an array with a hole in it.
+            Type[]? backingArgs = keyType != null && valType != null ? new[] { keyType, valType } : null;
+            var fill = _factory.CreateCollection(currentType, typeof(Dictionary<,>), backingArgs,
                 existingObject, "Clear", "dictionary");
             CacheCollection(fill, cacheIndex);
 
@@ -1631,7 +1662,11 @@ namespace Ceras.Format
             SkipUnmarkedPayload(_typeValues.InternRoot(shape), ref reader);
         }
 
-		Type GetCurrentType(string stableName) { _registry.TryResolveType(stableName, out var t); return t; }
+		/// <summary>
+		/// The current type the file's own name resolves to, or null when this build does not have it —
+		/// a removed type, which the policy's own predicate answers for by not being unsupported.
+		/// </summary>
+		Type? GetCurrentType(string stableName) { _registry.TryResolveType(stableName, out var t); return t; }
 
         /// <summary>
         /// Refuses a file entry whose stable name still resolves in this build to a collection shape the
@@ -1671,24 +1706,29 @@ namespace Ceras.Format
             int underlyingId = oldSchema.DefinitionTypeId == 0 ? WellKnownTypes.Int32 : oldSchema.DefinitionTypeId;
             object? rawValue = ReadValue(underlyingId, null, ref reader);
 
-            if (plan?.EnumValueMap != null && plan.CurrentType != null)
+            // Both halves of the condition are taken into locals: a plan's fields are not something the
+            // compiler can keep track of across the calls below, and a map without the enum it belongs to
+            // says nothing about which type to produce.
+            var enumValueMap = plan?.EnumValueMap;
+            var enumType = plan?.CurrentType;
+            if (enumValueMap != null && enumType != null)
             {
                 // Compare and map by raw bits so a ulong value above long.MaxValue survives. A value that
                 // cannot even be read as bits is corruption, not a decoder failure.
                 ulong bits;
                 try
                 {
-                    bits = EnumBits.ToRawBits(rawValue, plan.CurrentType);
+                    bits = EnumBits.ToRawBits(rawValue, enumType);
                 }
                 catch (Exception e) when (e is OverflowException or InvalidCastException or FormatException)
                 {
                     throw new Ceras.Exceptions.CerasDataCorruptionException(
-                        $"Corrupt enum payload for '{TypeIdentity.GetCanonicalName(plan.CurrentType)}': the stored value '{rawValue ?? "null"}' " +
+                        $"Corrupt enum payload for '{TypeIdentity.GetCanonicalName(enumType)}': the stored value '{rawValue ?? "null"}' " +
                         "is not representable as the enum's underlying type.", e);
                 }
 
-                if (plan.EnumValueMap.TryGetValue(bits, out ulong mapped))
-                    return Enum.ToObject(plan.CurrentType, EnumBits.ToClrValue(mapped, plan.CurrentType));
+                if (enumValueMap.TryGetValue(bits, out ulong mapped))
+                    return Enum.ToObject(enumType, EnumBits.ToClrValue(mapped, enumType));
             }
 
             if (targetType != null && targetType.IsEnum)
@@ -1699,6 +1739,15 @@ namespace Ceras.Format
 
         static object? MakeEnum(Type enumType, object? rawValue)
         {
+            // An enum member is written inline as its underlying value, so a null is not a value the
+            // format can have produced for one. It used to be folded into the "not a valid value" case
+            // below, which reported it as a bad number rather than as a shape the payload cannot have;
+            // naming the shape is what tells the reader which of the two it is looking at.
+            if (rawValue == null)
+                throw new Ceras.Exceptions.CerasDataCorruptionException(
+                    $"Corrupt enum payload for '{TypeIdentity.GetCanonicalNameOrUnknown(enumType)}': the stored value is null, and " +
+                    $"'{enumType.Name}' has no null — an enum is written inline as its underlying value.");
+
             try
             {
                 return Enum.ToObject(enumType, rawValue);
@@ -1706,7 +1755,7 @@ namespace Ceras.Format
             catch (Exception e) when (e is ArgumentException or InvalidCastException or OverflowException)
             {
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
-                    $"Corrupt enum payload for '{TypeIdentity.GetCanonicalNameOrUnknown(enumType)}': the stored value '{rawValue ?? "null"}' is not a " +
+                    $"Corrupt enum payload for '{TypeIdentity.GetCanonicalNameOrUnknown(enumType)}': the stored value '{rawValue}' is not a " +
                     $"valid '{enumType.Name}' value.", e);
             }
         }
@@ -1718,18 +1767,88 @@ namespace Ceras.Format
         }
 
         /// <summary>
+        /// The values a type's <c>[CerasConstructor]</c> is invoked with, filled from the payload while it
+        /// is read, plus the members the constructor does not take, which are assigned to the instance
+        /// afterwards.
+        /// <para>
+        /// The plan, the buffer and the pending assignments travel as one object because they are one
+        /// decision: either the instance is constructed out of the payload or it is not. A reader that
+        /// could be handed the plan without the buffer it fills would have to re-decide that per member,
+        /// and a null-forgiving operator would stand in for the answer.
+        /// </para>
+        /// </summary>
+        sealed class CtorArgumentValues
+        {
+            public CtorArgumentPlan Plan { get; }
+
+            // One entry per parameter. Null until the member that feeds it has been read, and null after
+            // that too when the file legitimately stored a null for a parameter that has one.
+            readonly object?[] _values;
+
+            // The members no parameter feeds, applied after the constructor has run so a constructor that
+            // rewrites a value cannot change the result — the generated reader's order. Created on the
+            // first one, because the usual case is that every member feeds a parameter and none is left.
+            List<(FieldInfo Field, object? Value)>? _pendingAssignments;
+
+            public CtorArgumentValues(CtorArgumentPlan plan)
+            {
+                Plan = plan;
+                _values = new object?[plan.Parameters.Length];
+            }
+
+            /// <summary>
+            /// Routes one member's value: to the parameter it feeds, or to the post-construction
+            /// assignments. A value that no parameter can take is refused here, by
+            /// <see cref="CtorArgumentPlan.AcceptMemberValue"/>, rather than at the reflection call.
+            /// </summary>
+            public void Set(FieldInfo field, OldFieldSchema storedField, object? value)
+            {
+                int slot = Plan.SlotForField(field);
+                if (slot >= 0)
+                {
+                    _values[slot] = Plan.AcceptMemberValue(slot, value, storedField);
+                    return;
+                }
+
+                (_pendingAssignments ??= new List<(FieldInfo Field, object? Value)>()).Add((field, value));
+            }
+
+            /// <summary>
+            /// The arguments to invoke the constructor with: a parameter no serialized member feeds is
+            /// transient construction input and gets its own declared default, exactly like the
+            /// generated reader passes <c>default(T)</c>.
+            /// </summary>
+            public object?[] Arguments()
+            {
+                for (int i = 0; i < _values.Length; i++)
+                    if (!Plan.IsMapped(i)) _values[i] = Plan.DefaultFor(i);
+
+                return _values;
+            }
+
+            /// <summary>Assigns the members the constructor did not take.</summary>
+            public void ApplyPendingAssignments(object target)
+            {
+                if (_pendingAssignments == null) return;
+
+                foreach (var (field, value) in _pendingAssignments)
+                    field.SetValue(target, value);
+            }
+        }
+
+        /// <summary>
         /// Reads the fields of <paramref name="oldSchema"/> in payload order and applies them to
         /// <paramref name="target"/>.
         /// <para>
-        /// When a <paramref name="ctorArgs"/> plan is supplied, nothing is assigned to a target: the
-        /// values are routed to the constructor's parameters and collected in
-        /// <paramref name="assignments"/> instead, so the caller can construct the instance first and
-        /// assign afterwards. That is the order the generated reader uses for a type whose constructor
-        /// takes its values out of the payload. <paramref name="target"/> is then ignored.
+        /// When a <paramref name="ctorValues"/> collector is supplied, nothing is assigned to a target:
+        /// the values are routed to the constructor's parameters and collected for afterwards, so the
+        /// caller can construct the instance first and assign once the constructor has run. That is the
+        /// order the generated reader uses for a type whose constructor takes its values out of the
+        /// payload. <paramref name="target"/> is then ignored.
         /// </para>
         /// </summary>
         void ReadAndApplyFields(OldTypeSchema oldSchema, TypeMigrationPlan? plan, object? target, ref SequenceReader<byte> reader,
-            CtorArgumentPlan ctorArgs = null!, object[] ctorValues = null!, List<(FieldInfo Field, object? Value)>? assignments = null)
+            CtorArgumentValues? ctorValues = null)
         {
             var mappings = plan?.Mappings ?? BuildSkipMappings(oldSchema);
             foreach (var mapping in mappings)
@@ -1744,7 +1863,10 @@ namespace Ceras.Format
                     // describes, so IsArrayPayload finds it, while the well-known id of the declared type
                     // System.Array is never a schema entry. It falls to SkipValue, which reads it as the
                     // polymorphic slot it is — marker, type value, count, elements.
-                    if (mapping.NewField == null && IsArrayPayload(mapping.OldField.TypeId))
+                    //
+                    // The member is already known to have no current field — that is what this branch
+                    // is — so the only question left is the shape the file wrote it in.
+                    if (IsArrayPayload(mapping.OldField.TypeId))
                         SkipCollectionPayload(PayloadShape.Array, SkipSchemaOf(mapping.OldField.TypeId), ref reader);
                     else
                         SkipValue(mapping.OldField.TypeId, ref reader);
@@ -1775,7 +1897,7 @@ namespace Ceras.Format
                     // because the marker it writes is not the marker the file has. By the time this runs, a
                     // mapped member is a declared array on both sides or on neither, so the two conditions
                     // here can no longer disagree.
-                    object value;
+                    object? value;
                     if (mapping.NewField.FieldType.IsArray &&
                         _file.TryGetById(mapping.OldField.TypeId, out var fieldSchema) &&
                         fieldSchema.Kind == SchemaTypeKind.GenericInstantiation &&
@@ -1790,11 +1912,9 @@ namespace Ceras.Format
 
                     var coerced = Coerce(value, mapping.Coercion, mapping.NewField.FieldType);
 
-                    if (assignments != null)
+                    if (ctorValues != null)
                     {
-                        int slot = ctorArgs.SlotForField(mapping.NewField);
-                        if (slot >= 0) ctorValues[slot] = coerced;
-                        else assignments.Add((mapping.NewField, coerced));
+                        ctorValues.Set(mapping.NewField, mapping.OldField, coerced);
                     }
                     else if (target != null)
                     {
@@ -1837,8 +1957,9 @@ namespace Ceras.Format
 
         void FireBeforeCallback(object? obj, TypeMigrationPlan? plan)
         {
-            if (obj == null || plan?.BeforeInvoker == null) return;
-            plan.BeforeInvoker(_serializer, obj);
+            var invoker = plan?.BeforeInvoker;
+            if (obj == null || invoker == null) return;
+            invoker(_serializer, obj);
         }
 
         /// <summary>
@@ -1847,16 +1968,30 @@ namespace Ceras.Format
         /// </summary>
         void EnqueueAfterCallback(object? obj, TypeMigrationPlan? plan)
         {
-            if (obj == null || plan?.AfterInvoker == null) return;
-            _serializer.EnqueueDeserializeCallback(obj, plan.AfterInvoker);
+            var invoker = plan?.AfterInvoker;
+            if (obj == null || invoker == null) return;
+            _serializer.EnqueueDeserializeCallback(obj, invoker);
         }
 
         void FireAfterCallbackInline(object? obj, TypeMigrationPlan? plan)
         {
-            if (obj == null || plan?.AfterInvoker == null) return;
-            plan.AfterInvoker(_serializer, obj);
+            var invoker = plan?.AfterInvoker;
+            if (obj == null || invoker == null) return;
+            invoker(_serializer, obj);
         }
 
+        /// <summary>
+        /// Drives a formatter that writes opaque bytes — one the context's schema does not describe —
+        /// through its untyped entry point, and reports whether it took the value.
+        /// <para>
+        /// Both halves of the "box trick" are checked rather than assumed. The box is a
+        /// <c>StrongBox&lt;T&gt;</c> made here and the field it writes through is found by name, so
+        /// both are facts about types this method did not author: a malformed answer there surfaced as
+        /// a <c>NullReferenceException</c> from the middle of the call, naming neither the type being
+        /// read nor the formatter being driven. It is reported instead as the schema problem it is — a
+        /// custom formatter this build cannot call — naming both and the way out.
+        /// </para>
+        /// </summary>
         bool TryReadCustomFormatter(Type? type, ref object? obj, ref SequenceReader<byte> reader)
         {
             if (type == null) return false;
@@ -1880,9 +2015,19 @@ namespace Ceras.Format
             // Use the "Box trick" to call DeserializeUntyped.
             // This works for any formatter that follows the DeserializeUntyped pattern
             // (including FormatterBase<T> and our manual ones).
+            var typeName = TypeIdentity.GetCanonicalNameOrUnknown(type);
             var boxType = typeof(StrongBox<>).MakeGenericType(type);
-            var box = Activator.CreateInstance(boxType, obj);
-            var field = boxType.GetField("Value");
+            object box = Activator.CreateInstance(boxType, obj)
+                ?? throw new Ceras.Exceptions.CerasSchemaException(
+                    $"Cannot read the value the save file records as '{typeName}' through its custom formatter " +
+                    $"'{formatter.GetType().Name}': the {boxType.Name} Ceras uses to call DeserializeUntyped could not be created, so " +
+                    "there is nothing to hand the formatter. This is a defect in the formatter or in Ceras, not in the save.");
+
+            FieldInfo field = boxType.GetField("Value")
+                ?? throw new Ceras.Exceptions.CerasSchemaException(
+                    $"Cannot read the value the save file records as '{typeName}' through its custom formatter " +
+                    $"'{formatter.GetType().Name}': '{boxType}' has no public 'Value' field to write the result through, and that field is " +
+                    "the one member this boundary reads back. This is a defect in the formatter or in Ceras, not in the save.");
 
             formatter.DeserializeUntyped(ref reader, box, field);
 

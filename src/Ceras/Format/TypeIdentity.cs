@@ -36,11 +36,24 @@ namespace Ceras.Format
         public static string GetCanonicalNameOrUnknown(Type? type)
             => type == null ? "<unknown>" : GetCanonicalName(type);
 
+        /// <summary>
+        /// The element type of an array or a pointer. Reflection annotates the accessor as maybe-null
+        /// because it answers null for every other kind of type, so this states the invariant its callers
+        /// already rely on: each of them names the element of a type that passed <c>IsArray</c> or
+        /// <c>IsPointer</c>, where the runtime always has one. It is not a caller error, so it is not
+        /// reported as one — a shape that violates it cannot be named at all, and naming the shape is
+        /// the only thing there is to say. <see cref="SchemaRegistry"/> describes an array through the
+        /// same answer, so the check is shared rather than restated there.
+        /// </summary>
+        internal static Type ElementTypeOf(Type type)
+            => type.GetElementType() ?? throw new InvalidOperationException(
+                $"The runtime reports no element type for the array or pointer type '{type.Name}', so it has no canonical name.");
+
         static void AppendCanonicalName(StringBuilder sb, Type type)
         {
             if (type.IsArray)
             {
-                AppendCanonicalName(sb, type.GetElementType());
+                AppendCanonicalName(sb, ElementTypeOf(type));
                 sb.Append('[');
                 for (int i = 1; i < type.GetArrayRank(); i++) sb.Append(',');
                 sb.Append(']');
@@ -49,7 +62,7 @@ namespace Ceras.Format
 
             if (type.IsPointer)
             {
-                AppendCanonicalName(sb, type.GetElementType());
+                AppendCanonicalName(sb, ElementTypeOf(type));
                 sb.Append('*');
                 return;
             }
@@ -78,11 +91,21 @@ namespace Ceras.Format
             AppendDefinitionName(sb, type);
         }
 
+        /// <summary>
+        /// The type a nested type is declared in. Annotated maybe-null by reflection because a
+        /// top-level type has none, which is the one case the <c>IsNested</c> below has already
+        /// excluded. Stated as its own check so a nested type's name cannot silently lose its
+        /// declaring-type prefix.
+        /// </summary>
+        static Type DeclaringTypeOf(Type type)
+            => type.DeclaringType ?? throw new InvalidOperationException(
+                $"The runtime reports no declaring type for the nested type '{type.Name}', so it has no canonical name.");
+
         static void AppendDefinitionName(StringBuilder sb, Type type)
         {
             if (type.IsNested)
             {
-                AppendDefinitionName(sb, type.DeclaringType);
+                AppendDefinitionName(sb, DeclaringTypeOf(type));
                 sb.Append('+');
             }
             else if (!string.IsNullOrEmpty(type.Namespace))
@@ -100,17 +123,20 @@ namespace Ceras.Format
         /// <summary>
         /// Parses a canonical name produced by <see cref="GetCanonicalName"/> (or by the generator's
         /// <c>GetRobustName</c>) back into a <see cref="Type"/>. Definition names are resolved through
-        /// <paramref name="resolveDefinition"/>. Generic parameters cannot be resolved without context
-        /// and return false. This is only used on cold paths (bake and migration), never per save.
+        /// <paramref name="resolveDefinition"/>, which answers null for a name this build does not have
+        /// — that is how a registry or a binder reports "no such type"
+        /// (<c>SchemaRegistry.ResolveDefinitionName</c> is written to that contract), and it is a miss
+        /// rather than a half-answer. Generic parameters cannot be resolved without context and return
+        /// false. This is only used on cold paths (bake and migration), never per save.
         /// </summary>
-        internal static bool TryParseCanonicalName(string name, Func<string, Type> resolveDefinition, out Type type)
+        internal static bool TryParseCanonicalName(string name, Func<string, Type?> resolveDefinition, out Type type)
         {
             type = null!;
             if (string.IsNullOrEmpty(name) || resolveDefinition == null) return false;
             return TryParse(name, resolveDefinition, out type);
         }
 
-        static bool TryParse(string name, Func<string, Type> resolveDefinition, out Type type)
+        static bool TryParse(string name, Func<string, Type?> resolveDefinition, out Type type)
         {
             type = null!;
 
@@ -161,8 +187,14 @@ namespace Ceras.Format
             int lt = name.IndexOf('<');
             if (lt < 0)
             {
-                type = resolveDefinition(name);
-                return type != null;
+                // A definition name the resolver does not have is a miss, not a half-answer: the parser
+                // reports false and leaves the out parameter null, which is what every other miss here
+                // does too.
+                var resolved = resolveDefinition(name);
+                if (resolved == null) return false;
+
+                type = resolved;
+                return true;
             }
 
             if (name[name.Length - 1] != '>') return false;
