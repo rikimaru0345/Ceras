@@ -260,13 +260,25 @@ succeeded, the stream stayed aligned, and `Buffer[1..24]` loaded back as zeros. 
 suite is the same: a 64-byte image, 29 bytes written.
 
 The exemption was therefore covering up a **present** disagreement rather than preventing a hypothetical
-one, and the blit's safety depended on the *other* path being broken: it stayed lossless only because
-`CERAS029` refuses the declaration at compile time, since to the generator a fixed buffer is a `byte*`.
-The moment the generator learns fixed buffers, one build blits the shape and member-writes it — the exact
-failure the rule above exists to prevent. So the blit is declined, the value is routed to the reflection
-fallback, and the reflection fallback **refuses** it with a `CerasSchemaException` naming the member, its
-declared element count and its byte length (`Formatters/FixedBufferGuard`). The three paths now agree in
-the only way available to this change: all three refuse.
+one, and the blit's safety rested on the *other* path being broken. What that safety was is worth
+recording, because the generator's diagnostic for this shape has since changed. It refused the
+declaration at compile time, but under `CERAS029` — the framework-type diagnostic, whose story is a
+`System.*` type the user could have declared differently or written a formatter for, and which reaches a
+fixed buffer only because the member looks like a `byte*` there. That is not this shape's reason, and one
+of `CERAS029`'s remedies is not advice here at all: keep the type out of every `[CerasContext]` and use
+the reflection-based `CerasSerializer` is true of a `System.Uri` and false of this shape, whose
+reflection path is the one that wrote 5 bytes for a 32-byte value. The shape therefore has a diagnostic
+of its own (`CERAS035`, see [what is rejected](#load-order-and-what-is-rejected)), which refuses it for
+the reason this section has been giving all along: the declared length is nowhere in the member's type,
+so nothing derived from that type can see how many elements there are. That is also what takes the
+blit's old safety away. A generator that could *write* the shape rather than refuse it would be one
+build blitting it and another member-writing it — the exact failure the rule above exists to prevent,
+and one it cannot see coming, because all three of its questions compare a memory image against a member
+encoding, and a shape with no member encoding at all is not a disagreement it can measure. So the
+blit is declined, the value is routed to the reflection fallback, and the reflection fallback **refuses**
+it with a `CerasSchemaException` naming the member, its declared element count and its byte length
+(`Formatters/FixedBufferGuard`). The three paths now agree in the only way available to this change: all
+three refuse.
 
 Removing the exemption *alone* would not have been enough, and the reason is worth recording: the width
 check would have caught the padded case by accident (payload 25 + 4 = 29 against a 32-byte image) but
@@ -785,9 +797,11 @@ the magnitude for an unsigned underlying type and a two's-complement negative va
      member-by-member: the compiler's declared length lives in a field attribute, nowhere in the
      member's type, so the reflection fallback wrote a single element for the whole buffer — 5 bytes
      for a 32-byte value, with the save succeeding and the rest of the buffer loading back as zeros.
-     The source generator refuses the same declaration at compile time (`CERAS029`, because to it the
-     member is a `byte*`), and the raw path's blit is declined for the type so it cannot be the one
-     path that happens to round-trip — see
+     The source generator refuses the same declaration at compile time under an id of its own
+     (`CERAS035`), not `CERAS029`'s: a `byte*` is all the member looks like to the framework-type
+     rule, whose story is a `System.*` type, and the reason this shape is refused is the one above.
+     The raw path's blit is declined for the type too, so it cannot be the one path that happens to
+     round-trip — see
      [Which types the raw path may reinterpret](#which-types-the-raw-path-may-reinterpret). A member
      the payload does not contain (`[Exclude]`, `[NonSerialized]`) is not this rule's business, and a
      custom `IFormatter<T>` for the declaring type is still accepted, because Ceras then hands it the
