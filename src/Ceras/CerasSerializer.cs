@@ -671,7 +671,30 @@ namespace Ceras
 		/// The reference formatter for a type, or null when the type has none (an unresolvable or
 		/// unconfigured type). Formatters and resolvers hold <em>closed</em> types, which always get one,
 		/// so they use <see cref="GetReferenceFormatterRequired"/> instead of casting a null.
+		/// <para>
+		/// The two <see cref="DynamicDependencyAttribute"/>s exist because this method is the only place
+		/// either formatter type is closed over a runtime <see cref="Type"/>, and nothing in a
+		/// compilation names those constructors: a generated formatter mentions
+		/// <c>ReferenceFormatter&lt;X&gt;</c> only as the type of an injected field, which roots the
+		/// instantiation and nothing inside it, and <c>ReferenceFormatter_KnownSealedType&lt;X&gt;</c> is
+		/// never named statically at all. A trimmer is therefore free to remove both constructors, and
+		/// <see cref="Helpers.Instantiator.Create"/> then throws
+		/// <see cref="MissingMethodException"/> on the first formatter lookup of a save.
+		/// <para>
+		/// They are stated on the two open generic definitions rather than on
+		/// <paramref name="type"/>, because "keep this closed instantiation's constructor" is not
+		/// something <see cref="DynamicallyAccessedMembersAttribute"/> can say: the annotation describes
+		/// the members of a <em>type</em> the trimmer can see, and here the type is only ever a
+		/// <c>MakeGenericType</c> result. A dependency on the definition is the one form that covers
+		/// every closed construction, and it costs the same for the one the trimmer has never heard of
+		/// as for the one it has. This is what replaces the IL2067 ILLink reports against
+		/// <c>Instantiator.Create</c> (which stays: see the note there on why that parameter is not
+		/// annotated) - the members are rooted, not the analysis silenced.
+		/// </para>
+		/// </para>
 		/// </summary>
+		[DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors, typeof(ReferenceFormatter<>))]
+		[DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors, typeof(ReferenceFormatter_KnownSealedType<>))]
 		internal IFormatter? GetReferenceFormatter(Type type)
 		{
 			var meta = GetTypeMetaData(type);
