@@ -65,7 +65,9 @@ namespace Ceras.Format
                         value, "a polymorphic slot or a System.Type value", MultidimensionalArrayGuard.TypeValueReason);
 
                 SchemaSection.WriteLeb128(writer, (uint)WellKnownTypes.Array);
-                Serialize(writer, value.GetElementType());
+                // An array's element type is never null: GetElementType() answers null exactly for the
+                // types that have no element type, and this branch is only reached for an array.
+                Serialize(writer, value.GetElementType()!);
                 return;
             }
 
@@ -167,34 +169,42 @@ namespace Ceras.Format
 
             if (id == (uint)WellKnownTypes.Array)
             {
-                Type? elementType = null;
+                // The recursion target. IFormatter<T>.Deserialize declares its ref parameter
+                // non-nullable, so the local starts as the not-yet-read default; the null the
+                // recursion can write into it is what the check below rejects.
+                Type elementType = null!;
                 Deserialize(ref reader, ref elementType);
                 if (elementType == null) throw new Ceras.Exceptions.CerasException("Failed to deserialize element type for array");
                 value = elementType.MakeArrayType();
                 return value;
             }
 
-            if (WellKnownTypes.TryGetType((int)id, out value))
+            if (WellKnownTypes.TryGetType((int)id, out var wellKnown))
             {
-                if (value.IsGenericTypeDefinition)
+                value = wellKnown;
+                if (wellKnown.IsGenericTypeDefinition)
                 {
                     uint argCount = SchemaSection.ReadLeb128(ref reader);
                     Type[] args = new Type[argCount];
                     for (int i = 0; i < argCount; i++)
                     {
-                        Type? arg = null;
+                        // Same recursion target as the array branch above, and the same null check.
+                        Type arg = null!;
                         Deserialize(ref reader, ref arg);
-                        if (arg == null) throw new Ceras.Exceptions.CerasException($"Failed to deserialize generic argument {i} for type '{value.Name}'");
+                        if (arg == null) throw new Ceras.Exceptions.CerasException($"Failed to deserialize generic argument {i} for type '{wellKnown.Name}'");
                         args[i] = arg;
                     }
-                    value = value.MakeGenericType(args);
+                    value = wellKnown.MakeGenericType(args);
                 }
                 return value;
             }
 
             var idToType = RobustContext.IdToType;
-            if (idToType != null && idToType.TryGetValue((int)id, out value))
+            if (idToType != null && idToType.TryGetValue((int)id, out var resolved))
+            {
+                value = resolved;
                 return value;
+            }
 
             value = null!;
             return value;

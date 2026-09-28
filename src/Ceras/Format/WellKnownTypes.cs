@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Ceras.Format
 {
@@ -475,8 +476,21 @@ namespace Ceras.Format
             return null;
         }
 
-        public static bool TryGetType(int id, out Type type)
-            => IdToTypeMap.TryGetValue(id, out type);
+        /// <summary>
+        /// The type a well-known id names, when there is one. Every entry in the map is a real
+        /// <see cref="Type"/>, so a true answer is never null; a miss answers null and the caller reads
+        /// the out only when this returned <c>true</c>.
+        /// </summary>
+        public static bool TryGetType(int id, [NotNullWhen(true)] out Type? type)
+        {
+            // The lookup goes through a local on purpose: forwarding the dictionary's own out argument
+            // into this method's out argument costs the compiler the post-state it would otherwise read
+            // off the parameter's NotNullWhen, and every caller would see the type it just found as
+            // maybe-null.
+            bool found = IdToTypeMap.TryGetValue(id, out var mapped);
+            type = mapped;
+            return found;
+        }
 
         /// <summary>
         /// Returns the fixed byte size for a well-known type ID, or 0 if variable.

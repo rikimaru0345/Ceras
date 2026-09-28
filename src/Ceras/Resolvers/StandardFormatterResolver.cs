@@ -85,8 +85,10 @@ namespace Ceras.Resolvers
             public override void Serialize(IBufferWriter<byte> writer, KeyValuePair<TKey, TValue> value) { _keyFormatter.Serialize(writer, value.Key); _valueFormatter.Serialize(writer, value.Value); }
             public override void Deserialize(ref SequenceReader<byte> reader, ref KeyValuePair<TKey, TValue> kvp)
             {
-                TKey? k = default; _keyFormatter.Deserialize(ref reader, ref k);
-                TValue? v = default; _valueFormatter.Deserialize(ref reader, ref v);
+                // A reference-typed key or value can come back null from the payload, but the formatter
+                // interface declares its ref parameter non-nullable, so both locals start as "not read".
+                TKey k = default!; _keyFormatter.Deserialize(ref reader, ref k);
+                TValue v = default!; _valueFormatter.Deserialize(ref reader, ref v);
                 kvp = new KeyValuePair<TKey, TValue>(k, v);
             }
         }

@@ -131,12 +131,15 @@ namespace Ceras.Formatters
         {
             const string unityObject = "UnityEngine.Object";
 
-            while (t != null)
+            // The walk ends at the root, which has no base type; that null is the loop's end state, so
+            // the cursor is the nullable one rather than the argument it started from.
+            Type? current = t;
+            while (current != null)
             {
-                if(t.FullName == unityObject)
+                if(current.FullName == unityObject)
                     return true;
                 
-                t = t.BaseType;
+                current = current.BaseType;
             }
 
             return false;

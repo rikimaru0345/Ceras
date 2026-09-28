@@ -34,8 +34,12 @@ namespace Ceras.Format
         /// <summary>
         /// The wire name of one enum member field, falling back to <paramref name="fallback"/> (the C#
         /// member name) when the member carries no <c>[CerasStableName]</c>.
+        /// <para>
+        /// <paramref name="member"/> is nullable because that is what reflection answers with for a name
+        /// the type has no such field for, which is the same case the fallback covers.
+        /// </para>
         /// </summary>
-        public static string Of(FieldInfo member, string fallback)
+        public static string Of(FieldInfo? member, string fallback)
         {
             if (member == null) return fallback;
             var stable = member.GetCustomAttribute<CerasStableNameAttribute>();

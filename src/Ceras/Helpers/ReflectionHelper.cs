@@ -146,15 +146,18 @@
 
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
-            while (type != null)
+            // The walk ends at the root, which has no base type; that null is the loop's end state, so
+            // the cursor is the nullable one rather than the argument it started from.
+            Type? current = type;
+            while (current != null)
             {
-                foreach (var f in type.GetFields(flags))
-                    if (f.DeclaringType == type)
+                foreach (var f in current.GetFields(flags))
+                    if (f.DeclaringType == current)
                         yield return f;
 
-                foreach (var p in type.GetProperties(flags))
+                foreach (var p in current.GetProperties(flags))
                 {
-                    if (p.DeclaringType != type)
+                    if (p.DeclaringType != current)
                         System.Diagnostics.Debug.Assert(false, "reflection returned a property with a different declaring type"); // ... even though DeclaredOnly was specified!
 
                     var getter = p.GetGetMethod(true);
@@ -172,7 +175,7 @@
                     yield return p;
                 }
 
-                type = type.BaseType;
+                current = current.BaseType;
             }
         }
 

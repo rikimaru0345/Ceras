@@ -20,10 +20,15 @@ namespace Ceras.Format
         [ThreadStatic]
         static ContextData _current = null!;
 
-        public static StringInternTable InternTable => _current?.InternTable;
-        public static string[] StringTable => _current?.StringTable;
-        public static Dictionary<Type, int> TypeToId => _current?.TypeToId;
-        public static Dictionary<int, Type> IdToType => _current?.IdToType;
+        // The four collections are nullable because a scope only carries the half it needs: a write
+        // scope has the intern table and the type-to-id map, a read scope the string table and the
+        // id-to-type map, and the other half of each pair is null for the whole scope. Every accessor
+        // below also answers null when no scope is pushed at all, so a formatter used outside a robust
+        // operation sees "not active" instead of a half-built context.
+        public static StringInternTable? InternTable => _current?.InternTable;
+        public static string[]? StringTable => _current?.StringTable;
+        public static Dictionary<Type, int>? TypeToId => _current?.TypeToId;
+        public static Dictionary<int, Type>? IdToType => _current?.IdToType;
 
         /// <summary>
         /// The configured longest string a read accepts, in UTF-8 bytes. Taken from the context rather
@@ -55,10 +60,10 @@ namespace Ceras.Format
 
         class ContextData
         {
-            public StringInternTable InternTable = null!;
-            public string[] StringTable = null!;
-            public Dictionary<Type, int> TypeToId;
-            public Dictionary<int, Type> IdToType;
+            public StringInternTable? InternTable;
+            public string[]? StringTable;
+            public Dictionary<Type, int>? TypeToId;
+            public Dictionary<int, Type>? IdToType;
             public uint MaxStringLength;
         }
     }
