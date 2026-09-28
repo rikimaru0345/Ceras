@@ -67,7 +67,7 @@ namespace Ceras.Test.Tests
         public void CustomCollection_VerifyInPlaceCalls()
         {
             var config = CreateSgConfig();
-            config.ConfigType<CustomList>().CustomFormatter = new CustomListFormatter(new CerasFastSerializer());
+            config.ConfigType<CustomSet>().CustomFormatter = new CustomSetFormatter(new CerasFastSerializer());
             
             var obj = new CustomCollectionContainer();
             obj.Items.Add(1);
@@ -162,7 +162,11 @@ namespace Ceras.Test.Tests
         public readonly HashSet<int> SetField = new HashSet<int>();
     }
 
-    public class CustomList : List<int>
+    // A HashSet<T> subclass rather than a List<int> one: the collection policy refuses every
+    // List<T>/Dictionary<TKey,TValue> subclass (Format/UnsupportedCollectionPolicy) and a member of a
+    // refused type is a compile error. HashSet<T> is the nearest shape the policy keeps, so the
+    // clear-before-populate contract this test pins is still the same one.
+    public class CustomSet : HashSet<int>
     {
         public bool WasCleared;
         public int AddCount;
@@ -171,21 +175,21 @@ namespace Ceras.Test.Tests
         public void TrackedAdd(int item) { AddCount++; base.Add(item); }
     }
 
-    public class CustomListFormatter : IFormatter<CustomList>
+    public class CustomSetFormatter : IFormatter<CustomSet>
     {
         IFormatter<int> _intFormatter;
-        internal CustomListFormatter(CerasSerializer s) => _intFormatter = s.GetFormatter<int>();
+        internal CustomSetFormatter(CerasSerializer s) => _intFormatter = s.GetFormatter<int>();
 
-        public void Serialize(IBufferWriter<byte> writer, CustomList value)
+        public void Serialize(IBufferWriter<byte> writer, CustomSet value)
         {
             SerializerBinary.WriteUInt32(writer, (uint)value.Count);
             foreach (var item in value) _intFormatter.Serialize(writer, item);
         }
 
-        public void Deserialize(ref SequenceReader<byte> reader, ref CustomList value)
+        public void Deserialize(ref SequenceReader<byte> reader, ref CustomSet value)
         {
             var count = SerializerBinary.ReadUInt32(ref reader);
-            if (value == null) value = new CustomList();
+            if (value == null) value = new CustomSet();
             else value.TrackedClear();
 
             for (int i = 0; i < count; i++)
@@ -196,10 +200,10 @@ namespace Ceras.Test.Tests
             }
         }
 
-        public void SerializeUntyped(IBufferWriter<byte> writer, object value) => Serialize(writer, (CustomList)value);
+        public void SerializeUntyped(IBufferWriter<byte> writer, object value) => Serialize(writer, (CustomSet)value);
         public void DeserializeUntyped(ref SequenceReader<byte> reader, object container, System.Reflection.MemberInfo member)
         {
-            var value = (CustomList)((System.Reflection.FieldInfo)member).GetValue(container);
+            var value = (CustomSet)((System.Reflection.FieldInfo)member).GetValue(container);
             Deserialize(ref reader, ref value);
         }
     }
@@ -208,7 +212,7 @@ namespace Ceras.Test.Tests
     [CerasSerializable]
     public class CustomCollectionContainer
     {
-        public readonly CustomList Items = new CustomList();
+        public readonly CustomSet Items = new CustomSet();
     }
 
     // --- Helper Types for Inheritance ---

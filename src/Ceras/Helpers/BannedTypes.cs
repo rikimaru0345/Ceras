@@ -106,6 +106,19 @@ namespace Ceras.Formatters
             Ban(typeof(System.Security.Policy.HashMembershipCondition), reasonExploit);
 #endif
 
+            // The owner's collection policy. A *custom* check rather than a base-type ban, because the
+            // rule is not "derives from List<T>": the exact List<T> and Dictionary<TKey,TValue> are
+            // supported shapes and a base ban would take them down with their subclasses. One entry also
+            // covers all four refused families, so the reason is the one sentence the policy states and
+            // the same reason the robust bake and the source generator give.
+            //
+            // Placement: after the exploit-prone bans and before the engine-object ban, so a type some
+            // earlier entry already refuses keeps that entry's reason (the scan returns the first
+            // match). Cost is unaffected either way: IsBannedCached below memoizes the *verdict* per type
+            // rather than the list, and on the uncached path the check walks a base chain that is almost
+            // always two non-generic entries.
+            BanCustom(Ceras.Format.UnsupportedCollectionPolicy.IsUnsupported, Ceras.Format.UnsupportedCollectionPolicy.BanReason);
+
             // Ban all 'native' unity objects by banning the base type.
             // Component, MonoBehaviour, GameObject, Transform, ...
             // If there are requests, we can add specialized formatters for them.

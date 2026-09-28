@@ -7,9 +7,9 @@ namespace Ceras.Format
 {
     /// <summary>
     /// The instance handed back to the caller, plus the object whose member actually receives the elements.
-    /// They differ for a wrapped shape: <c>ReadOnlyCollection&lt;T&gt;</c> has no <c>Add</c>, so its elements
-    /// go into the backing <c>List&lt;T&gt;</c> that was passed to its constructor while the wrapper itself is
-    /// what the field receives.
+    /// They differ for a wrapped shape: a <c>HashSet&lt;T&gt;</c> subclass whose only constructor copies
+    /// from an <c>IEnumerable&lt;T&gt;</c> is built from a fresh <c>HashSet&lt;T&gt;</c>, so the elements go
+    /// into that backing set while the subclass itself is what the field receives.
     /// </summary>
     readonly struct CollectionFill
     {
@@ -224,19 +224,36 @@ namespace Ceras.Format
         /// <item>otherwise construct the shape itself through its public parameterless constructor,
         /// which preserves a collection subclass exactly;</item>
         /// <item>otherwise build the built-in collection the shape describes and construct the shape from
-        /// it, which is how a shape with no parameterless constructor
-        /// (<c>ReadOnlyCollection&lt;T&gt;</c>(<c>IList&lt;T&gt;</c>),
-        /// <c>ReadOnlyDictionary&lt;K,V&gt;</c>(<c>IDictionary&lt;K,V&gt;</c>), a <c>List&lt;T&gt;</c> or
-        /// <c>Dictionary&lt;K,V&gt;</c> subclass behind a custom wrapper, …) is restored.</item>
+        /// it, which is how a shape with no public parameterless constructor but a wrapping constructor is
+        /// restored (a <c>HashSet&lt;T&gt;</c> subclass that takes <c>IEnumerable&lt;T&gt;</c>, for
+        /// example).</item>
         /// </list>
         /// A shape that satisfies none of those is rejected with an actionable schema error rather than
         /// a raw reflection exception.
+        /// <para>
+        /// <b>Nothing the policy refuses reaches the wrapping fallback.</b> The refused shapes
+        /// (<c>ReadOnlyCollection&lt;T&gt;</c> / <c>ReadOnlyDictionary&lt;K,V&gt;</c> and their subclasses,
+        /// and every <c>List&lt;T&gt;</c> / <c>Dictionary&lt;TKey,TValue&gt;</c> subclass) used to be built
+        /// here by wrapping a fresh <c>List&lt;T&gt;</c>/<c>Dictionary&lt;K,V&gt;</c>, and that is exactly
+        /// where the worst of the three failures came from: the wrapper is constructed from the
+        /// <em>empty</em> backing collection before a single element is added to it, so a wrapping
+        /// constructor that copies — which is what a <c>List&lt;T&gt;</c> subclass with no parameterless
+        /// constructor has — ends up holding nothing. The load succeeded and the data was gone. They are
+        /// already refused by the shape classifier every caller classifies with, and the check at the top
+        /// of this method makes that guarantee local rather than a property of each caller: no code path
+        /// here can end up quietly returning an empty collection for a refused shape.
+        /// </para>
         /// </summary>
         public CollectionFill CreateCollection(Type? collectionType, Type? backingDefinition, Type[]? backingArgs,
             object? existingObject, string clearMethodName, string kind)
         {
             if (collectionType == null)
                 throw new ArgumentNullException(nameof(collectionType));
+
+            // The belt to the callers' braces: a refused shape is named here, in the one method that builds
+            // collection instances, instead of depending on every caller having classified it first.
+            if (UnsupportedCollectionPolicy.IsUnsupported(collectionType))
+                throw UnsupportedCollectionPolicy.Reject(collectionType, "a save being migrated");
 
             if (existingObject != null && IsExactType(existingObject, collectionType))
             {
@@ -300,14 +317,13 @@ namespace Ceras.Format
                 $"Ceras cannot construct the {kind} collection type '{TypeIdentity.GetCanonicalName(collectionType)}' while migrating a save: it has " +
                 $"no public parameterless constructor and no constructor that accepts a {backingType?.Name ?? "matching built-in collection"}, " +
                 $"and it exposes no usable '{clearMethodName}' to refill. Give the type a public parameterless constructor (or a wrapping " +
-                "constructor Ceras can use), declare a custom formatter for it, or load the save with the build that wrote it.");
+                "constructor Ceras can use), or load the save with the build that wrote it.");
         }
 
         /// <summary>
         /// Finds the public single-argument constructor through which <paramref name="collectionType"/>
-        /// can be built from the built-in collection <paramref name="backingType"/> (as
-        /// <c>ReadOnlyCollection&lt;T&gt;</c> wraps an <c>IList&lt;T&gt;</c>, and
-        /// <c>ReadOnlyDictionary&lt;K,V&gt;</c> an <c>IDictionary&lt;K,V&gt;</c>).
+        /// can be built from the built-in collection <paramref name="backingType"/> — for instance a
+        /// subclass of a built-in collection whose only constructor takes the elements to copy.
         /// </summary>
         static ConstructorInfo? FindWrappingConstructor(Type collectionType, Type backingType)
         {

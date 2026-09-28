@@ -246,12 +246,18 @@ namespace Ceras
                 }
             }
 
-            // ReadOnlyCollection<T> is deliberately NOT handled here: it has no public parameterless
-            // constructor and no Add, so it used to be dumped field-by-field through the reflection
-            // fallback. That payload is not the List<T> payload the robust schema records for a collection
-            // shape, so such a file could not be read back by the migration interpreter. It now has a
-            // dedicated formatter (ReadOnlyCollectionFormatter) that writes the schema-described payload
-            // and rebuilds the instance by wrapping a List<T>.
+            // ReadOnlyCollection<T> is deliberately NOT handled here, and it is no longer *serializable*
+            // either. The history: it has no public parameterless constructor and no Add, so the
+            // reflection fallback dumped it field-by-field — a payload the robust schema does not
+            // describe, so such a file could not be read back. A dedicated formatter then fixed the
+            // bytes and made the base type round-trip, but it was typed for the base
+            // IFormatter<ReadOnlyCollection<T>>, so a *subclass* could not be serialized at all: the
+            // reference wrapper could not bind a serializer for the derived type and Save failed with a
+            // bare ArgumentNullException("method"). The owner has since decided the whole family is out of
+            // scope (Format/UnsupportedCollectionPolicy: ReadOnlyCollection<T> /
+            // ReadOnlyDictionary<K,V> and their subclasses, plus every List<T>/Dictionary<K,V> subclass),
+            // so there is no formatter to install here and the refusal is reported from the layers that
+            // own each position instead.
         }
 
         static void ForceSerialization(TypeConfig typeConfig)

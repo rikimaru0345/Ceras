@@ -147,6 +147,16 @@ namespace Ceras.Formatters
                 proxy.Type = type;
                 if (_isSealed) ThrowSealed(type, false);
             }
+
+            // The mirror of the refusal Serialize makes above, so a value Ceras will not write is also
+            // one it does not quietly hand back: a round trip that returned a type the writer refused
+            // would leave the caller holding a collection shape the library cannot serialize in any
+            // other position. The whole reference has already been consumed either way, so the stream
+            // stays aligned for whatever follows.
+            if (Ceras.Format.UnsupportedCollectionPolicy.IsUnsupported(type))
+                throw new BannedTypeException(
+                    $"A type reference in the payload resolves to the collection type '{type.FriendlyName(true)}', which Ceras does not " +
+                    $"support, and it is not reported as {nameof(Type)}'s null. {Ceras.Format.UnsupportedCollectionPolicy.BanReason}");
         }
 
         static void ThrowSealed(Type type, bool serializing) => throw new InvalidOperationException("Registry sealed");

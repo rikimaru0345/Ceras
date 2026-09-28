@@ -5,7 +5,6 @@
     using System;
     using System.Collections;
     using System.Collections.Generic;
-    using System.Collections.ObjectModel;
     using System.Linq;
 
     /// <summary>
@@ -74,7 +73,7 @@
 
 
             //
-            // Special collection? (Stack, Queue, ReadOnlyCollection, ReadOnlyDictionary)
+            // Special collection? (Stack, Queue)
             //
             // The dedicated Queue/Stack formatters construct the built-in type directly, so they are only
             // valid for the exact built-in type. A subclass (e.g. MyQueue : Queue<T>) is handled by the
@@ -98,29 +97,20 @@
                 return formatter;
             }
 
-            // ReadOnlyCollection<T> has no public parameterless constructor and no Add, so the general
-            // CollectionFormatter cannot construct or refill it. Its dedicated formatter writes the same
-            // List<T> payload (count + elements) through a proxy List<T>, which is what the robust schema
-            // records for a collection shape.
-            var closedROC = ReflectionHelper.FindClosedType(type, typeof(ReadOnlyCollection<>));
-            if (closedROC != null)
-            {
-                var formatterType = typeof(ReadOnlyCollectionFormatter<>).MakeGenericType(closedROC.GetGenericArguments());
-                formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType);
-                _formatterInstances[type] = formatter;
-                return formatter;
-            }
-
-            // Same for ReadOnlyDictionary<K,V>: written as a Dictionary<K,V> payload, rebuilt by wrapping.
-            var closedRD = ReflectionHelper.FindClosedType(type, typeof(System.Collections.ObjectModel.ReadOnlyDictionary<,>));
-            if (closedRD != null)
-            {
-                var formatterType = typeof(ReadOnlyDictionaryFormatter<,>).MakeGenericType(closedRD.GetGenericArguments());
-                formatter = (IFormatter)Ceras.Helpers.Instantiator.Create(formatterType);
-                _formatterInstances[type] = formatter;
-                return formatter;
-            }
-
+            // The collection shapes the owner has decided Ceras does not support — ReadOnlyCollection<T> /
+            // ReadOnlyDictionary<K,V> (the built-in types and every subclass) and every List<T> /
+            // Dictionary<K,V> subclass — get no formatter here, and none anywhere else either.
+            //
+            // This is the one place the raw/transient serializer resolves *every* collection, whatever
+            // position the type is reached through: a root value, a declared member, a value behind an
+            // object slot, or the type a payload names while it is being read. Refusing here is therefore
+            // what makes the refusal hold on the read side too, which the per-position checks cannot (a
+            // value arriving in a slot is checked on the way *in*, by name, not on the way out). The
+            // predicate matches a *derived* type only, so the exact built-in List<T>/Dictionary<TKey,TValue>
+            // keeps the CollectionFormatter below, and the message is the one sentence the policy states
+            // so this path and the banned-type paths cannot describe the same refusal two ways.
+            if (Ceras.Format.UnsupportedCollectionPolicy.IsUnsupported(type))
+                throw new BannedTypeException(Ceras.Format.UnsupportedCollectionPolicy.Describe(type, "a Ceras serializer"));
 
             //
             // Collection?

@@ -73,6 +73,36 @@ namespace Ceras.SourceGenerator
                             continue;
                         }
 
+                        // A collection shape the project owner has decided Ceras does not support:
+                        // ReadOnlyCollection<T>/ReadOnlyDictionary<TKey,TValue> (the built-in types and every
+                        // subclass) and every List<T>/Dictionary<TKey,TValue> subclass. These are not
+                        // describable-and-then-mishandled; they are three different failures, one of them
+                        // silent - a List/Dictionary subclass with a copying constructor comes back empty
+                        // from a migration, a ReadOnlyCollection<T> subclass cannot be written at all, and
+                        // the base ReadOnlyCollection<T> cannot be told apart from the subclass. Reporting
+                        // it here is the point: dropping the member used to be the only outcome, so the
+                        // build succeeded and the value was gone. The member is still left out (the build
+                        // fails either way, and emitting code for a member that cannot be written would
+                        // only produce a second, worse error), and the type the member *reaches* is what
+                        // is named, so a nested List<ReadOnlyCollection<int>> or
+                        // ReadOnlyCollection<int>[] is reported for the argument that is actually refused
+                        // rather than for the wrapper around it.
+                        var refusedCollection = FindUnsupportedCollectionType(field.Type);
+                        if (refusedCollection != null)
+                        {
+                            string refusedMemberName = associatedProp?.Name ?? field.Name;
+                            string refusedTypeName = field.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            string refusedDeclaringTypeName = type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            string refusedName = refusedCollection.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+                            var refusedLocation = (associatedProp?.Locations.FirstOrDefault() ?? field.Locations.FirstOrDefault());
+                            ReportMemberDiagnostic(diagnosticSink, Diagnostic.Create(
+                                Diag.UnsupportedCollectionShapeMember,
+                                refusedLocation,
+                                refusedMemberName, refusedDeclaringTypeName,
+                                refusedName == refusedTypeName ? refusedName : $"{refusedTypeName} (reaching '{refusedName}')"));
+                            continue;
+                        }
+
                         // Hard-banned types (delegates, enumerators, reflection) can never round-trip.
                         // Skipping the member used to be the only outcome: the payload simply did not
                         // contain it, so the save succeeded and the loaded value came back null with

@@ -121,12 +121,39 @@ namespace Ceras.Format
         }
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref Type value)
+            => value = DeserializeAndCheck(ref reader, ref value);
+
+        /// <summary>
+        /// Rebuilds the type a payload names, and refuses one that
+        /// <see cref="UnsupportedCollectionPolicy"/> does not support.
+        /// <para>
+        /// <c>Serialize</c> refuses the same values by name (through <see cref="BannedTypes"/>), so this is
+        /// the mirror rather than a new rule: a save must not be the one way a collection shape the writer
+        /// would refuse can still be produced. A file whose layout fingerprint matches comes from a build
+        /// that passed the same check, so in practice this fires only for a hand-built payload or a schema
+        /// a caller forged — which is exactly where a silent hand-back would be least welcome. Every path
+        /// has consumed its bytes by the time the check runs, so the stream stays aligned.
+        /// </para>
+        /// </summary>
+        Type DeserializeAndCheck(ref SequenceReader<byte> reader, ref Type value)
+        {
+            value = DeserializeCore(ref reader, out value);
+            RejectRefused(value);
+            return value;
+        }
+
+        /// <summary>
+        /// The grammar itself. <paramref name="value"/> is the recursion's out parameter (a ref struct
+        /// cannot be a <c>ref</c> out argument here, and the nested calls need somewhere to put their
+        /// result), so every return path assigns it before returning.
+        /// </summary>
+        Type DeserializeCore(ref SequenceReader<byte> reader, out Type value)
         {
             uint id = SchemaSection.ReadLeb128(ref reader);
             if (id == WellKnownTypes.Null)
             {
                 value = null!;
-                return;
+                return value;
             }
 
             if (id == FullNameMarker)
@@ -135,7 +162,7 @@ namespace Ceras.Format
                 if (table == null) throw new InvalidOperationException("RobustContext not active");
                 string typeName = StringTable.ReadString(ref reader, table);
                 value = _typeBinder.GetTypeFromBase(typeName);
-                return;
+                return value;
             }
 
             if (id == (uint)WellKnownTypes.Array)
@@ -144,7 +171,7 @@ namespace Ceras.Format
                 Deserialize(ref reader, ref elementType);
                 if (elementType == null) throw new Ceras.Exceptions.CerasException("Failed to deserialize element type for array");
                 value = elementType.MakeArrayType();
-                return;
+                return value;
             }
 
             if (WellKnownTypes.TryGetType((int)id, out value))
@@ -162,17 +189,29 @@ namespace Ceras.Format
                     }
                     value = value.MakeGenericType(args);
                 }
-                return;
+                return value;
             }
 
             var idToType = RobustContext.IdToType;
-            if (idToType != null)
-            {
-                if (idToType.TryGetValue((int)id, out value))
-                    return;
-            }
+            if (idToType != null && idToType.TryGetValue((int)id, out value))
+                return value;
 
             value = null!;
+            return value;
+        }
+
+        /// <summary>
+        /// Refuses a type value the policy refuses, by the same wording <c>Serialize</c> uses. A null
+        /// reference is a value the user has, not a refusal, so it passes.
+        /// </summary>
+        void RejectRefused(Type? value)
+        {
+            if (!UnsupportedCollectionPolicy.IsUnsupported(value)) return;
+
+            throw new Formatters.BannedTypeException(
+                $"A type value in the save names the collection type '{TypeIdentity.GetCanonicalName(value!)}', which Ceras cannot " +
+                $"serialize, and it will not be handed back as {nameof(Type)}'s null: a null here silently changes what the value means. " +
+                UnsupportedCollectionPolicy.BanReason);
         }
     }
 }

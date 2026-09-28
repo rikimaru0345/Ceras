@@ -441,6 +441,94 @@ namespace Ceras.SourceGenerator {
 			=> IsSystemNamespaceType(type, attrs) && !IsDescribableBuiltinShape(type);
 
 		/// <summary>
+		/// The collection shapes the project owner has decided Ceras does not support, by symbol
+		/// (the generator-side mirror of <c>Ceras.Format.UnsupportedCollectionPolicy</c>, which is the
+		/// runtime's single answer).
+		/// <para>
+		/// The rule is base-<em>type identity</em>, never a name and never a namespace, and it is not a
+		/// blanket inheritance ban: the exact <c>List&lt;T&gt;</c> and
+		/// <c>Dictionary&lt;TKey,TValue&gt;</c> are supported shapes and only a <em>derived</em> type is
+		/// refused. <c>ReadOnlyCollection&lt;T&gt;</c> and <c>ReadOnlyDictionary&lt;K,V&gt;</c> are refused
+		/// wherever a value would have to be produced, the built-in type included.
+		/// </para>
+		/// <para>
+		/// An interface is never refused, and that is deliberate rather than incidental. The
+		/// <c>IReadOnly*</c> interfaces are ordinary API signatures (a property returning
+		/// <c>IReadOnlyList&lt;T&gt;</c>, a method taking an <c>IReadOnlyDictionary&lt;K,V&gt;</c>) and are not
+		/// collection shapes at all: the runtime classifier resolves a shape from a <em>class</em>'s closed
+		/// <c>ICollection&lt;T&gt;</c>/<c>IDictionary&lt;K,V&gt;</c> or its <c>HashSet&lt;&gt;</c>/<c>Queue&lt;&gt;</c>/
+		/// <c>Stack&lt;&gt;</c> base, and <c>IsCollectionFormatterShape</c> rejects interfaces outright. A
+		/// name-shaped test would reject hundreds of ordinary declarations that never reach a formatter.
+		/// </para>
+		/// </summary>
+		public static bool IsUnsupportedCollectionType(ITypeSymbol type) {
+			if (type is not INamedTypeSymbol named) return false;
+			if (type.TypeKind == TypeKind.Interface) return false;   // IReadOnly*/ICollection<>/IList<> are API, not shapes
+			if (named.IsUnboundGenericType) return false;           // an open `List<>` names no element type at all
+
+			for (var t = named; t != null; t = t.BaseType) {
+				if (!t.IsGenericType) continue;
+				string id = GetDefinitionId(t.OriginalDefinition);
+
+				if (id == "System.Collections.ObjectModel.ReadOnlyCollection`1"
+					|| id == "System.Collections.ObjectModel.ReadOnlyDictionary`2")
+					return true;
+
+				// `t != named` is what says "derived", which is the whole difference between the supported
+				// built-in type and a refused subclass of it.
+				if (!SymbolEqualityComparer.Default.Equals(t, named)
+					&& (id == "System.Collections.Generic.List`1"
+						|| id == "System.Collections.Generic.Dictionary`2"))
+					return true;
+			}
+
+			return false;
+		}
+
+		/// <summary>
+		/// The first type reachable from <paramref name="type"/> through the shapes the format describes
+		/// structurally — an array element, a pointer target, and the argument types of a built-in
+		/// collection, <c>KeyValuePair</c>, <c>Nullable</c> or a tuple — that
+		/// <see cref="IsUnsupportedCollectionType"/> rejects, or null when every one of them is supported.
+		/// <para>
+		/// The structural shapes are exactly the ones the bake expands into further type ids, so a refused
+		/// type hidden inside one (<c>List&lt;ReadOnlyCollection&lt;int&gt;&gt;</c>,
+		/// <c>ReadOnlyCollection&lt;int&gt;[]</c>) is found here rather than only at the bake — and found
+		/// much earlier: the member is dropped and the build fails with the type named, instead of a
+		/// context that only refuses on its first <c>Save</c>.
+		/// </para>
+		/// <para>
+		/// A user type is never descended into, for the same reason
+		/// <see cref="FindUnsupportedFrameworkType"/> does not: it gets a generated schema whose own fields
+		/// are checked when that type's own members are walked, so this terminates and reports nothing twice.
+		/// </para>
+		/// </summary>
+		public static ITypeSymbol? FindUnsupportedCollectionType(ITypeSymbol type) {
+			if (IsUnsupportedCollectionType(type)) return type;
+
+			switch (type) {
+				case IArrayTypeSymbol array:
+					return FindUnsupportedCollectionType(array.ElementType);
+
+				case IPointerTypeSymbol pointer:
+					return FindUnsupportedCollectionType(pointer.PointedAtType);
+
+				case INamedTypeSymbol named when named.IsGenericType && !named.IsUnboundGenericType: {
+					string openId = GetDefinitionId(named.OriginalDefinition);
+					if (!BuiltInGenericDefinitions.Contains(openId) && !IsTupleDefinition(openId)) return null;
+					foreach (var argument in named.TypeArguments) {
+						var offending = FindUnsupportedCollectionType(argument);
+						if (offending != null) return offending;
+					}
+					return null;
+				}
+
+				default:
+					return null;
+			}
+		}
+
+		/// <summary>
 		/// The first type reachable from <paramref name="type"/> through the shapes the format describes
 		/// structurally — an array element, a pointer target, and the argument types of a built-in
 		/// collection, <c>KeyValuePair</c>, <c>Nullable</c> or a tuple — that

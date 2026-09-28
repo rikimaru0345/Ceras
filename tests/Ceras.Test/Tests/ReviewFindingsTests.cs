@@ -2,15 +2,23 @@
 // REVIEW FINDINGS — these tests document defects found while reviewing the
 // P0 0.5.x (built-in shapes) and P0 0.6.7 (producer build timestamp) work.
 //
-// THEY ARE EXPECTED TO FAIL until the corresponding defect is fixed. Nothing in
-// this file is an oversight: each [Fact] states the contract the code is
-// supposed to honour, not the behaviour it happens to have today. Run only
-// these with:
+// Each [Fact] states the contract the code is supposed to honour, and the file is
+// kept as the record of which findings are now closed. Run only these with:
 //
 //     dotnet test tests/Ceras.Test -f net10.0 --filter "FullyQualifiedName~ReviewFindings"
 //
 // The "Regression pins" region at the bottom of the file is the opposite: those
 // tests pass today and exist to keep already-agreed contracts from drifting.
+//
+// Two of the findings here were closed by the collection policy
+// (Format/UnsupportedCollectionPolicy) rather than by teaching Ceras to construct
+// the shapes: a `ReadOnlyCollection<T>` / `ReadOnlyDictionary<K,V>` — or any
+// `List<T>` / `Dictionary<K,V>` subclass — is now refused by name at every layer,
+// so the member tests assert the refusal rather than a round trip, and the
+// byte-level pins for those two shapes are gone with the payload they described.
+// The subclass vehicle for the pre-0.5 finding moved from a `List<T>` to a
+// `HashSet<T>` subclass, which the policy keeps, so the finding it documents is
+// unchanged.
 //
 // Every context is isolated on purpose: a shape that is rejected at bake time
 // poisons the whole context it is registered in, so no unsupported shape shares
@@ -23,9 +31,11 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Reflection;
 using Xunit;
 using Ceras;
 using Ceras.Exceptions;
+using Ceras.Formatters;
 using Ceras.Format;
 using Ceras.Generated;
 
@@ -51,14 +61,19 @@ namespace Ceras.Test.ReviewFindings
         public int After;
     }
 
-    // ── Context: collections the built-in collection formatter can write but the
-    //        migration interpreter cannot construct (no public parameterless ctor) ──────
+    // ── Context: collections the built-in collection formatter can write but the owner has since
+    //        ruled out (Format/UnsupportedCollectionPolicy) ───────────────────────────────
+    //
+    // The members are `object` rather than `ReadOnlyCollection<int>` / `ReadOnlyDictionary<,>` on
+    // purpose: a member *declared* as one of those is now a compile error (CERAS033), so this
+    // compilation cannot name one. An `object` slot is the position that still reaches the shape at
+    // runtime, and it is the position a legacy save reaches it through as well.
 
     [CerasContext("RfNoCtorCollection")]
     [CerasSerializable]
     public class RfReadOnlyCollectionHolder
     {
-        public ReadOnlyCollection<int> Items;
+        public object Items;
         public int After;
     }
 
@@ -66,9 +81,15 @@ namespace Ceras.Test.ReviewFindings
     [CerasSerializable]
     public class RfReadOnlyDictionaryHolder
     {
-        public ReadOnlyDictionary<string, int> Items;
+        public object Items;
         public int After;
     }
+
+    // The subclass half of the policy, used through the object slot above so this compilation never has to
+    // *declare* a member of a refused type (that is CERAS033, and a compile error by design).
+    public class RfListSubclass : List<int> { }
+
+    public class RfDictionarySubclass : Dictionary<string, int> { }
 
     // ── Context: the two scalars newly declared as supported fixed-width shapes ────────
 
@@ -79,8 +100,11 @@ namespace Ceras.Test.ReviewFindings
         public int Value;
     }
 
-    public class RfPre05List : List<int> { }
+    public class RfPre05List : HashSet<int> { }
 
+    // The subclass vehicle above used to be a List<T> subclass, which the collection policy now refuses.
+    // HashSet<T> is the closest shape the policy keeps, so the finding this file documents is still
+    // about the same thing: a collection described by a pre-structural build as an empty class.
     [CerasContext("RfHeader")]
     [CerasSerializable]
     public class RfPre05Holder
@@ -190,18 +214,28 @@ namespace Ceras.Test.ReviewFindings
             Assert.Equal(7, slow.After);
         }
 
-        // ── Finding: a collection with no public parameterless constructor is admitted, then
-        //        fails on the migration path with a raw reflection exception ──────────────
+        // ── Finding: a collection with no public parameterless constructor was admitted ──────
         //
-        // TryResolveCollectionShape describes these as List<>/Dictionary<> payloads (which is
-        // accurate) and the matching-layout path reads them fine, so the shape is supported.
-        // ReadList/ReadDictionary then call Activator.CreateInstance(targetType) and surface
-        // MissingMethodException. Either the interpreter must construct them (for example by
-        // building the backing List/Dictionary and wrapping it), or the bake must reject the
-        // shape with an actionable Ceras error. Both outcomes satisfy this test; a raw
-        // MissingMethodException from deep inside the decoder does not.
+        // TryResolveCollectionShape described these as List<>/Dictionary<> payloads (which is accurate),
+        // so the shape looked supported, and the three members of the family then failed three different
+        // ways. Verified by execution against the pre-policy code:
+        //   * a List/Dictionary subclass with only a copying constructor came back from the interpreter
+        //     holding ZERO elements, following members aligned, no error anywhere (the wrap-and-copy
+        //     fallback constructs the wrapper from the still-empty backing collection);
+        //   * a ReadOnlyCollection<T> subclass reconstructed correctly, but could not be written at all:
+        //     the dedicated formatter was typed for the base type, so the reference wrapper could not bind
+        //     a serializer for the derived one and Save surfaced a bare ArgumentNullException("method");
+        //   * the base ReadOnlyCollection<T> itself round-tripped fine, including a self-cycle, and is
+        //     refused only because it cannot be told apart from the subclass it resolves to.
+        //
+        // Either the interpreter must construct them, or Ceras must refuse the shape with an actionable
+        // error. The owner decided: refuse (Format/UnsupportedCollectionPolicy), which is what these tests
+        // pin — the refusal happens at the *first* Save, so no byte is written and neither reader is ever
+        // reached, and it is the same typed error for both wrappers and for every
+        // List<>/Dictionary<,> subclass. The legacy-file half (a save that already names one) is pinned in
+        // CollectionShapeRejectionTests, and the raw/transient half in UnsupportedCollectionPolicyTests.
         [Fact]
-        public void ReadOnlyCollection_Member_Does_Not_Surface_A_Raw_Reflection_Exception_When_Migrating()
+        public void ReadOnlyCollection_Value_Is_Refused_By_Name_On_Save()
         {
             var s = New("RfNoCtorCollection");
             var original = new RfReadOnlyCollectionHolder
@@ -210,27 +244,18 @@ namespace Ceras.Test.ReviewFindings
                 After = 5,
             };
 
-            // Precondition: the shape is supported on the matching-layout path.
-            var bytes = s.Save(original, 1);
-            var fast = s.Load<RfReadOnlyCollectionHolder>(bytes, 1);
-            Assert.Equal(5, fast.After);
-            Assert.Equal(new[] { 1, 7 }, fast.Items);
+            var banned = AssertBanned(() => s.Save(original, 1));
 
-            var ex = Record.Exception(() => s.Load<RfReadOnlyCollectionHolder>(SlowPath(bytes), 1));
-            if (ex != null)
-            {
-                Assert.IsAssignableFrom<CerasException>(ex);
-            }
-            else
-            {
-                var slow = s.Load<RfReadOnlyCollectionHolder>(SlowPath(bytes), 1);
-                Assert.Equal(5, slow.After);
-                Assert.Equal(new[] { 1, 7 }, slow.Items);
-            }
+            // What, where, and what to use instead — and never a raw reflection failure, which is the whole
+            // point of refusing rather than admitting the shape.
+            Assert.Contains("ReadOnlyCollection", banned.Message, StringComparison.Ordinal);
+            Assert.Contains(nameof(Object), banned.Message, StringComparison.Ordinal);
+            Assert.Contains("List<T>", banned.Message, StringComparison.Ordinal);
+            AssertNoReflectionFailure(banned);
         }
 
         [Fact]
-        public void ReadOnlyDictionary_Member_Does_Not_Surface_A_Raw_Reflection_Exception_When_Migrating()
+        public void ReadOnlyDictionary_Value_Is_Refused_By_Name_On_Save()
         {
             var s = New("RfNoCtorCollection");
             var original = new RfReadOnlyDictionaryHolder
@@ -239,21 +264,69 @@ namespace Ceras.Test.ReviewFindings
                 After = 6,
             };
 
-            var bytes = s.Save(original, 1);
-            var fast = s.Load<RfReadOnlyDictionaryHolder>(bytes, 1);
-            Assert.Equal(6, fast.After);
-            Assert.Equal(2, fast.Items.Count);
+            var banned = AssertBanned(() => s.Save(original, 1));
 
-            var ex = Record.Exception(() => s.Load<RfReadOnlyDictionaryHolder>(SlowPath(bytes), 1));
-            if (ex != null)
+            Assert.Contains("ReadOnlyDictionary", banned.Message, StringComparison.Ordinal);
+            Assert.Contains(nameof(Object), banned.Message, StringComparison.Ordinal);
+            Assert.Contains("Dictionary<TKey,TValue>", banned.Message, StringComparison.Ordinal);
+            AssertNoReflectionFailure(banned);
+        }
+
+        [Fact]
+        public void A_List_Or_Dictionary_Subclass_Is_Refused_By_Name_Too()
+        {
+            // The same policy covers the subclass families.
+            var collection = AssertBanned(() => New("RfNoCtorCollection").Save(
+                new RfReadOnlyCollectionHolder { Items = new RfListSubclass { 4, 5 }, After = 5 }, 1));
+            Assert.Contains("subclass of List<T>", collection.Message, StringComparison.Ordinal);
+            AssertNoReflectionFailure(collection);
+
+            var dictionary = AssertBanned(() => New("RfNoCtorCollection").Save(
+                new RfReadOnlyDictionaryHolder { Items = new RfDictionarySubclass { ["a"] = 1 }, After = 6 }, 1));
+            Assert.Contains("subclass of Dictionary<TKey,TValue>", dictionary.Message, StringComparison.Ordinal);
+            AssertNoReflectionFailure(dictionary);
+        }
+
+        /// <summary>
+        /// The control for the refusal above, through the identical slot: the exact built-in
+        /// <c>List&lt;T&gt;</c> and <c>Dictionary&lt;TKey,TValue&gt;</c> are shapes the policy keeps, so a
+        /// refusal here cannot be "an object slot is refused" or "no collection is refused".
+        /// </summary>
+        [Fact]
+        public void The_Exact_BuiltIn_Collections_Still_Round_Trip_Through_The_Same_Slot()
+        {
+            foreach (object value in new object[]
             {
-                Assert.IsAssignableFrom<CerasException>(ex);
+                new List<int> { 9, 8 },
+                new Dictionary<string, int> { ["a"] = 1 },
+                new HashSet<int> { 7 },
+            })
+            {
+                var s = New("RfNoCtorCollection");
+                var bytes = s.Save(new RfReadOnlyCollectionHolder { Items = value, After = 5 }, 1);
+
+                foreach (var clone in new[] { s.Load<RfReadOnlyCollectionHolder>(bytes, 1), s.Load<RfReadOnlyCollectionHolder>(SlowPath(bytes), 1) })
+                {
+                    Assert.Equal(value.GetType(), clone.Items.GetType());
+                    Assert.Equal(5, clone.After);
+                }
             }
-            else
+        }
+
+        /// <summary>
+        /// A null in the same slot is a value the user has, not a refused one, and stays a legal null on
+        /// both readers. Neither can be satisfied by refusing the slot.
+        /// </summary>
+        [Fact]
+        public void An_Explicit_Null_Still_Round_Trips()
+        {
+            var s = New("RfNoCtorCollection");
+            var bytes = s.Save(new RfReadOnlyCollectionHolder { Items = null, After = 5 }, 1);
+
+            foreach (var clone in new[] { s.Load<RfReadOnlyCollectionHolder>(bytes, 1), s.Load<RfReadOnlyCollectionHolder>(SlowPath(bytes), 1) })
             {
-                var slow = s.Load<RfReadOnlyDictionaryHolder>(SlowPath(bytes), 1);
-                Assert.Equal(6, slow.After);
-                Assert.Equal(2, slow.Items.Count);
+                Assert.Null(clone.Items);
+                Assert.Equal(5, clone.After);
             }
         }
 
@@ -393,81 +466,18 @@ namespace Ceras.Test.ReviewFindings
             Assert.Contains("desynchronize", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
 
-        // The two shapes whose schema says "a List<>/Dictionary<,> payload" but whose writers did not
-        // write one: ReadOnlyCollection<T> was dumped field-by-field through the reflection fallback
-        // (its private items/count fields) and ReadOnlyDictionary<K,V> wrote an unbiased count plus whole
-        // KeyValuePair values. Both now write the payload their schema describes, which is what makes the
-        // migration path able to read them at all; these pins fix those bytes.
-        [Fact]
-        public void ReadOnlyCollection_Writes_The_List_Payload_Its_Schema_Describes()
-        {
-            var s = New("RfNoCtorCollection");
-            var bytes = s.Save(new RfReadOnlyCollectionHolder
-            {
-                Items = new ReadOnlyCollection<int>(new List<int> { 1, 7 }),
-                After = 5,
-            }, 1);
-
-            var payload = PayloadOf(bytes);
-            int offset = SkipRootIdAndMarker(payload);
-
-            // reference marker (bias 5 + RefNewValueSameType) then the element count with bias 1
-            Assert.Equal(5 + Protocol.RefNewValueSameType, payload[offset++]);
-            Assert.Equal(3, payload[offset++]);                 // varint(count + bias) for 2 elements
-            Assert.Equal(1, BitConverter.ToInt32(payload, offset));
-            Assert.Equal(7, BitConverter.ToInt32(payload, offset + 4));
-            Assert.Equal(5, BitConverter.ToInt32(payload, offset + 8)); // the following member
-            Assert.Equal(17, payload.Length);
-
-            // The instance itself is still rebuilt as a real ReadOnlyCollection wrapping a List<int>.
-            var loaded = s.Load<RfReadOnlyCollectionHolder>(SlowPath(bytes), 1);
-            Assert.IsType<ReadOnlyCollection<int>>(loaded.Items);
-            Assert.Equal(new[] { 1, 7 }, loaded.Items);
-            Assert.Equal(5, loaded.After);
-        }
-
-        [Fact]
-        public void ReadOnlyDictionary_Writes_The_Dictionary_Payload_Its_Schema_Describes()
-        {
-            var s = New("RfNoCtorCollection");
-            var bytes = s.Save(new RfReadOnlyDictionaryHolder
-            {
-                Items = new ReadOnlyDictionary<string, int>(new Dictionary<string, int> { ["a"] = 1, ["b"] = 2 }),
-                After = 6,
-            }, 1);
-
-            var payload = PayloadOf(bytes);
-            int offset = SkipRootIdAndMarker(payload);
-            Assert.Equal(5 + Protocol.RefNewValueSameType, payload[offset++]);
-            Assert.Equal(3, payload[offset++]); // varint(count + bias) for 2 entries
-
-            // Two entries, each a 4-byte string-table index then the int value, then the following member.
-            Assert.Equal(1, BitConverter.ToInt32(payload, offset + 4));
-            Assert.Equal(2, BitConverter.ToInt32(payload, offset + 12));
-            Assert.Equal(6, BitConverter.ToInt32(payload, offset + 16));
-
-            var loaded = s.Load<RfReadOnlyDictionaryHolder>(SlowPath(bytes), 1);
-            Assert.IsType<ReadOnlyDictionary<string, int>>(loaded.Items);
-            Assert.Equal(2, loaded.Items.Count);
-            Assert.Equal(1, loaded.Items["a"]);
-            Assert.Equal(2, loaded.Items["b"]);
-            Assert.Equal(6, loaded.After);
-        }
-
-        static byte[] PayloadOf(byte[] bytes)
-        {
-            RobustHeader.Read(bytes, out _, out _, out _, out long dataSectionOffset,
-                out long stringTableOffset, out _);
-            return new ReadOnlySpan<byte>(bytes, (int)dataSectionOffset, (int)(stringTableOffset - dataSectionOffset)).ToArray();
-        }
-
-        /// <summary>Skips the root type id and the root's reference marker, returning the offset after them.</summary>
-        static int SkipRootIdAndMarker(byte[] payload)
-        {
-            int offset = 0;
-            SchemaSection.ReadLeb128(payload, ref offset);
-            return offset + 1;
-        }
+        // The two shapes whose schema used to say "a List<>/Dictionary<,> payload" while their writers
+        // wrote something else (ReadOnlyCollection<T> was dumped field-by-field through the reflection
+        // fallback, and ReadOnlyDictionary<K,V> wrote an unbiased count plus whole KeyValuePair values)
+        // were given a dedicated formatter that fixed the bytes, and the pins below used to fix them
+        // byte for byte.
+        //
+        // Both pins are gone, deliberately. The owner has since decided the whole family is out of scope
+        // (Format/UnsupportedCollectionPolicy), so there is no payload to pin: the shape is refused at the
+        // first Save, long before a byte is written. Keeping a byte-level pin for a shape that is refused
+        // would document a representation no Ceras build can produce, and the round-trip pins this file
+        // now carries — the refusal tests above, plus `CollectionShapeRejectionTests` for a legacy file
+        // that still names these types — are what the contract actually is.
 
         // ── Finding: a serializer built from a config does not learn its owning assembly ──
         //
@@ -556,6 +566,39 @@ namespace Ceras.Test.ReviewFindings
         // ── Helpers ───────────────────────────────────────────────────────────────────
 
         static CerasRobustSerializer New(string context) => new CerasRobustSerializer(c => c.UseGeneratedFormatters(context));
+
+        /// <summary>
+        /// Runs <paramref name="action"/> and returns the <see cref="BannedTypeException"/> it must fail
+        /// with, or fails the test. The search walks the whole chain, because Ceras adds context on top of
+        /// the diagnosis: a member error is wrapped with the member and the type it belongs to, and a
+        /// formatter is often constructed through reflection, which wraps whatever its constructor threw.
+        /// The diagnosis the user acts on is the innermost one either way.
+        /// </summary>
+        static BannedTypeException AssertBanned(Action action)
+        {
+            Exception ex = Assert.ThrowsAny<Exception>(action);
+
+            for (var current = ex; current != null; current = current.InnerException)
+                if (current is BannedTypeException match) return match;
+
+            Assert.Fail($"Expected a BannedTypeException, but got: {ex}");
+            return null!;
+        }
+
+        /// <summary>
+        /// The whole point of refusing these shapes rather than admitting them: the failure has to be a
+        /// diagnosis, never the bare reflection exception the old code surfaced.
+        /// </summary>
+        static void AssertNoReflectionFailure(Exception ex)
+        {
+            for (var current = ex; current != null; current = current.InnerException)
+            {
+                Assert.IsNotType<MissingMethodException>(current);
+                Assert.IsNotType<ArgumentNullException>(current);
+                Assert.IsNotType<TargetInvocationException>(current);
+                Assert.IsNotType<InvalidCastException>(current);
+            }
+        }
 
         /// <summary>Byte offset of the root value (just past the leading root type id).</summary>
         static int PayloadStart(byte[] bytes)
