@@ -159,8 +159,10 @@ already present but need expansion for the cases below.
 
 Only after correctness and runnable baselines; no changed bytes or reuse semantics.
 
-- Eliminate robust Save's intermediate payload/copies where possible and offer
-  caller-owned buffers; measure integrity and string-table costs separately.
+- Robust Save writes its payload straight into the output buffer; the intermediate
+  scratch writer and its copy are gone. Still open: offer caller-owned buffers so the
+  final trim copy can be avoided too, and measure integrity and string-table costs
+  separately.
 - Add typed common-collection formatters, avoiding reflected construction and
   interface enumeration. Bulk-copy `byte[]` and suitable fixed-width primitive
   collections only where differential tests prove CLR layout equals wire encoding

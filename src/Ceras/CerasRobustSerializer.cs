@@ -261,14 +261,24 @@ namespace Ceras
             if (Ceras.Helpers.ObjectCache.DebugTraceEnabled)
                 Ceras.Helpers.ObjectCache.BeginSerializeTrace();
 
-            var writer = new ArrayBufferWriter<byte>();
+            // The payload is written straight into `buffer` rather than into a scratch writer that
+            // is copied in afterwards. Both produce the same bytes in the same order, but the scratch
+            // writer has to grow to the payload's size first, and it grows by doubling from 256
+            // bytes, so a multi-kilobyte payload costs that whole ladder plus a full memcpy of the
+            // payload, all of it discarded as soon as the copy lands. `FixedArrayBufferWriter` is
+            // the same contract the scratch writer satisfied (an IBufferWriter<byte> that grows in
+            // place through the shared EnsureCapacity/ExpandBuffer path), so nothing below it
+            // changes. `offset` is the fill level of `buffer` and is exactly where the data section
+            // starts (dataStart above), so the writer continues the file rather than starting a
+            // new one.
+            var writer = new FixedArrayBufferWriter(buffer, offset);
             SchemaSection.WriteLeb128(writer, (uint)rootTypeId);
             Serialize(writer, rootObject);
 
-            var written = writer.WrittenSpan;
-            SerializerBinary.EnsureCapacity(ref buffer, offset, written.Length);
-            written.CopyTo(buffer.AsSpan(offset));
-            offset += written.Length;
+            // Growth replaces the array, so the local has to take it back before the string table
+            // and the header are written into it.
+            buffer = writer.Buffer;
+            offset = writer.Offset;
 
             int stringTableStart = payloadStrings.Flush(ref buffer, ref offset, _config.StringTableCompression);
             RobustHeader.FinalizeHeader(buffer, offset, (byte)_config.StringTableCompression, schemaStringOffset, dataStart, stringTableStart, schemaFingerprint);
