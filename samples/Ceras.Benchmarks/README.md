@@ -51,6 +51,25 @@ The per-section rows call the library's own code on a real save (`RobustEnvelope
 benchmark is a friend assembly of Ceras, which is how it reads the robust header offsets and the
 loader's CRC32 without restating them.
 
+### Save: reused graph vs fresh graph
+
+Two different measurements, named as such in both modes:
+
+| Row | Mode | What it includes |
+|---|---|---|
+| `Robust Save (reused graph)` | quick | `Save` of the graph built in setup |
+| `Robust_Save` | BDN | `Save` of the graph built in `[GlobalSetup]` - the same thing, so the two tables are comparable |
+| `Robust Save (fresh graph)` | quick | `Save` **plus** a full `BenchData.MakeWorld()` |
+| `Robust_Save_FreshGraph` | BDN | the same, and named for it |
+
+`Robust_Save` used to call `BenchData.MakeWorld()` inside the benchmark body, so it reported graph
+construction under the serializer's name. That construction is not cheap: 64 `BenchNode` objects, each
+with its own `List<int>`, plus `All`, `Tags`, a `BenchPrivateGeneric` and the two arrays - 66
+collections. Measured as the difference between the two BDN rows, it adds roughly 5 us and 13 KB to a
+save of roughly 29 us and 25 KB, i.e. about a fifth of the time and half the allocation. Anything that
+rebuilds the graph per iteration now lives in the row whose name says so, and `Robust_Save` is directly
+comparable to the quick table's reused-graph row.
+
 ## Interpreting the numbers
 
 - Absolute values are specific to the machine, runtime and GC mode that produced them. They are not

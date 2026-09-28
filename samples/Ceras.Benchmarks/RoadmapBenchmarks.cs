@@ -24,8 +24,33 @@ namespace Ceras.Benchmarks
             _bytes = _serializer.Save(_world, 1);
         }
 
+        /// <summary>
+        /// Steady-state save of an unchanged graph: the same row as "--roadmap-quick"'s
+        /// "Robust Save (reused graph)", so the two tables are comparable.
+        /// <para>
+        /// The graph comes from <see cref="Setup"/> and is deliberately *not* rebuilt per iteration.
+        /// <c>BenchData.MakeWorld()</c> allocates 64 <see cref="BenchNode"/> objects, each with its own
+        /// <c>List&lt;int&gt;</c>, plus <c>All</c>, <c>Tags</c>, a <c>BenchPrivateGeneric</c> and the
+        /// two arrays - 66 collections in all, so "the world" is not a handful of allocations. Measured
+        /// as the difference between this row and <see cref="Robust_Save_FreshGraph"/>, that
+        /// construction adds about 5 us and 13 KB to a save of about 29 us and 25 KB: roughly a fifth of
+        /// the time and half the allocation. Building it inside this body therefore reported the cost of
+        /// <c>MakeWorld</c> under the serializer's name and made the B/op column mostly graph
+        /// construction. Anything that changes the graph between iterations belongs in
+        /// <see cref="Robust_Save_FreshGraph"/>, which says so in its name.
+        /// </para>
+        /// </summary>
         [Benchmark]
-        public byte[] Robust_Save() => _serializer.Save(BenchData.MakeWorld(), 1);
+        public byte[] Robust_Save() => _serializer.Save(_world, 1);
+
+        /// <summary>
+        /// Save plus a full rebuild of the graph, i.e. what a caller that serializes a freshly
+        /// produced object graph pays. It is the sum of <see cref="Robust_Save"/> and
+        /// <c>BenchData.MakeWorld</c>, not a property of the serializer alone - hence the separate,
+        /// explicitly named row.
+        /// </summary>
+        [Benchmark]
+        public byte[] Robust_Save_FreshGraph() => _serializer.Save(BenchData.MakeWorld(), 1);
 
         [Benchmark]
         public int Robust_PayloadSize() => _bytes.Length;
