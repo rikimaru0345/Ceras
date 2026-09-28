@@ -52,7 +52,6 @@ namespace Ceras.SourceGenerator
                             }
                         }
 
-                        bool hasInclude = (attrs.Include != null && HasAttribute(field, attrs.Include)) || (associatedProp != null && attrs.Include != null && HasAttribute(associatedProp, attrs.Include));
                         bool hasExclude = (attrs.Exclude != null && HasAttribute(field, attrs.Exclude)) || (associatedProp != null && attrs.Exclude != null && HasAttribute(associatedProp, attrs.Exclude));
 
                         if (hasExclude) continue;
@@ -171,22 +170,16 @@ namespace Ceras.SourceGenerator
                                 memberName, containingTypeName, typeName));
                         }
 
-                        bool isFieldPublic = field.DeclaredAccessibility == Accessibility.Public;
-                        bool isPropPublic = associatedProp != null && associatedProp.DeclaredAccessibility == Accessibility.Public;
-
-                        // Only fields are included by default. All properties are ignored.
-                        bool isIncludedByConfig;
-                        if (isBackingField && associatedProp != null)
-                        {
-                            isIncludedByConfig = true; // All fields are included by default
-                        }
-                        else
-                        {
-                            isIncludedByConfig = true; // All fields are included by default
-                        }
-
-                        if (!hasInclude && !isFieldPublic && !isBackingField && !isIncludedByConfig)
-                            continue;
+                        // Default member selection: every instance, non-const field is included,
+                        // whatever its accessibility, and a property is never discovered directly — an
+                        // auto-property arrives through its backing field, which is a field like any
+                        // other. So there is no accessibility filter and no include/exclude gate here:
+                        // [Exclude] (checked above) is the only way to leave a member out, and [Include]
+                        // is accepted but redundant, because everything is already in — it cannot
+                        // re-admit a member an earlier check dropped, and a member carrying both
+                        // attributes is reported by ValidateIncludeExcludeConflicts. Reachability is a
+                        // separate question from accessibility, answered per member by the emitted
+                        // accessors (MakeMember / AccessorEmitter), not by skipping the member here.
 
                         // Sanitize backing field name for the stream
                         string stableName = field.Name;
@@ -955,7 +948,11 @@ namespace Ceras.SourceGenerator
         };
 
         // --------------------------------------------------------------------------------------------
-        // Unsupported constructor-dependent immutable cycles (TODO Phase 3.2).
+        // Unsupported constructor-dependent immutable cycles.
+        //
+        // Reported as CERAS026 by CerasFormatterGenerator, for every type that gets a generated
+        // formatter; TypeConfig.VerifyNoUnsupportedImmutableCycle is the runtime mirror for the ones
+        // served by the reflection path.
         //
         // A reference cycle is only constructible when every object on the cycle can be allocated
         // (uninitialized) and registered before its constructor runs, which is what Ceras does. That

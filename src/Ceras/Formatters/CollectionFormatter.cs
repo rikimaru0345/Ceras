@@ -177,6 +177,9 @@ namespace Ceras.Formatters
         // property, and any of the three lookups can come back empty. The call sites below check for
         // that (a collection without an Add or a Count cannot be serialized at all) or fall back to
         // constructing a fresh instance when there is no Clear.
+        //
+        // The reflection below is the fallback for a directly constructed instance (the ctor is internal,
+        // so only a friend assembly does that): the resolver always closes this over an ICollection<TItem>.
         readonly Action<TCollection>? _clearMethod;
         readonly Action<TCollection, TItem>? _addMethod;
         readonly Func<TCollection, int>? _getCountMethod;
