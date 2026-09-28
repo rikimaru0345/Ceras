@@ -599,6 +599,22 @@ namespace Ceras.SourceGenerator
             sbUse.AppendLine("        /// <paramref name=\"config\"/>. Exactly one context is registered per config; an unknown");
             sbUse.AppendLine("        /// context name throws with the list of available contexts.");
             sbUse.AppendLine("        /// </summary>");
+            // Trimming / NativeAOT roots for everything the manifest implies. Stated here, on the one
+            // emitted member every generator-enabled application calls, so the roots hold whichever
+            // kind of context it builds; see TrimmingRoots for what each dependency is for and why
+            // only this generator can state it.
+            var rootedFormatterTypes = generatedFormatterTypes
+                .Where(t => contextTypes.Any(c => c.Value.Contains(t, SymbolEqualityComparer.Default)))
+                .OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal)
+                .ToList();
+            var rootedMinimalTypes = contextMinimalTypes
+                .SelectMany(kv => kv.Value)
+                .GroupBy(t => t, SymbolEqualityComparer.Default)
+                .Select(g => g.First())
+                .OrderBy(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparer.Ordinal)
+                .ToList();
+            TrimmingRoots.WriteDependencies(
+                sbUse, "        ", compilation, rootedFormatterTypes, rootedMinimalTypes, DiscoverCached);
             sbUse.AppendLine("        public static void UseRobustFormatters(global::Ceras.CerasConfig config, string context)");
             sbUse.AppendLine("        {");
             sbUse.AppendLine("            switch (context)");

@@ -230,14 +230,37 @@ namespace TrimAotSmoke
             Report("Faction enum values readable",
                    Enum.GetValuesAsUnderlyingType(typeof(Faction)).Length == 3);
 
-            // The three closed generic instantiations Ceras builds ONLY through
-            // Activator.CreateInstance(typeof(X<>).MakeGenericType(...), ...):
-            //   Ceras.Formatters.ReferenceFormatter<> / ReferenceFormatter_KnownSealedType<>
-            //        -> CerasSerializer.GetReferenceFormatter      (CerasSerializer.cs:681)
-            //   Ceras.TypeConfig<T>      -> CerasConfig.GetTypeConfigForConfiguration
-            //   Ceras.MemberConfig<T>    -> TypeConfig..ctor
-            // ILLink flags the Activator call itself (Helpers/Instantiator.cs:15,
-            // IL2067), so these are the members it is free to stop preserving.
+            // Two different things are probed here and they are not the same question.
+            //
+            // (a) "present in metadata" is a reflection-metadata question: can GetConstructor find
+            //     a signature for it. Under NativeAOT that is a separate fact from whether the image
+            //     has native code for the member, so a null here is not by itself proof that AOT
+            //     cannot construct it.
+            //
+            // (b) For the two formatter families Ceras really does build ONLY through
+            //     Activator.CreateInstance(typeof(X<>).MakeGenericType(...), ...):
+            //       Ceras.Formatters.ReferenceFormatter<> / ReferenceFormatter_KnownSealedType<>
+            //            -> CerasSerializer.GetReferenceFormatter
+            //     the reflection path is the only path, and CerasSerializer states the
+            //     DynamicDependency that keeps those constructors alive.
+            //
+            //     Ceras.TypeConfig<T> is a third case: the generated registration for a
+            //     [CerasSerializable] type calls ConfigType<T>(), which constructs the closed
+            //     TypeConfig<T> directly, and TypeConfig<T>.CreateMemberConfig then constructs the
+            //     closed MemberConfig<T> directly as well. Nothing in that chain goes through
+            //     Activator - the reflective construction in TypeConfig.CreateMemberConfig and in
+            //     CerasConfig.GetTypeConfigForConfiguration only serves a type that was reached
+            //     reflectively in the first place, which a generated registration never is.
+            //
+            //     Those two direct constructions are why MemberConfig<Item> can be constructed at
+            //     all, and they are also why the probe above is a real gate rather than a
+            //     formality: if the type's own data members are not reflectable, TypeConfig<Item>
+            //     comes back with ZERO members, no MemberConfig<Item> is ever built, and the
+            //     constructor has neither code nor metadata to report. The source generator emits
+            //     the [DynamicDependency] that keeps those members (and the generated formatter's
+            //     Serialize/Deserialize/Schema, which Ceras also reaches only by reflection);
+            //     without it this line reads MISS and the raw round trip below serializes a type
+            //     whose config has no members.
             //
             // Caution when reading the NativeAOT run: naming
             // Ceras.TypeConfig<Faction> here roots that closed instantiation for
@@ -246,7 +269,7 @@ namespace TrimAotSmoke
             // earlier and differently, with
             //   NotSupportedException: ... no code was generated for it:
             //   'Ceras.TypeConfig`1[TrimAotSmoke.Faction]..ctor(Ceras.CerasConfig,System.Boolean)'
-            // raised from CerasConfig.GetTypeConfigForConfiguration (CerasConfig.cs:101).
+            // raised from CerasConfig.GetTypeConfigForConfiguration.
             // Keeping the line keeps the trim diagnostic above intact; the AOT
             // TypeConfig failure has to be re-checked with this probe removed.
             ReportCtor("ReferenceFormatter<Player>..ctor",
