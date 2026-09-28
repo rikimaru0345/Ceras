@@ -40,7 +40,8 @@ namespace Ceras.Format
             Dictionary<string, OldTypeSchema> oldSchemas,
             string[]                          stringTable,
             uint                              robustVersion,
-            CerasSerializer                   serializer)
+            CerasSerializer                   serializer,
+            Dictionary<string, TypeMigrationPlan> plans = null!)
         {
             _file            = new FileSchemaView(oldSchemas);
             _factory         = new CurrentObjectFactory(serializer);
@@ -62,11 +63,19 @@ namespace Ceras.Format
             // as a nested argument reaches its current type the way every other migration does.
             _typeValues = new TypeValueShapes(_file, ResolveManifestTypeId);
 
-            // The plans below map the file's names onto the current model, which needs the complete name
-            // space: a shape only the bake registers answers to its [PreviousTypeName] alias once it is
-            // registered. CerasRobustSerializer builds the file's id map first, and that call fails
-            // unless the manifest is baked - so the ordering is enforced before this ctor runs.
-            _plans = MigrationPlanBuilder.BuildAll(_file.ByName, _registry);
+            // The plans map the file's names onto the current model, which needs the complete name space: a
+            // shape only the bake registers answers to its [PreviousTypeName] alias once it is registered.
+            // CerasRobustSerializer builds the file's id map first, and that call fails unless the manifest
+            // is baked - so the ordering is enforced before this ctor runs.
+            //
+            // They are a parameter because building them is what *refuses* an old-to-current schema
+            // disagreement (MigrationPlanBuilder.RejectMovedArrayPayload, RejectChangedStructuralArgument
+            // and the retyped-field check beside them), and CerasRobustSerializer has to do that before it
+            // reads the root type id: the plans say nothing about the payload, so nothing in the payload has
+            // to be interpreted before the load can be known to be impossible. A caller that does not have
+            // them (a test driving this engine directly) gets them built here, which is the same call and the
+            // same refusals — only later.
+            _plans = plans ?? MigrationPlanBuilder.BuildAll(_file.ByName, _registry);
 
             // Pre-build the callback invokers. The migration context is identical for every instance
             // of a type, so it is constructed once per plan rather than once per object.
@@ -1740,6 +1749,15 @@ namespace Ceras.Format
                     // conditions cannot be satisfied at once, because a declared System.Array is not an
                     // array type in reflection (`typeof(Array).IsArray` is false) and a declared `T[]` is a
                     // manifest entry rather than that id.
+                    //
+                    // Both halves of that condition are the *only* thing that decides where this member's
+                    // bytes start, so they must agree with what the writer did. They are checked once, up
+                    // front, by MigrationPlanBuilder.RejectMovedArrayPayload, which refuses a mapped member
+                    // whose array-ness is not the same on both sides — an `int[] Slot` that became
+                    // `Array`/`object`/`List<>` (or the reverse) is refused before the payload is read,
+                    // because the marker it writes is not the marker the file has. By the time this runs, a
+                    // mapped member is a declared array on both sides or on neither, so the two conditions
+                    // here can no longer disagree.
                     object value;
                     if (mapping.NewField.FieldType.IsArray &&
                         _file.TryGetById(mapping.OldField.TypeId, out var fieldSchema) &&

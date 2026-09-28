@@ -484,6 +484,53 @@ the magnitude for an unsigned underlying type and a two's-complement negative va
    - a retyped field with no defined conversion (e.g. `double` → `decimal`) throws
      `CerasSchemaException` naming the field and both types, instead of silently dropping the value
      and leaving the declared default;
+   - a member — **or any of its declared arguments** — whose array-ness changed between a concrete array
+     and a type the writer reaches through a reference wrapper throws `CerasSchemaException` naming the
+     member, the position in its shape, the type the file stores there and the type this build declares.
+     `int[] Slot` becoming `Array Slot`, `object Slot`, a collection or a class, or the reverse, is the
+     member itself; `List<int[]>` becoming `List<object>`, a dictionary's value argument, or the array two
+     levels down in a `List<List<int[]>>` are the same change one level in. The two positions do not start
+     at the same byte, so there is no offset at which the stored value can be read as the current one; the
+     two grammars are tabulated in
+     [A declared `System.Array`](#a-declared-systemarray-is-that-same-slot-under-a-different-declared-type-id).
+     Above the argument nothing can see the change: the member's own bytes — a marker, a biased count, the
+     elements — are identical either way. What can is the *argument tree*, because the schema section
+     records every closed generic as its own entry with ordered argument type ids and every structural
+     reader pairs each id with the current CLR argument, so one walk covers a collection element, a
+     dictionary key and value, an array element, a tuple item, a KeyValuePair and a Nullable alike
+     (`MigrationPlanBuilder.RejectMovedArrayPayload`).
+     The walk runs while the old-to-current plans are built, **before the root type id is even read**,
+     because both facts it needs are schema facts. Only the save file knows the first of them, so it is
+     necessarily a load-time check: nothing at generator time can inspect that file. The advice is to keep
+     the position that can hold the stored grammar under its own stable name and build the other shape from
+     it in application code. It compares *array-ness* and nothing else; a position that is an array on both
+     sides, a *removed* member (skipped by its own file-side grammar, with no current declaration to
+     disagree with) and a jagged array in an `object`/`System.Array` slot (one polymorphic value, not
+     declared array members) are unaffected;
+   - a **structural argument** of a mapped member that no longer names the same current CLR type throws
+     `CerasSchemaException` naming the member, the position in its shape, and both types
+     (`MigrationPlanBuilder.RejectChangedStructuralArgument`). The definition still matches, so the check
+     above accepts `List<int>` against `List<long>`, `List<List<int>>` against `List<int[]>` and
+     `Dictionary<string,int>` against `Dictionary<int,int>`; the argument walk is what sees them, and the
+     failure each replaces is a bare reflection `ArgumentException` from assigning the *file's* closed
+     generic to the current member, not a desync — a plan's type comes from resolving the file's own name,
+     and `CurrentTypeOf` prefers it over the current member's declared type. The only thing that makes a
+     position acceptable is that both sides resolve to the same current CLR type, which is what keeps the
+     working cases working without an allow-list: a renamed argument type resolves through its
+     `[PreviousTypeName]` alias to this build's type, and an unchanged one resolves to itself. A *direct*
+     member's widening and an array member's element widening are different paths and stay supported — a
+     scalar is not a closed generic and an array is not a generic type in reflection, so neither is ever an
+     argument here;
+   - a **position neither well-known nor described by the file's own schema section** is refused
+     (`CerasSchemaException`) rather than skipped: nothing says how such a value is written, and a reader has
+     to assume it takes no bytes, which is the silent desync these checks exist to prevent. A real writer
+     only records ids from its own manifest, so this is a doctored or truncated file. A described shape
+     nested deeper than the format's own bound (64 levels, the same as the `Type` value grammar) is refused
+     for the same reason — an entry naming itself as its own argument reaches that bound — rather than left
+     unchecked (`MigrationPlanBuilder.DescendIntoArguments`). A position whose name only the configured
+     `TypeBinder` resolves (an external type bound by name) is *not* refused: the reader consumes it
+     structurally. A name nothing resolves is refused earlier still, by
+     `CerasRobustSerializer.BuildIdToType`, before the plans are built and with no payload interpreted;
    - a retyped field with a *defined* conversion is coerced; the widening set is exactly
      `Int16 -> Int32`, `Int32 -> Int64`, `Int32 -> Single`, `Int32 -> Double`, `Single -> Double`
      (`MigrationPlanBuilder.DetectCoercion`). An unmatched old field is skipped and surfaces in
@@ -563,13 +610,48 @@ the layout.
   to the current member, so application migration code cannot examine the old graph as data.
   Reparenting a type, inlining/removed types and lossy conversions are consequently refused rather
   than transformed.
-- A member whose declared type changes *between* a concrete array and a polymorphic slot — `int[] Slot`
-  becoming `Array Slot` (or `object Slot`) or the reverse. That change moves the reference marker, so
-  the two layouts have no common reading: the file's member type id says "a count, no marker" while
-  the current member says "a marker", and the interpreter follows the current one
-  (`SchemaTraversalEngine.ReadAndApplyFields` decides the array case from the *current* field type).
-  Such a file is rejected today, by the exact-consumption check, which is the honest outcome for a
-  shape neither reader can decode. Making it migratable needs a decision about which side wins — the
-  file's grammar, as everywhere else, or a refusal at bake time — rather than a reader tweak. (The
+- A member — or any of its declared arguments — whose declared type changes *between* a concrete array
+  and a polymorphic slot. That change moves the reference marker, so the two layouts have no common
+  reading: the file's type id says "a count, no marker" while the current declaration says "a marker",
+  and `SchemaTraversalEngine.ReadAndApplyFields` decides the array case from the *current* field type. It
+  is therefore **refused up front**, while the old-to-current plans are built and before the root type id is
+  even read, with a `CerasSchemaException` naming the member, the position, the type the file stores it as
+  and the type this build declares (`MigrationPlanBuilder.RejectMovedArrayPayload`; see step 4 of
+  [Load order](#load-order-and-what-is-rejected)). The same two grammars meet at every *declared argument*
+  of a member — a `List<int[]>` element is a marker and a bare count where a `List<object>` element is a
+  marker and a `Type` value — so the check walks the recorded argument tree as well, and the failure it
+  replaces there was a bare reflection `ArgumentException` mid-assignment rather than a desync. Making the
+  change *migratable* is still open, and needs a decision about which side wins — the file's grammar, as
+  everywhere else, or an explicit representation of the value — rather than a reader tweak. (The
   generated fast path is never reached for such a file anyway: a changed member type changes the
   fingerprint, so the interpreter is always the reader.)
+- **Neighbouring shapes these refusals deliberately do not cover**, because no schema-level fact separates
+  them safely:
+  - a change between two non-array declarations that disagree about the marker — `object` and a concrete
+    class are refused by the "no defined conversion" rule above, but `object` and a *sealed* class are not,
+    and a concrete array and a collection argument are not either. The array↔collection pair is why no
+    symmetric rule can exist: `List<List<int>>` against `List<int[]>` migrates correctly today (each inner
+    list becomes an array of its elements), so refusing the pair would refuse a working migration;
+  - `List<int>` against `List<long>`, and any other change of a collection's argument *type* with the same
+    shape. The reader has an element-coercion path written for the widening set and it cannot be reached,
+    so there is no working conversion to preserve here; making one work would be a migration feature rather
+    than a format guarantee, so these are refused with the direct-member widening set named instead.
+- **The array-name parse, and why it is not a wire change.** `TypeIdentity.TryParseCanonicalName` used to
+  build a rank-1 array with `MakeArrayType(1)`, which is a *different* `Type` from `typeof(T[])` — it names
+  its rank as unspecified, `Int32[*]` rather than `Int32[]` — and is therefore not assignable to it. Every
+  declaration resolved from a canonical name is then used as a field's declared type, a generic argument or
+  an instance to construct, all of which go through an assignability or a cast check, so the wrong `Type`
+  failed much later and far from the parse: a bare `ArgumentException` out of `FieldInfo.SetValue`, naming a
+  type that appears in neither model. A member declared `List<int[]>` did not round-trip in this build at
+  all, with or without a schema change. It now parses `T[]` to the vector array. The *grammar* did not
+  change and neither did any byte: `GetCanonicalName` writes `T[]` for rank 1 and `T[,]` above it, and so
+  does the generator's `BuildRobustName`, so `[]` can only ever have meant the vector and there is no
+  separate spelling to preserve. The layout fingerprint is unchanged, which is the check that matters.
+- **The element-coercion path for a collection's argument stays unreachable, deliberately.** The reader has
+  code to coerce each element of a `List<int>` read as a `List<long>` through the defined widening set, and
+  `CurrentTypeOf` preferring the plan's resolved type is why it cannot be reached. Changing that preference
+  would make those migrations work — but a save that only loads because the *old* type happened to be
+  assignable is a migration nobody asked for, and the same preference is what makes a type rename resolve.
+  So the change is refused with an actionable error instead, and the preference is left alone. Direct-member
+  and array-element widening are unaffected and remain supported: a scalar is not a closed generic and an
+  array is not a generic type in reflection, so neither is ever an argument.

@@ -128,7 +128,22 @@ namespace Ceras.Format
                 }
 
                 if (!TryParse(name.Substring(0, open), resolveDefinition, out var element)) return false;
-                try { type = element.MakeArrayType(rank); } catch { return false; }
+                try
+                {
+                    // Rank 1 is the *vector* array, so it has to be built as one. `MakeArrayType(1)` also
+                    // takes rank 1 but returns a distinct Type - it names its rank as unspecified
+                    // (`Int32[*]` rather than `Int32[]`) - which is not assignable to `typeof(T[])` even
+                    // though the two are the same shape. Anything resolved from a canonical name is then
+                    // used as a field's declared type, a generic argument or a CLR instance to construct,
+                    // and every one of those goes through an assignability or a cast check, so the wrong
+                    // Type fails much later and far from here - as a bare reflection ArgumentException out
+                    // of FieldInfo.SetValue, naming a type that does not look like any in the model. The
+                    // grammar has no separate spelling for an unspecified rank (GetCanonicalName writes
+                    // `T[]` for rank 1 and `T[,]` above it, and so does the generator's BuildRobustName),
+                    // so `[]` can only ever mean the vector.
+                    type = rank == 1 ? element.MakeArrayType() : element.MakeArrayType(rank);
+                }
+                catch { return false; }
                 return true;
             }
 
