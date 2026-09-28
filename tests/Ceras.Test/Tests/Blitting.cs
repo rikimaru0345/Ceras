@@ -33,9 +33,7 @@ namespace Ceras.Test
 
             typeof(Vector3),
             typeof(Half2),
-            typeof(BigStruct),
 
-            typeof(BigStruct[]),
             typeof(Vector3[]),
 
             typeof(DayOfWeek), // The base type "Enum" can't be blitted, but an actual enum can!
@@ -50,6 +48,15 @@ namespace Ceras.Test
             typeof(UIntPtr),
             typeof(IntPtr[]),
             typeof(UIntPtr[]),
+
+            // A struct declaring a C# `fixed` buffer. It USED to be in _blittableTypes, on the argument
+            // that nothing else can encode it — but something else could, and what it wrote was 29 bytes
+            // for a 64-byte value, with the save succeeding and `Third[1..2]` and all 24 bytes of
+            // `Sixth` loading back as zeros. The blit was the only lossless encoding only because the
+            // other path was broken, so the shape is refused on every path instead; see
+            // FixedBufferStructTests and Formatters/FixedBufferGuard.
+            typeof(BigStruct),
+            typeof(BigStruct[]),
 
             // decimal.IsPrimitive is true, but its CLR memory order is not the documented payload order
             // (decimal.GetBits: lo, mid, hi, flags), so it must never be reinterpreted — neither alone
@@ -144,9 +151,11 @@ namespace Ceras.Test
 
             foreach (var t in _nonBlittableTypes)
             {
-                var formatter = ceras.GetSpecificFormatter(t);
+                var ft = FormatterTypeOrRefusal(ceras, t);
 
-                var ft = formatter.GetType();
+                // A type Ceras refuses outright has no formatter to be the wrong one. That is a stronger
+                // statement than "not blitted", and it is what a fixed-buffer struct now gets.
+                if (ft == null) continue;
 
                 if (ft.IsGenericType)
                     if (ft.GetGenericTypeDefinition() == typeof(ReinterpretFormatter<>) ||
@@ -155,11 +164,80 @@ namespace Ceras.Test
             }
         }
 
+        /// <summary>
+        /// The formatter Ceras picks for <paramref name="t"/>, or null when it refuses the type outright.
+        /// The refusal is looked for in the whole chain, because the reflection fallback is constructed
+        /// through reflection, which wraps what its constructor threw.
+        /// </summary>
+        static Type FormatterTypeOrRefusal(CerasSerializer ceras, Type t)
+        {
+            try
+            {
+                return ceras.GetSpecificFormatter(t).GetType();
+            }
+            catch (Exception e) when (Innermost<Ceras.Exceptions.CerasSchemaException>(e) != null)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// This used to be <c>BigStructBlittedCorrectly</c>: a full round trip of a 64-byte struct whose
+        /// two fixed buffers (<c>Third[3]</c> and <c>Sixth[24]</c>, the latter holding two Vector3s
+        /// written through a pointer) came back byte for byte, because <see cref="ReinterpretFormatter{T}"/>
+        /// copied the whole image.
+        /// <para>
+        /// It is now a refusal, deliberately, and this is the test that records why. The same type through
+        /// the member-by-member path wrote 29 bytes of that image: one byte for each of the two buffers, so
+        /// <c>Third[1..2]</c> and 23 of the 24 bytes of <c>Sixth</c> — including almost all of both
+        /// Vector3s — came back as zeros, with the save succeeding and the stream still aligned. So the
+        /// blit was lossless only because the competing encoding was broken, and a shape that is
+        /// describable in one mode and lossy in another is not a state worth keeping: the fast path
+        /// <c>UseReinterpretFormatter</c> is exactly the one-line config change that swapped a correct save
+        /// for a corrupted one.
+        /// </para>
+        /// <para>
+        /// The value is still built in full below, so what is now unreachable is visible: everything the
+        /// old round trip proved — the byte-for-byte equality and the exact 64-byte payload — is data this
+        /// test can no longer write, which is the point of refusing it.
+        /// </para>
+        /// </summary>
         [Fact]
-        public unsafe void BigStructBlittedCorrectly()
+        public unsafe void BigStructIsRefused_Because_Only_Blitting_It_Was_Lossless()
+        {
+            BigStruct bigStruct = FullBigStruct();
+            var bigStructSize = Marshal.SizeOf(typeof(BigStruct));
+            Assert.Equal(64, bigStructSize);
+
+            bigStruct.Fourth = new Half4(rngShort, rngShort, rngShort, rngShort);
+
+            // 27 of the 64 bytes the old round trip carried live in a fixed buffer, and no member-by-member
+            // encoding can see how many bytes that is.
+            var exception = Assert.ThrowsAny<Exception>(() => new CerasFastSerializer().Serialize(FullBigStruct()));
+            var refusal = Innermost<Ceras.Exceptions.CerasSchemaException>(exception);
+            Assert.True(refusal != null, $"Expected a CerasSchemaException, but got: {exception}");
+
+            // Both buffers are named, with the byte counts, so the user can see exactly what is at stake.
+            Assert.Contains("Third", refusal.Message, StringComparison.Ordinal);
+            Assert.Contains("Sixth", refusal.Message, StringComparison.Ordinal);
+            Assert.Contains("3 bytes", refusal.Message, StringComparison.Ordinal);
+            Assert.Contains("24 bytes", refusal.Message, StringComparison.Ordinal);
+        }
+
+        static T Innermost<T>(Exception e) where T : Exception
+        {
+            for (var current = e; current != null; current = current.InnerException)
+                if (current is T match) return match;
+            return null;
+        }
+
+        /// <summary>
+        /// The value the old round trip carried, in a method of its own: a struct with a fixed buffer
+        /// cannot have its address taken inside a lambda, and the assertion has to be one.
+        /// </summary>
+        static unsafe BigStruct FullBigStruct()
         {
             BigStruct bigStruct = new BigStruct();
-            var bigStructSize = Marshal.SizeOf(typeof(BigStruct));
 
             bigStruct.First = 0xff;
             bigStruct.Second = 0.123456789;
@@ -168,79 +246,14 @@ namespace Ceras.Test
             bigStruct.Third[1] = 0xE5;
             bigStruct.Third[2] = 0x99;
 
-            bigStruct.Fourth = new Half4(rngShort, rngShort, rngShort, rngShort);
             bigStruct.Fifth = '@';
 
             var v3Size = Marshal.SizeOf(typeof(Vector3));
-            *((Vector3*)(bigStruct.Sixth + v3Size * 0)) = new Vector3(rngFloat, rngFloat, rngFloat);
-            *((Vector3*)(bigStruct.Sixth + v3Size * 1)) = new Vector3(rngFloat, rngFloat, rngFloat);
+            *((Vector3*)(bigStruct.Sixth + v3Size * 0)) = new Vector3(1, 2, 3);
+            *((Vector3*)(bigStruct.Sixth + v3Size * 1)) = new Vector3(4, 5, 6);
 
             bigStruct.Eighth = 0x11_22_33_44___55_66_77_88;
-
-
-
-            // Clone
-            var ceras = new CerasFastSerializer();
-            var serializedData = ceras.Serialize(bigStruct);
-            var clone = ceras.Deserialize<BigStruct>(serializedData);
-
-
-            // Direct equality
-            Assert.Equal(bigStruct, clone);
-            Assert.True(EqualityComparer<BigStruct>.Default.Equals(bigStruct, clone));
-
-
-            // Manual equality
-            Assert.Equal(bigStruct.First, clone.First);
-            Assert.Equal(bigStruct.Second, clone.Second);
-
-            Assert.Equal(bigStruct.Third[0], clone.Third[0]);
-            Assert.Equal(bigStruct.Third[1], clone.Third[1]);
-            Assert.Equal(bigStruct.Third[2], clone.Third[2]);
-
-            Assert.Equal(bigStruct.Fourth, clone.Fourth);
-            Assert.Equal(bigStruct.Fourth.Left, clone.Fourth.Left);
-            Assert.Equal(bigStruct.Fourth.Right, clone.Fourth.Right);
-
-            Assert.Equal(bigStruct.Fifth, clone.Fifth);
-            Assert.Equal(*((Vector3*)(bigStruct.Sixth + v3Size * 0)), *((Vector3*)(clone.Sixth + v3Size * 0)));
-            Assert.Equal(*((Vector3*)(bigStruct.Sixth + v3Size * 1)), *((Vector3*)(clone.Sixth + v3Size * 1)));
-
-
-            // Binary equality
-            var oriStructAddr = &bigStruct;
-            var cloneStructAddr = &clone;
-
-            Assert.Equal(oriStructAddr[0], cloneStructAddr[0]);
-
-            // Byte equality
-            {
-                byte* oriBytes = (byte*)oriStructAddr;
-                byte* cloneBytes = (byte*)cloneStructAddr;
-
-                for (int i = 0; i < bigStructSize; i++)
-                {
-                    Assert.Equal(oriBytes[i], cloneBytes[i]);
-                    Assert.Equal(*(oriBytes + i), *(cloneBytes + i));
-                }
-            }
-
-
-            // Ensure the layout of the serialized data was not
-            // changed somehow and that no extra bytes were added
-            {
-                Assert.True(serializedData.Length == bigStructSize);
-
-                byte* oriBytes = (byte*)oriStructAddr;
-                byte* cloneBytes = (byte*)cloneStructAddr;
-
-                for (int i = 0; i < bigStructSize; i++)
-                {
-                    Assert.True(serializedData[i] == *(oriBytes + i));
-                    Assert.True(serializedData[i] == *(cloneBytes + i));
-                }
-            }
-
+            return bigStruct;
         }
 
         [Fact]

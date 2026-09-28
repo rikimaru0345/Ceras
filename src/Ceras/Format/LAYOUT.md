@@ -229,9 +229,12 @@ a formatter was generated for the type. Robust contexts were never affected (the
 `CerasRawConfig`), and neither are the checked-in fixtures: a type that qualified before and qualifies
 now keeps its bytes, and `FormatVersion` is unchanged. The rule narrows the selection only — the two
 member orders are untouched, and the closed-generic divergence between a generated per-closed schema
-and the runtime one is a separate, deliberately pinned property (see above).
+and the runtime one is a separate, deliberately pinned property (see above). The one shape whose
+selection changed *and* whose behaviour changed is a struct declaring a `fixed` buffer, which is now
+refused outright rather than served by the blit; see below and
+[what is rejected](#load-order-and-what-is-rejected).
 
-Two exemptions. The first is the same question `decimal` asks, answered the other way round:
+One exemption remains. It is the same question `decimal` asks, answered the other way round:
 
 - **`Guid`** is blittable even though its eleven private fields (`_a, _b, _c, _d.._k`) do **not** sort
   into layout order, because `SerializerBinary.WriteGuid` is an unaligned copy of those 16 bytes and a
@@ -239,14 +242,42 @@ Two exemptions. The first is the same question `decimal` asks, answered the othe
   bytes whatever order the fields sort in, so a `Guid` — and any struct containing one, if its own
   members qualify — keeps the fast path with unchanged bytes.
 
-The second is not about a competing encoding, but about the absence of one:
+**A struct declaring a `fixed` buffer is refused, not blitted.** It used to be a second exemption, on the
+claim that it "has no member encoding to disagree with at all". The claim was wrong: it has one, and it is
+lossy. A `fixed` buffer is not an array to reflection — the compiler replaces the declaration with a
+generated one-element struct (`<Buffer>e__FixedBuffer`) and keeps the declared length in a
+`System.Runtime.CompilerServices.FixedBufferAttribute` **on the field**, so the length is nowhere in the
+member's type and no encoding derived from that type can see it. The reflection fallback resolves the
+member's type, finds the single element it really has, and writes it. For
 
-- **A struct declaring a `fixed` buffer** is blittable because nothing else can encode it. A fixed buffer
-  is a `byte*` to the source generator, so declaring such a type `[CerasSerializable]` is a build error
-  (`CERAS029`), and the reflection fallback sees the buffer as its generated one-element struct and writes
-  a single byte for the whole buffer. Declining the blit there would not remove a disagreement, it would
-  replace the only lossless encoding with a lossy one, so such a struct keeps exactly the behaviour it had
-  before this rule — and what is left is the raw path's own contract: both sides run the same build.
+```csharp
+unsafe struct Fb { public fixed byte Buffer[25]; public int Value; }
+```
+
+that is measured, not assumed: the value is **32 bytes** of memory image (25 buffer + 3 of padding + the
+4-byte `int`) and the reflection path wrote **5** — one byte for the buffer, four for the `int`. The save
+succeeded, the stream stayed aligned, and `Buffer[1..24]` loaded back as zeros. `BigStruct` in the test
+suite is the same: a 64-byte image, 29 bytes written.
+
+The exemption was therefore covering up a **present** disagreement rather than preventing a hypothetical
+one, and the blit's safety depended on the *other* path being broken: it stayed lossless only because
+`CERAS029` refuses the declaration at compile time, since to the generator a fixed buffer is a `byte*`.
+The moment the generator learns fixed buffers, one build blits the shape and member-writes it — the exact
+failure the rule above exists to prevent. So the blit is declined, the value is routed to the reflection
+fallback, and the reflection fallback **refuses** it with a `CerasSchemaException` naming the member, its
+declared element count and its byte length (`Formatters/FixedBufferGuard`). The three paths now agree in
+the only way available to this change: all three refuse.
+
+Removing the exemption *alone* would not have been enough, and the reason is worth recording: the width
+check would have caught the padded case by accident (payload 25 + 4 = 29 against a 32-byte image) but
+**not** a `[StructLayout(Pack = 1)]` one, whose image is exactly 29 bytes and would still have qualified
+for the blit — leaving the packed struct lossless under the blit and truncated to 5 bytes under
+reflection. Padding is an accident of one declaration; the shape is the thing that is undescribable.
+
+A `fixed` buffer on a member the payload does not contain (`[Exclude]`, `[NonSerialized]`) is not
+refused, exactly as such a member is not refused anywhere else — the check is made against the members
+Ceras actually resolved, not against every field the CLR has. A custom `IFormatter<T>` for the declaring
+type is also still a way out, because Ceras hands it the type whole and never looks at the buffer.
 
 ## Collections and arrays
 
@@ -748,6 +779,19 @@ the magnitude for an unsigned underlying type and a two's-complement negative va
      because the reference caches are cleared in a `finally` (`CerasSerializer.Serialize`) the refused
      save also leaves the serializer reusable — a refusal that abandoned its registrations would make
      the *next* save write a back-reference to an id the reader never sees;
+   - a **type that declares a `fixed` buffer** is refused at **formatter-construction** time on every
+     path, with a `CerasSchemaException` naming the member, its declared element count and its byte
+     length (`Formatters/FixedBufferGuard`). It is the one member shape the format cannot describe
+     member-by-member: the compiler's declared length lives in a field attribute, nowhere in the
+     member's type, so the reflection fallback wrote a single element for the whole buffer — 5 bytes
+     for a 32-byte value, with the save succeeding and the rest of the buffer loading back as zeros.
+     The source generator refuses the same declaration at compile time (`CERAS029`, because to it the
+     member is a `byte*`), and the raw path's blit is declined for the type so it cannot be the one
+     path that happens to round-trip — see
+     [Which types the raw path may reinterpret](#which-types-the-raw-path-may-reinterpret). A member
+     the payload does not contain (`[Exclude]`, `[NonSerialized]`) is not this rule's business, and a
+     custom `IFormatter<T>` for the declaring type is still accepted, because Ceras then hands it the
+     type whole and never inspects the buffer;
    - a file written **before** the format could describe collection and tuple shapes structurally
      records such a value as a class with no members while its payload is a count plus elements.
      Reading it would desynchronize the rest of the save silently, so it is rejected with an

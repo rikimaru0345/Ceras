@@ -7,6 +7,7 @@ namespace Ceras.Formatters
     using System.Linq;
     using System.Reflection;
     using System.Runtime.CompilerServices;
+    using System.Runtime.InteropServices;
 
     /// <summary>
     /// <para>ReflectionFallbackFormatter is the "escape hatch" of Ceras.</para>
@@ -58,6 +59,22 @@ namespace Ceras.Formatters
             // member-by-member, and the distinction decides what the caller should do about it, so
             // it is named rather than left to surface as a null dereference below.
             var schema = meta.PrimarySchema ?? throw new InvalidOperationException(NoSchemaMessage(type, isStatic));
+
+            // A `fixed` buffer is refused, with the same typed error on every path that can reach this
+            // formatter — including the raw path's memory-image blit, which is declined for exactly this
+            // type in ReflectionHelper.IsBlittableType so that it cannot be served here instead. Asked
+            // of the *resolved* member list, so a member the payload does not contain ([Exclude],
+            // [NonSerialized]) is not refused: keeping a member out of the payload is what those
+            // attributes are for, and it works here as it does everywhere else. The buffer's declared
+            // length exists only in the attribute, which is why no member-by-member encoding of this
+            // type could write it — see FixedBufferGuard.
+            var fixedBuffers = new List<(FieldInfo field, FixedBufferAttribute declared)>();
+            foreach (var m in schema.Members)
+                if (m.Member is FieldInfo f && FixedBufferGuard.IsFixedBuffer(f))
+                    fixedBuffers.Add((f, f.GetCustomAttribute<FixedBufferAttribute>()!));
+
+            if (fixedBuffers.Count > 0)
+                throw FixedBufferGuard.Reject(type, fixedBuffers, isStatic);
 
             _members = new (MemberInfo member, IFormatter formatter, bool isMonomorphic)[schema.Members.Count];
             for (int i = 0; i < schema.Members.Count; i++)

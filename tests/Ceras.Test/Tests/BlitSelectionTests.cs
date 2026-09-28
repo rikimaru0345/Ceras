@@ -11,8 +11,12 @@
 //
 // The fix is in the selection, not in the order. `ReflectionHelper.IsBlittableType` now also requires that
 // the memory image already *be* the member-by-member encoding — the same members, in the same order, at
-// the same widths, with no padding — with `Guid` and a struct declaring a `fixed` buffer as the two
-// documented exemptions. What is pinned here:
+// the same widths, with no padding — with `Guid` as the one documented exemption. A struct declaring a
+// `fixed` buffer used to be the second exemption and is not one any more: it is refused, on every path, by
+// `Formatters/FixedBufferGuard`, because the member-by-member encoding it was excused from disagreeing
+// with exists, and it is shorter than the image by the buffer's declared length (5 bytes written for a
+// 32-byte value, the rest loading back as zeros with the save succeeding). `FixedBufferStructTests` covers
+// that shape; what is pinned here is the rule around it:
 //   * the reproducer: one value, one set of bytes, through the generated formatter, through the raw path's
 //     reflection fallback, and through the member order a robust context derives from the type itself;
 //   * that the raw path really stopped claiming the type, by formatter identity and not only by equal bytes;
@@ -25,13 +29,15 @@
 // and therefore agree by construction — they say nothing about the blit, which neither of them uses. The
 // tests that do reach the blit (`Blitting.cs`) compare it against the *memory image*, never against a
 // sorted encoding — and every struct they blit already has its members in alphabetical order
-// (`Vector3.X/Y/Z`, `Half2.X/Y`, `Half4.Left/Right`, `KeyValuePair.key/value`), so it qualifies under the
+// (`Vector3.X/Y/Z`, `Half2.X/Y`, `KeyValuePair.key/value`), so it qualifies under the
 // new rule and its assertions did not change. A type can only expose a blit/sorted disagreement if its
 // member order differs from its layout order, which takes two members of the same type: the sort key
 // starts with the member's type name, so one member per type is decided by that prefix and lands in
 // declaration order by luck. No model in this suite had same-typed members named out of order. The one
-// blitted struct with mixed member types, `BigStruct`, also has padding and fixed buffers, so it never
-// served as an order comparison either.
+// struct with mixed member types, `BigStruct`, has padding and fixed buffers, so it never
+// served as an order comparison either — and it is no longer blitted at all, for the second of those
+// reasons: a `fixed` buffer is refused rather than exempted, which is `Blitting`'s and
+// `FixedBufferStructTests`' business and not this file's.
 using System;
 using System.Buffers;
 using System.Linq;
@@ -39,6 +45,8 @@ using System.Runtime.InteropServices;
 using Ceras;
 using Ceras.Formatters;
 using Ceras.Generated;
+using Ceras.Helpers;
+using Ceras.Test.Tests.FixedBuffer;
 using Xunit;
 
 namespace Ceras.Test.Tests.BlitSelection
@@ -192,9 +200,29 @@ namespace Ceras.Test.Tests.BlitSelection
         }
 
         [Fact]
-        public void A_Member_The_Payload_Leaves_Out_Disqualifies_The_Whole_Struct()
+        public void A_Struct_Declaring_A_Fixed_Buffer_Is_Not_One_Of_The_Exemptions_Any_More()
         {
-            // Not a size question: the payload has *no* bytes at all for the field below, while the image
+            // The exemption this rule used to carry, pinned as gone. The old comment claimed a `fixed`
+            // buffer "has no member encoding to disagree with at all"; it has one, and it is shorter than
+            // the image by the buffer's declared length, so the blit was the only lossless encoding only
+            // because the competing one was broken. Declining the blit is what routes the value to the
+            // refusal instead, so no path is lossless while another is not.
+            //
+            // The refusal itself, and the numbers behind it, are FixedBufferStructTests' business; what
+            // belongs to *this* rule is only the answer it gives.
+            Assert.False(ReflectionHelper.IsBlittableType(typeof(Tests.FixedBuffer.FixedBufferStruct)));
+            Assert.False(ReflectionHelper.IsBlittableType(typeof(Tests.FixedBuffer.PackedFixedBufferStruct)));
+            Assert.False(ReflectionHelper.IsBlittableType(typeof(Tests.FixedBuffer.ContainsFixedBufferStruct)));
+
+            // The exemption that is left is untouched, so this is a change to one shape and not to the
+            // rule: Guid is still blittable, and a struct that merely contains one still is.
+            Assert.True(ReflectionHelper.IsBlittableType(typeof(Guid)));
+            Assert.True(ReflectionHelper.IsBlittableType(typeof(GuidAndCount)));
+        }
+
+        [Fact]
+        public void A_Member_The_Payload_Leaves_Out_Disqualifies_The_Whole_Struct()
+        {            // Not a size question: the payload has *no* bytes at all for the field below, while the image
             // has four. Whichever way the member order came out, the blit would write data no reader
             // accounts for, so the struct is written member by member instead. No [CerasSerializable] on
             // these two: the reference is the reflected member order, which is the point.
