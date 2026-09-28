@@ -160,6 +160,23 @@ Only after correctness and runnable baselines; no changed bytes or reuse semanti
   beyond `List<T>`; test segmented input, reuse, limits and truncation.
 - Move `SerializerBinary.ReadDecimal`'s unnecessary fast-path `stackalloc` to the
   segmented branch, subject to measurement; check `ReinterpretFormatter` similarly.
+- **A blittable struct's transient bytes depend on whether it got a generated
+  formatter.** The generated path and the reflection fallback order members by the
+  same rule and therefore agree; the disagreement comes from
+  `ReinterpretFormatterResolver`, which is selected by default (`UseReinterpretFormatter`
+  defaults to true) for any blittable value type and writes a raw CLR memory blit —
+  in CLR field order, including padding, and *before* the reflection fallback is
+  ever reached. So a struct declared `One, Two, Three` writes `One, Two, Three`
+  through the blit and `One, Three, Two` through either sorted path, silently, and
+  a transient save stops being readable once the type gains a generated formatter.
+  Robust contexts are unaffected (the resolver declines them). This contradicts the
+  settled rule that raw primitive encoding does not persist CLR struct layout, and
+  no test catches it because the existing cross-mode comparisons use differently
+  typed members. The fix is in *selection*, not ordering: do not touch the two sort
+  keys (they agree, and the closed-generic divergence between the generated
+  per-closed schema and the runtime one is deliberate and separately pinned).
+  Narrow the resolver's predicate, or require an explicit per-type opt-in for the
+  blit, as `decimal` is already carved out.
 - Generate closed specializations only for measured hot instantiations and
   cross-read them with generic writers/readers and the migration decoder.
 - Typed factories remain open, and should wait for evidence: devirtualizing the
