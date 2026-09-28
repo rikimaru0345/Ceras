@@ -135,6 +135,52 @@ namespace Ceras
 			_buildTimestampSet = true;
 		}
 
+		// The context name the application declared, or null while none was declared. The runtime never
+		// learns the generated context name on its own (UseGeneratedFormatters registers a manifest and
+		// records nothing readable back, and a manifest's stable names are type names), so the
+		// compatibility descriptor reports exactly what SetContextName was told and nothing more.
+		//
+		// `null` is a real stored value, not "unset": SetContextName stores null for a name that cannot
+		// identify a context (null, empty or whitespace), which is the same answer as never calling it -
+		// so there is one state here and the descriptor needs no way to tell two apart.
+		string? _contextName;
+
+		/// <summary>
+		/// The declared context name, or null when none was declared. Read by
+		/// <c>CerasRobustSerializer.RobustCompatibility</c> to fill
+		/// <see cref="Ceras.Format.RobustCompatibilityDescriptor.ContextName"/>; see
+		/// <see cref="SetContextName"/> for the contract.
+		/// </summary>
+		internal string? ContextName => _contextName;
+
+		/// <summary>
+		/// Declares the name of the serialization context this configuration is for, which the
+		/// compatibility descriptor reports as
+		/// <see cref="Ceras.Format.RobustCompatibilityDescriptor.ContextName"/>.
+		/// <para>
+		/// The runtime never learns the generated context name: <c>UseGeneratedFormatters("Name")</c>
+		/// registers a manifest and records nothing Ceras can read back, and a manifest's stable names
+		/// are type names rather than the context's. Pass the same string you passed to
+		/// <c>UseGeneratedFormatters</c>; a descriptor that has not been told reports null rather than
+		/// guessing one from the manifest.
+		/// </para>
+		/// <para>
+		/// Null, empty and whitespace-only all mean "not declared" and are stored as null, so a name that
+		/// cannot identify a context is reported the same way as no name at all. A compatibility check
+		/// must be able to see that it has nothing to compare instead of comparing an empty string.
+		/// </para>
+		/// <para>
+		/// Sealed like every other setting (<see cref="CerasConfig.ThrowIfSealed"/>), so one serializer
+		/// instance cannot change which context it claims to be after the fact.
+		/// </para>
+		/// </summary>
+		public CerasRobustConfig SetContextName(string name)
+		{
+			ThrowIfSealed();
+			_contextName = CerasCompatibility.Normalize(name);
+			return this;
+		}
+
 		/// <summary>
 		/// Compression applied to the string intern table embedded in each save file.
 		/// <para>Default: Deflate</para>
