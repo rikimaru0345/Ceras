@@ -769,8 +769,13 @@ namespace Ceras.SourceGenerator
         /// callback: while saving there is no migration, so <see cref="ReportUnsupportedCallbacks"/>
         /// reports it as an error instead of it being dropped here.
         /// </para>
+        /// <para>
+        /// Returns null when the type carries no such attribute at all (nothing to emit) — a type that
+        /// does have the attribute but only in a shape Ceras cannot invoke is reported as an error by
+        /// <see cref="ReportUnsupportedCallbacks"/> and never reaches a null result here.
+        /// </para>
         /// </summary>
-        public static CallbackInfo FindCallback(INamedTypeSymbol type, AttributeBag attrs, CallbackKind kind, bool isBefore)
+        public static CallbackInfo? FindCallback(INamedTypeSymbol type, AttributeBag attrs, CallbackKind kind, bool isBefore)
         {
             var attrType = kind == CallbackKind.Serialize
                 ? (isBefore ? attrs.OnBeforeSerialize : attrs.OnAfterSerialize)
@@ -779,7 +784,7 @@ namespace Ceras.SourceGenerator
 
             for (var t = type; t != null && t.SpecialType != SpecialType.System_Object; t = t.BaseType)
             {
-                CallbackInfo best = null;
+                CallbackInfo? best = null;
                 int bestRank = int.MaxValue;
 
                 foreach (var member in t.GetMembers())

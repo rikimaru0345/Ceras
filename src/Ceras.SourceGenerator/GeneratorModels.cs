@@ -91,8 +91,13 @@ namespace Ceras.SourceGenerator
 
         public bool HasArgument => ParameterKind != CallbackParameterKind.None;
 
-        /// <summary>The fully-qualified parameter type when the callback takes one.</summary>
-        public string ArgumentTypeFqn => Method.Parameters.Length == 1
+        /// <summary>
+        /// The fully-qualified parameter type when the callback takes one, or null when it is
+        /// parameterless. <see cref="HasArgument"/> is the guard: a parameterless callback is the only
+        /// shape with no parameter to name, and the two agree by construction — <c>None</c> is only ever
+        /// chosen for arity zero, and the two argument-taking shapes only for arity one.
+        /// </summary>
+        public string? ArgumentTypeFqn => Method.Parameters.Length == 1
             ? Method.Parameters[0].Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
             : null;
     }
