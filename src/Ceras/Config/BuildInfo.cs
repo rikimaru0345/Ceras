@@ -101,9 +101,17 @@ namespace Ceras
         // There is deliberately no `ProducerBuildTimestamp` convenience property built on
         // Assembly.GetCallingAssembly(): that call reports the assembly of the method that called the
         // *current* method, so the answer changes if the compiler inlines this accessor into its caller
-        // (and it is exactly the frame-skipping problem already recorded against the serializer
-        // constructors). A wrapper cannot fix it - the assembly has to be passed explicitly, which is
-        // what GetProducerBuildTimestamp(Assembly) does. The old property and its `Known` companion were
+        // (and it is exactly the frame-skipping problem recorded against CerasRobustSerializer's
+        // constructors, which is why the walk there cannot be moved into a helper either). A wrapper
+        // cannot fix it - the assembly has to be passed explicitly, which is what
+        // GetProducerBuildTimestamp(Assembly) does. The old property and its `Known` companion were
         // unused inside the library and are gone rather than left as a trap.
+        //
+        // The same reasoning is why the walk is a *fallback* and not the only way in:
+        // CerasRobustSerializer's parameterless constructor still infers the assembly from the frame
+        // where the runtime can walk one (see CerasRobustConfig.OwningAssembly for where to state it
+        // otherwise), and that is the exception rather than the rule. A stack walk is a property of the
+        // runtime rather than of the library - NativeAOT implements none and throws from the call - so a
+        // value that the library needs must be an argument it is handed, not a frame it reads.
     }
 }
