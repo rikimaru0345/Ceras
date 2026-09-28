@@ -69,7 +69,7 @@
         /// <see cref="RuntimeHelpers.GetHashCode(object)"/> for <c>Type</c> keys.
         /// <para>
         /// A caller-supplied comparer is honoured as given (see
-        /// <see cref="Config.CerasConfig.ObjectCacheComparer"/>), because collapsing equal
+        /// <see cref="CerasConfig.ObjectCacheComparer"/>), because collapsing equal
         /// instances is a legitimate - if identity-losing - choice for a type whose instances are
         /// interchangeable by definition. Ceras does not second-guess it.
         /// </para>
