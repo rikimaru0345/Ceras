@@ -26,6 +26,16 @@ The header is a fixed 56-byte little-endian record written by one explicit codec
 | 44 | 8 | deterministic layout fingerprint |
 | 52 | 4 | CRC32 (computed with these 4 bytes zeroed) |
 
+- That checksum is **CRC-32/ISO-HDLC** (ITU-T V.42 / IEEE 802.3, reflected polynomial
+  `0xEDB88320` — the zlib/PKZIP/gzip CRC-32), *not* CRC-32C (Castagnoli). The two **generally
+  differ** and are not interchangeable: they happen to agree on the empty input (both `0x00000000`)
+  and on a handful of short inputs, and like any 32-bit CRC each of them collides on some longer
+  ones — but a file written under one polynomial is rejected by a reader using the other, so
+  switching would fail essentially every existing save on its own integrity check. The polynomial
+  is part of the on-disk contract; `Helpers/HashHelpers` pins it, and
+  `HistoricalPolymorphicFixtureTests.Every_Fixture_Is_An_Old_File_Of_This_Format_With_An_Intact_Checksum`
+  pins the computed value against the checked-in golden files.
+
 - The schema (bytes + its own string table) is **baked once** when the declared set is sealed, in
   deterministic order by type ID, and is reused by every `Save`. There is no save-time discovery
   walk, and **nothing** is ever added after the seal: a context has exactly one ID map and one layout

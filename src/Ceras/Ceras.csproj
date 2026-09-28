@@ -48,5 +48,17 @@
     <DefineConstants>TRACE;DEBUG</DefineConstants>
   </PropertyGroup>
 
+  <!--
+    The robust header's CRC32 is computed over the whole save on every Save and re-verified before
+    anything it protects is read on every Load, so this is the library's only per-byte hashing work on
+    a hot path. System.IO.Hashing's Crc32 is the *same* CRC-32/ISO-HDLC polynomial (0xEDB88320, zlib,
+    PKZIP) as the table it replaces, so the stored checksum bytes and therefore every checked-in
+    fixture are unchanged; it is simply computed with carry-less multiply folding instead of one table
+    lookup per byte. See Helpers/HashHelpers.cs for which instruction is used where, and why the x86
+    SSE4.2 crc32 instruction is not. No transitive dependencies for net10.0.
+  -->
+  <ItemGroup>
+    <PackageReference Include="System.IO.Hashing" Version="10.0.12" />
+  </ItemGroup>
 
 </Project>
