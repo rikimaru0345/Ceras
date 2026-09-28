@@ -289,9 +289,7 @@
         /// differs from the member order, or which carries padding, would otherwise serialize to
         /// different bytes depending on whether it got a generated formatter — silently, because
         /// both encodings are self-consistent. <see cref="MemberLayoutMatchesMemoryImage"/> is that
-        /// test; it recurses through the field types, because the check above recurses too. The one
-        /// shape it exempts is a struct declaring a <c>fixed</c> buffer, which has no member
-        /// encoding to disagree with at all.
+        /// test; it recurses through the field types, because the check above recurses too.
         /// </description></item>
         /// </list>
         /// <para>
@@ -348,13 +346,19 @@
 
             foreach (var f in GetAllDataMembers(type, true, false).Cast<FieldInfo>())
             {
-                var fixedBuffer = f.GetCustomAttribute<FixedBufferAttribute>();
-                if (fixedBuffer != null)
-                {
-                    //var innerType = ;
-
-                    continue;
-                }
+                // A `fixed` buffer is refused here rather than skipped (it used to `continue`, and to
+                // carry an exemption in MemberLayoutMatchesMemoryImage on the claim that it "has no
+                // member encoding to disagree with"). There is one: the reflection fallback's, and it
+                // is shorter than the image by the buffer's declared length. For
+                // `unsafe struct Fb { public fixed byte Buffer[25]; public int Value; }` that is 5 bytes
+                // written against a 32-byte image, of which 24 come back as zeros with no error anywhere
+                // — see Formatters/FixedBufferGuard. Declining the blit therefore does not create a
+                // disagreement here; it routes the value to the path that refuses it, so a shape Ceras
+                // cannot describe is never the one that happens to round-trip. The claim is also why the
+                // `continue` was wrong on its own terms: skipping the recursion left the buffer's
+                // generated one-element struct unchecked rather than proving it blittable.
+                if (f.GetCustomAttribute<FixedBufferAttribute>() != null)
+                    return false;
 
                 if (f.GetCustomAttribute<MarshalAsAttribute>() != null)
                 {
@@ -392,15 +396,14 @@
         /// </description></item>
         /// </list>
         /// <para>
-        /// A struct that declares a <c>fixed</c> buffer is exempt, and deliberately so, because nothing
-        /// else can encode it. It is the one member shape Ceras cannot describe member-by-member *at
-        /// all*: to the source generator a fixed buffer is a <c>byte*</c>, so declaring such a type
-        /// <c>[CerasSerializable]</c> is a build error, and the reflection fallback sees the buffer as
-        /// its generated one-element struct and writes a single byte for the whole buffer. There is no
-        /// second encoding here that the image could disagree with, so declining the blit would not
-        /// remove a disagreement, it would replace the only lossless encoding with a lossy one. Such a
-        /// struct therefore keeps exactly the behaviour it had before this test existed; what is left is
-        /// the raw path's own documented contract, that both sides run the same build.
+        /// A struct declaring a <c>fixed</c> buffer never reaches this method:
+        /// <see cref="IsBlittableType"/> refuses that shape outright, one level up, because the question
+        /// this method answers does not have an answer for it. A fixed buffer is the one member shape
+        /// Ceras cannot describe member-by-member at all — the compiler hands reflection a generated
+        /// one-element struct and keeps the declared length in a field attribute, so no encoding derived
+        /// from the member's type can see how many elements there are. So rather than compare an image
+        /// against an encoding that does not exist, the caller declines the blit and the value is
+        /// refused by the path it is then routed to (<c>Formatters/FixedBufferGuard</c>).
         /// </para>
         /// </summary>
         static bool MemberLayoutMatchesMemoryImage(Type type)
@@ -408,11 +411,6 @@
             // Declaration order, which is also the order the CLR lays the fields out in (the type is
             // known not to be auto-layout, so the runtime does not get to reorder them).
             var fields = GetAllDataMembers(type, fields: true, properties: false).Cast<FieldInfo>().ToArray();
-
-            // Asked first, so the exemption really is "unchanged behaviour" and not "the other checks
-            // happen to pass too".
-            if (fields.Any(f => f.GetCustomAttribute<FixedBufferAttribute>() != null))
-                return true;
 
             if (type.GetCustomAttribute<Ceras.ExcludeAttribute>() != null)
                 return false; // every member of an excluded type is left out of the payload
