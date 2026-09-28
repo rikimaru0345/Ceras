@@ -249,6 +249,93 @@ and the member that reached it), `DeclareRoot` refuses it, and the interpreter r
 current model that cannot describe the shape). All three carry the same reason text
 (`WellKnownTypes.DescribeCollectionShapeRejection`).
 
+## The structural invariant: a collection description has to carry its arguments
+
+A `GenericInstantiation` entry is the format's description of a **closed generic's payload**, and for the
+structural definitions that description *is* the whole grammar. The definition id says the grammar (a
+biased element count and then the elements, a 4-byte count and then the elements for a queue or a stack, a
+presence byte, a key and a value, the items of a tuple) and the ordered argument ids say what each element,
+key, value or item **is**. An entry that does not carry exactly them describes *no* payload, so a reader
+that goes on anyway has to guess — and every guess is wrong in a way the payload cannot recover from:
+
+- it consumes the count and then **nothing** per element (there is no width to advance by), so the first
+  element's bytes are read as the next element and everything after the collection decodes from the wrong
+  offset;
+- or it consumes a **fixed** width per element taken from the *current* model, which is right often enough
+  to keep the stream aligned while silently replacing every element with a default. A `List<int>` whose
+  entry records no argument loaded its three stored `int`s back as three zeros, with no error anywhere;
+- or — for a `Dictionary<K,V>` recorded with only its key, or a nested list whose inner entry records none —
+  it hands the BCL a value of the wrong shape, and the failure arrives as a bare `ArgumentNullException` or
+  `ArgumentException` from `IDictionary.Add` / `IList.Add` rather than as anything Ceras said.
+
+So the invariant is stated once, in `Format/StructuralShape`, and asked at **every** door through which such
+an entry can arrive — always *before* a payload byte is interpreted:
+
+| door | site | asked | error |
+|---|---|---|---|
+| the authoring forge | `SchemaRegistry.Register(type, info)` with an explicit descriptor | the argument **count** against the definition it names | `CerasSchemaException` |
+| the section parser | `SchemaSection.Read` | the argument count, and the definition against the ids the section records | `CerasDataCorruptionException` |
+| the migration plans | `MigrationPlanBuilder.BuildAll` | the count and the definition (before the per-type plans), then the **argument identities** (after them) | `CerasSchemaException` |
+| the `Type` value grammar | `TypeValueShapes.ReadBoundedArgCount` | the argument count | `CerasDataCorruptionException` |
+
+`MigrationPlanBuilder.BuildAll` is listed separately from the parser because it is the boundary **every**
+route into the interpreter passes through: `CerasRobustSerializer.Load` builds the plans there, and
+`SchemaTraversalEngine`'s own constructor builds them when a caller hands it none. That is what makes the
+interpreter's **read** and **skip** directions unable to disagree about a malformed shape — neither can
+reach one, so there is nothing for them to disagree *about*. A per-element guard would be reachable from
+one direction only, which is why the rule is a section-level one.
+
+Two clauses are asked in a different order at the plan boundary, and deliberately:
+
+- the **count** and the **definition** first, because an entry that describes no payload at all cannot be
+  reasoned about per member, and the verdict a member-level comparison would print for one ("no defined
+  conversion between these two types") is a guess about a type the file never described;
+- the **argument identities** last, because that is a fact about one position of an otherwise readable
+  entry, and the existing member walk (`MigrationPlanBuilder.RejectUndescribablePosition`, reached from
+  `RejectMovedArrayPayload`) already reports it with the member and the position inside its shape named — a
+  better message than an entry-scoped one. What the section-level clause adds is the coverage the member
+  walk deliberately does not have: a member the application has since **removed** is skipped, and the
+  skipped path has no current declaration to compare against, so a malformed entry behind one used to
+  consume its count and then nothing.
+
+**Deliberately not part of the invariant:** whether the file's *names* resolve in this build. A save written
+by a build that had a type this one does not is a supported input, and its entries describe their payloads by
+identity alone. A `GenericInstantiation` whose definition is a *user* generic — a manifest entry the file
+itself describes — is equally legal, and its payload is its member list: that is `PayloadShape.Unknown`, and
+the argument-count rule does not apply to it, because a user generic's arity is not a fact about the format.
+A hand-written descriptor naming a definition the format does not lay out is therefore left alone; only the
+count of a *known* definition is checked.
+
+**The two classifications, and where they overlap.** The same defect — a description that cannot be read —
+is reported as one of two exception types, and the choice is made by *which layer* found it, not by what it
+thinks of the file:
+
+- `CerasDataCorruptionException` when the **file's own bytes** are self-inconsistent (the section parser,
+  the `Type` value grammar). Nothing in this build's model is involved, and the header checksum has already
+  verified the very bytes being complained about, so the only available evidence *is* the inconsistency. The
+  message says so, and rules out bit rot, because that is the wrong thing to go looking for.
+- `CerasSchemaException` when a **caller** opened the door — a hand-registered descriptor
+  (`SchemaRegistry.Register`) is application code, with an author who can still fix it — or when the
+  interpreter is asked what the file's own description means, which is a migration question
+  (`MigrationPlanBuilder`, and its argument-identity clause).
+
+The overlap is deliberate, and it is the point of asking one implementation everywhere: the same entry is
+refused the same way on the read and the skip path, so a caller can catch "this file's description is
+unreadable" without caring which door found it, while the exception *type* still says whether to look at the
+bytes or at its own model. Both are reported while the old-to-current schema is validated, before the stored
+root type id is read.
+
+**`List<bool>` specifically, and why no width was changed.** The reported problem paired two claims, and only
+the second is real. The first — that a *removed* `List<bool>` member corrupts a save written by this
+version — is a false positive: `SchemaTraversalEngine.WalkValue` answers the `Bool` id with a one-byte
+advance, which is exactly what `BoolFormatter` wrote, so the skip is byte-exact and every field after it
+holds. `MalformedCollectionSchemaTests.A_Valid_Collection_Entry_Behind_A_Removed_Member_Is_Skipped_Byte_Exactly`
+pins that for every shape in the table, `List<bool>` included. The behaviour is a property of the *skip*,
+which answers the `Bool` id from its own switch, so it holds whether or not `WellKnownTypes.FixedSizes`
+records a width for `bool`: setting one would change no byte and no skipped value, and it would not have
+touched the real defect — a `List<bool>` whose *entry* records no argument. That is what the invariant
+refuses, on both directions, naming the definition and both counts.
+
 ## The temporary collection policy
 
 `Format/UnsupportedCollectionPolicy` refuses four collection families outright:
@@ -324,7 +411,10 @@ rejection already has.
 `SchemaRegistry.Register(type, info)` with an **explicit** descriptor stays available: it is the
 documented public forge, and it is how a historical file's shape is described by hand. Only the derived
 paths — `DeclareRoot`, and `Register(type, null)`, which derive the descriptor from the CLR type — are
-refused.
+refused. An explicit descriptor is held to the structural invariant above (a definition of the format's own
+has to record exactly that definition's argument count), which is the one thing the forge cannot opt out
+of: a descriptor that lies about a shape is refused where the author can still see it, rather than reaching
+a reader that could not honour it.
 
 ## References, null, and polymorphism
 
@@ -437,6 +527,17 @@ type value may contain at most 256 nodes and nest at most 64 levels deep. A tag 
 manifest id the file's own schema section does not describe is refused on both the read and the skip
 path, because nothing then says how its payload is written.
 
+The arity bound above is a *resource* guard; the semantic rule beside it is exact. A count that is not the
+definition's own is refused, because a `Type` value names a concrete runtime type and a wrong argument
+count names no type at all — the same fact a schema section records as ordered argument ids, and the same
+structural invariant (see
+[the structural invariant](#the-structural-invariant-a-collection-description-has-to-carry-its-arguments)).
+This is the only door of that invariant reachable after a file's schema section has been parsed, because
+these entries are synthesized mid-decode, and it is asked *before* the argument array is sized. Left to
+`MakeGenericType` it would report the defect as a bare reflection `ArgumentException` on the read path,
+while the skip path — which never closes a CLR type at all — would have consumed nothing per element and
+desynchronized the rest of the save.
+
 **The synthesized entries are interned by value, not by occurrence.** Two type values that decode to the
 same structure — at every level of nesting, and with argument order significant — resolve to one entry,
 so the retained cost of a polymorphic slot's type value is the number of *distinct* nested shapes in the
@@ -456,8 +557,11 @@ consulted.
 `SchemaTypeInfo` kinds: `Enum`, `Struct`, `Class`, `GenericInstantiation`. `GenericInstantiation`
 records the definition type (`UnderlyingTypeName`) and ordered argument types (`ArgTypeNames`), which
 lets the interpreter describe value/reference representation without requiring the old CLR type to
-exist. Custom formatters own their bytes and are never described as an ordinary generated member
-schema.
+exist. A descriptor whose definition is one the format lays out has to record **exactly** that
+definition's argument count — a `GenericInstantiation` of `List` with no arguments describes no payload
+at all, and is refused at the registration; see
+[the structural invariant](#the-structural-invariant-a-collection-description-has-to-carry-its-arguments).
+Custom formatters own their bytes and are never described as an ordinary generated member schema.
 
 An `Enum` entry records its underlying type id and one name→value entry per declared member. The name
 is the member's stable wire name — `[CerasStableName]`, or the C# member name when the attribute is
@@ -531,6 +635,17 @@ the magnitude for an unsigned underlying type and a two's-complement negative va
      `TypeBinder` resolves (an external type bound by name) is *not* refused: the reader consumes it
      structurally. A name nothing resolves is refused earlier still, by
      `CerasRobustSerializer.BuildIdToType`, before the plans are built and with no payload interpreted;
+   - a **collection/array/tuple description that carries no readable definition or arguments** is refused
+     before the stored root type id is read, and identically on the read and on the skip path — see
+     [the structural invariant](#the-structural-invariant-a-collection-description-has-to-carry-its-arguments).
+     A definition of the format's own without exactly that definition's argument count is a
+     `CerasDataCorruptionException` from the section parser, because the section contradicts itself; a
+     definition or an argument identity the file does not describe is a `CerasSchemaException` from the
+     plan builder. Each of these was previously silent, a wrong value, or a bare reflection exception: a
+     `List<int>` whose entry records no argument loaded its elements back as zeros, a `Dictionary` recorded
+     with only its key threw `ArgumentNullException` out of the BCL, and every malformed shape
+     desynchronized the *skip* used for a member the application has since removed, because the element
+     count was consumed and then nothing;
    - a retyped field with a *defined* conversion is coerced; the widening set is exactly
      `Int16 -> Int32`, `Int32 -> Int64`, `Int32 -> Single`, `Int32 -> Double`, `Single -> Double`
      (`MigrationPlanBuilder.DetectCoercion`). An unmatched old field is skipped and surfaces in
@@ -584,7 +699,11 @@ the magnitude for an unsigned underlying type and a two's-complement negative va
    on the end of the region passes it and still decodes wrong values, and a deliberately lying
    `SchemaRegistry.Register`-ed schema matches its own fingerprint either way. It is not a substitute
    for truthful custom-payload metadata; it only turns "your save loaded, but part of it was never
-   read" from a silent success into a loud failure.
+   read" from a silent success into a loud failure. What *is* checked before any of it runs is the
+   structural invariant above — a collection description that carries no readable definition or
+   arguments — so a shape of that particular kind is refused at its own door rather than being left
+   for this detector to notice. The other kinds of lie (a member list that is not the type's, a name
+   that is not the type's) are still only this.
 
 Whether a given save is *meant* to stay loadable is a separate question from whether this decoder
 can read it: the compatibility starting format has not been declared yet, so nothing here promises

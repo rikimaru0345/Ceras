@@ -122,6 +122,20 @@ namespace Ceras.Format
             var oldById = new Dictionary<int, OldTypeSchema>();
             foreach (var s in oldByName.Values) oldById.TryAdd(s.TypeId, s);
 
+            // The structural invariant (StructuralShape), in the section's own type-id order so a file with
+            // more than one defect always reports the same one — a Dictionary's enumeration order is not part
+            // of its contract, and a diagnostic that changed between runs of the same load would be its own
+            // small defect. Two clauses first, because they are preconditions for everything below: an
+            // entry that describes no payload at all cannot be reasoned about per member, and the verdict a
+            // member walk would print for one ("no defined conversion between these two types") is a guess
+            // about a type the file never described. The section parser has already asked these two — it is
+            // the earliest door — and they are asked again here because this is the boundary every route into
+            // the interpreter passes through: Load builds the plans, and the engine's own constructor builds
+            // them when a caller hands it none, so a caller that drives the engine with schemas it built
+            // itself gets the same refusal.
+            var inIdOrder = InTypeIdOrder(oldById);
+            RequireReadableEntries(inIdOrder, oldById.ContainsKey);
+
             foreach (var kv in oldByName)
             {
                 var old = kv.Value;
@@ -132,7 +146,59 @@ namespace Ceras.Format
                 result[old.StableName] = BuildOne(old, oldById, registry);
             }
 
+            // The third clause last, and that is deliberate: an argument identity nothing describes is a
+            // fact about one position of an otherwise readable entry, and the walk inside BuildOne already
+            // reports it with the member and the position inside its shape named, which is the more useful
+            // message. What is left is exactly what that walk does not look at — a member the application
+            // has since removed, whose payload is skipped so its element count is consumed with nothing to
+            // say how wide an element is, and an entry nothing references. A malformed collection
+            // description behind a removed member used to consume its count and then nothing, desynchronizing
+            // every field after it. The entry is what is malformed, so the entry is what is checked — from
+            // wherever it is reached, and on the skip direction as well as the read one, since both run
+            // after this.
+            RequireResolvableArguments(inIdOrder, oldById.ContainsKey);
+
             return result;
+        }
+
+        /// <summary>
+        /// Refuses a section entry that describes no payload at all: a definition the format lays out
+        /// without exactly that definition's argument count, or a definition identity the file itself does
+        /// not describe. A <em>name</em> this build does not resolve is not a defect — an old file
+        /// legitimately names types this build does not have, and the reader consumes those structurally —
+        /// so the test is about identities, never about names.
+        /// </summary>
+        static void RequireReadableEntries(List<OldTypeSchema> inIdOrder, Func<int, bool> isDescribedTypeId)
+        {
+            foreach (var entry in inIdOrder)
+            {
+                var verdict = StructuralShape.InspectShape(entry);
+                if (!verdict.IsDefect) verdict = StructuralShape.InspectDefinition(entry, isDescribedTypeId);
+                if (verdict.IsDefect)
+                    throw StructuralShape.UnreadableSchema(entry, verdict);
+            }
+        }
+
+        /// <summary>
+        /// Refuses a section entry that records an argument identity nothing describes, so the element,
+        /// key, value or item it stands for has no readable representation.
+        /// </summary>
+        static void RequireResolvableArguments(List<OldTypeSchema> inIdOrder, Func<int, bool> isDescribedTypeId)
+        {
+            foreach (var entry in inIdOrder)
+            {
+                var verdict = StructuralShape.InspectArgumentIdentities(entry, isDescribedTypeId);
+                if (verdict.IsDefect)
+                    throw StructuralShape.UnreadableSchema(entry, verdict);
+            }
+        }
+
+        /// <summary>The section's entries in type-id order, so a diagnostic does not depend on hash order.</summary>
+        static List<OldTypeSchema> InTypeIdOrder(Dictionary<int, OldTypeSchema> oldById)
+        {
+            var ordered = new List<OldTypeSchema>(oldById.Values);
+            ordered.Sort((a, b) => a.TypeId.CompareTo(b.TypeId));
+            return ordered;
         }
 
         static TypeMigrationPlan BuildOne(OldTypeSchema old, Dictionary<int, OldTypeSchema> oldById, SchemaRegistry registry)
