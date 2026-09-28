@@ -16,6 +16,24 @@
     /// </summary>
     public class CollectionFormatterResolver : IFormatterResolver
     {
+        /// <summary>
+        /// What <see cref="Ceras.Helpers.Instantiator.Create"/> needs from a formatter it is
+        /// handed arguments for: <see cref="Activator"/> is given
+        /// <c>BindingFlags.Public | BindingFlags.NonPublic</c>, so both halves of the constructor set
+        /// have to stay, and which constructor it will bind is not something a dependency can
+        /// narrow down - the closed type is a <c>MakeGenericType</c> result.
+        /// </summary>
+        const DynamicallyAccessedMemberTypes Constructors =
+            DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors;
+
+        /// <summary>
+        /// The narrower requirement for the two formatters this resolver constructs with no
+        /// arguments at all: with an empty argument list <see cref="Activator"/> can only bind a
+        /// parameterless constructor, so that is the whole set worth rooting.
+        /// </summary>
+        const DynamicallyAccessedMemberTypes ParameterlessConstructors =
+            DynamicallyAccessedMemberTypes.PublicParameterlessConstructor | DynamicallyAccessedMemberTypes.NonPublicConstructors;
+
         readonly CerasSerializer _ceras;
         Dictionary<Type, IFormatter> _formatterInstances = new Dictionary<Type, IFormatter>();
 
@@ -24,6 +42,59 @@
             _ceras = ceras;
         }
 
+        /// <summary>
+        /// The six <see cref="DynamicDependencyAttribute"/>s state the members of the six formatter
+        /// families this method closes over a runtime <see cref="Type"/>. None of them can be named
+        /// by a compilation: a generated formatter refers to a formatter only as the type of an
+        /// injected field, which roots the instantiation and nothing inside it, so every one of
+        /// them exists solely as a <c>MakeGenericType</c> result - which is also why the requirement
+        /// cannot be written on <paramref name="type"/> with
+        /// <see cref="DynamicallyAccessedMembersAttribute"/> ("keep this one closed instantiation's
+        /// constructor" is not a statement about a member of a type the trimmer can see). A
+        /// dependency on the open definition is the one form that covers every closed construction,
+        /// including the ones no compilation has heard of, and it is the same fix as the one
+        /// <c>CerasSerializer.GetReferenceFormatter</c> applies to the reference-formatter families.
+        /// <para>
+        /// The member sets differ per family and the difference is not cosmetic:
+        /// </para>
+        /// <list type="bullet">
+        /// <item><description>
+        /// <see cref="ReinterpretArrayFormatter{T}"/>, <see cref="ArrayFormatter{TItem}"/> and
+        /// <see cref="CollectionFormatter{TCollection, TItem}"/> are constructed with arguments, so
+        /// they need <see cref="Constructors"/> and nothing else: their own
+        /// <c>Serialize</c>/<c>Deserialize</c> are already rooted, because the type is reached
+        /// through the non-generic <see cref="IFormatter"/> and the virtual
+        /// <c>FormatterBase&lt;T&gt;.SerializeUntyped</c> that calls them is.
+        /// </description></item>
+        /// <item><description>
+        /// <see cref="MultiDimensionalArrayFormatter{TItem}"/> needs the constructors *and*
+        /// <see cref="DynamicallyAccessedMemberTypes.PublicMethods"/>, and it is the only one of the
+        /// six that failed for that reason rather than for a missing constructor. It implements three
+        /// extra interfaces - <c>IFormatter&lt;TItem[,]&gt;</c>, <c>IFormatter&lt;TItem[,,]&gt;</c> and
+        /// <c>IFormatter&lt;TItem[,,,]&gt;</c> - whose <em>closed</em> constructions appear nowhere in
+        /// any compilation, so nothing roots the methods that implement them. The trimmer then drops
+        /// an implementation while leaving the interface in the type's interface list, and the failure
+        /// is a <see cref="TypeLoadException"/> ("Method 'Serialize' in type
+        /// 'Ceras.Formatters.MultiDimensionalArrayFormatter`1' does not have an implementation")
+        /// raised from the type load that <c>Instantiator.Create</c> performs - which is why rooting
+        /// a constructor alone cannot fix it, and why the members that are needed here are the public
+        /// ones rather than the constructor.
+        /// </description></item>
+        /// <item><description>
+        /// <see cref="StackFormatter{TItem}"/> and <see cref="QueueFormatter{TItem}"/> are
+        /// constructed with no arguments, so only <see cref="ParameterlessConstructors"/> is asked
+        /// for. Their item formatter is injected into a private field by
+        /// <c>CerasSerializer.PrepareFormatter</c> through reflection, which is a separate rooting
+        /// question this method does not answer.
+        /// </description></item>
+        /// </list>
+        /// </summary>
+        [DynamicDependency(Constructors, typeof(ReinterpretArrayFormatter<>))]
+        [DynamicDependency(Constructors, typeof(ArrayFormatter<>))]
+        [DynamicDependency(Constructors | DynamicallyAccessedMemberTypes.PublicMethods, typeof(MultiDimensionalArrayFormatter<>))]
+        [DynamicDependency(ParameterlessConstructors, typeof(StackFormatter<>))]
+        [DynamicDependency(ParameterlessConstructors, typeof(QueueFormatter<>))]
+        [DynamicDependency(Constructors, typeof(CollectionFormatter<,>))]
         public IFormatter? GetFormatter(Type type)
         {
             //
