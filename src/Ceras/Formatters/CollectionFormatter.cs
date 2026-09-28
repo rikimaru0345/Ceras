@@ -250,6 +250,36 @@ namespace Ceras.Formatters
             SerializerBinary.WriteUInt32Bias(writer, count, 1);
             
             var f = _itemFormatter;
+
+            // Fast paths that read the elements in place. Both write exactly the bytes the
+            // IEnumerable<TItem> loop below writes, in the same order, so the wire format is
+            // unchanged - they only remove the enumerator.
+            //
+            // `IEnumerable<TItem>.GetEnumerator()` returns a reference type, so `foreach` over the
+            // interface boxes one enumerator per collection, even when the collection is a List<T>
+            // with a perfectly good struct enumerator. On a graph that is mostly small lists that
+            // is one throwaway allocation per list written. CollectionsMarshal.AsSpan exposes the
+            // same storage as a Span<T> and the indexed loop below cannot allocate.
+            //
+            // A `List<TItem>` is matched by runtime type, so a List reached through an interface-typed
+            // member (IList<T>/ICollection<T>/IEnumerable<T>) takes this path too, which is the
+            // common case for collections - and is not reachable by special-casing the *formatter*,
+            // since the formatter is chosen from the member's declared type.
+            if (value is List<TItem> list)
+            {
+                var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list);
+                for (int i = 0; i < span.Length; i++)
+                    f.Serialize(writer, span[i]);
+                return;
+            }
+
+            if (value is TItem[] array)
+            {
+                for (int i = 0; i < array.Length; i++)
+                    f.Serialize(writer, array[i]);
+                return;
+            }
+
             if (value is IEnumerable<TItem> enumerable)
             {
                 foreach (var item in enumerable) f.Serialize(writer, item);
