@@ -1112,8 +1112,10 @@ namespace Ceras.Format
             }
 
             // 2. Assembly-qualified CLR names resolve directly. This is the legacy/old-save shape
-            //    (Type.FullName for closed generics) and genuine external type names.
-            type = Type.GetType(stableName);
+            //    (Type.FullName for closed generics) and genuine external type names. A name the runtime
+            //    refuses to read rather than declining is a miss too (ResolveClrName), so step 3 gets its
+            //    turn on exactly the closed canonical names this step cannot parse.
+            type = ResolveClrName(stableName);
             if (type != null) return true;
 
             // 3. Canonical names of closed generics / arrays / pointers that are not registered yet
@@ -1290,13 +1292,50 @@ namespace Ceras.Format
             // Type.GetType is a fact about the runtime, not a choice: a framework definition resolves
             // whether or not this context configured a binder. Only the binder below is the choice, and it
             // is the last thing asked.
-            var resolved = Type.GetType(definitionName)
+            var resolved = ResolveClrName(definitionName)
                            ?? (binder != null ? ResolveThroughBinder(binder, definitionName) : null);
 
             lock (_lock)
                 _definitionNames[definitionName] = resolved;
 
             return resolved;
+        }
+
+        /// <summary>
+        /// <c>Type.GetType</c>'s answer for a name, with a throw normalized to a miss, the same way
+        /// <see cref="ResolveThroughBinder"/> normalizes a binder's "no such type".
+        /// <para>
+        /// The runtime does not answer null for every name it will not resolve — it throws, most
+        /// visibly <c>FileLoadException("The given assembly name was invalid")</c> for a <b>closed
+        /// canonical generic of arity three or more</b> (<c>System.ValueTuple`3&lt;System.Int32,…&gt;</c>,
+        /// and anything nested inside one, an array of one, or a name with three or more commas). That
+        /// is the runtime declining to <em>parse</em> a spelling it was never given — the canonical form
+        /// is Ceras' own, and its argument list is not an assembly-qualified type list — not a fault in
+        /// this build. Left unnormalized it is fatal to the one thing the name was written for: a
+        /// declared <c>(int, int, int)</c> member is discovered at bake time under exactly that name,
+        /// so the first <c>Save</c> of a model containing a three- or more-element tuple dies with a
+        /// reflection exception instead of describing the member.
+        /// </para>
+        /// <para>
+        /// Treating it as a miss is what lets the answer be reached at all, and the step that reaches it
+        /// is the canonical parser: it asks for the *definition* name (<c>System.ValueTuple`3</c>), which
+        /// <c>Type.GetType</c> does read, and closes it itself. So a throw here is a spelling this step
+        /// cannot handle, never a type it hid — <see cref="TryResolveType"/> keeps its documented promise
+        /// that a name it does not recognize returns false rather than throwing, and no wire id, no
+        /// fingerprint and no manifest name changes, because nothing that resolved before resolves
+        /// differently now.
+        /// </para>
+        /// </summary>
+        static Type? ResolveClrName(string name)
+        {
+            try
+            {
+                return Type.GetType(name);
+            }
+            catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException)
+            {
+                return null;
+            }
         }
 
         /// <summary>
