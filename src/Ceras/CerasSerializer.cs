@@ -273,9 +273,15 @@ namespace Ceras
 		protected internal int Serialize<T>(T obj, ref byte[] buffer, ref int offset)
 		{
 			int start = offset;
-			// pooled: the contract for this overload is that the buffer is a rental, so growing it
-			// may return the replaced array. See EnsureCapacity for why that has to be stated rather
-			// than inferred.
+			// Pooled: the contract for this overload is that the buffer is a rental, so growing it may
+			// return the replaced array. Checked here, at the door, rather than left to the first
+			// growth to discover - a caller's own array that happens to be big enough would otherwise
+			// be accepted silently, and the mistake would only surface on the message that happened to
+			// outgrow it, if it ever did. A few nanoseconds here buys a refusal at the call that made
+			// the mistake, naming the argument. Null is not a failure: a null buffer means "rent me
+			// one", which adopts nothing of the caller's.
+			CerasBufferPool.RequireRental(buffer, nameof(buffer));
+
 			var writer = RentWriter(buffer, offset, bufferIsPooled: true);
 			try
 			{
