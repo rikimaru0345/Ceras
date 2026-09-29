@@ -1583,7 +1583,9 @@ namespace Ceras.Format
                 // a schema entry of the same shape are therefore skipped the same way, nesting included.
                 if (typeId < WellKnownTypes.UserTypeBase && typeId != FullNameMarker)
                 {
-                    _identity.Reserve(null);
+                    // Skipped, not read: the slot keeps the writer's numbering in step, and nothing will
+                    // ever be published into it (see IdentityCache.ReserveSkipped).
+                    _identity.ReserveSkipped();
                     SkipTypeValuePayload(typeId, ref reader);
                     return;
                 }
@@ -1591,10 +1593,11 @@ namespace Ceras.Format
             else
             {
                 // The mirror of the reader: a declared System.Object has an empty payload, so the marker
-                // plus the object-cache slot it reserved is the whole of it.
+                // plus the object-cache slot it reserved is the whole of it. The slot is reserved and
+                // never filled, because the one object the writer recorded there is not built here.
                 if (expectedTypeId == WellKnownTypes.Object)
                 {
-                    _identity.Reserve(null);
+                    _identity.ReserveSkipped();
                     return;
                 }
 
@@ -1607,7 +1610,11 @@ namespace Ceras.Format
                 typeId = expectedTypeId;
             }
 
-            _identity.Reserve(null); // keep the index space in sync with the writer's, without building anything
+            // Keep the index space in sync with the writer's, without building anything. The object the
+            // writer recorded in this slot is not built, so the slot is marked as one that will never be
+            // published: a later back-reference to it has no value behind it, and IdentityCache.Resolve
+            // reports that as the unsupported cross-reference it is rather than answering null.
+            _identity.ReserveSkipped();
 
             if (typeId == FullNameMarker)
             {
