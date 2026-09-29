@@ -81,8 +81,13 @@ context after seal or parse the schema on a matching-layout load.
   extract byte-preserving shared rules and pin existing payload bytes. V5 frames user
   custom formatter payloads in robust contexts; `SchemaRegistry.Register` can still
   deliberately register a lying schema,
-  and reinterpret/reflection/resolver formatters may write bytes that no schema
-  describes. Verify writer selection against the authoritative layout; the
+   and reinterpret/reflection/resolver formatters may write bytes that no schema
+   describes. User resolver selections are now refused when unsupported, but the
+   dynamic reflection fallback can still write a different member list or order under
+   an unchanged fingerprint (reproduced across real builds). **Correctness gate:**
+   verify the reflection-selected member list against the baked entry and refuse a
+   mismatch before caching or writing; later unify the generator/runtime sort keys
+   only with a deliberate format-version/fixture transition. Verify writer selection against the authoritative layout; the
   manifest-coupled guard is not an unforgeable proof of schema truth. Record array
   rank if robust polymorphic multidimensional arrays are ever supported; v4 rejects
   them before Save because the current Type value only records an element type.
