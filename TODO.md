@@ -86,8 +86,10 @@ context after seal or parse the schema on a matching-layout load.
    dynamic reflection fallback can still write a different member list or order under
    an unchanged fingerprint (reproduced across real builds). **Correctness gate:**
    verify the reflection-selected member list against the baked entry and refuse a
-   mismatch before caching or writing; later unify the generator/runtime sort keys
-   only with a deliberate format-version/fixture transition. Verify writer selection against the authoritative layout; the
+   mismatch before caching or writing. **Greenfield decision:** unify generator/runtime
+   sort keys now; no deployed data needs a transition. Regenerate only affected test
+   fixtures from their real writers, and recheck the game's real v5 fixtures. Verify
+   writer selection against the authoritative layout; the
   manifest-coupled guard is not an unforgeable proof of schema truth. Record array
   rank if robust polymorphic multidimensional arrays are ever supported; v4 rejects
   them before Save because the current Type value only records an element type.
