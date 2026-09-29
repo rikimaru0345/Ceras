@@ -242,17 +242,13 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
 
 - Retire obsolete reflection `Schema`/`SchemaMember`/`PrimarySchema`, fallbacks,
   factories, ordering helpers and dead robust `FullNameMarker` write assumptions once
-  consumers are replaced. Keep any required released-format decoder. Audit the
-  internal `CerasRobustSerializer(CerasRobustConfig)` constructor: unlike the public
-  path it skips robust formatter initialization, so internal callers can write
-  length-prefixed strings against a schema expecting table indices.
-- `CLEANUP_TODO.md` now details the remaining internal-constructor mismatch and two
-  cosmetic leftovers. `CerasSerializer` stays public while generated formatters call
-  its public members. Give `CerasRobustSerializer(CerasRobustConfig)` the same robust
-  formatter setup as the public path — it can otherwise write length-prefixed strings
-  against a schema expecting table indices — and convert the tests that depend on the
-  gap. The post-seal mutation doors (`OnResolveFormatter`, `ConfigType*`,
-  `MapParameters`, the live member list) are closed and regression-tested.
+  consumers are replaced. Keep any required released-format decoder.
+- `CLEANUP_TODO.md` now details two cosmetic leftovers. `CerasSerializer` stays public
+  while generated formatters call its public members. The internal robust constructor
+  now initializes the same string/`Type` formatters as the public path, and its former
+  raw-serialization tests now use real `Save`/`Load`. The post-seal mutation doors
+  (`OnResolveFormatter`, `ConfigType*`, `MapParameters`, the live member list) are
+  closed and regression-tested.
 - Guard the public pooled `Serialize` overload against caller-owned buffers: it currently
   treats a replacement buffer as pooled, so a mistaken ownership flag can offer a caller's
   array to another renter. Keep the ownership contract explicit and pin the failure path.

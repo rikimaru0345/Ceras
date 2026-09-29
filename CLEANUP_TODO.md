@@ -1,47 +1,11 @@
 # Ceras API cleanup
 
-Reconciled after the experimental v5 and post-seal guard merges. The remaining work is
-the internal constructor mismatch and two cosmetic leftovers. Anything larger belongs
-in `TODO.md`, not here.
+Reconciled after the experimental v5, post-seal guard and internal-constructor fixes.
+Only two cosmetic leftovers remain here. Anything larger belongs in `TODO.md`.
 
 ## Open work
 
-### 1. The internal `CerasRobustSerializer(CerasRobustConfig)` constructor skips the robust formatters
-
-`CerasRobustSerializer.cs:190` — the public path builds its config through `MakeConfig`, which
-calls `InitializeRobustFormatters` (`CerasRobustSerializer.cs:207`, `:212`) and installs
-`RobustStringFormatter` / `RobustTypeFormatter` on the `string` and `System.Type` type configs.
-The internal constructor does not, so `CerasSerializer`'s constructor falls back to
-`StringFormatter` (varint length prefix + UTF-8, `SerializerBinary.cs:770`) and `TypeFormatter`
-(a bias-tagged kind plus a binder-produced name, `TypeFormatter.cs:82`). Generated formatters ask
-for `IFormatter<string>` rather than naming one (`RobustCodeEmitter.cs:483`), so they take
-whatever the constructor installed.
-
-`Save` on such a serializer therefore succeeds and writes a v5 file whose payload does not
-match the grammar the format declares for those positions — a 4-byte string-table index, not a
-length prefix (`Format/LAYOUT.md:161`, `:176`) — with an empty payload string table. The read then
-fails with
-`RobustStringFormatter`'s "Invalid string table index" (`RobustStringFormatter.cs:42`) — loud, but
-a message that names neither the string nor the misconfiguration, and the bad file already exists
-by then. Nothing rejects the combination earlier: `RobustCustomFormatterPolicy` passes (no user
-formatter was installed, so there is nothing to reject) and the layout fingerprint matches, so
-`Load` takes the generated path.
-
-**Not reachable from the public surface today.** `CerasRobustSerializer` is `sealed`, the raw
-methods are `protected internal` on `CerasSerializer`, and the only extension methods that reach
-them are constrained to `CerasFastSerializer` (`Extensions.cs:14`, `:40`). The reachable callers
-are the friend test assemblies, five of which *depend* on the gap — they call the raw
-`Serialize`/`Deserialize` on a robust serializer and pass only because the formatters are missing:
-`SchemaRegistryTests.cs:181` and `DiscoveryTests.cs:119`, `:145`, `:188`, `:222` (constructors at
-`SchemaRegistryTests.cs:178`, `DiscoveryTests.cs:110`, `:132`, `:165`, `:220`; the other internal
-constructor call sites are `ReviewFindingsTests.cs:496`, `ConfigSealingTests.cs:198`,
-`GodotStyleRepro.cs:158`, all of which use `Save`).
-
-Either give the internal constructor the same initialization and convert those five tests to
-`Save`/`Load` or to a `CerasFastSerializer`, or delete the constructor and route every caller
-through the public one.
-
-### 2. Two cosmetic leftovers in the robust serializer
+### Two cosmetic leftovers in the robust serializer
 
 No format impact, no behaviour change; both are in diagnostic/codec code.
 
@@ -65,6 +29,10 @@ exist, and a comment at `TypeHelpers.cs:724`.
 
 ## Decisions, kept so they are not reversed by accident
 
+- **The internal robust constructor now initializes the robust string and `Type`
+  formatters.** Its five tests that depended on raw serialization through a robust
+  serializer now use real `Save`/`Load`; six regressions pin the internal path and its
+  file grammar. A caller-supplied custom formatter is not overwritten silently.
 - **Post-seal configuration guards are done.** Retained resolver/member-list references
   refuse mutations, known type configs stay inspectable but not mutable, creating a
   configuration for a new type after seal refuses, and `MapParameters` seal-checks.
