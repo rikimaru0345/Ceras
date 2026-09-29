@@ -15,6 +15,15 @@ namespace Ceras.Format
     /// index arithmetic exists in exactly one place.
     /// </para>
     /// <para>
+    /// Reserving is separate from publishing for a second reason as well: the interpreter has to keep this
+    /// list in step with the writer's even where it builds <em>nothing</em>. A value at a removed position
+    /// is skipped, but the writer still reserved a slot for it, so every marker after it is numbered as
+    /// though the object existed — which makes that reservation its own state, and the one that cannot be
+    /// published. <see cref="ReserveSkipped"/> records it, and <see cref="Resolve"/> refuses it: a reference
+    /// to an object the reader skipped past is a reference it has nothing to point at, and answering null
+    /// would drop a reference the save legitimately contains while reporting success.
+    /// </para>
+    /// <para>
     /// Generic over the value the slots hold, so the same arithmetic serves every reader that fills slots
     /// — the streaming interpreter instantiates it as <c>IdentityCache&lt;object?&gt;</c>, and the
     /// old-data graph's builder (TODO.md, Milestone 2) as <c>IdentityCache&lt;OldValue&gt;</c>. The
@@ -23,11 +32,27 @@ namespace Ceras.Format
     /// a hand-rolled second copy of them is a second chance to disagree with the writer.
     /// </para>
     /// </summary>
-    /// <typeparam name="T">What a slot holds. A slot is nullable: a reserved-but-unpublished slot, or a
-    /// published null, are both states the reader can legitimately be in.</typeparam>
+    /// <typeparam name="T">What a slot holds. A slot is nullable, and a null is <em>not</em> one state but
+    /// two: a reserved-but-unpublished slot — which is what a cycle resolves through — and a published
+    /// null, which is a value the save genuinely carries. A third state is not a value at all but the
+    /// absence of one (see <see cref="ReserveSkipped"/>), and it is tracked beside the list rather than
+    /// inside it so that none of the three is inferred from a null.</typeparam>
     sealed class IdentityCache<T>
     {
         readonly List<T?> _slots = new();
+
+        // The slots above, minus the ones this reader can never fill, as ascending non-overlapping
+        // half-open [From, To) ranges. It is null until the first skipped occurrence: a save with nothing
+        // behind a removed position — every read path, and the only kind most files are — pays one
+        // reference comparison per resolve and nothing else, and never allocates.
+        //
+        // Ranges rather than a set of indices because the slots of one skipped occurrence are *consecutive*:
+        // a skip walks its whole subtree, and nothing in between is a read (see Resolve, which is only
+        // reached from the read path at all). A removed member holding a thousand objects is therefore one
+        // entry. Correctness does not rest on that: a gap starts a new range, so the list stays exact
+        // either way, and contiguity is only what keeps it short.
+        SkippedRange[]? _skipped;
+        int _skippedCount;
 
         public int Count => _slots.Count;
 
@@ -43,6 +68,40 @@ namespace Ceras.Format
             return index;
         }
 
+        /// <summary>
+        /// Reserves the slot a writer reserved for a value at a position the reader is <em>skipping</em> —
+        /// a member the current model no longer has, say — and records that nothing will ever be published
+        /// into it. The index arithmetic stays in step with the writer's, which is the only reason the slot
+        /// exists; the identity it stood for is gone, and <see cref="Resolve"/> says so rather than
+        /// answering the placeholder.
+        /// </summary>
+        public int ReserveSkipped()
+        {
+            int index = _slots.Count;
+            _slots.Add(default);
+
+            var skipped = _skipped;
+
+            // Extend the run this one continues, or start the next one. Not a merge, because a skip's
+            // slots can only be consecutive: nothing can reserve between two of them.
+            if (skipped != null && _skippedCount != 0 && skipped[_skippedCount - 1].To == index)
+            {
+                var last = skipped[_skippedCount - 1];
+                skipped[_skippedCount - 1] = new SkippedRange(last.From, index + 1);
+                return index;
+            }
+
+            if (skipped == null || skipped.Length == _skippedCount) GrowSkipped();
+            _skipped![_skippedCount++] = new SkippedRange(index, index + 1);
+            return index;
+        }
+
+        void GrowSkipped()
+        {
+            int capacity = _skipped == null ? 4 : _skipped.Length * 2;
+            Array.Resize(ref _skipped, capacity);
+        }
+
         /// <summary>Publishes the object into a reserved slot.</summary>
         public void Publish(int index, T? value) => _slots[index] = value;
 
@@ -53,9 +112,22 @@ namespace Ceras.Format
         }
 
         /// <summary>
-        /// Resolves a back-reference marker. An index past the end is corrupt data: the writer only ever
-        /// emits indices for objects it has written, so this used to decode as a legitimate null — the one
-        /// value a caller cannot tell apart from a real one.
+        /// Resolves a back-reference marker.
+        /// <para>
+        /// Two ways a marker cannot be answered, and they are different failures. An index past the end is
+        /// corrupt data: the writer only ever emits indices for objects it has written, so this used to
+        /// decode as a legitimate null — the one value a caller cannot tell apart from a real one. An index
+        /// <em>inside</em> the cache whose first occurrence was skipped is a save this build's model cannot
+        /// express: the writer really did write the object, at a member that no longer exists, so the
+        /// reader has no value to hand back, and a null here is a reference the file contains silently
+        /// dropped while the load reports success. That one is a schema problem the caller can act on.
+        /// </para>
+        /// <para>
+        /// A slot that is merely reserved — an object whose members are still being read — is neither. It
+        /// resolves to its placeholder, which is what makes a cycle work, and nothing here can tell a
+        /// placeholder that is still null from one that is not, which is exactly why the two states above
+        /// are recorded rather than inferred from the value.
+        /// </para>
         /// </summary>
         public T? Resolve(int index)
         {
@@ -64,7 +136,50 @@ namespace Ceras.Format
                     $"Corrupt data: a back-reference points at object {index}, but only {_slots.Count} " +
                     "objects have been read so far.");
 
+            if (_skippedCount != 0 && IsSkipped(index))
+                throw new Exceptions.CerasSchemaException(
+                    $"Cannot read the save: a member refers back to object {index}, but the only place the file writes that " +
+                    "object is a member this build no longer has. The interpreter accounts for a removed member's bytes without " +
+                    "building what they described, so there is nothing for this reference to resolve to; returning null would drop " +
+                    "a reference the save really contains and report the load as a success. Keep that member in the model — and " +
+                    "keep the [PreviousTypeName] that goes with it, so the old name still resolves — or drop every reference to it " +
+                    "as well, and read the save again.");
+
             return _slots[index];
+        }
+
+        /// <summary>Whether <paramref name="index"/> falls in one of the skipped runs. Binary search: the runs are
+        /// ascending and non-overlapping, and there are as many of them as there are skipped occurrences,
+        /// not as many as there are skipped objects.</summary>
+        bool IsSkipped(int index)
+        {
+            var skipped = _skipped;
+            if (skipped == null) return false;
+
+            int low = 0, high = _skippedCount - 1;
+            while (low <= high)
+            {
+                int middle = low + ((high - low) >> 1);
+                var range = skipped[middle];
+                if (index < range.From) high = middle - 1;
+                else if (index >= range.To) low = middle + 1;
+                else return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>One run of skipped slots, as a half-open range of indices.</summary>
+        readonly struct SkippedRange
+        {
+            public readonly int From;
+            public readonly int To;
+
+            public SkippedRange(int from, int to)
+            {
+                From = from;
+                To = to;
+            }
         }
     }
 
