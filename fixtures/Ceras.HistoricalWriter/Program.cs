@@ -33,6 +33,8 @@ using Ceras.HistoricalWriter.V1Opaque;
 using Ceras.HistoricalWriter.V1Nested.ToObject;
 using Ceras.HistoricalWriter.V1Nested.Widened;
 using Ceras.HistoricalWriter.V1EnumNames;
+using Ceras.HistoricalWriter.V1Inherited;
+using Ceras.HistoricalWriter.V1InheritedNarrow;
 using Ceras.HistoricalWriter.V1Poly;
 using Ceras.HistoricalWriter.V1Pooled;
 
@@ -67,6 +69,13 @@ namespace Ceras.HistoricalWriter
         const string NestedDictKeyChangeContext = "HistoricalV1NestedDictKeyChange";
         const string NestedRemovedArgContext = "HistoricalV1NestedRemovedArg";
         const string NestedSameContext = "HistoricalV1NestedSame";
+
+        // A renamed *and* widened member declared on a base type, reached through a nested collection,
+        // plus the fixed-size struct element whose width changed. The direction that has to be refused
+        // lives in a context of its own, because the plans are built for every type a file's section
+        // describes — see V1InheritedMemberModel.cs.
+        const string InheritedContext = "HistoricalV1Inherited";
+        const string InheritedNarrowContext = "HistoricalV1InheritedNarrow";
 
         static int Main(string[] args)
         {
@@ -124,6 +133,7 @@ namespace Ceras.HistoricalWriter
             foreach (var fixture in ArraySlotFixtures()) yield return fixture;
             foreach (var fixture in ArrayShapeFixtures()) yield return fixture;
             foreach (var fixture in NestedArrayShapeFixtures()) yield return fixture;
+            foreach (var fixture in InheritedMemberFixtures()) yield return fixture;
             foreach (var fixture in OpaqueFixtures()) yield return fixture;
         }
 
@@ -611,6 +621,63 @@ namespace Ceras.HistoricalWriter
             // A removed member: skipped by the file's own grammar, with no current argument tree to compare.
             yield return ("NestedRemovedList.bin", same.Save(
                 new RemovedListOfArraysCrate { Slot = new List<int[]> { new[] { 5, 6 } }, Marker = Sentinel }, 1));
+        }
+
+        /// <summary>
+        /// An **inherited** member that is renamed and widened, reached through a nested collection, and a
+        /// fixed-size struct whose own member width changed while the struct is a collection element.
+        /// <list type="bullet">
+        /// <item><c>InheritedWiden</c> is the direction that has to keep working. v1's <c>Power</c> is an
+        /// <c>int</c> declared on a <b>base type the file never instantiates</b>, so the reader has to
+        /// resolve the base's own schema entry through a rename and coerce the value on every instance —
+        /// of which there are three references to two objects, because <c>Leader</c> and <c>Squad[0]</c>
+        /// were one instance. <c>Ammo.Count</c> is widened too, on the list and the keyed positions, so
+        /// the declared byte size of the struct this build would write (12) disagrees with the file's (8)
+        /// with no marker or length anywhere to recover from.</item>
+        /// <item><c>InheritedNarrowRefused</c> is the direction that must be refused: the same nested
+        /// position, with the struct's member narrowed to a <c>short</c>, which is not one of the
+        /// conversions Ceras performs. It is a context of its own so its refusal cannot reach the file
+        /// above.</item>
+        /// </list>
+        /// </summary>
+        static IEnumerable<(string Name, byte[] Bytes)> InheritedMemberFixtures()
+        {
+            const uint RosterSentinel = 0x5EED5EEDu;
+            const uint CrateSentinel = 0x0DDBA11u;
+
+            // 0x12345678 and a negative, so the int -> long widening is observable in both directions and a
+            // reader that read the wrong width or the wrong member would land on a different number.
+            var leader = new Soldier { Name = "Ayla", Power = 0x12345678, Armour = 55 };
+            var other = new Soldier { Name = "Bryn", Power = -9, Armour = 12 };
+
+            yield return ("InheritedWiden.bin", NewSerializer(InheritedContext).Save(new Roster
+            {
+                Leader = leader,                                  // the same instance as Squad[0]
+                Reserve = new Dictionary<string, Ammo>
+                {
+                    ["slugs"] = new Ammo { Count = 300, Kind = 1 },
+                    ["shells"] = new Ammo { Count = 1200, Kind = 2 },
+                },
+                Loadout = new List<Ammo>
+                {
+                    new Ammo { Count = 120, Kind = 7 },
+                    new Ammo { Count = -4, Kind = 9 },            // a negative value through the widening
+                },
+                Squad = new List<Soldier> { leader, other },
+                Marker = RosterSentinel,
+            }, 1));
+
+            // The refusal side. The value is a real one: the point is that this file is a perfectly good
+            // v5 save and this build's model of it is not migratable, and that says so before the payload.
+            yield return ("InheritedNarrowRefused.bin", NewSerializer(InheritedNarrowContext).Save(new Crate
+            {
+                Loads = new List<Weight>
+                {
+                    new Weight { Grams = 1250, Kind = 1 },
+                    new Weight { Grams = 7, Kind = 2 },
+                },
+                Marker = CrateSentinel,
+            }, 1));
         }
     }
 }

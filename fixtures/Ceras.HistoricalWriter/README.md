@@ -222,6 +222,42 @@ The reader-side counterpart is
 `tests/Ceras.Test/Tests/OpaqueCustomPayloadFixtureTests.cs`, and the same-version behaviour (a round
 trip, a swapped formatter, a dropped value) is in `tests/Ceras.Test/Tests/OpaqueCustomPayloadTests.cs`.
 
+## The inherited-member fixtures (`V1InheritedMemberModel.cs`)
+
+Two evolutions a game makes constantly, on a save where the affected type is instantiated more than once
+and reached through a nested collection. Two contexts, for the reason every other pair here is split: the
+migration plans are built for *every* type a file's schema section describes, so a single rejected type in
+a shared context aborts the load of the file that has nothing to do with it.
+
+| Aspect | Fixture | Old (v1) | Current |
+| --- | --- | --- | --- |
+| Inherited member renamed **and** widened | `InheritedWiden.bin` | `Unit.Power : int`, declared on a base the file never instantiates | `Stat.Rating : long` via `[PreviousName]`, on a base renamed by `[PreviousTypeName]` |
+| Inherited member removed | `InheritedWiden.bin` | `Unit.Armour : int` | gone — the four bytes are skipped between the renamed one and the derived `Name` |
+| Base type's own entry has to resolve | `InheritedWiden.bin` | an entry for `Unit` with no instance of it in the payload | resolved through the alias, or the load is refused before a byte is read |
+| Widened member of a **struct element** | `InheritedWiden.bin` | `Ammo { int Count; int Kind; }` — 8 bytes inline | `Count` is a `long` — 12 bytes in this build, and the file's 8 are what the reader must use |
+| …on the keyed position too | `InheritedWiden.bin` | `Dictionary<string, Ammo> Reserve` | both entries rebuilt, keys from the payload string table |
+| Added field on an instantiated type | `InheritedWiden.bin` | v1 wrote no `Morale` | `Morale = 100` — the *declared* default, on all three references |
+| Sharing across a rename, a widening and an added field | `InheritedWiden.bin` | `Leader` **is** `Squad[0]` | one instance; the second element is a back-reference in the file |
+| Where the refusal happens | `InheritedNarrowRefused.bin` | `Weight { int Grams; int Kind; }` | `Grams` is a `short` — **refused** by name, before the payload |
+| …in a position with no crate member to point at | `InheritedNarrowRefused.bin` | `Crate.Loads : List<Weight>` | the message names `Weight.Grams`, which is where the change is |
+
+`InheritedNarrowRefused.bin` is a well-formed v5 save that this build's model of it cannot migrate, and the
+sentinel at the end of each crate is what makes that checkable: a member whose elements were mis-decoded
+shows up as a wrong number rather than as a load that happens to succeed.
+
+The base type is a plain class on both sides, and that is load-bearing rather than cosmetic: a generated
+manifest registers an **abstract or interface** type with a placeholder schema whose
+`previousTypeNames` is `Array.Empty<string>()` and whose `fields` is empty, so a user-declared
+`[PreviousTypeName]` on such a type never reaches the manifest. A renamed abstract base therefore cannot be
+resolved from a file, and `CerasRobustSerializer.BuildIdToType` — whose own comment says an old type this
+build does not have "stays unmapped" — hands the name to the configured `ITypeBinder`, which is contracted
+to throw rather than answer null. Changing the base to `abstract` on both sides reproduces it exactly. (A
+reported defect, not a pinned test: `tests/Ceras.Test/Tests/HistoricalInheritedMemberFixtureTests.cs`
+carries the same note on the reader-side model.)
+
+The reader-side counterpart is
+`tests/Ceras.Test/Tests/HistoricalInheritedMemberFixtureTests.cs`.
+
 ## Changing a fixture
 
 1. Change the old model: `V1Model.cs` for the `HistoricalV1` context, `V1OpaqueModel.cs` for the
@@ -229,7 +265,8 @@ trip, a swapped formatter, a dropped value) is in `tests/Ceras.Test/Tests/Opaque
    `HistoricalV1Pooled` one, `V1EnumNamesModel.cs` for the `HistoricalV1EnumNames` one,
    `V1PolyModel.cs` for the `HistoricalV1Poly` one, `V1ArraySlotModel.cs` for the
    `HistoricalV1ArraySlot` one, `V1ArrayShapeModel.cs` / `V1ArrayShapeSameModel.cs` for the
-   declared-array-shape ones and `V1NestedArrayModel.cs` for the nested-argument ones. Each lives in its own context(s) on purpose: a context's manifest is
+   declared-array-shape ones, `V1NestedArrayModel.cs` for the nested-argument ones and
+   `V1InheritedMemberModel.cs` for the inherited-member ones (two contexts). Each lives in its own context(s) on purpose: a context's manifest is
    fingerprinted as a whole, so adding a type to one of them would change the bytes of every fixture
    already written through it.
 2. Change the current model in the matching reader test to match, keeping the `[PreviousName]` /
@@ -238,7 +275,8 @@ trip, a swapped formatter, a dropped value) is in `tests/Ceras.Test/Tests/Opaque
    `HistoricalConstructionFixtureTests.cs` for the pooled ones, `EnumWireNameMigrationTests.cs` for
    `Loadout.bin`, `HistoricalPolymorphicFixtureTests.cs` for the polymorphic ones,
    `SystemArraySlotMigrationTests.cs` for the `System.Array`-slot ones,
-   `ArrayShapeChangeMigrationTests.cs` for the declared-array-shape ones and
-   `ArrayShapeNestedArgumentMigrationTests.cs` for the nested-argument ones).
+   `ArrayShapeChangeMigrationTests.cs` for the declared-array-shape ones,
+   `ArrayShapeNestedArgumentMigrationTests.cs` for the nested-argument ones and
+   `HistoricalInheritedMemberFixtureTests.cs` for the inherited-member ones).
 3. Regenerate (command above) and review the byte diff.
 4. Run `dotnet test tests/Ceras.Test -f net10.0`.
