@@ -43,4 +43,18 @@
     <PackageReference Include="BenchmarkDotNet" Version="0.13.12" />
   </ItemGroup>
 
+  <!--
+    The fake duplex transport and the loop measurement helper, compiled in from shared/ rather than
+    copied, and linked into tests/Ceras.Test as well. The network-loop smoke test and the
+    network-loop benchmark therefore move bytes the same way and time them the same way, which is the
+    only reason the benchmark's zero-allocation row and the test's zero-allocation assertion are
+    about the same code. It is a source link rather than a project reference on purpose: this tool
+    depends on nothing outside src/Ceras, and a reference to the test suite would put a dependency on
+    the very thing whose independence the numbers here rest on. See shared/GameplayLoop/README.md.
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\shared\GameplayLoop\FakeDuplexTransport.cs" Link="GameplayLoop\FakeDuplexTransport.cs" />
+    <Compile Include="..\..\shared\GameplayLoop\LoopMeasurement.cs" Link="GameplayLoop\LoopMeasurement.cs" />
+  </ItemGroup>
+
 </Project>
