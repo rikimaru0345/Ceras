@@ -120,14 +120,10 @@ context after seal or parse the schema on a matching-layout load.
   disposable; the v5 break does not need a v4 reader. After v5 lands, remove or replace
   those fixtures and update the game's tests deliberately, rather than treating their
   failure as a Ceras regression. Do not overwrite them accidentally in a scratch run.
-- Extend the generator's `CERAS019` duplicate-name check to aliases, per context,
-  and to types it currently skips: the runtime already refuses a name two manifest
-  entries claim (`SchemaRegistry.ClaimNames`), but that is a save/load-time error
-  where the compiler could have said it. Run the check over `[PreviousTypeName]`
-  too, over one dictionary per context rather than the union of all contexts, and
-  stop treating `SpecialType` types as exempt (a `[CerasSerializable("X")]` on two
-  differently-kinded types currently produces no diagnostic). Include
-  `contextMinimalTypes` and declared structural roots.
+ - **Done:** `CERAS019` now diagnoses stable-name and `[PreviousTypeName]` alias
+   collisions per generated context, including minimal registrations and declared
+   structural roots; the runtime still guards hand-written descriptors and bake-time
+   derived names. Its replacement compile-time and runtime tests pass independently.
 - Re-run `samples/GodotIntegration` under headless Godot after the v5 merge (it has
   a self-checking success sentinel). Exercise the active `/games/godot-factory-test`
   logic save suite after every format change, including recipe registry identity,
