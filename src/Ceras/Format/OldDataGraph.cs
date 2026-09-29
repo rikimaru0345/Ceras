@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Ceras.Exceptions;
@@ -142,7 +143,8 @@ namespace Ceras.Format
     /// <summary>
     /// Base of every value in an <see cref="OldDataGraph"/>. A value is one of: a recorded null
     /// (<see cref="OldNullNode"/>), a scalar, an enum, a recorded <c>Type</c> value, an object, a
-    /// collection, or a back-reference to an earlier value.
+    /// collection, a framed custom payload (<see cref="OldOpaqueNode"/>), or a back-reference to an
+    /// earlier value.
     /// <para>
     /// Enforces rule 3 (the file's record is immutable) by having no settable member at all, and carries
     /// rule 1 (a value's identity is its arena index) by being a reference type: the arena keys values by
@@ -681,6 +683,208 @@ namespace Ceras.Format
     }
 
     /// <summary>
+    /// A value a user custom formatter wrote, recorded as the block the file framed around it: the
+    /// formatter's identity, whether the file put a reference marker in front of the frame, the length the
+    /// frame declared, and those bytes — verbatim, copied, and never interpreted.
+    /// <para>
+    /// This is the node kind that makes a custom payload an <em>ordinary value</em> rather than a hole in
+    /// the graph. Everything about such a value the file states is already in the file: the entry says
+    /// which formatter wrote it and whether a marker stands in front of the frame, and the frame says how
+    /// many bytes there are. That is enough to place the value in the arena, to route a back-reference to
+    /// it, and to keep the stream aligned — which is exactly what the frame was added to the format to
+    /// make possible. It is not enough to say what the bytes <em>mean</em>, and this node does not pretend
+    /// to: it is the one place in the model where a value is held as the file wrote it and no further.
+    /// </para>
+    /// <para>
+    /// <b>What is deliberately not here.</b> There is no member list, because the file records no member
+    /// name for any of it — the file's own <see cref="SchemaTypeKind.Opaque"/> entry exists precisely to
+    /// stop the schema advertising members the payload does not contain, and inventing them here would
+    /// reinstate the lie the entry replaced. There is no decoded value and no current <c>Type</c> beside
+    /// it either: producing either is the work of a build that holds the formatter the file named, and it
+    /// is refused by name mismatch rather than guessed at (see <c>Format/LAYOUT.md</c>). A value this
+    /// build cannot read is therefore a value it still has, not one it dropped.
+    /// </para>
+    /// <para>
+    /// <b>Immutability, and why the payload is a list of bytes rather than a memory.</b> All five members
+    /// are get-only (rule 3), and <see cref="Payload"/> is a copy the node owns rather than a view of the
+    /// caller's buffer — the graph outlives the byte array it was built from, and a save file a caller
+    /// edits afterwards must not change the graph under it. But get-only is not the same as immutable, and
+    /// a byte payload is the one thing a public API can hand out in a shape that writes through: a
+    /// <c>byte[]</c> is not read-only at all, and a <see cref="ReadOnlyMemory{T}"/> is read-only only until
+    /// somebody calls <c>MemoryMarshal.TryGetArray</c> and gets the array back. So the payload is exposed
+    /// the way every other collection in this model is — an <see cref="IReadOnlyList{T}"/> over a
+    /// <see cref="ReadOnlyCollection{T}"/> wrapping a private copy, which is a value no public member of
+    /// this type can turn back into a writable array or a writable span over one.
+    /// </para>
+    /// <para>
+    /// <see cref="DeclaredLength"/> is kept beside <see cref="Payload"/> rather than derived from it,
+    /// because the two are separate facts about the file: the length is what the <em>frame</em> declared
+    /// and is what accounts for the block, while the bytes are what the <em>formatter</em> produced. They
+    /// are checked against each other at construction and a disagreement is refused — a block whose bytes
+    /// are not the ones the frame accounts for is a record the file never wrote, and a decoder that read
+    /// it anyway would report a value the file does not contain.
+    /// </para>
+    /// </summary>
+    public sealed class OldOpaqueNode : OldValue
+    {
+        /// <summary>
+        /// The file's closed identity for the framed type, from its own <c>Opaque</c> entry: its id, the
+        /// name the file used, and <see cref="SchemaTypeKind.Opaque"/> as the kind. Immutable (rule 3), and
+        /// it names the <em>formatted</em> type — the formatter is the other half, and
+        /// <see cref="FormatterName"/> carries it.
+        /// </summary>
+        public OldTypeIdentity Type { get; }
+
+        /// <summary>
+        /// The canonical name of the formatter the file recorded for this value, verbatim. This is the
+        /// half of the value the file cannot derive from anything else: the same bytes under a different
+        /// formatter are a different payload, and a build that cannot produce this exact name cannot read
+        /// the block. It is a fact about the file, so it is kept whether or not this build has a formatter
+        /// by that name, and it is never resolved against one.
+        /// </summary>
+        public string FormatterName { get; }
+
+        /// <summary>
+        /// The file's own record of whether a reference marker stands in front of the frame — the entry's
+        /// inline flag, read from the file and never re-derived here. A value type is written inline by
+        /// every writer that reaches it, and a reference type behind a marker, so this is a fact about how
+        /// this value was written rather than about the position it sits in. It is kept because it is what
+        /// tells a reader how to find the block at all, and a reader that has to re-derive it is a reader
+        /// that reads the frame one byte early or late.
+        /// </summary>
+        public bool WrittenInline { get; }
+
+        /// <summary>
+        /// The length the frame declared: a fixed four-byte little-endian <c>int32</c> in front of the
+        /// block, which accounts for the bytes and says nothing about them. It is equal to
+        /// <see cref="Payload"/>'s length by construction, and the constructor refuses a disagreement.
+        /// </summary>
+        public int DeclaredLength { get; }
+
+        /// <summary>
+        /// The block's bytes, exactly as the formatter wrote them — a copy this node owns, behind a
+        /// read-only view. Not decoded, not normalized, not validated against anything: the formatter owns
+        /// them and a build that has it will read them from here.
+        /// <para>
+        /// Deliberately <em>not</em> a <c>byte[]</c>, a <see cref="Memory{T}"/> or a
+        /// <see cref="ReadOnlyMemory{T}"/>: the first two are writable outright and the third yields the
+        /// array to <c>MemoryMarshal.TryGetArray</c>, so all three would put the file's own record one
+        /// call away from being edited. A caller that wants the bytes copies them out of here.
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<byte> Payload { get; }
+
+        /// <summary>Records one framed custom payload, copying the bytes the caller handed over.</summary>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="type"/>, <paramref name="formatterName"/> or <paramref name="payload"/> is null.
+        /// A null payload is not an empty block: a caller that passed nothing has failed to pass one.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// <paramref name="formatterName"/> is empty — a formatter's canonical name is never empty, so an
+        /// entry without one names no formatter at all. (A *file* that records one is refused as
+        /// corruption at the builder instead: see <see cref="OldDataGraphBuilder"/>.)
+        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="declaredLength"/> is negative: a declared length is written from the number of
+        /// bytes the formatter produced, so it cannot be negative.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// <paramref name="payload"/> is not exactly <paramref name="declaredLength"/> bytes long. The
+        /// length is the only thing that accounts for a custom payload, so a block the length does not
+        /// account for is a record the file never wrote.
+        /// </exception>
+        public OldOpaqueNode(
+            OldTypeIdentity     type,
+            string              formatterName,
+            bool                writtenInline,
+            int                 declaredLength,
+            IReadOnlyList<byte> payload)
+            : this(type, formatterName, writtenInline, declaredLength, CopyOf(payload))
+        {
+        }
+
+        /// <summary>
+        /// The door <see cref="OldDataGraphBuilder"/> uses, which exists so the block is copied once rather
+        /// than twice: the builder already holds the bytes as a read-only slice over the save buffer, and
+        /// making an array of that only for this constructor to copy it again would be a copy nothing
+        /// reads.
+        /// <para>
+        /// This is <em>not</em> an ownership-taking constructor. It takes a read-only view of somebody
+        /// else's buffer and copies out of it, exactly as the public one does; it never adopts a caller's
+        /// array. That distinction is the whole point — a constructor that <em>did</em> adopt an array would
+        /// be a writable door into the file's record that any caller in the assembly could walk through,
+        /// and nothing structural would be left to keep it shut.
+        /// </para>
+        /// </summary>
+        internal OldOpaqueNode(
+            OldTypeIdentity        type,
+            string                 formatterName,
+            bool                   writtenInline,
+            int                    declaredLength,
+            ReadOnlySequence<byte> block)
+            : this(type, formatterName, writtenInline, declaredLength, block.ToArray())
+        {
+        }
+
+        /// <summary>
+        /// The one door the two above come through. <paramref name="payload"/> is an array one of them has
+        /// just allocated and nobody else holds, so it is wrapped rather than copied again — and the
+        /// parameter keeps the name it has on the doors above, so a refusal still names the argument the
+        /// caller passed.
+        /// </summary>
+        OldOpaqueNode(
+            OldTypeIdentity type,
+            string          formatterName,
+            bool            writtenInline,
+            int             declaredLength,
+            byte[]          payload)
+        {
+            Type          = type ?? throw new ArgumentNullException(nameof(type));
+            FormatterName = formatterName ?? throw new ArgumentNullException(nameof(formatterName));
+            if (formatterName.Length == 0)
+                throw new ArgumentException(
+                    "An opaque value recorded no formatter name. The name is the canonical CLR name of the formatter that wrote the " +
+                    "block, and no formatter has an empty one, so an entry without it names no formatter and the block cannot be " +
+                    "attributed to anything.", nameof(formatterName));
+
+            if (declaredLength < 0)
+                throw new ArgumentOutOfRangeException(nameof(declaredLength), declaredLength,
+                    "A declared length is written from the number of bytes the formatter produced, so it cannot be negative.");
+
+            if (payload.Length != declaredLength)
+                throw new ArgumentException(
+                    $"The value records a declared length of {declaredLength} bytes but holds {payload.Length}. The length is the only " +
+                    "thing that accounts for a custom payload, so the two have to be the same record.", nameof(payload));
+
+            WrittenInline  = writtenInline;
+            DeclaredLength = declaredLength;
+
+            // Wrapped, never handed out: a read-only view is the model's answer to "get-only is not the
+            // same as immutable", and it is applied to a block of no bytes as well. A formatter is free to
+            // have written nothing, and an empty payload is a value with an identity like any other, so it
+            // gets the same wrapper rather than a shared empty array a caller could cast back to a byte[].
+            Payload = new ReadOnlyCollection<byte>(payload);
+        }
+
+        /// <summary>
+        /// The caller's bytes as an array this node can own, which is the copy half of the model's "copy
+        /// what the caller handed us" rule. Null is refused here rather than read as an empty block: a
+        /// caller that passed nothing has not written a zero-length payload, it has failed to pass one.
+        /// </summary>
+        static byte[] CopyOf(IReadOnlyList<byte> payload)
+        {
+            if (payload == null) throw new ArgumentNullException(nameof(payload));
+
+            // Hand-rolled rather than LINQ's ToArray, the same way OldDataGraphFrozen copies, and for one
+            // more reason: an empty payload gets an array of its own here rather than the shared empty one,
+            // so there is no state in this type that two payloads could be looking at through.
+            var copy = new byte[payload.Count];
+            for (int i = 0; i < copy.Length; i++) copy[i] = payload[i];
+            return copy;
+        }
+    }
+
+    /// <summary>
     /// A back-reference: this occurrence of a value is the same value as the one at
     /// <see cref="TargetIndex"/>. The first occurrence of a value is the node itself and every later one
     /// is one of these, which is what keeps sharing and cycles in the graph and what lets a removed
@@ -994,6 +1198,15 @@ namespace Ceras.Format
         /// The walk keeps its own visited set, so a cycle is a normal case here and not a stack overflow
         /// — the graph holds cycles precisely because shared references are supported.
         /// </para>
+        /// <para>
+        /// <b>Every node kind is named, and the last one refuses.</b> The switch is the model's list of
+        /// which kinds hold values, and a kind that holds none is listed rather than left to the absence of
+        /// a case: the <c>default</c> arm is what makes a kind added next month a compile-visible decision
+        /// instead of a silent pass. A kind nobody taught this walk about is a kind whose values were never
+        /// checked for an index, so they would be reachable in the graph with no identity — the break of
+        /// rule 1 the whole arena exists to prevent — and nothing downstream would notice, because a value
+        /// with no index still looks like a value.
+        /// </para>
         /// </summary>
         void ValidateEveryValueIsIndexed()
         {
@@ -1007,7 +1220,9 @@ namespace Ceras.Format
 
                 while (pending.Count > 0)
                 {
-                    switch (pending.Pop())
+                    var node = pending.Pop();
+
+                    switch (node)
                     {
                         case OldObjectNode obj:
                             foreach (var member in obj.Members)
@@ -1024,12 +1239,44 @@ namespace Ceras.Format
                                 if (visited.Add(value)) pending.Push(value);
                             }
                             break;
+
+                        // The kinds that hold no values of their own, named one by one. A null is here
+                        // because a member can hold one; a reference because it names an index rather
+                        // than carrying a value; a framed payload because its bytes are not values of
+                        // this graph at all.
+                        case OldNullNode:
+                        case OldScalar:
+                        case OldEnumValueNode:
+                        case OldTypeValueNode:
+                        case OldReferenceNode:
+                        case OldOpaqueNode:
+                            break;
+
+                        default:
+                            throw UnknownNodeKind(node);
                     }
                 }
             }
         }
 
-        /// <summary>A collection's values: its elements, or its entries for a dictionary.</summary>
+        /// <summary>
+        /// The refusal for a value kind this walk does not know how to descend into. Named, typed, and
+        /// impossible to reach for every kind the model declares, so what it means is only ever the thing
+        /// it says: a new node kind was added without being taught to the graph.
+        /// </summary>
+        CerasException UnknownNodeKind(OldValue value)
+            => new CerasException(
+                $"Internal error: a value of type '{value.GetType().Name}' (arena index {IndexOf(value)}) is not a kind of value this graph " +
+                "knows. Every node kind has to be listed in ValidateEveryValueIsIndexed — either as a kind that holds values, whose members are " +
+                "then checked for an index, or as a kind that holds none. A kind this walk does not name is a kind whose members were never " +
+                "checked at all, so every value it held would be reachable from the graph with no index, and nothing downstream would notice: a " +
+                "value with no identity still looks like a value. This is a defect in the model, not a property of the file.");
+
+        /// <summary>
+        /// A collection's values: its elements, or its entries for a dictionary. A static helper over the
+        /// collection type rather than a case of the walk's own switch, so the walk's dispatch stays a
+        /// single list of node kinds and this one stays a single statement of what a collection holds.
+        /// </summary>
         static IEnumerable<OldValue> ChildrenOf(OldCollectionNode collection)
         {
             foreach (var element in collection.Elements) yield return element;
