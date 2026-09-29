@@ -70,7 +70,8 @@ namespace Ceras.Format
     /// implementation — is that a nested described type value is interned as a
     /// <c>GenericInstantiation</c> entry with a definition id and ordered argument ids: <b>exactly</b> the
     /// shape the file's own schema section uses for a nested collection member, and exactly the shape
-    /// <c>ClassifyPayload</c>, <c>ReadGenericInstantiation</c> and <c>SkipCollectionPayload</c> consume.
+    /// <see cref="PayloadGrammar.ClassifyPayload"/>, <c>ReadGenericInstantiation</c> and
+    /// <c>SkipCollectionPayload</c> consume.
     /// <c>List&lt;List&lt;int&gt;&gt;</c> in a polymorphic slot therefore becomes one synthesized entry
     /// (definition <c>List</c>, argument = another synthesized entry for <c>List&lt;int&gt;</c>), and the
     /// element loop reads the inner one through the very same path a declared

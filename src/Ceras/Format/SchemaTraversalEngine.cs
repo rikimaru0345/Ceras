@@ -10,6 +10,11 @@ using Ceras;
 using Ceras.Helpers;
 using Ceras.Formatters;
 
+// The payload grammar is stated once, in Format/PayloadGrammar, so the file-faithful decoder a
+// Milestone-2 old-data graph needs can ask the same questions this engine does. Aliased rather than
+// written out so the switch statements below keep reading as the shape dispatch they are.
+using PayloadShape = Ceras.Format.PayloadGrammar.PayloadShape;
+
 namespace Ceras.Format
 {
     sealed class SchemaTraversalEngine
@@ -220,23 +225,23 @@ namespace Ceras.Format
             switch (typeId)
             {
                 case WellKnownTypes.Null:    return null;
-                case WellKnownTypes.Bool:    return mode == WalkMode.Read ? SerializerBinary.ReadByte(ref reader) != 0 : Advance(ref reader, 1);
-                case WellKnownTypes.Byte:    return mode == WalkMode.Read ? SerializerBinary.ReadByte(ref reader) : Advance(ref reader, 1);
-                case WellKnownTypes.SByte:   return mode == WalkMode.Read ? (object)(sbyte)SerializerBinary.ReadByte(ref reader) : Advance(ref reader, 1);
-                case WellKnownTypes.Char:    return mode == WalkMode.Read ? (char)SerializerBinary.ReadInt16Fixed(ref reader) : Advance(ref reader, 2);
-                case WellKnownTypes.Int16:   return mode == WalkMode.Read ? SerializerBinary.ReadInt16Fixed(ref reader) : Advance(ref reader, 2);
-                case WellKnownTypes.UInt16:  return mode == WalkMode.Read ? (ushort)SerializerBinary.ReadInt16Fixed(ref reader) : Advance(ref reader, 2);
-                case WellKnownTypes.Int32:   return mode == WalkMode.Read ? SerializerBinary.ReadInt32Fixed(ref reader) : Advance(ref reader, 4);
-                case WellKnownTypes.UInt32:  return mode == WalkMode.Read ? SerializerBinary.ReadUInt32Fixed(ref reader) : Advance(ref reader, 4);
-                case WellKnownTypes.Single:  return mode == WalkMode.Read ? SerializerBinary.ReadFloat32Fixed(ref reader) : Advance(ref reader, 4);
-                case WellKnownTypes.Int64:   return mode == WalkMode.Read ? SerializerBinary.ReadInt64Fixed(ref reader) : Advance(ref reader, 8);
-                case WellKnownTypes.UInt64:  return mode == WalkMode.Read ? (object)(ulong)SerializerBinary.ReadInt64Fixed(ref reader) : Advance(ref reader, 8);
-                case WellKnownTypes.Double:  return mode == WalkMode.Read ? SerializerBinary.ReadDouble64Fixed(ref reader) : Advance(ref reader, 8);
+                case WellKnownTypes.Bool:    return mode == WalkMode.Read ? SerializerBinary.ReadByte(ref reader) != 0 : PayloadGrammar.Advance(ref reader, 1);
+                case WellKnownTypes.Byte:    return mode == WalkMode.Read ? SerializerBinary.ReadByte(ref reader) : PayloadGrammar.Advance(ref reader, 1);
+                case WellKnownTypes.SByte:   return mode == WalkMode.Read ? (object)(sbyte)SerializerBinary.ReadByte(ref reader) : PayloadGrammar.Advance(ref reader, 1);
+                case WellKnownTypes.Char:    return mode == WalkMode.Read ? (char)SerializerBinary.ReadInt16Fixed(ref reader) : PayloadGrammar.Advance(ref reader, 2);
+                case WellKnownTypes.Int16:   return mode == WalkMode.Read ? SerializerBinary.ReadInt16Fixed(ref reader) : PayloadGrammar.Advance(ref reader, 2);
+                case WellKnownTypes.UInt16:  return mode == WalkMode.Read ? (ushort)SerializerBinary.ReadInt16Fixed(ref reader) : PayloadGrammar.Advance(ref reader, 2);
+                case WellKnownTypes.Int32:   return mode == WalkMode.Read ? SerializerBinary.ReadInt32Fixed(ref reader) : PayloadGrammar.Advance(ref reader, 4);
+                case WellKnownTypes.UInt32:  return mode == WalkMode.Read ? SerializerBinary.ReadUInt32Fixed(ref reader) : PayloadGrammar.Advance(ref reader, 4);
+                case WellKnownTypes.Single:  return mode == WalkMode.Read ? SerializerBinary.ReadFloat32Fixed(ref reader) : PayloadGrammar.Advance(ref reader, 4);
+                case WellKnownTypes.Int64:   return mode == WalkMode.Read ? SerializerBinary.ReadInt64Fixed(ref reader) : PayloadGrammar.Advance(ref reader, 8);
+                case WellKnownTypes.UInt64:  return mode == WalkMode.Read ? (object)(ulong)SerializerBinary.ReadInt64Fixed(ref reader) : PayloadGrammar.Advance(ref reader, 8);
+                case WellKnownTypes.Double:  return mode == WalkMode.Read ? SerializerBinary.ReadDouble64Fixed(ref reader) : PayloadGrammar.Advance(ref reader, 8);
                 case WellKnownTypes.Decimal:
                 {
                     // 16 bytes, validated by SerializerBinary so an impossible scale/sign/reserved-bit word is
                     // reported as data corruption rather than escaping as ArgumentException.
-                    if (mode == WalkMode.Skip) return Advance(ref reader, 16);
+                    if (mode == WalkMode.Skip) return PayloadGrammar.Advance(ref reader, 16);
                     return SerializerBinary.ReadDecimal(ref reader);
                 }
                 case WellKnownTypes.String:
@@ -248,19 +253,19 @@ namespace Ceras.Format
                     // Matches SerializerBinary.WriteDateTime / DateTimeFormatter: the writer persists
                     // DateTime.ToBinary() (ticks plus kind bits), so the interpreter must use FromBinary.
                     // Treating the bits as raw ticks throws for Utc/Local values and loses the kind.
-                    if (mode == WalkMode.Skip) return Advance(ref reader, 8);
+                    if (mode == WalkMode.Skip) return PayloadGrammar.Advance(ref reader, 8);
                     return DateTime.FromBinary(SerializerBinary.ReadInt64Fixed(ref reader));
                 case WellKnownTypes.TimeSpan:
-                    if (mode == WalkMode.Skip) return Advance(ref reader, 8);
+                    if (mode == WalkMode.Skip) return PayloadGrammar.Advance(ref reader, 8);
                     return new TimeSpan(SerializerBinary.ReadInt64Fixed(ref reader));
                 case WellKnownTypes.DateTimeOffset:
                     // Matches DateTimeOffsetFormatter / SerializerBinary: ticks then offset minutes, and
                     // validates them (an out-of-range value is corruption, not a decoder failure).
-                    if (mode == WalkMode.Skip) return Advance(ref reader, 10);
+                    if (mode == WalkMode.Skip) return PayloadGrammar.Advance(ref reader, 10);
                     return SerializerBinary.ReadDateTimeOffset(ref reader);
                 case WellKnownTypes.Guid:
                 {
-                    if (mode == WalkMode.Skip) return Advance(ref reader, 16);
+                    if (mode == WalkMode.Skip) return PayloadGrammar.Advance(ref reader, 16);
                     byte[] b = new byte[16];
                     if (!reader.TryCopyTo(b))
                         throw new Ceras.Exceptions.CerasDataCorruptionException(
@@ -316,13 +321,6 @@ namespace Ceras.Format
                     return null;
                 }
             }
-        }
-
-        /// <summary>Consumes <paramref name="count"/> bytes. The result is always null: a skip produces no value.</summary>
-        static object? Advance(ref SequenceReader<byte> reader, int count)
-        {
-            reader.Advance(count);
-            return null;
         }
 
         object? ReadValue(int typeId, Type? targetType, ref SequenceReader<byte> reader, object? existingObject = null)
@@ -427,8 +425,25 @@ namespace Ceras.Format
         /// while the same type as a built-in collection payload is not. Answering it from the file's
         /// definition id alone gets that backwards, which is what this predicate exists to prevent.
         /// </para>
+        /// <para>
+        /// <b>The current-model rule, deliberately not replaced by the file-side one.</b>
+        /// <see cref="PayloadGrammar.FileCarriesReferenceMarker"/> answers the same question from the file's
+        /// own record, and the two part company in two places: an identity this build cannot resolve (this
+        /// rule then has only the null and answers "behind a reference", where the file still knows), and a
+        /// user generic whose open type changed between a struct and a class (the file says the writer wrote
+        /// it inline, this rule says this build declares a class). Both answers are left as they are: the
+        /// interpreter reads into the current model and has to be right about what this build declares, so
+        /// changing this one would move a byte for every such migration.
+        /// <c>PayloadGrammarTests</c> pins both rules side by side, so the difference cannot later be closed
+        /// by someone who reads it as an oversight.
+        /// </para>
+        /// <para>
+        /// <c>internal static</c> rather than a private instance method, unchanged in what it answers: it
+        /// reads nothing from the engine, and the test that pins the two rules side by side has to be able
+        /// to ask this one directly.
+        /// </para>
         /// </summary>
-        bool CarriesReferenceMarker(OldTypeSchema old, Type? currentType)
+        internal static bool CarriesReferenceMarker(OldTypeSchema old, Type? currentType)
         {
             switch (old.Kind)
             {
@@ -580,7 +595,8 @@ namespace Ceras.Format
         /// <para>
         /// A closed built-in generic, an array, a <c>Nullable</c>, a <c>KeyValuePair</c> and a tuple all
         /// reduce to a <c>GenericInstantiation</c> entry with a definition id and ordered argument ids —
-        /// exactly the shape <see cref="ClassifyPayload"/> and <see cref="ReadGenericInstantiation"/> consume,
+        /// exactly the shape <see cref="PayloadGrammar.ClassifyPayload"/> and
+        /// <see cref="ReadGenericInstantiation"/> consume,
         /// and exactly the shape the file's own schema section writes for a collection member, so all of
         /// them (including every nesting level of them) take the same path a declared member takes, with the
         /// same reference markers, element-count encodings and size limits.
@@ -785,7 +801,7 @@ namespace Ceras.Format
         /// definition's arguments (<see cref="StructuralShape"/>), so the id these callers ask for is
         /// always there. The reason this stays is that "the element type is not fixed, and nothing says
         /// what it is" has to end in a typed error rather than a wrong value, whichever layer let it
-        /// through — the same reason <see cref="ArgId"/>'s length guard stays.
+        /// through — the same reason <see cref="PayloadGrammar.ArgId"/>'s length guard stays.
         /// </para>
         /// </summary>
         object? SkipAndReturnDefault(Type? elementType, ref SequenceReader<byte> reader)
@@ -828,7 +844,7 @@ namespace Ceras.Format
             // The file describes a collection payload, but this build has no concrete collection type for
             // it (an unresolvable old name, or a polymorphic slot read as object). Consume the payload so
             // the stream stays aligned and report no value.
-            if (IsCollectionPayload(oldSchema.DefinitionTypeId))
+            if (PayloadGrammar.IsCollectionPayload(oldSchema.DefinitionTypeId))
                 return ReadUnknownCollectionPayload(oldSchema, ref reader);
 
             if (existingObject != null && (currentType == null || !CurrentObjectFactory.IsExactType(existingObject, currentType)))
@@ -1031,7 +1047,7 @@ namespace Ceras.Format
             if (targetType != null && targetType.IsArray && targetType.GetArrayRank() != 1)
                 throw SchemaRegistry.UnsupportedMultidimensionalArray(targetType, "the migration interpreter");
 
-            int count = ReadCollectionCount(WellKnownTypes.Array, ref reader);
+            int count = PayloadGrammar.ReadCollectionCount(WellKnownTypes.Array, _maxCollectionSize, ref reader);
             if (count == -1) return null;
 
             Type? elementType = targetType?.IsArray == true ? targetType.GetElementType() : null;
@@ -1122,70 +1138,6 @@ namespace Ceras.Format
                     "migrate; load this one with the build that wrote it, or start the save again.");
         }
 
-        /// <summary>
-        /// True when a file's definition id describes a collection payload: an explicit count followed by
-        /// the elements (or key/value entries) of one of the built-in collections.
-        /// </summary>
-        static bool IsCollectionPayload(int definitionTypeId)
-            => definitionTypeId == WellKnownTypes.List
-            || definitionTypeId == WellKnownTypes.Dictionary
-            || definitionTypeId == WellKnownTypes.HashSet
-            || definitionTypeId == WellKnownTypes.Queue
-            || definitionTypeId == WellKnownTypes.Stack;
-
-        /// <summary>
-        /// What a file's schema entry says the payload of a generic instantiation is, once it is known that
-        /// there is no reference marker in front of it. The file's definition id decides this, never the
-        /// current CLR type: a rename, a re-assigned id or a changed shape must still decode by the layout
-        /// the writer used, and the current type only supplies the CLR types to decode into.
-        /// <para>
-        /// Written once for both directions. The skipper used to re-derive the same grammar from a different
-        /// question — "is the current type a value type?", then "is the definition id a dictionary?" — so a
-        /// shape could be read one way and skipped another.
-        /// </para>
-        /// </summary>
-        enum PayloadShape
-        {
-            /// <summary>Not one of the described structural shapes.</summary>
-            Unknown,
-
-            /// <summary>A user custom formatter's payload: a declared length and then that many bytes.</summary>
-            Opaque,
-
-            Array,
-            KeyValuePair,
-            Nullable,
-            Tuple,
-
-            /// <summary>An explicit count followed by that many elements.</summary>
-            Elements,
-
-            /// <summary>An explicit count followed by that many key/value entries.</summary>
-            Entries,
-        }
-
-        /// <summary>Classifies a file's generic instantiation. Reads no payload.</summary>
-        static PayloadShape ClassifyPayload(OldTypeSchema old)
-        {
-            // An opaque entry is not a generic instantiation at all — it has no definition id and no
-            // arguments — so it is classified by its kind. Asked first, because the whole point of the
-            // payload-shape dispatch is that read and skip share one classifier, and an opaque value's
-            // grammar is a declared length, which no definition id in the table describes.
-            if (old.Kind == SchemaTypeKind.Opaque) return PayloadShape.Opaque;
-
-            int definition = old.DefinitionTypeId;
-
-            if (definition == WellKnownTypes.Array) return PayloadShape.Array;
-            if (definition == WellKnownTypes.KeyValuePair) return PayloadShape.KeyValuePair;
-            if (definition == WellKnownTypes.Nullable) return PayloadShape.Nullable;
-            if (WellKnownTypes.IsTupleDefinition(definition)) return PayloadShape.Tuple;
-            if (definition == WellKnownTypes.Dictionary) return PayloadShape.Entries;
-            if (definition == WellKnownTypes.List || definition == WellKnownTypes.HashSet
-                || definition == WellKnownTypes.Queue || definition == WellKnownTypes.Stack) return PayloadShape.Elements;
-
-            return PayloadShape.Unknown;
-        }
-
         /// <summary>True when the file describes this id as an array instantiation.</summary>
         bool IsArrayPayload(int typeId)
             => _file.TryGetById(typeId, out var schema)
@@ -1199,79 +1151,20 @@ namespace Ceras.Format
         static readonly OldTypeSchema EmptySchema = new OldTypeSchema(
             0, "", Array.Empty<string>(), SchemaTypeKind.Class, Array.Empty<OldFieldSchema>(), 0, 0, null!, null!);
 
-        /// <summary>The old type's argument id at <paramref name="index"/>, or null when it did not record one.</summary>
-        static int? ArgId(OldTypeSchema old, int index)
-            => old.ArgTypeIds != null && old.ArgTypeIds.Length > index ? (int?)old.ArgTypeIds[index] : null;
-
-        /// <summary>
-        /// Whether a payload written for <paramref name="definitionTypeId"/> starts with a fixed, <b>unbiased</b>
-        /// 4-byte little-endian element count instead of the shared bias-<c>+1</c> varint.
-        /// <para>
-        /// <c>QueueFormatter</c> and <c>StackFormatter</c> write their count through the injected
-        /// <c>IFormatter&lt;int&gt;</c>, which is the fixed 4-byte little-endian <c>int</c> encoding
-        /// (<c>Int32Formatter</c>), and they have no null marker. Every other collection —
-        /// <c>ArrayFormatter</c>, <c>CollectionFormatter</c> for <c>List</c>/<c>HashSet</c>/<c>Dictionary</c>
-        /// and every collection subclass — writes <c>WriteUInt32Bias(count, 1)</c>, where <c>-1</c> is a null
-        /// collection.
-        /// </para>
-        /// <para>
-        /// The two encodings are indistinguishable for the small counts a test save usually holds, which is
-        /// exactly why this matters: reading a queue or a stack with the shared biased read does not fail, it
-        /// returns a plausible count, consumes the wrong number of bytes and desynchronises everything after it.
-        /// </para>
-        /// </summary>
-        static bool UsesFixedElementCount(int definitionTypeId)
-            => definitionTypeId == WellKnownTypes.Queue || definitionTypeId == WellKnownTypes.Stack;
-
-        /// <summary>
-        /// The element count that introduces a described collection payload, plus the bound check. One reader
-        /// for every shape and both directions, so the count's encoding and its limit cannot drift between them.
-        /// <para>
-        /// The encoding is chosen by the <em>file's</em> definition id, never by the current CLR type, for the
-        /// same reason the rest of the payload grammar is: a rename, a re-assigned id or a changed shape must
-        /// still decode by the layout the writer used.
-        /// </para>
-        /// <para>
-        /// Returns <c>-1</c> for an encoded null collection, which only the biased encodings can express — a
-        /// queue or a stack cannot be written as null at all, so a negative count there is corruption rather
-        /// than a null.
-        /// </para>
-        /// </summary>
-        int ReadCollectionCount(int definitionTypeId, ref SequenceReader<byte> reader)
-        {
-            if (UsesFixedElementCount(definitionTypeId))
-            {
-                int fixedCount = SerializerBinary.ReadInt32Fixed(ref reader);
-                if (fixedCount < 0 || fixedCount > _maxCollectionSize)
-                    throw new Ceras.Exceptions.CerasDataCorruptionException(
-                        $"Corrupt save: a {(definitionTypeId == WellKnownTypes.Queue ? "queue" : "stack")} declares {fixedCount} elements, " +
-                        $"outside the configured maximum of {_maxCollectionSize}. Its count is a plain 4-byte element count, " +
-                        "so a negative one is a corrupt payload, not a null collection.");
-                return fixedCount;
-            }
-
-            int count = SerializerBinary.ReadUInt32Bias(ref reader, 1);
-            if (count == -1) return -1;                      // a null collection
-            if (count < 0 || count > _maxCollectionSize)
-                throw new Ceras.Exceptions.CerasDataCorruptionException(
-                    $"Corrupt save: a collection declares {count} elements, outside the configured maximum of {_maxCollectionSize}.");
-            return count;
-        }
-
         /// <summary>
         /// Accounts for a collection payload: an explicit count followed by that many elements or key/value
-        /// entries, each count read by <see cref="ReadCollectionCount"/> so the queue/stack encoding is honoured
-        /// here too.
+        /// entries, each count read by <see cref="PayloadGrammar.ReadCollectionCount"/> so the queue/stack
+        /// encoding is honoured here too.
         /// </summary>
         void SkipCollectionPayload(PayloadShape shape, OldTypeSchema old, ref SequenceReader<byte> reader)
         {
-            int count = ReadCollectionCount(old.DefinitionTypeId, ref reader);
+            int count = PayloadGrammar.ReadCollectionCount(old.DefinitionTypeId, _maxCollectionSize, ref reader);
             if (count == -1) return;                          // a null collection
 
             if (shape == PayloadShape.Entries)
             {
-                int? keyId = ArgId(old, 0);
-                int? valueId = ArgId(old, 1);
+                int? keyId = PayloadGrammar.ArgId(old, 0);
+                int? valueId = PayloadGrammar.ArgId(old, 1);
                 for (int i = 0; i < count; i++)
                 {
                     if (keyId.HasValue) SkipValue(keyId.Value, ref reader);
@@ -1280,7 +1173,7 @@ namespace Ceras.Format
             }
             else
             {
-                SkipElements((uint)count, ArgId(old, 0), ref reader);
+                SkipElements((uint)count, PayloadGrammar.ArgId(old, 0), ref reader);
             }
         }
 
@@ -1308,17 +1201,17 @@ namespace Ceras.Format
                     $"cannot describe, so the element count that follows cannot be read into anything and the rest of the save could not " +
                     $"be read safely. {WellKnownTypes.DescribeCollectionShapeRejection(currentType, shapeRejection)}");
 
-            if (!IsCollectionPayload(oldSchema.DefinitionTypeId))
+            if (!PayloadGrammar.IsCollectionPayload(oldSchema.DefinitionTypeId))
                 throw new Ceras.Exceptions.CerasSchemaException(
                     $"Cannot decode '{TypeIdentity.GetCanonicalNameOrUnknown(currentType)}': the save file describes it as type id " +
                     $"{oldSchema.DefinitionTypeId}, which is not a collection payload. Ceras cannot tell how many bytes its " +
                     "elements occupy, so the rest of the save cannot be read safely.");
 
-            int count = ReadCollectionCount(oldSchema.DefinitionTypeId, ref reader);
+            int count = PayloadGrammar.ReadCollectionCount(oldSchema.DefinitionTypeId, _maxCollectionSize, ref reader);
             if (count == -1) return null;
 
-            int? oldElem0 = ArgId(oldSchema, 0);
-            int? oldElem1 = ArgId(oldSchema, 1);
+            int? oldElem0 = PayloadGrammar.ArgId(oldSchema, 0);
+            int? oldElem1 = PayloadGrammar.ArgId(oldSchema, 1);
 
             // The resolve above succeeded, so the shape's arguments are there; ArgId-style guards keep the
             // arity honest if a file ever records fewer.
@@ -1361,7 +1254,7 @@ namespace Ceras.Format
         {
             RejectRefusedCollectionName(oldSchema);
 
-            int count = ReadCollectionCount(oldSchema.DefinitionTypeId, ref reader);
+            int count = PayloadGrammar.ReadCollectionCount(oldSchema.DefinitionTypeId, _maxCollectionSize, ref reader);
             if (count == -1) return null;
 
             int? oldKey = oldSchema.ArgTypeIds.Length > 0 ? (int?)oldSchema.ArgTypeIds[0] : null;
@@ -1665,13 +1558,14 @@ namespace Ceras.Format
 
         /// <summary>
         /// Accounts for a described value that carries no reference marker, dispatching on the same
-        /// <see cref="ClassifyPayload"/> answer <see cref="ReadGenericInstantiation"/> dispatches on, so a
-        /// value can never be read one way and skipped the other. The two callers are a described member
-        /// with no marker in front of it, and a polymorphic value whose <c>Type</c> value named the type.
+        /// <see cref="PayloadGrammar.ClassifyPayload"/> answer <see cref="ReadGenericInstantiation"/>
+        /// dispatches on, so a value can never be read one way and skipped the other. The two callers are a
+        /// described member with no marker in front of it, and a polymorphic value whose <c>Type</c> value
+        /// named the type.
         /// </summary>
         void SkipUnmarkedPayload(OldTypeSchema oldSchema, ref SequenceReader<byte> reader)
         {
-            switch (ClassifyPayload(oldSchema))
+            switch (PayloadGrammar.ClassifyPayload(oldSchema))
             {
                 case PayloadShape.Opaque:
                     SkipOpaqueBlock(oldSchema, ref reader);
@@ -1680,7 +1574,7 @@ namespace Ceras.Format
                 case PayloadShape.Nullable:
                     if (SerializerBinary.ReadByte(ref reader) != 0)
                     {
-                        int? innerId = ArgId(oldSchema, 0);
+                        int? innerId = PayloadGrammar.ArgId(oldSchema, 0);
                         if (innerId.HasValue) SkipValue(innerId.Value, ref reader);
                     }
                     return;
@@ -1692,7 +1586,7 @@ namespace Ceras.Format
                 case PayloadShape.Array:
                 case PayloadShape.Elements:
                 case PayloadShape.Entries:
-                    SkipCollectionPayload(ClassifyPayload(oldSchema), oldSchema, ref reader);
+                    SkipCollectionPayload(PayloadGrammar.ClassifyPayload(oldSchema), oldSchema, ref reader);
                     return;
 
                 default:

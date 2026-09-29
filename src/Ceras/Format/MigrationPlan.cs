@@ -825,7 +825,10 @@ namespace Ceras.Format
         /// <para>
         /// Not to be confused with <c>SchemaTraversalEngine.CarriesReferenceMarker</c>, which answers a
         /// different question about a particular payload value; this one asks what the writer would do for a
-        /// <em>declared</em> type, which is a property of the type alone.
+        /// <em>declared</em> type, which is a property of the type alone. Nor is it
+        /// <c>PayloadGrammar.FileCarriesReferenceMarker</c>, which asks the same question as the engine's
+        /// predicate but answers it from the file's own definition entry rather than from the current CLR
+        /// type.
         /// </para>
         /// </summary>
         static bool WrittenBehindReferenceMarker(Type? type)

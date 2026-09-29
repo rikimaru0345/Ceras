@@ -326,10 +326,37 @@ The two encodings are indistinguishable for the small counts a test save usually
 makes this a silent-corruption hazard rather than a loud one: a reader that applies the biased rule to
 a queue or a stack decodes a *plausible* count, consumes the wrong number of bytes and desynchronises
 every field after it. The migration interpreter therefore picks the encoding from the **file's**
-definition ID (`SchemaTraversalEngine.ReadCollectionCount`), never from the current CLR type, for the
+definition ID (`PayloadGrammar.ReadCollectionCount`), never from the current CLR type, for the
 same reason it picks the rest of the payload grammar: a rename, a re-assigned ID or a changed shape
 must still decode by the layout the writer used. The bound (`SizeLimits.MaxCollectionSize`) is checked
 in the same place, so it cannot drift between the shapes either.
+
+These rules live in one place, `Format/PayloadGrammar`, and it is worth saying which decisions are
+stated there and which are deliberately not:
+
+| decision | stated in | from |
+|---|---|---|
+| which payload an entry describes (`ClassifyPayload`) | `PayloadGrammar` | the file's definition ID / entry kind |
+| the element-count encoding and its bound (`ReadCollectionCount`, `UsesFixedElementCount`) | `PayloadGrammar` | the file's definition ID, limit passed in |
+| the argument id at a position (`ArgId`), advancing by a fixed width (`Advance`) | `PayloadGrammar` | the file's entry |
+| whether a collection definition is one of the built-ins (`IsCollectionPayload`) | `PayloadGrammar` | the file's definition ID |
+| whether *this* value carries a reference marker | `PayloadGrammar.FileCarriesReferenceMarker` | the file's own record |
+| whether *this build's declaration* carries a reference marker | `SchemaTraversalEngine.CarriesReferenceMarker` | the current CLR type |
+
+`ClassifyPayload` answers `Unknown` for two different payloads that are written the same way — a user
+generic's member list and a plain class's member list — and that is one grammar reached by two kinds of
+entry rather than two grammars, so the enum has eight values. `PayloadGrammarTests` pins all eight, and
+pins each *counted* shape against its own element-count encoding, so a shape and the rule that reads its
+first bytes cannot disagree.
+
+The last two rows are two different questions and both exist. The interpreter reads into the current
+model, so it has to be right about what *this build* declares — a `List<T>` member is written through
+the reference wrapper, and re-deciding that from the file alone gets it backwards. A file-faithful
+decoder for the old-data graph holds no current model at all, so it asks the file: the entry's kind, the
+opaque entry's own inline flag, and for a user generic the kind the file's section records for the
+**definition** entry. The two disagree exactly where only the file knows the answer — an identity this
+build cannot resolve, and a user generic whose open type changed between a struct and a class — and
+`tests/Ceras.Test/Tests/PayloadGrammarTests.cs` pins both answers.
 
 Any other concrete collection shape the built-in collection formatter serves — a `HashSet<>` /
 `LinkedList<>` / `SortedList<,>` subclass, or one that implements `ICollection<T>` /
@@ -430,7 +457,8 @@ Two clauses are asked in a different order at the plan boundary, and deliberatel
 **Deliberately not part of the invariant:** whether the file's *names* resolve in this build. A save written
 by a build that had a type this one does not is a supported input, and its entries describe their payloads by
 identity alone. A `GenericInstantiation` whose definition is a *user* generic — a manifest entry the file
-itself describes — is equally legal, and its payload is its member list: that is `PayloadShape.Unknown`, and
+itself describes — is equally legal, and its payload is its member list: that is `PayloadShape.Unknown`
+(`Format/PayloadGrammar`), and
 the argument-count rule does not apply to it, because a user generic's arity is not a fact about the format.
 A hand-written descriptor naming a definition the format does not lay out is therefore left alone; only the
 count of a *known* definition is checked.
@@ -601,8 +629,8 @@ bytes its tail occupies.
 
 **The payload follows the type value, and the definition decides which payload.** It is the same
 decision the schema section encodes for a member: a `GenericInstantiation` (definition + ordered
-argument ids), whose `ClassifyPayload` answer is a count plus elements/entries, a presence byte, the
-items of a tuple, a key and a value, or — for a definition the well-known set does not name — the
+argument ids), whose `PayloadGrammar.ClassifyPayload` answer is a count plus elements/entries, a presence
+byte, the items of a tuple, a key and a value, or — for a definition the well-known set does not name — the
 members of a user generic class. The migration interpreter therefore interns a nested described type
 value as exactly that shape (`TypeValueShapes`), so `List<List<int>>` in a slot takes the very same path
 a declared `List<List<int>>` member takes: its argument is a second synthesized entry, each level's
