@@ -273,11 +273,12 @@ namespace Ceras.Format
             int wk = ResolveWellKnownId(clrName);
             if (wk >= 0) return wk;
 
-            if (!registry.TryResolveType(clrName, out var type) || type == null)
-            {
-                // Fallback: try to resolve the type manually (legacy/assembly-qualified shapes).
-                type = Type.GetType(clrName);
-            }
+            // The registry is the whole lookup: step 2 of it is the very Type.GetType call this used to
+            // repeat here as a "legacy/assembly-qualified" fallback, which could therefore only ever hand
+            // back the null step 2 had already produced. A miss is final, and the actionable refusal below
+            // is what a member name nothing can resolve has to reach — including one the runtime refuses
+            // to *parse* rather than decline, such as the canonical name of a three-or-more-element tuple.
+            registry.TryResolveType(clrName, out var type);
 
             if (type == null)
                 throw new Ceras.Exceptions.CerasSchemaException(

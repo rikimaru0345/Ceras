@@ -280,16 +280,13 @@ namespace Ceras.SourceGenerator
                 }
             }
 
-            // Sort key must match SchemaMemberComparer used at runtime by DynamicFormatter:
-            //   MemberType.FullName + Member.Name + Member.DeclaringType.FullName + "f"/"p"
-            // Use each member's own DeclaringType (not the formatted type) so inherited members
-            // sort identically between source-generator and runtime.
-            members.Sort((a, b) =>
-            {
-                string ka = a.Type.ToDisplayString(SortKeyFormat) + a.Name + a.DeclaringType.ToDisplayString(SortKeyFormat) + (a.IsField ? "f" : "p");
-                string kb = b.Type.ToDisplayString(SortKeyFormat) + b.Name + b.DeclaringType.ToDisplayString(SortKeyFormat) + (b.IsField ? "f" : "p");
-                return string.Compare(ka, kb, StringComparison.Ordinal);
-            });
+            // The order a payload of this type is written in, and the order its schema section has to
+            // record. It is the one key both writers use — the canonical stable type identity, spelled
+            // the way the schema section already spells a type — because the reflection fallback sorts
+            // the real member list with `SchemaMemberComparer`, and two spellings of one type sort
+            // differently: two spellings meant two different orders for the same type, and therefore
+            // two different byte layouts for one value. See `TypeHelpers.MemberSortKey`.
+            members.Sort((a, b) => string.Compare(MemberSortKey(a), MemberSortKey(b), StringComparison.Ordinal));
 
             return members;
         }

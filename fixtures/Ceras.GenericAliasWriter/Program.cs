@@ -87,11 +87,12 @@ namespace Ceras.GenericAliasWriter
             // the only thing that has to be rebuilt.
             yield return ("IntBoxes.bin", serializer.Save(save.Ints, 1));
 
-            // The generic whose member order depends on its type argument. `Wrap<Coord>` closes over a
-            // type whose name sorts before System.Int32, so the definition's shared writer emits Tag
-            // before Value while the closed members would sort the other way round. It is carried by a
-            // renamed type with a trailing sentinel, so a read that lost its alignment is visible in a
-            // member written after the generic rather than looking like a plausible value.
+            // The generic whose member order is fixed by its definition. `Wrap<Coord>` is closed over a
+            // type whose name sorts before System.Int32, so it is also the closure whose *substituted*
+            // order happens to agree with the written one; the writer still emits Value before Tag,
+            // because a declared type parameter sorts under its position rather than under its name. It
+            // is carried by a renamed type with a trailing sentinel, so a read that lost its alignment is
+            // visible in a member written after the generic rather than looking like a plausible value.
             yield return ("Wrap.bin", serializer.Save(new Legacy.Sleeve
             {
                 Wrapped = new Legacy.Wrap<Legacy.Coord> { Value = new Legacy.Coord { X = 1, Y = 2, Z = 3 }, Tag = 42 },

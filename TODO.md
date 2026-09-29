@@ -185,11 +185,16 @@ same-version roundtrip.
   `Load`'s slow path. Never copy the
   current reader's `FullNameMarker` lookup that uses a current registry id against
   the file's id table — those id spaces are independent; resolve by file identity.
+  `MigrationPlanBuilder.Coerce` and `CtorArgumentValues` are now shared helpers for
+  the current reader and future materializer. Resolve the identified constructor
+  write-back parity bug before relying on constructor results from both readers.
   `OldOpaqueNode` now retains v5 framed payloads. Add honest positional nodes for
   nullable, key/value pair and tuple values before claiming broader graph coverage.
-  Pin zero graph builds and zero schema parses on
-  the fingerprint-matched generated path with exact counters, plus a representative
-  allocation check; do not let migration cost leak into matching-layout loads.
+  **Done isolation gate:** a CRC-valid file with a poisoned schema section still loads
+  when its fingerprint matches, while the file-only graph reader and mismatched reader
+  refuse the same bytes. This proves the matched reader does not parse/build from the
+  schema without adding production counters. A warm allocation test covers the matched
+  path; keep this gate green when redirecting mismatched loads to the graph.
 - Preserve references whose first occurrence is in a removed field and later use is
   retained; test wrappers, aliases, sharing, cycles and unknown polymorphic types.
   Pin two shared collection references followed by a distinct object so a shifted

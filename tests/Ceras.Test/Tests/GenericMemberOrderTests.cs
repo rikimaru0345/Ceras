@@ -2,20 +2,19 @@
 //
 // Every closure of a generic definition is written by one emitted class - the definition's - so the
 // payload order is the order that definition's members sort in, computed from their **declared** types.
-// A member declared as a type parameter therefore sorts under its parameter's name (`T Value` lands
-// after `System.Int32 Tag`), while the same member of a closed instantiation sorts under the substituted
-// type (`Legacy.Coord Value` lands before `System.Int32 Tag`). The per-closed schema used to list its
-// fields in the closed order, so it described a layout no writer ever produces.
+// A member declared as a type parameter is spelled by its *position* in that sort, as `!0`, which
+// sorts before every real type name - so `Wrap<T> { T Value; int Tag; }` is written `Value, Tag` for
+// every argument, and the order does not move when the parameter is renamed. A per-closed schema that
+// listed the *substituted* order would describe a layout no writer ever produces: for
+// `Wrap<Coord>` that is `Value, Tag` too, but for `Wrap<System.String>` it is `Tag, Value`, and one
+// class cannot emit both.
 //
 // Nothing notices while the layout matches, because the fast path reads no schema. On a mismatch the
-// migration reader walks a file's fields in the order the file's schema lists them, so it read the wrong
-// members: an int came from the neighbouring member, a reference member came back null, and a stream
-// could run out of alignment entirely.
-//
-// The fix keeps the shared writer and changes only what the schema records: the per-closed field list is
-// the definition's order, restricted to the members that closure has. Payload bytes are therefore
-// unchanged; what changes is the schema section's field order - and with it the layout fingerprint - for
-// the closures whose two orders differ. `Format/LAYOUT.md` has the rule and the cost.
+// migration reader walks a file's fields in the order the file's schema lists them, so it read the
+// wrong members: an int came from the neighbouring member, a reference member came back null, and a
+// stream could run out of alignment entirely. The per-closed field list is therefore the definition's
+// order, restricted to the members that closure has. `GeneratedGenericSchemaOrderTests` pins the same
+// rule on the emitted source, and `MemberOrderUnificationTests` pins the sort key both writers use.
 //
 // What is pinned here (the emitted code itself is pinned by GeneratedGenericSchemaOrderTests):
 //   * the file's own schema section lists `Wrap<Coord>`'s fields in the order they are written, checked
@@ -23,7 +22,7 @@
 //   * the migration reader, on a real version-separated file: a v1 assembly that this build does not
 //     reference wrote it, through a writer shared by every closure of its definition;
 //   * the generated reader, on the fast path, so the ordering cannot quietly swap two members there;
-//   * that a closure whose two orders already agree is untouched;
+//   * that a closure whose order the definition pins is untouched;
 //   * that a wrong root is still rejected by name.
 //
 // The model and the readers for the v1 bytes are in GenericAliasFixture.
@@ -60,29 +59,30 @@ namespace Ceras.Test.GenericMemberOrder
             var fileSchemas = GenericAliasFixture.ReadFileSchema("Wrap.bin");
             Assert.Contains(OldWrap, fileSchemas.Keys);
 
-            // [Tag, Value] - the definition's order, because the writer emits `Tag` (an int, whose type
-            // name sorts before the parameter name "T") before `Value`. The closed order would be
-            // [Value, Tag], since "Legacy.Coord" sorts before "System.Int32".
-            Assert.Equal(new[] { "Tag", "Value" }, FieldNamesOf(fileSchemas[OldWrap]));
+            // [Value, Tag] - the definition's order, because a declared type parameter is spelled `!0`,
+            // which sorts before `System.Int32`.
+            Assert.Equal(new[] { "Value", "Tag" }, FieldNamesOf(fileSchemas[OldWrap]));
 
             // … and that is what the bytes say, not just what the schema claims: the payload is the root's
             // type id, the root's reference marker, the `Wrapped` member's reference marker, and then
-            // Tag = 42 as a fixed 4-byte int. Under the closed order these four bytes would be read as a
-            // coordinate instead - and the coordinate that follows them read as a tag.
+            // Value = (1, 2, 3) as three fixed 4-byte ints. Under the substituted order these bytes would
+            // be read as a tag, and the tag that follows as the first coordinate.
             byte[] payload = GenericAliasFixture.PayloadOf("Wrap.bin");
             Assert.Equal(0x87, payload[0]);                     // leb128 root id (135 = Legacy.Sleeve)
             Assert.Equal(0x01, payload[1]);
             Assert.Equal(2, payload[2]);                        // root reference marker
             Assert.Equal(2, payload[3]);                        // `Wrapped` member reference marker
-            Assert.Equal(42, BitConverter.ToInt32(payload, 4)); // Tag, written first
-            Assert.Equal(1, BitConverter.ToInt32(payload, 8));  // Value.X, written second
+            Assert.Equal(1, BitConverter.ToInt32(payload, 4));  // Value.X, written first
+            Assert.Equal(2, BitConverter.ToInt32(payload, 8));  // Value.Y
+            Assert.Equal(3, BitConverter.ToInt32(payload, 12)); // Value.Z
+            Assert.Equal(42, BitConverter.ToInt32(payload, 16));// Tag, written last
         }
 
         [Fact]
-        public void A_Closure_Whose_Two_Orders_Already_Agree_Is_Untouched()
+        public void A_Closure_Whose_Order_The_Definition_Pins_Is_Untouched()
         {
             // A single-member generic cannot disagree with itself, so its schema is what it always was:
-            // the fix only moves the closures where the orders actually differ.
+            // the rule only moves a definition whose members sort differently once closed.
             var fileSchemas = GenericAliasFixture.ReadFileSchema("Save.bin");
 
             Assert.Equal(new[] { "Value" }, FieldNamesOf(fileSchemas["Legacy.Box`1<Legacy.Coord>"]));
@@ -93,7 +93,7 @@ namespace Ceras.Test.GenericMemberOrder
             var registry = Reader().Config.SchemaRegistry;
             registry.Seal();
             Assert.True(registry.TryGetInfo(typeof(GenericAliasFixtures.Wrap<GenericAliasFixtures.Coord>), out var info));
-            Assert.Equal(new[] { "Added", "Tag", "Value" }, info.Fields.Select(f => f.StableName).ToArray());
+            Assert.Equal(new[] { "Value", "Added", "Tag" }, info.Fields.Select(f => f.StableName).ToArray());
         }
 
         // ── The migration reader, on a real version-separated file ───────────────────────────────

@@ -12,7 +12,7 @@
 // test's header: a *closed* generic's members are written by the definition's shared formatter, in the
 // order that definition's members sort in, and a second member whose type sorts differently once closed
 // makes that order depend on the argument. `Wrap<T>` below exists precisely to pin that order (its
-// schema must list `Tag` before `Value`), while the renamed generics stay minimal so the *identity*
+// schema must list `Value` before `Tag`), while the renamed generics stay minimal so the *identity*
 // problem they exist to pin is not entangled with it.
 using System.Collections.Generic;
 using Ceras;
@@ -56,11 +56,13 @@ namespace Legacy
 
     /// <summary>
     /// A generic with a member declared as a type parameter <em>and</em> another member: the shape whose
-    /// member order depends on the type argument. Every closure is written by the definition's one shared
-    /// formatter, so it emits <c>Tag</c> before <c>Value</c> - the parameter name sorts after
-    /// <c>System.Int32</c> - while the <em>closed</em> members sort the other way round for an argument
-    /// whose name sorts before <c>System.Int32</c>, which is what closing it over <see cref="Coord"/>
-    /// does. A save of this type is therefore the file that pins the order a schema has to record.
+    /// member order is fixed by the definition rather than by the closure. Every closure is written by
+    /// the definition's one shared formatter, which emits <c>Value</c> before <c>Tag</c> — a declared
+    /// type parameter sorts under its position (<c>!0</c>), which is below every real type name. A
+    /// closure whose argument sorts <em>after</em> <c>System.Int32</c> (a <c>string</c>, say) would
+    /// sort the substituted members the other way round, and no single writer could satisfy both, so the
+    /// schema of every closure has to record the definition's order. A save of this type is therefore the
+    /// file that pins the order a schema has to record.
     /// </summary>
     [CerasContext("GenericAliasV1")]
     [CerasSerializable]

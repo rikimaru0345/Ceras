@@ -511,19 +511,19 @@ namespace Ceras.SourceGenerator {
 			// ReferenceFormatter fallback so the field type matches what the runtime injects. A *value-type*
 			// collection is bound through the interface for the same reason a value-type member above is: a
 			// custom formatter for it is a configuration the application can make at runtime, and a field
-			// typed as the concrete collection formatter could not accept it.
+			// typed as the concrete collection formatter could not accept it. A *sealed* reference
+			// collection names ReferenceFormatter_KnownSealedType for the same reason a sealed class member
+			// above does — see CollectionFieldType.
 			if (IsCollectionFormatterType(type)) {
 				string? concrete = GetCollectionConcreteFormatterType(type);
 				if (concrete != null)
-					return type.IsValueType ? $"global::Ceras.Formatters.IFormatter<{typeFqn}>" : $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+					return CollectionFieldType(type, typeFqn);
 			}
 
 			if (IsCollectionType(type)) {
 				string? concrete = GetCollectionConcreteFormatterType(type);
-				if (concrete != null) {
-					if (type.IsValueType) return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
-					return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
-				}
+				if (concrete != null)
+					return CollectionFieldType(type, typeFqn);
 			}
 
 			if (!type.IsValueType && !isMonomorphic) return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
@@ -533,6 +533,36 @@ namespace Ceras.SourceGenerator {
 			}
 			return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
 		}
+
+		/// <summary>
+		/// The field type for a <em>collection</em> member. Deliberately not the concrete
+		/// <c>CollectionFormatter</c> the element type resolves to: a custom formatter for a collection is
+		/// a runtime configuration, and a field typed to the concrete class could not accept it. What the
+		/// field names instead is the reference wrapper <c>PrepareFormatter</c> is about to be handed for
+		/// the member, so the two have to agree — including on <em>which</em> wrapper that is.
+		/// <para>
+		/// <c>CerasSerializer.GetReferenceFormatter</c> creates
+		/// <c>ReferenceFormatter_KnownSealedType&lt;T&gt;</c> for a sealed reference type and
+		/// <c>ReferenceFormatter&lt;T&gt;</c> for every other one, and the two are siblings rather than one
+		/// deriving from the other. A field typed to the wrong one therefore cannot be filled at all:
+		/// injection has nothing assignable to put in it and no specific formatter to fall back to, and
+		/// ends in "Injection mismatch" before the member has a byte. A sealed collection — every
+		/// <c>Immutable*</c> collection, and any user type declared <c>sealed</c> that implements
+		/// <c>ICollection&lt;&gt;</c> — is exactly the case the monomorphic check
+		/// <see cref="GetConcreteFormatterType"/> already makes for a sealed class member, and the
+		/// collection branches used to omit it.
+		/// </para>
+		/// <para>
+		/// This answers from the <em>declared</em> type, which is all either wrapper is built on: a
+		/// <c>sealed</c> declaration means the slot can only ever hold that one type.
+		/// </para>
+		/// </summary>
+		static string CollectionFieldType(ITypeSymbol type, string typeFqn)
+			=> type.IsValueType
+				? $"global::Ceras.Formatters.IFormatter<{typeFqn}>"
+				: type.IsSealed
+					? $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>"
+					: $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
 
 		/// <summary>
 		/// The concrete <c>CollectionFormatter&lt;TCollection, TItem&gt;</c> field type for a collection
@@ -623,12 +653,7 @@ namespace Ceras.SourceGenerator {
 		/// </summary>
 		public static string BuildSchemaExpression(INamedTypeSymbol type, List<SerializedMember> members, AttributeBag attrs) {
 			string stableTypeName = GetStableTypeName(type, attrs.CerasSerializable);
-			var prevTypeNames = new List<string>();
-			if (attrs.PreviousTypeName != null) {
-				foreach (var attr in type.GetAttributes())
-					if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, attrs.PreviousTypeName) && attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is string ptn)
-						prevTypeNames.Add(ptn);
-			}
+			var prevTypeNames = ReadPreviousTypeNames(type, attrs.PreviousTypeName);
 			string kind = type.TypeKind == TypeKind.Enum ? "global::Ceras.Format.SchemaTypeKind.Enum" : (type.IsValueType ? "global::Ceras.Format.SchemaTypeKind.Struct" : "global::Ceras.Format.SchemaTypeKind.Class");
 			string? underlyingTypeName = type.TypeKind == TypeKind.Enum && type.EnumUnderlyingType != null ? GetRobustName(type.EnumUnderlyingType) : null;
 			int fixedSize = ComputeFixedByteSize(type, members);
@@ -711,7 +736,7 @@ namespace Ceras.SourceGenerator {
 		/// ([PreviousTypeName] / [PreviousName] arguments) and is quoted through
 		/// <see cref="TypeHelpers.QuoteLiteral"/>.
 		/// </summary>
-		static void WriteStringArray(StringBuilder sb, List<string> strings) {
+		public static void WriteStringArray(StringBuilder sb, List<string> strings) {
 			if (strings.Count == 0) { sb.Append("global::System.Array.Empty<string>()"); return; }
 			sb.Append("new string[] { ");
 			for (int i = 0; i < strings.Count; i++) {
@@ -719,6 +744,33 @@ namespace Ceras.SourceGenerator {
 				if (i < strings.Count - 1) sb.Append(", ");
 			}
 			sb.Append(" }");
+		}
+
+		/// <summary>
+		/// The <c>[PreviousTypeName]</c> aliases declared on the type itself, in source order — the one
+		/// reader of them, shared by every registration path that writes a <c>previousTypeNames</c> into a
+		/// manifest entry.
+		/// <para>
+		/// It is one method because the two kinds of registration had drifted: a <em>generated</em> schema
+		/// (<see cref="BuildSchemaExpression"/>) read them, while the <em>placeholder</em> schema an
+		/// interface or abstract type gets (<c>CerasFormatterGenerator.AppendMinimalRegistration</c>) passed
+		/// <c>Array.Empty&lt;string&gt;()</c>. The placeholder is exactly the shape a save file names for a
+		/// base type the application renamed while making it abstract or swapping it for another interface,
+		/// and the alias was the only thing that could resolve it: without one,
+		/// <c>SchemaRegistry.ClaimNames</c> never indexed a name a file could ask for, so
+		/// <c>CerasRobustSerializer.BuildIdToType</c> had to hand the name to a binder, which cannot know a
+		/// type from an older build. See
+		/// <c>tests/Ceras.Test/Tests/HistoricalAbstractBaseFixtureTests.cs</c>.
+		/// </para>
+		/// </summary>
+		public static List<string> ReadPreviousTypeNames(INamedTypeSymbol type, INamedTypeSymbol? previousTypeNameAttr) {
+			var prevTypeNames = new List<string>();
+			if (previousTypeNameAttr != null) {
+				foreach (var attr in type.GetAttributes())
+					if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, previousTypeNameAttr) && attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is string ptn)
+						prevTypeNames.Add(ptn);
+			}
+			return prevTypeNames;
 		}
 
 		/// <summary>As <see cref="WriteStringArray"/>, for the previous names of a single member.</summary>
@@ -765,7 +817,11 @@ namespace Ceras.SourceGenerator {
 			}
 			if (type is INamedTypeSymbol named) {
 				if (named.TypeKind == TypeKind.Enum && named.EnumUnderlyingType != null) return ComputeFixedByteSize(named.EnumUnderlyingType, null);
-				string clrName = named.ToDisplayString(SortKeyFormat);
+				// The canonical name, the same spelling the member sort key and the schema section use:
+				// one spelling of a type's identity in the generator, so a name compared here cannot
+				// drift away from the name written into the schema. The four types compared below are
+				// non-generic, non-nested framework types, for which it is the name either way.
+				string clrName = GetRobustName(named);
 				if (clrName == "System.DateTime") return 8;
 				if (clrName == "System.DateTimeOffset") return 10;
 				if (clrName == "System.TimeSpan") return 8;

@@ -28,12 +28,13 @@ namespace Ceras.HistoricalWriter.V1Inherited
     /// is refused before a byte is read — which is what makes the file a test of an <em>inherited</em>
     /// rename rather than of a rename on a type the file happens to instantiate.
     /// <para>
-    /// It is a plain class rather than an <c>abstract</c> one, and that is load-bearing rather than
-    /// cosmetic: a generated manifest registers an abstract or interface type with a <em>placeholder</em>
-    /// schema whose <c>previousTypeNames</c> is <c>Array.Empty</c> (the generator's
-    /// <c>AppendMinimalRegistration</c>), so a renamed abstract base has no alias for a file to resolve and
-    /// the load is refused. See the note on the reader-side model in
-    /// tests/Ceras.Test/Tests/HistoricalInheritedMemberFixtureTests.cs.
+    /// It is a plain class rather than an <c>abstract</c> one, and that is deliberate: a base this build
+    /// declares abstract or as an interface reaches the manifest through a different registration (the
+    /// generator's field-less <em>placeholder</em> schema, <c>AppendMinimalRegistration</c>), so it is a
+    /// different identity question. That one has its own file and its own reader test —
+    /// <c>V1AbstractBaseModel.cs</c> and
+    /// <c>tests/Ceras.Test/Tests/HistoricalAbstractBaseFixtureTests.cs</c> — and keeping this base a
+    /// plain class is what stops the two claims from being confused for one another.
     /// </para>
     /// <para>
     /// <see cref="Power"/> is the whole point: v1 spells it one way and gives it an <c>int</c>, and the

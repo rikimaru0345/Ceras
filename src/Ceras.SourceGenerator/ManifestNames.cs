@@ -73,9 +73,9 @@ namespace Ceras.SourceGenerator
     /// (<c>[CerasSerializable("…")]</c>, else the type's canonical name) and each of its
     /// <c>[PreviousTypeName]</c> aliases;</item>
     /// <item>every discovered interface/abstract type that gets the field-less placeholder schema, under
-    /// its canonical name;</item>
+    /// its canonical name and each of its <c>[PreviousTypeName]</c> aliases;</item>
     /// <item>every <c>contextMinimalTypes</c> entry — a type a member references but discovery
-    /// deliberately leaves out — under its canonical name;</item>
+    /// deliberately leaves out — under its canonical name and each of its aliases;</item>
     /// <item>every declared structural root (<c>DeclareRoot</c>), under its canonical name, with the
     /// aliases the runtime's derived enum descriptor reads.</item>
     /// </list>
@@ -156,20 +156,31 @@ namespace Ceras.SourceGenerator
                         }
                         else if (EmitsMinimalPlaceholderSchema(type, attrBag))
                         {
-                            // The placeholder carries no aliases: the emitted registration passes
-                            // Array.Empty<string>(), so there is no alias to collide with.
+                            // The placeholder carries the type's aliases too — that is what
+                            // CerasFormatterGenerator.AppendMinimalRegistration emits, and it is what lets a
+                            // save name a base type this build renamed while making it abstract (or swapped
+                            // a contract interface for another). Claimed here for the same reason the
+                            // generated path above claims them: the runtime indexes every name a
+                            // registration carries (SchemaRegistry.ClaimNames), so a duplicate is a
+                            // refused context setup and belongs at compile time instead.
                             if (!Enter(type)) continue;
                             Claim(model.CanonicalName(type), type, isStableName: true, location: null);
+                            foreach (var alias in model.PreviousTypeNames(type))
+                                Claim(alias.Name, type, isStableName: false, location: alias.Location);
                         }
                     }
                 }
 
                 if (contextMinimalTypes.TryGetValue(contextName, out var minimalTypes))
                 {
+                    // A placeholder registration as well (the other one AppendMinimalRegistration writes),
+                    // so the aliases are claimed exactly as they are emitted.
                     foreach (var type in minimalTypes)
                     {
                         if (!Enter(type)) continue;
                         Claim(model.CanonicalName(type), type, isStableName: true, location: null);
+                        foreach (var alias in model.PreviousTypeNames(type))
+                            Claim(alias.Name, type, isStableName: false, location: alias.Location);
                     }
                 }
 
