@@ -36,6 +36,18 @@
   </ItemGroup>
 
   <!--
+    The fake duplex transport and the loop measurement helper, compiled in from shared/ rather than
+    copied. samples/Ceras.Benchmarks compiles the same two files, so the smoke test and the
+    benchmark move bytes the same way and time them the same way; see shared/GameplayLoop/README.md
+    for why this is a source link and not a project reference (a reference from the benchmark to the
+    test suite would undo the benchmark's stated independence from it).
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\shared\GameplayLoop\FakeDuplexTransport.cs" Link="GameplayLoop\FakeDuplexTransport.cs" />
+    <Compile Include="..\..\shared\GameplayLoop\LoopMeasurement.cs" Link="GameplayLoop\LoopMeasurement.cs" />
+  </ItemGroup>
+
+  <!--
     Probes/*.cs is *not* part of this compilation. It is the source of a small console
     program that BanVerdictCacheColdPathTests compiles at test time and runs as a fresh child process,
     because the ban verdict cache is only empty at the start of a process and the shared xUnit

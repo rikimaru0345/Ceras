@@ -128,7 +128,9 @@ namespace Ceras.Benchmarks
         /// Runs the BenchmarkDotNet harness for the roadmap workloads.
         /// <c>dotnet run --project samples/Ceras.Benchmarks -c Release -- --roadmap-bench</c>.
         /// Any further arguments are handed to BenchmarkDotNet itself, so
-        /// <c>--roadmap-bench --filter *Load* --job short</c> works.
+        /// <c>--roadmap-bench --filter *Load* --job short</c> works - and so does
+        /// <c>--roadmap-bench --filter *NetworkLoop*</c> for the gameplay message loop, whose
+        /// deterministic table is the <c>--network-loop</c> mode.
         /// </summary>
         public static void RunBenchmarkDotNet(string[] args = null)
         {
@@ -137,6 +139,7 @@ namespace Ceras.Benchmarks
                 typeof(RobustSaveLoadBenchmarks),
                 typeof(NetworkTransientBenchmarks),
                 typeof(ColdInitBenchmarks),
+                typeof(NetworkLoopBenchmarks),
             }).Run(args);
         }
 
