@@ -131,7 +131,9 @@ on cold paths, and memoized per name.
 
 ## Member layout
 
-- Field order is deterministic: `MemberType + MemberName + DeclaringType + "f"/"p"` (ordinal).
+- Field order is deterministic: `MemberType + MemberName + DeclaringType + "f"/"p"` (ordinal), spelled
+  with the [canonical type identity](#type-identity) and derived once for both writers — see
+  [the order below](#the-order-a-types-members-are-written-in).
 - Field identity is the stable wire name (`[CerasStableName]` overrides the CLR name; previous names
   are aliases used only by migration). An enum member is identified the same way: its entry is recorded
   under its wire name, so the same attribute renames a member without a rename alias.
@@ -153,21 +155,52 @@ on cold paths, and memoized per name.
   tree's benchmark can see (a 10-member `struct` graph saves and loads within run-to-run noise of the
   concrete binding), and no byte of any existing save changed.
 
+### The order a type's members are written in
+
+A payload of a declared type is its members in one fixed order, and the order is not the declaration
+order. It is the ordinal order of a sort key:
+
+```
+<canonical name of the member's type> <member's CLR name> <canonical name of its declaring type> f|p
+```
+
+"Canonical name" is [the type identity above](#type-identity), so the same string the schema section
+records a type under: `Namespace.Type\`Arity<args>`, `Namespace.Outer+Nested`, `T[]`, `T[,]`, `T*`, and
+a declared type parameter as `!` plus its position. `f`/`p` is a field or a property. Each member's
+**own** declaring type is used, so an inherited member sorts the same way whichever type reaches it.
+A member's wire name (`[CerasStableName]`, `[PreviousName]`) is **not** in the key: the order follows
+the CLR name, so renaming a member on the wire moves nothing.
+
+Both writers use this one key, and that is load-bearing rather than tidy. The generated writer emits its
+members in this order; the reflection fallback (`ReflectionFallbackFormatter`) sorts the member list it
+derives from reflection with `SchemaMemberComparer`, which computes the same string; and a per-closure
+schema records the order its writer emits, because a save carries no member order of its own - the
+schema section names the fields, and the matching-layout reader never looks at it. A key spelled
+differently on the two sides is a second order for one type, so the same value would be written as two
+different byte layouts depending on which writer reached it, each self-consistent, and the reader for
+the other one would take a member's neighbour's value. The key used to be spelled as a Roslyn display
+string on the generated side and `Type.FullName` on the runtime side, and the two disagree for every
+shape whose spellings differ - a tuple (`(System.Int32, System.String)` against
+`System.ValueTuple`2[[System.Int32, …]]`), a nullable (`System.Int32?` against `System.Nullable`1[…]`),
+a nested type (`Outer.Inner` against `Outer+Inner`), any closed generic. `MemberOrderUnificationTests`
+pins the agreement by writing the same value through both writers and comparing the bytes.
+
 ### The order a closed generic's schema records
 
-The sort key uses each member's **declared** type, and every closure of a generic definition is written
-by one emitted class - the definition's. So the payload order of `Wrap<Coord>` is the order
-`Wrap<T>`'s members sort in, where `T Value` lands *after* `System.Int32 Tag`, and it is the same for
-every closure. A per-closure schema therefore records **that** order, not the order the closure's
-substituted members would sort in (`Legacy.Coord Value` before `System.Int32 Tag`). The two differ for
-most type arguments, and only a schema that lists the fields as they are written describes the bytes
-that follow.
+Every closure of a generic definition is written by one emitted class - the definition's. So the
+payload order of `Wrap<Coord>` is the order `Wrap<T>`'s members sort in, from their **declared**
+types, and it is the same for every closure. A declared type parameter is spelled `!0`, which sorts
+below every real type name, so `T Value` lands *before* `System.Int32 Tag` whatever the argument is;
+for an argument that sorts after `System.Int32` - a `string`, say - the substituted order is the other
+way round, and one class cannot emit both. A per-closure schema therefore records **that** order, not
+the order the closure's substituted members would sort in (`Legacy.Coord Value` before
+`System.Int32 Tag`).
 
-This is a property of the schema, not of the payload: correcting it changed no payload byte. What it
-changes is the schema section's field order and therefore the layout fingerprint, for the closures whose
-two orders differ. A file written before the correction recorded the substituted order for such a
-closure, so its own schema misdescribes its own bytes; no reader can recover that, because the order the
-file was written in is not recorded anywhere else in it.
+The two orders coincide for many arguments and differ for the rest, so what this costs is: the schema
+section's field order and therefore the layout fingerprint, for the closures where they differ, and
+nothing in the payload beyond those closures. A file written before a key change records the order
+*its* writer emitted, and the order it was written in is not recorded anywhere else in it, so a file
+whose own schema lies about its own bytes cannot be recovered by any reader.
 
 ## Primitive encodings (fixed-width default)
 
@@ -220,11 +253,11 @@ it asks three questions about a composite struct:
    `[NonSerialized]`, or a compiler-generated field that is not an auto-property's backing field — has
    bytes in the image and nothing in the payload, so it cannot be reinterpreted.
 2. **The same order.** The CLR lays fields out in declaration order, and Ceras writes a type's members
-   in the [member layout](#member-layout) order — by member type name first, so same-typed members fall
-   through to the member name alone. `struct S { int One; int Two; int Three; }` therefore sorts to
-   **One, Three, Two** while its memory image is One, Two, Three, and a blit would have written the
-   declaration order. The comparison is made with the same comparer the runtime sorts a real member list
-   with (`SchemaMemberComparer`), not with a restatement of its key.
+   in the [order above](#the-order-a-types-members-are-written-in) — by member type name first, so
+   same-typed members fall through to the member name alone. `struct S { int One; int Two; int Three; }`
+   therefore sorts to **One, Three, Two** while its memory image is One, Two, Three, and a blit would
+   have written the declaration order. The comparison is made with the same comparer the runtime sorts a
+   real member list with (`SchemaMemberComparer`), not with a restatement of its key.
 3. **The same width, with no padding.** A padded struct differs in width as well as in order:
    `struct { byte B; int I; }` is 8 bytes of memory for 5 bytes of payload, so the blit would write
    three bytes no reader accounts for. The check is `SizeOf(T) == sum of the members' widths`, which
@@ -238,11 +271,12 @@ reinterpreted until it is marked `[CerasSerializable]`, and silently member-writ
 encodings round-trip, so nothing failed; a transient buffer simply stopped being readable at the moment
 a formatter was generated for the type. Robust contexts were never affected (the resolver requires
 `CerasRawConfig`), and neither are the checked-in fixtures: a type that qualified before and qualifies
-now keeps its bytes, and `FormatVersion` is unchanged. The rule narrows the selection only — the two
-member orders are untouched, and the closed-generic divergence between a generated per-closed schema
-and the runtime one is a separate, deliberately pinned property (see above). The one shape whose
-selection changed *and* whose behaviour changed is a struct declaring a `fixed` buffer, which is now
-refused outright rather than served by the blit; see below and
+now keeps its bytes, and `FormatVersion` is unchanged. The rule narrows the selection only — the member
+order is the one both writers compute (see above), and the closed-generic case where a generated
+per-closed schema and a reflective writer can still order one type's members differently is a property of
+"one shared writer per definition", pinned rather than resolved. The one shape whose selection changed
+*and* whose behaviour changed is a struct declaring a `fixed` buffer, which is now refused outright
+rather than served by the blit; see below and
 [what is rejected](#load-order-and-what-is-rejected).
 
 One exemption remains. It is the same question `decimal` asks, answered the other way round:

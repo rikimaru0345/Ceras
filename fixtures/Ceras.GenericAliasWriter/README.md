@@ -3,8 +3,8 @@
 `Ceras.GenericAliasWriter` holds the **v1** model of a save whose *generic* types have since been
 renamed, and writes the byte-exact files that the cross-version tests in
 `tests/Ceras.Test/Tests/RenamedGenericAliasTests.cs` (renamed types) and
-`tests/Ceras.Test/Tests/GenericMemberOrderTests.cs` (a generic whose member order depends on its type
-argument) load with the current model.
+`tests/Ceras.Test/Tests/GenericMemberOrderTests.cs` (a generic whose member order is fixed by its
+definition) load with the current model.
 
 It is a separate project from `Ceras.HistoricalWriter` — and a separate set of golden files — for two
 reasons:
@@ -61,18 +61,21 @@ Ordinary CI never builds or runs this project; it only reads the checked-in file
 | Renamed generic as the save root | `TextBox.bin` | `Legacy.Box`1<System.String>` | `Box<string>` — the identity a wrong-root load is checked against |
 | Collection of closures as the root | `IntBoxes.bin` | `List<Legacy.Box`1<System.Int32>>` | `List<Box<int>>` |
 | Sentinel last | `Save.bin` | `Tail` | `Tail` — any desynchronisation before it is visible |
-| Member order that depends on the type argument | `Wrap.bin` | `Legacy.Wrap\`1<Legacy.Coord>` written `Tag, Value` | `Wrap<Coord>` — the file's schema lists `Tag, Value`, which is what its bytes say |
+| Member order that depends on the type argument | `Wrap.bin` | `Legacy.Wrap\`1<Legacy.Coord>` written `Value, Tag` | `Wrap<Coord>` — the file's schema lists `Value, Tag`, which is what its bytes say |
 | Added member of a generic | `Wrap.bin` | — | `Wrap<T>.Added` takes its declared default |
 
 ## The order-sensitive fixture, and what changed with it
 
 `Legacy.Wrap<T>` is here because of a member-order defect, not about renaming: every closure of a
-generic definition is written by the definition's one shared formatter, so `Wrap<Coord>`'s bytes are
-`Tag` then `Value` (the parameter name sorts after `System.Int32`), while the *closure's* substituted
-members sort the other way round (`Legacy.Coord` sorts before `System.Int32`). The per-closed schema
-used to record the substituted order, so a file's schema did not describe its own bytes and a migration
-read the wrong members. The schema now records the order the shared writer emits; `Format/LAYOUT.md`
-has the rule and the reasoning.
+generic definition is written by the definition's one shared formatter, so the payload order is
+whatever the *definition's* members sort in, for every argument. A declared type parameter sorts
+under its position (`!0`), which is below every real type name, so `Wrap<T>`'s bytes are `Value`
+then `Tag` — for `Wrap<Coord>` and for `Wrap<System.String>` alike, where the substituted members
+would sort the other way round and no single writer could satisfy both. The per-closed schema used to
+record the substituted order for a closure, so a file's schema did not describe its own bytes and a
+migration read the wrong members. The schema records the order the shared writer emits;
+`Format/LAYOUT.md` has the rule and the reasoning, and `MemberOrderUnificationTests` owns the sort key
+the two writers share.
 
 What that correction changes, measured rather than assumed:
 
@@ -85,12 +88,26 @@ What that correction changes, measured rather than assumed:
 
 The last row is the compatibility cost, and it is a silent one (a member reads its neighbour's value),
 not a load failure. It is accepted: the robust format's compatibility promise starts with the next
-documented format, and no golden fixture in this repository contains a user generic, so no checked-in
-file changes behaviour.
+documented format.
 
 The other generics here are deliberately minimal (**one member each**, apart from `Crate`, whose two
 arguments sort the same way closed and open) so the *identity* problem they exist to pin is not
 entangled with the order one.
+
+## The regeneration of 29 September 2026 (member-order unification)
+
+The sort key both writers use became the canonical stable type identity, so these four files were
+regenerated with the command above and every byte of the diff is accounted for:
+
+| Fixture | what moved |
+| --- | --- |
+| `Wrap.bin` | the `Wrap<T>` payload is now `Value` then `Tag`, and its schema section lists the fields in that order |
+| `Save.bin` | `Legacy.Save`'s field order: `Cell` (`Box\`1+Cell\`1<…>`, whose `+` sorts below `<`) now precedes `Point` (`Box\`1<…>`) |
+| `TextBox.bin`, `IntBoxes.bin` | the layout fingerprint of the `GenericAliasV1` context, which every file written through it carries, and the entry numbering that follows from it |
+
+No *other* type in this writer changed order, and the checked-in `HistoricalV1` fixtures regenerate
+byte-identically: they are all scalar, string, collection, enum and fixed-buffer shapes, whose
+canonical names sort where their display strings did.
 
 ## Changing a fixture
 

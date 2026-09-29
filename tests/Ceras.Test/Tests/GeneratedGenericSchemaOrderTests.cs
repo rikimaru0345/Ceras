@@ -6,13 +6,18 @@
 // version-separated file, and the fast path); here the invariant is asserted on the emitted source
 // itself, for every closure of a model built to make the two orders differ:
 //
-//   * a member declared as a type parameter, closed over a type whose name sorts before `System.Int32`
-//     (`Wrap<T> { T Value; int Tag; }` over `OrderProbe.Alpha.Thing`): written `Tag, Value`, closed sort
-//     `Value, Tag`;
+//   * a member declared as a type parameter, whose canonical spelling is its *position* (`!0`), so it
+//     sorts before every real type name: `Wrap<T> { T Value; int Tag; }` is written `Value, Tag`;
 //   * a generic base, so the members the closure *inherits* have to be matched to the definition that
 //     declares them rather than to the closed derived type - `Derived<T> : Base<T>`, whose two inherited
 //     members land in the middle of the written order;
 //   * a single-member generic, whose two orders agree, so the fix must leave it alone.
+//
+// `OrderProbe.Alpha.Thing` sorts before `System.Int32`, which is what makes the *substituted* order
+// differ from the written one. Note what the position-based spelling does to that: for `Wrap` the two
+// orders now agree, because `!0` and `Alpha.Thing` both sort before `System.Int32` - so `Derived`,
+// where the argument reaches two members that then sort against a `System.Int32` one, is what still
+// separates them.
 //
 // The generator is run through the shared harness (GeneratorTestHarness), and the assertions below are
 // deliberately textual and independent of how classes are named: the member order is read out of the
@@ -119,16 +124,18 @@ namespace OrderProbe
             var (diagnostics, generated) = GeneratorTestHarness.Run(Model);
             Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
 
-            // `Wrap<OrderProbe.Alpha.Thing>`: the writer emits Tag (System.Int32) before Value (the
-            // parameter "T"), because 'S' < 'T'. The closed order would be Value, Tag, because
-            // "OrderProbe.Alpha.Thing" sorts before "System.Int32".
-            Assert.Equal(new[] { "Tag", "Value" }, SchemaFieldsOf(generated, "OrderProbe.Wrap`1<OrderProbe.Alpha.Thing>"));
+            // `Wrap<OrderProbe.Alpha.Thing>`: the writer emits Value before Tag, because a declared
+            // type parameter's canonical name is its position, `!0`, and `!` sorts below `S`. The
+            // substituted order is the same here, since "OrderProbe.Alpha.Thing" also sorts below
+            // "System.Int32" - which is the point: the order no longer depends on the argument.
+            Assert.Equal(new[] { "Value", "Tag" }, SchemaFieldsOf(generated, "OrderProbe.Wrap`1<OrderProbe.Alpha.Thing>"));
 
-            // `Derived<...> : Base<...>`: the sort key is member type + member name, so every `int` member
-            // comes before every `T` one regardless of which type declares it - the two inherited ones
-            // included, and they land ahead of the derived `T` member. The closed order would be
-            // BValue, DValue, BTag, DTag, i.e. exactly reversed.
-            Assert.Equal(new[] { "BTag", "DTag", "BValue", "DValue" },
+            // `Derived<...> : Base<...>`: the sort key is member type + member name, so every `T` member
+            // (written `!0`) comes before every `int` one regardless of which type declares it - the two
+            // inherited ones included, and they land ahead of the derived `T` member. The substituted
+            // order is BTag, DTag, BValue, DValue, i.e. exactly reversed, so this is where the two
+            // orders still differ.
+            Assert.Equal(new[] { "BValue", "DValue", "BTag", "DTag" },
                 SchemaFieldsOf(generated, "OrderProbe.Derived`1<OrderProbe.Alpha.Thing>"));
 
             // A single-member generic: nothing to reorder, and the fix must not invent an order.

@@ -765,7 +765,11 @@ namespace Ceras.SourceGenerator {
 			}
 			if (type is INamedTypeSymbol named) {
 				if (named.TypeKind == TypeKind.Enum && named.EnumUnderlyingType != null) return ComputeFixedByteSize(named.EnumUnderlyingType, null);
-				string clrName = named.ToDisplayString(SortKeyFormat);
+				// The canonical name, the same spelling the member sort key and the schema section use:
+				// one spelling of a type's identity in the generator, so a name compared here cannot
+				// drift away from the name written into the schema. The four types compared below are
+				// non-generic, non-nested framework types, for which it is the name either way.
+				string clrName = GetRobustName(named);
 				if (clrName == "System.DateTime") return 8;
 				if (clrName == "System.DateTimeOffset") return 10;
 				if (clrName == "System.TimeSpan") return 8;

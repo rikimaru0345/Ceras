@@ -310,11 +310,12 @@ namespace Ceras.SourceGenerator
         /// A member's identity across an open and a closed instantiation: the same name, the same kind,
         /// and the same declaring <em>definition</em> - so <c>Box&lt;T&gt;</c> and <c>Box&lt;int&gt;</c>
         /// name the same member, as do <c>Base&lt;T&gt;</c> and <c>Base&lt;int&gt;</c> for one the
-        /// definition inherited.
+        /// definition inherited. The definition is named by its canonical identity, the generator's one
+        /// spelling of a type's name; this key is local to a build and never reaches a file.
         /// </summary>
         static string MemberKey(SerializedMember m)
             => m.Name + "|" + (m.IsField ? "f" : "p") + "|" +
-               m.DeclaringType.OriginalDefinition.ToDisplayString(SortKeyFormat);
+               GetRobustName(m.DeclaringType.OriginalDefinition);
 
         static void ReportUnplaceable(SourceProductionContext context, INamedTypeSymbol closedType, string what, string memberName)
         {

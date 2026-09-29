@@ -25,8 +25,13 @@ namespace Ceras.TestDebugger
             Console.WriteLine("Field order according to SchemaMemberComparer:");
             var members = typeof(Item).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).ToList();
             members.Sort((a, b) => {
-                var ka = a.FieldType.FullName + a.Name + a.DeclaringType.FullName + "f";
-                var kb = b.FieldType.FullName + b.Name + b.DeclaringType.FullName + "f";
+                // The runtime's own key, restated: the canonical stable type identity of the member's
+                // type, the member's name, its declaring type's, and "f" for a field. Restating it is a
+                // deliberate second copy, so a change to SchemaMemberComparer has to be made here too -
+                // the order below is what both writers emit, and a key spelled any other way is a second
+                // order for one type.
+                var ka = Ceras.Format.TypeIdentity.GetCanonicalName(a.FieldType) + a.Name + Ceras.Format.TypeIdentity.GetCanonicalName(a.DeclaringType) + "f";
+                var kb = Ceras.Format.TypeIdentity.GetCanonicalName(b.FieldType) + b.Name + Ceras.Format.TypeIdentity.GetCanonicalName(b.DeclaringType) + "f";
                 return string.Compare(ka, kb, StringComparison.Ordinal);
             });
             foreach(var m in members) Console.WriteLine($" - {m.FieldType.Name} {m.Name}");
