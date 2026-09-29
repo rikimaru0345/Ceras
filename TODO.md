@@ -80,19 +80,21 @@ context after seal or parse the schema on a matching-layout load.
   the experimental format and requires reviewed fixture/fingerprint updates; first
   extract byte-preserving shared rules and pin existing payload bytes. V5 frames user
   custom formatter payloads in robust contexts; `SchemaRegistry.Register` can still
-  deliberately register a lying schema,
-   and reinterpret/reflection/resolver formatters may write bytes that no schema
-   describes. User resolver selections are now refused when unsupported, but the
-   dynamic reflection fallback can still write a different member list or order under
-   an unchanged fingerprint (reproduced across real builds). **Correctness gate:**
-   verify the reflection-selected member list against the baked entry and refuse a
-   mismatch before caching or writing. **Greenfield decision:** unify generator/runtime
-   sort keys now; no deployed data needs a transition. Regenerate only affected test
-   fixtures from their real writers, and recheck the game's real v5 fixtures. Verify
-   writer selection against the authoritative layout; the
-  manifest-coupled guard is not an unforgeable proof of schema truth. Record array
-  rank if robust polymorphic multidimensional arrays are ever supported; v4 rejects
-  them before Save because the current Type value only records an element type.
+  deliberately register a lying schema, and reinterpret/reflection/resolver
+  formatters may write bytes that no schema describes. User resolver selections
+  are now refused when unsupported. **Done, greenfield:** the generated and
+  reflection member sort keys now use the same canonical type names, and four
+  affected generic-alias fixtures were regenerated from their real writer.
+  **Done, bounded correctness gate:** the built-in reflection fallback now
+  compares ordered member count/names/types to the baked entry and refuses its
+  known array-member marker mismatch before formatter construction/caching.
+  Generic closures can still substitute a member type and reorder the reflection
+  fallback; the guard must catch it. A manifest-coupled guard is not an
+  unforgeable proof of schema truth; continue verifying writer selection against
+  the authoritative layout. The game's fixture/pin recheck is blocked by
+  concurrent game checkout changes (three fingerprint expectation failures).
+  Record array rank if robust polymorphic multidimensional arrays are ever supported;
+  v4 rejects them before Save because the current Type value only records an element type.
 - Split generator context registration/discovery from source emission as the layout
   model settles. `CerasFormatterGenerator.cs` and `RobustCodeEmitter.cs` still mirror
   some type/encoding decisions; converge on one canonical helper rather than
@@ -139,10 +141,18 @@ context after seal or parse the schema on a matching-layout load.
    the same fixtures (657/657 each on game `main` at integration). All pre-v5 saves are
    disposable; no v4 decoder is required. Regenerate checked-in fixtures only deliberately
    from their real writers.
- - **Done:** `CERAS019` now diagnoses stable-name and `[PreviousTypeName]` alias
-   collisions per generated context, including minimal registrations and declared
-   structural roots; the runtime still guards hand-written descriptors and bake-time
-   derived names. Its replacement compile-time and runtime tests pass independently.
+  **Done:** `CERAS019` now diagnoses stable-name and `[PreviousTypeName]` alias
+  collisions per generated context, including minimal registrations and declared
+  structural roots; the runtime still guards hand-written descriptors and bake-time
+  derived names. Its replacement compile-time and runtime tests pass independently.
+  **Done:** minimal abstract and interface manifest placeholders retain
+  `[PreviousTypeName]` aliases, exercised by a genuine older-schema v5 fixture.
+  Binder-wide missing-type tolerance remains blocked: it can silently replace a
+  retained collection element with its default; decide skips at plan stage.
+  **Done, narrow:** generated formatter fields for sealed collection members
+  now match the runtime's sealed reference wrapper. Migration construction of
+  immutable collections and sealed non-collection generic members are separate
+  open cases, not implied by the injection fix.
 - **Done:** `samples/GodotIntegration` imports and runs under headless Godot 4.7.2
   after v5, printing `CERAS_GODOT_INTEGRATION_OK`. Exercise the active `/games/godot-factory-test`
   logic save suite after every format change, including recipe registry identity,
@@ -167,10 +177,10 @@ same-version roundtrip.
 - Connect the old-data graph node model (`OldDataGraph.cs`, plus generic
   `IdentityCache<T>`) to the production migration path, expose the populated graph to
   application migration code, then materialize current objects without historical CLR
-  types. `OldFileGraph` now builds a file-faithful graph for all 54 checked-in v5
+  types. `OldFileGraph` now builds a file-faithful graph for all 65 checked-in v5
   fixtures, preserving first-occurrence indices and cycles; opaque frames are retained
-  as immutable byte records, while positional composite shapes still refuse until
-  their node kinds exist. Production `Load` still uses
+  as immutable byte records, and nullable/pair/tuple positions have honest unnamed
+  graph nodes backed by eight additive real-writer fixtures. Production `Load` still uses
   the streaming reader and does not construct the graph. Pin matching-layout allocations
   and ensure this work cannot put graph construction on the generated-reader path.
   **Done interim fail-loud gate:** the streaming reader distinguishes explicitly
@@ -186,10 +196,15 @@ same-version roundtrip.
   current reader's `FullNameMarker` lookup that uses a current registry id against
   the file's id table — those id spaces are independent; resolve by file identity.
   `MigrationPlanBuilder.Coerce` and `CtorArgumentValues` are now shared helpers for
-  the current reader and future materializer. Resolve the identified constructor
-  write-back parity bug before relying on constructor results from both readers.
-  `OldOpaqueNode` now retains v5 framed payloads. Add honest positional nodes for
-  nullable, key/value pair and tuple values before claiming broader graph coverage.
+  the current reader and future materializer. **Done:** the migration constructor
+  reader now writes back every stored member, including constructor-fed values,
+  matching the generated reader's saved-value-wins rule. Two genuine older-schema
+  v5 fixtures pin construction, member rewrites, sharing and cycles. When two old
+  fields alias onto one current field, the migration reader still assigns in file
+  order rather than the generated reader's current-member order; make that mapping
+  unambiguous before treating the two as equivalent in that case.
+  `OldOpaqueNode` now retains v5 framed payloads. Nullable, key/value pair and tuple
+  values now have file-faithful positional nodes; production materialization remains open.
   **Done isolation gate:** a CRC-valid file with a poisoned schema section still loads
   when its fingerprint matches, while the file-only graph reader and mismatched reader
   refuse the same bytes. This proves the matched reader does not parse/build from the
@@ -223,7 +238,10 @@ Only after correctness and runnable baselines; no changed bytes or reuse semanti
   final trim copy can be avoided too, and measure integrity and string-table costs
   separately.
 - `List<T>`/`T[]` of fixed-width primitives are now read in place instead of
-  enumerated, and bulk-written in blocks rather than element by element; `decimal`
+  enumerated. **Correction:** the fixed-width bulk writer exists, but its only
+  `CollectionFormatter<TItem>` call site is currently disabled by `false &&`,
+  so ordinary collection writes are still per-element. Decide whether to enable
+  it only after a byte-parity and end-to-end measurement gate; `decimal`
   and arbitrary structs are deliberately excluded. Still open: typed
   common-collection formatters that avoid reflected construction, for collections
   beyond `List<T>`; test segmented input, reuse, limits and truncation.
@@ -244,6 +262,11 @@ Only after correctness and runnable baselines; no changed bytes or reuse semanti
 ## Milestone 4 — dedicated networking execution
 
 `CerasFastSerializer` still shares reference machinery and is not this mode yet.
+The active game has no socket/network consumer; prioritize save durability and
+fail-loud migration first. The example `ReadFromStream` length prefix is not
+bounded before allocating a receive buffer; no network-facing API may inherit
+that behavior. Bound graph depth and frame size before claiming safety for
+peer-supplied messages, independently of the gameplay-loop allocation baseline.
 
 - Generate a finite-manifest network path without reference tables/proxies, identity
   preservation, cycle detection, per-message schema/hash/checksum or negotiation.
