@@ -237,6 +237,12 @@ Only after correctness and runnable baselines; no changed bytes or reuse semanti
   byte-payload escape hatch without charging ordinary messages for graph machinery.
 - Benchmark sustained traffic and steady-state allocations for structs, reused
   classes, ID references, arrays and strings; document cycles as misuse.
+  **Baseline landed:** `samples/Ceras.Benchmarks --network-loop` and the short
+  `GameplayMessageLoopTests` measure a warmed two-way fixed-message exchange over
+  preallocated in-memory lanes. The fixed-message loop allocates 0 B on the measured
+  thread; string decode reports its actual allocations. This is a baseline for today's
+  `CerasFastSerializer`, not the dedicated network mode or a socket latency estimate;
+  add the ID/array/reusable-collection cases when that mode exists.
 
 ## Milestone 5 — cleanup and documentation
 
