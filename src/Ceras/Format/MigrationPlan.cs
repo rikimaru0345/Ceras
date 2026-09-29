@@ -647,6 +647,39 @@ namespace Ceras.Format
             return CoercionKind.None;
         }
 
+        /// <summary>
+        /// Applies the conversion <see cref="DetectCoercion"/> chose, and lives beside it because the two
+        /// halves of one decision belong together: a caller that wants to know which conversion a member
+        /// needs and a caller that wants to perform it must not be able to reach two different answers.
+        /// <para>
+        /// <b>A value whose CLR type is not the one its kind names is returned unchanged</b>, and so is a
+        /// null. The widening reinterprets a value the reader has already decoded once, so anything that
+        /// is not the expected shape is passed on for the assignment to reject rather than converted
+        /// into something plausible — the same rule the payload's own widths are held to.
+        /// </para>
+        /// <para>
+        /// <paramref name="targetType"/> is carried because the call sites state where the value is
+        /// going, and is deliberately not read: this switch is total over <see cref="CoercionKind"/>, so
+        /// the two arguments that decide the answer are the value and the kind. Adding a kind to
+        /// <see cref="CoercionKind"/> without an arm here is therefore not a compile error but a silent
+        /// no-op, which is why <c>MigrationCoercionTests</c> pins every member of the enum against the
+        /// conversion it is supposed to perform.
+        /// </para>
+        /// </summary>
+        internal static object? Coerce(object? value, CoercionKind kind, Type? targetType)
+        {
+            if (kind == CoercionKind.None) return value;
+            return kind switch
+            {
+                CoercionKind.Int32ToInt64 => value is int i ? (object)(long)i : value,
+                CoercionKind.Int16ToInt32 => value is short s ? (object)(int)s : value,
+                CoercionKind.Int32ToSingle => value is int i2 ? (object)(float)i2 : value,
+                CoercionKind.Int32ToDouble => value is int i3 ? (object)(double)i3 : value,
+                CoercionKind.SingleToDouble => value is float f ? (object)(double)f : value,
+                _ => value,
+            };
+        }
+
         /// <summary>The widening conversions Ceras performs today, for the error message.</summary>
         static readonly string[] KnownCoercions =
         {
