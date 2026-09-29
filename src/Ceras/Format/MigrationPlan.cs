@@ -190,7 +190,8 @@ namespace Ceras.Format
     static class MigrationPlanBuilder
     {
         public static Dictionary<string, TypeMigrationPlan> BuildAll(
-            Dictionary<string, OldTypeSchema> oldByName, SchemaRegistry registry)
+            Dictionary<string, OldTypeSchema> oldByName, SchemaRegistry registry,
+            bool allowDroppingCustomPayloads = false)
         {
             var result = new Dictionary<string, TypeMigrationPlan>(StringComparer.Ordinal);
             var oldById = new Dictionary<int, OldTypeSchema>();
@@ -217,7 +218,7 @@ namespace Ceras.Format
                 if (kv.Key != old.StableName) continue;
                 if (result.ContainsKey(old.StableName)) continue;
                 
-                result[old.StableName] = BuildOne(old, oldById, registry);
+                result[old.StableName] = BuildOne(old, oldById, registry, allowDroppingCustomPayloads);
             }
 
             // The third clause last, and that is deliberate: an argument identity nothing describes is a
@@ -275,11 +276,21 @@ namespace Ceras.Format
             return ordered;
         }
 
-        static TypeMigrationPlan BuildOne(OldTypeSchema old, Dictionary<int, OldTypeSchema> oldById, SchemaRegistry registry)
+        static TypeMigrationPlan BuildOne(OldTypeSchema old, Dictionary<int, OldTypeSchema> oldById,
+            SchemaRegistry registry, bool allowDroppingCustomPayloads)
         {
             registry.TryResolveType(old.StableName, out Type? currentType);
 
             var plan = new TypeMigrationPlan { CurrentType = currentType };
+
+            if (old.Kind == SchemaTypeKind.Opaque)
+            {
+                // A custom payload has no members to map, so the whole decision is whether this build can
+                // *produce* the value at all. It is asked here, before the root type id is read, because both
+                // facts are schema facts: what the file recorded, and what this context has selected.
+                BuildOpaquePlan(old, currentType, registry, plan, allowDroppingCustomPayloads);
+                return plan;
+            }
 
             if (old.Kind == SchemaTypeKind.Enum)
             {
@@ -374,6 +385,71 @@ namespace Ceras.Format
             return plan;
         }
 
+        /// <summary>
+        /// What this build can do with a value the file recorded as a user custom formatter's opaque
+        /// payload. Three answers, and the frame is what makes the difference between them:
+        /// <list type="bullet">
+        /// <item><b>Readable</b> — the current type has a custom formatter and it is the same one the file
+        /// recorded (compared by the name the file carries, which is the canonical name of the formatter's
+        /// CLR type). The interpreter then drives it over the frame, exactly as the generated reader
+        /// would.</item>
+        /// <item><b>Skippable</b> — there is no value to produce: the type is gone, it has no custom
+        /// formatter any more, or the one it has is a different formatter whose bytes are a different
+        /// payload. The frame's declared length is enough to account for the value byte-exactly, so the
+        /// <em>bytes</em> cost nothing — which is not the same as the value being free. A member the
+        /// application has since removed falls in this case like any other and is refused with it: a
+        /// custom payload is deliberately <em>narrower</em> than the skip path's standing asymmetry, which
+        /// never refuses a <em>described</em> value, because a file's schema says what a described value
+        /// was and the application can reason about losing it from the member name. A framed block says
+        /// only that <em>a formatter</em> wrote some bytes, which is not enough to reason about the loss,
+        /// so the default asks.</item>
+        /// <item><b>Refused</b> — skippable, but a caller has not authorized losing the value
+        /// (<c>CerasRobustConfig.AllowDroppingCustomPayloads</c> is not set). A
+        /// <see cref="Ceras.Exceptions.CerasSchemaException"/> naming the type, the formatter the file
+        /// recorded and what this build has instead, raised here: while the old-to-current schema is
+        /// validated, before the root type id and before any payload byte is interpreted.</item>
+        /// </list>
+        /// <para>
+        /// The plan records <b>nothing</b> about an opaque value — no mappings, no added names, no
+        /// changes — because there is nothing to map: the whole value is one block. What this method
+        /// decides is only the one question that can be answered before a payload byte exists, and it is
+        /// asked again at the position the interpreter actually meets the value, since a nested argument
+        /// has no plan of its own. The authorization is read from the config there rather than carried
+        /// here, so a nested position and a top-level one cannot disagree about it.
+        /// </para>
+        /// </summary>
+        static void BuildOpaquePlan(OldTypeSchema old, Type? currentType, SchemaRegistry registry,
+            TypeMigrationPlan plan, bool allowDroppingCustomPayloads)
+        {
+            plan.Mappings = Array.Empty<FieldMapping>();
+            plan.AddedFieldNames = Array.Empty<string>();
+            plan.HasChanges = false;
+
+            // Readable when this build's formatter for the current type is the very formatter the file
+            // recorded — compared by name, because a file and a build that agree about a name are two
+            // processes. Readable is not a property the plan has to carry: the interpreter asks the same
+            // question where it meets the value, and this is the *early* door for the one case that can be
+            // decided before a payload byte is read at all.
+            if (currentType != null && registry.TryGetOpaqueSelection(currentType, out var selection)
+                && selection.FormatterName == old.OpaqueFormatterName)
+                return;
+
+            if (allowDroppingCustomPayloads)
+                return;
+
+            throw OpaquePayload.DescribeUnreadable(
+                $"this value ('{old.StableName}')",
+                old.OpaqueFormatterName,
+                OpaquePayload.DescribeCurrentFormatter(currentType,
+                    currentType != null && registry.TryGetOpaqueSelection(currentType, out var now) ? now.FormatterName : null),
+                mayDrop: false);
+        }
+
+        /// <summary>
+        /// Whether the reading context authorized dropping a custom payload it cannot read
+        /// (<c>CerasRobustConfig.AllowDroppingCustomPayloads</c>), threaded in from the caller rather than
+        /// read from a static, so two contexts in one process cannot share one decision.
+        /// </summary>
         static FieldMapping[] BuildSkipAllMappings(OldTypeSchema old)
         {
             var m = new FieldMapping[old.Fields.Length];

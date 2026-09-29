@@ -203,7 +203,7 @@ namespace Ceras.Test.CompatibilityDescriptors
 
             Assert.Equal(CerasCompatibilityMode.RobustPersistent, descriptor.Mode);
             Assert.Equal(CerasRobustSerializer.FormatVersion, descriptor.FormatVersion);
-            Assert.Equal(4, descriptor.FormatVersion);   // the version the loader enforces
+            Assert.Equal(5, descriptor.FormatVersion);   // the version the loader enforces
             Assert.NotEmpty(descriptor.CerasAssemblyVersion);
 
             Assert.True(descriptor.ProducerBuildKnown);

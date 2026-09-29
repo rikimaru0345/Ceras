@@ -28,11 +28,39 @@ namespace Ceras.Format
             public SchemaTypeInfo Info;
             public Type           Type;
 
+            /// <summary>
+            /// The descriptor the caller registered, kept so removing an opaque selection can put the
+            /// entry back exactly as it was. <see cref="Info"/> is the <em>effective</em> descriptor — the
+            /// opaque one while the type has a user custom formatter, this one otherwise — and everything
+            /// that describes the bytes (the section encoder, the fingerprint, the dumps) reads that.
+            /// </summary>
+            public SchemaTypeInfo DeclaredInfo;
+
             public Entry(int id, SchemaTypeInfo info, Type type)
             {
                 Id = id;
                 Info = info;
+                DeclaredInfo = info;
                 Type = type;
+            }
+        }
+
+        /// <summary>
+        /// Which formatter a type's payload belongs to: the name the file records, and whether the value
+        /// is written inline. Held per <em>type</em> rather than per entry, because a type can be marked
+        /// before the manifest has an entry for it (a caller may install a formatter before the generated
+        /// registration runs) and because clearing a selection has to restore the entry that was there
+        /// before.
+        /// </summary>
+        internal readonly struct OpaqueSelection
+        {
+            public readonly string FormatterName;
+            public readonly bool WrittenInline;
+
+            public OpaqueSelection(string formatterName, bool writtenInline)
+            {
+                FormatterName = formatterName;
+                WrittenInline = writtenInline;
             }
         }
 
@@ -40,6 +68,13 @@ namespace Ceras.Format
         readonly Dictionary<string, Entry>  _byStableName = new();
 		int _nextId = WellKnownTypes.UserTypeBase;
 		int _sealedWatermark = -1;
+
+        // The types this context writes through a *user* custom formatter, and therefore whose payload is
+        // an opaque block rather than a member list. Reconciled from the config's formatter assignments
+        // by RobustCustomFormatterPolicy.Reconcile — at context setup and again before every Save/Load,
+        // because a type config seals lazily and a formatter can be installed after the serializer was
+        // constructed. See Format/LAYOUT.md, "A user custom formatter's payload is an opaque block".
+        readonly Dictionary<Type, OpaqueSelection> _opaqueSelections = new();
 
 		// The configured type binder, installed once at context setup (CerasRobustConfig.Seal). It is the
 		// *only* thing beyond the manifest itself and Type.GetType that may answer a name question, and
@@ -148,6 +183,7 @@ namespace Ceras.Format
             {
                 _byType.Clear();
                 _byStableName.Clear();
+                _opaqueSelections.Clear();
                 _definitionNames.Clear();
                 _nextId = WellKnownTypes.UserTypeBase;
 				_sealedWatermark = -1;
@@ -221,6 +257,13 @@ namespace Ceras.Format
 					// rolled back because unwinding it would mean letting a bake retract an entry that
 					// something else may already have observed - a riskier change than the comment it
 					// replaces. RefusedSealStateTests pins the state as it is.
+					//
+					// Asked *before* the bake, and that is what keeps a refused seal free of a published
+					// region: both facts it needs are already true here (the declared roots were folded in
+					// just above, and every other member of the manifest was registered before the seal), and
+					// a bake only ever adds the structural shapes it discovers on the way — each of which is
+					// a reserved well-known id, and so answered by the first clause below rather than by the
+					// manifest.
 					BakeLocked();
 				}
 				finally
@@ -301,6 +344,12 @@ namespace Ceras.Format
 			// with "baked" while IsSealed is still false, which is the one combination a caller cannot
 			// reason about.
 			var typeToId = SchemaSection.Write(ref schemaBuf, ref schemaOff, this, schemaStrings);
+
+			// Asked here, and only here, because this is the first moment both facts are known: the bake is
+			// what registers a shape nothing declared (a closed built-in collection reached as a member), so
+			// before it a perfectly describable selection would look like one outside the manifest. Still
+			// before any of the four frozen fields is published, so a refusal leaves nothing half-baked.
+			RequireOpaqueSelectionsAreDescribable();
 
 			byte[] strBuf = new byte[256];
 			int strOff = 0;
@@ -539,6 +588,175 @@ namespace Ceras.Format
 
 		public bool IsSealed => _sealedWatermark != -1;
 
+		// ── Opaque selections (a user custom formatter) ─────────────────────────────────────
+
+		/// <summary>
+		/// Records that <paramref name="type"/> is written by a user custom formatter, so its manifest
+		/// entry becomes an <see cref="SchemaTypeKind.Opaque"/> one: no member list, the formatter's
+		/// identity, and whether a reference marker stands in front of the frame.
+		/// <para>
+		/// May be called before or after the type joins the manifest — a caller may install a formatter
+		/// before the generated registration runs, and the registration is what puts the type in the
+		/// manifest — and either order ends with the same effective entry. Idempotent for one selection,
+		/// and refused once the manifest is baked, because a frozen schema section and a frozen
+		/// fingerprint cannot describe a value whose formatter changed under them.
+		/// </para>
+		/// </summary>
+		internal void ApplyOpaqueSelection(Type type, string formatterName, bool writtenInline)
+		{
+			if (type == null) throw new ArgumentNullException(nameof(type));
+			if (formatterName == null) throw new ArgumentNullException(nameof(formatterName));
+
+			lock (_lock)
+			{
+				if (_opaqueSelections.TryGetValue(type, out var existing)
+					&& existing.FormatterName == formatterName
+					&& existing.WrittenInline == writtenInline)
+					return;
+
+				if (IsSealed)
+					throw new Ceras.Exceptions.CerasSchemaException(
+						$"Cannot change the custom formatter for '{TypeIdentity.GetCanonicalName(type)}' now: this context's manifest was already " +
+						"sealed and baked by an earlier Save/Load. The schema section a save carries and the layout fingerprint that chooses the " +
+						"reader are both computed once, from the manifest as it stood at that moment, so a formatter selected after it cannot be " +
+						"described by either. Configure the custom formatter before the first Save/Load (in the serializer's configure callback, or " +
+						"in OnConfigNewType), and rebuild.");
+
+				_opaqueSelections[type] = new OpaqueSelection(formatterName, writtenInline);
+				if (_byType.TryGetValue(type, out var entry))
+					entry.Info = OpaqueInfoFor(entry.DeclaredInfo, formatterName, writtenInline);
+
+				_fingerprint = null;   // the formatter is part of the layout, so the fingerprint moved
+			}
+		}
+
+		/// <summary>
+		/// Undoes <see cref="ApplyOpaqueSelection"/>: the entry goes back to the descriptor it was
+		/// registered with, so the type is described by its member list again. Refused once the manifest
+		/// is baked, for the same reason an application is refused.
+		/// </summary>
+		internal void ClearOpaqueSelection(Type type)
+		{
+			if (type == null) throw new ArgumentNullException(nameof(type));
+
+			lock (_lock)
+			{
+				if (!_opaqueSelections.ContainsKey(type)) return;
+
+				if (IsSealed)
+					throw new Ceras.Exceptions.CerasSchemaException(
+						$"Cannot remove the custom formatter for '{TypeIdentity.GetCanonicalName(type)}' now: this context's manifest was already " +
+						"sealed and baked by an earlier Save/Load, and the schema section and layout fingerprint a save carries were both computed " +
+						"with that formatter in place. Configure the formatter before the first Save/Load, and rebuild.");
+
+				_opaqueSelections.Remove(type);
+				if (_byType.TryGetValue(type, out var entry))
+					entry.Info = entry.DeclaredInfo;
+
+				_fingerprint = null;
+			}
+		}
+
+		/// <summary>Whether this context writes <paramref name="type"/> through a user custom formatter.</summary>
+		public bool IsOpaqueSelection(Type type)
+		{
+			if (type == null) return false;
+			lock (_lock)
+				return _opaqueSelections.ContainsKey(type);
+		}
+
+		/// <summary>
+		/// The formatter selection recorded for <paramref name="type"/>, for the migration interpreter:
+		/// the name the file recorded and the name this build would use are compared through it, because
+		/// a different formatter's bytes are a different payload.
+		/// </summary>
+		internal bool TryGetOpaqueSelection(Type? type, out OpaqueSelection selection)
+		{
+			selection = default;
+			if (type == null) return false;
+			lock (_lock)
+				return _opaqueSelections.TryGetValue(type, out selection);
+		}
+
+		/// <summary>
+		/// The opaque descriptor derived from a registered one. Everything that identifies the type is
+		/// copied — stable name and its <c>[PreviousTypeName]</c> aliases — because a name is how a save is
+		/// matched onto this build and an opaque payload does not rename a type. Everything that describes
+		/// the bytes is replaced: no members, no enum values, no arguments, no fixed size.
+		/// </summary>
+		static SchemaTypeInfo OpaqueInfoFor(SchemaTypeInfo declared, string formatterName, bool writtenInline)
+			=> new SchemaTypeInfo(
+				stableName: declared.StableName,
+				previousTypeNames: declared.PreviousTypeNames,
+				kind: SchemaTypeKind.Opaque,
+				fields: Array.Empty<SchemaFieldInfo>(),
+				fixedByteSize: 0,
+				opaqueFormatterName: formatterName,
+				opaqueValueWrittenInline: writtenInline);
+
+		/// <summary>
+		/// Every selection this context made must be able to reach the file, or a value would be written
+		/// whose formatter the schema section cannot record. Called from <c>BakeLocked</c>, after the section
+		/// has been encoded and before any of the frozen region is published — so a refusal leaves a context
+		/// that has neither sealed nor baked, and a second refusal on the next call.
+		/// <para>
+		/// Both clauses restate the original defect rather than adding a new one. A member of a type whose
+		/// schema identity is a <em>reserved</em> name is recorded under that name's fixed one-byte id, which
+		/// has nowhere to record which formatter wrote the value; a type outside the manifest has no entry to
+		/// record it in at all, and the bake refuses such a member anyway ("not part of the selected
+		/// serialization context's manifest"). Either way the payload would be invisible to both the schema
+		/// section and the fingerprint that chooses the reader — which is the whole thing this mechanism
+		/// exists to remove.
+		/// </para>
+		/// </summary>
+		internal void RequireOpaqueSelectionsAreDescribable() => RequireOpaqueSelections(checkIdentityToo: true);
+
+		/// <summary>
+		/// The half that needs no bake: a selection for a type the <em>reserved table</em> answers by name
+		/// can never reach the file, whatever the manifest holds, so it is refused as early as the caller's
+		/// own call stack allows — at context setup, and again before every Save/Load. The other half, a
+		/// type outside the manifest, is asked after the bake, because a bake is what registers a shape
+		/// nothing declared (see <see cref="BakeLocked"/>).
+		/// </summary>
+		internal void RequireOpaqueSelectionsHaveARecordableIdentity() => RequireOpaqueSelections(checkIdentityToo: false);
+
+		void RequireOpaqueSelections(bool checkIdentityToo)
+		{
+			lock (_lock)
+			{
+				foreach (var selection in _opaqueSelections)
+				{
+					string name = TypeIdentity.GetCanonicalName(selection.Key);
+					string token = selection.Value.FormatterName;
+
+					if (_byType.ContainsKey(selection.Key))
+						continue;
+
+					// The same door the bake resolves a member's name through, and deliberately the *name*
+					// table: a closed name such as `List<int>` is a manifest entry of its own (so an opaque
+					// entry can carry the selection), while a name the reserved table owns is a fixed
+					// one-byte id with nowhere to put it.
+					if (WellKnownTypes.TryGetIdByCanonicalName(name, out int wellKnownId))
+						throw new Ceras.Exceptions.CerasSchemaException(
+							$"Cannot use the custom formatter '{token}' for '{name}' in a robust context: Ceras addresses this type by the " +
+							$"reserved well-known id {wellKnownId} rather than by a manifest entry, and a reserved id has nowhere to record which " +
+							"formatter wrote the value, so the payload would be invisible to both the file's schema section and the layout fingerprint " +
+							"that chooses the reader. Store a serializable form of the value instead (an id or name you resolve in your own loading " +
+							"code, or a [CerasSerializable] wrapper type the generator emits a schema for), and use a raw/transient serializer for the " +
+							"custom encoding of the wrapper's contents.");
+
+					if (!checkIdentityToo) continue;   // a bake may still register this one; asked again after it
+
+					throw new Ceras.Exceptions.CerasSchemaException(
+						$"Cannot use the custom formatter '{token}' for '{name}' in a robust context: the type is not part of the selected " +
+						"serialization context's manifest, so there is no schema entry to record that its payload is a custom formatter's opaque " +
+						"block, and a value of it cannot be described in a save at all. Declare the type with [CerasSerializable]/[CerasContext(\"name\")] " +
+						"so the context's generated manifest holds it, make it reachable from a context root, or declare it with " +
+						"[assembly: CerasKnownType<...>], then rebuild.");
+				}
+			}
+		}
+
 		// ── Registration ─────────────────────────────────────────────────────
 
 		/// <summary>
@@ -600,6 +818,12 @@ namespace Ceras.Format
                 StructuralShape.RequireDescribableDescriptor(type, info);
 
                 var entry = new Entry(_nextId, info, type);
+
+                // A selection recorded before the type joined the manifest applies now, so that the two
+                // orders a caller can install a formatter in — before or after the generated registration
+                // that registers the type — end with the same effective entry (ApplyOpaqueSelection).
+                if (_opaqueSelections.TryGetValue(type, out var pendingSelection))
+                    entry.Info = OpaqueInfoFor(info, pendingSelection.FormatterName, pendingSelection.WrittenInline);
 
                 // The manifest's name invariant, before the entry becomes part of it: every name this entry
                 // answers for is claimed (or the registration is refused) while the registry still looks
@@ -1134,6 +1358,20 @@ namespace Ceras.Format
                     h1 = Combine(h1, (uint)entry.Id);
                     h1 = Combine(h1, Hash(info.StableName));
                     h2 = Combine(h2, (uint)info.Kind);
+
+                    // Which formatter wrote a custom payload, and whether a reference marker stands in
+                    // front of its frame. Formatter selection is part of the layout, and it used to be in
+                    // neither this hash nor the file's schema section: a build that added, removed or
+                    // replaced a type's custom formatter therefore saw a *matching* fingerprint and took
+                    // the generated reader, over a payload the generated reader does not read. Hashing the
+                    // kind alone would already separate an opaque entry from a described one; the
+                    // formatter's own name is what separates two *different* opaque payloads, and the
+                    // inline flag is what separates the two framings of one.
+                    if (info.Kind == SchemaTypeKind.Opaque)
+                    {
+                        h1 = Combine(h1, Hash(info.OpaqueFormatterName));
+                        h2 = Combine(h2, info.OpaqueValueWrittenInline ? 1u : 0u);
+                    }
 
                     // Enum underlying type / generic definition. Part of the value representation.
                     h1 = Combine(h1, Hash(info.UnderlyingTypeName));

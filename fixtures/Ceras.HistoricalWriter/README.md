@@ -22,13 +22,18 @@ is a real
 change to what old saves look like** — if a regeneration produces a diff you did not expect, that is
 a finding, not noise. See the note on `Loadout.bin` below before regenerating that one.
 
-All fixtures are at format version 4. The five that predate the enum wire-name work were
-regenerated when the format version advanced from 3 to 4 (a robust context now refuses a user custom
-formatter, so a v3 file can hold opaque bytes that its own schema does not describe and that its
-layout fingerprint cannot reveal), and `Loadout.bin` and the polymorphic fixtures below were
-re-stamped the same way when they joined them. Each diff is exactly nine bytes: the version byte, the
-high half of the layout fingerprint (which hashes the format version), and the CRC32 that covers them.
-No schema or payload byte changed.
+All fixtures are at format version 5. The five that predate the enum wire-name work were
+regenerated when the format version advanced from 3 to 4 (a robust context refused a user custom
+formatter then, so a v3 file could hold opaque bytes that its own schema did not describe and that its
+layout fingerprint could not reveal), and `Loadout.bin` and the polymorphic fixtures below were
+re-stamped the same way when they joined them. Version 5 is the opposite move — a user custom formatter
+is describable again, and this project writes two fixtures that use one — so the same nine bytes moved
+again: the version byte, the high half of the layout fingerprint (which hashes the format version), and
+the CRC32 that covers them. No schema or payload byte changed in either bump: the `Opaque` entry kind adds
+nothing to the encoding of any kind that was already there.
+
+`OpaqueFrameHolder.bin` and `OpaqueDroppedMemberHolder.bin` are new in version 5, and are the only
+fixtures whose schema section holds an `Opaque` entry.
 
 Ordinary CI never builds or runs this project; it only reads the checked-in files.
 
@@ -194,9 +199,33 @@ the current declaration has). A *direct* member's or an array element's widening
 The reader-side counterpart is `tests/Ceras.Test/Tests/ArrayShapeNestedArgumentMigrationTests.cs`. The
 shared fixture plumbing both reader test files use lives in `tests/Ceras.Test/Base/HistoricalFixtureFiles.cs`.
 
+## The custom-formatter fixtures (`V1OpaqueModel.cs`)
+
+The two files written through a **user custom formatter**, in the two shapes a later build has to cope
+with. They are in a context of their own (`HistoricalV1Opaque`) — the reason every fixture here has a
+context of its own — and the formatter is the shape a real consumer uses: a lookup into a content
+registry, so the loaded value is the registry-identical instance rather than a copy of a record. It writes
+one fixed-width id, which is what makes the frame's declared-length check meaningful on the reader side.
+
+| Aspect | Fixture | Old (v1) | Current |
+| --- | --- | --- | --- |
+| Member kept, same formatter | `OpaqueFrameHolder.bin` | `RecipeRef Target` behind a `marker, length, 4 bytes` frame | read through this build's formatter, which records the same name |
+| Member removed | `OpaqueDroppedMemberHolder.bin` | the same frame, then `uint ASentinel` | slot gone — the frame accounted for by its declared length, sentinel intact |
+| Where the refusal happens | both, with a mismatched formatter | — | a formatter this build does not have, or a differently *named* one, is refused before a byte is read (`AllowDroppingCustomPayloads` authorizes the drop) |
+
+The sentinel is a member of the *same type* as the custom-formatted one, so it sorts after it in the
+member order (member order is by member type name, and `System.Int32` sorts after the recipe type) — a
+skip that is off by anything at all therefore shows up as a wrong number rather than as a load that
+happens to succeed.
+
+The reader-side counterpart is
+`tests/Ceras.Test/Tests/OpaqueCustomPayloadFixtureTests.cs`, and the same-version behaviour (a round
+trip, a swapped formatter, a dropped value) is in `tests/Ceras.Test/Tests/OpaqueCustomPayloadTests.cs`.
+
 ## Changing a fixture
 
-1. Change the old model: `V1Model.cs` for the `HistoricalV1` context, `V1PooledModel.cs` for the
+1. Change the old model: `V1Model.cs` for the `HistoricalV1` context, `V1OpaqueModel.cs` for the
+   `HistoricalV1Opaque` one, `V1PooledModel.cs` for the
    `HistoricalV1Pooled` one, `V1EnumNamesModel.cs` for the `HistoricalV1EnumNames` one,
    `V1PolyModel.cs` for the `HistoricalV1Poly` one, `V1ArraySlotModel.cs` for the
    `HistoricalV1ArraySlot` one, `V1ArrayShapeModel.cs` / `V1ArrayShapeSameModel.cs` for the

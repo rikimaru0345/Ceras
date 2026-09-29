@@ -94,7 +94,7 @@ namespace Ceras.Formatters {
 				_ceras.InstanceData.ObjectCache.RegisterObject(value);
 				SerializerBinary.WriteUInt32Bias(writer, ReferenceEquals(typeof(T), specificType) ? NewValueSameType : NewValue, Bias);
 				if (!ReferenceEquals(typeof(T), specificType)) _typeFormatter.Serialize(writer, specificType);
-				try { entry.SerializeDispatcher(writer, value); } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while serializing object of type '{specificType.FullName}'", e); }
+				try { entry.SerializeDispatcher(writer, value); } catch (Ceras.Exceptions.CerasException) { throw; } catch (Exception e) { throw new Ceras.Exceptions.CerasException($"Error while serializing object of type '{specificType.FullName}'", e); }
 			}
 		}
 
@@ -154,6 +154,14 @@ namespace Ceras.Formatters {
 			var proxyValue = objectProxy.Value;
 			try {
 				entry.DeserializeDispatcher(ref reader, ref proxyValue);
+			}
+			catch (Ceras.Exceptions.CerasException) {
+				// A Ceras refusal arrives as itself, for the same reason Ceras.Helpers.Instantiator does it:
+				// a corruption report or a schema refusal raised by the inner formatter *is* the diagnosis,
+				// and wrapping it turns a typed refusal a caller can catch into a generic one whose cause
+				// is only an InnerException. The wrapper stays for everything else — a formatter of user
+				// code throwing its own exception is a case the message here does describe.
+				throw;
 			}
 			catch (Exception e) {
 				throw new Exceptions.CerasException($"Error while deserializing object of type '{specificType?.FullName ?? typeof(T).FullName}'", e);

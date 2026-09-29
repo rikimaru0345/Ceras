@@ -1,3 +1,4 @@
+using Ceras.Format;
 using Ceras;
 using Ceras.Formatters;
 using Ceras.Generated;
@@ -101,10 +102,15 @@ namespace ReproGame
 
     public class GodotStyleRepro : Ceras.Test.TestBase
     {
-        // A custom formatter for a blacklisted engine type is supported in a raw/transient context, and
-        // is refused in a robust one: Curve3DFormatter writes an opaque count + float array that the
-        // file's schema section cannot describe, so a build that removed or retyped `Points` could not
-        // skip the value and would silently return wrong data. See RobustCustomFormatterPolicy.
+        // A custom formatter for a blacklisted engine type now works on BOTH paths. It used to work only
+        // in a raw/transient one, because a robust context refused every user custom formatter outright.
+        // The reason it works there is not that the bytes became describable on their own — they did not —
+        // but that the generator registers a *minimal* manifest entry for a referenced type it emits no
+        // formatter for (here: a `Class` with no members, plus the CERAS017 warning that says the member
+        // needs a formatter of its own). That entry is where the selection is recorded: it becomes
+        // `Opaque`, the payload becomes a declared length in front of the formatter's own bytes, and the
+        // fingerprint covers both. A type with no manifest entry at all is still refused, because there
+        // would be nowhere to record any of that — see Format/LAYOUT.md, "What is still refused".
         static CerasFastSerializer MakeTransientSerializer() => new CerasFastSerializer(config =>
         {
             config.AllowReflectionFallback = true;
@@ -147,27 +153,37 @@ namespace ReproGame
         }
 
         /// <summary>
-        /// The robust half of the repro, re-classified. It used to assert that a robust save round-trips
-        /// the engine-object member through the custom formatter; a robust context now refuses that
-        /// formatter outright instead of writing a file whose schema does not describe its payload.
+        /// The robust half of the repro, re-classified twice. It first asserted that a robust save
+        /// round-trips the engine-object member through the custom formatter, then that a robust context
+        /// refuses the formatter outright; it asserts the round trip again, and the reason it can have it
+        /// back is now a fact about the format rather than a gap in it.
+        /// <para>
+        /// The interpreter case is deliberately not forced here. <c>RailSegment</c> derives from a base
+        /// class and holds a type the generator registers with a *minimal* (member-less) entry, so it is a
+        /// same-version model, not a cross-version one: its own bytes do not survive a migration whatever
+        /// the formatter does. The interpreter's handling of a framed payload — both reading it through the
+        /// current formatter and skipping it by its declared length — is covered against a real old file in
+        /// Tests/OpaqueCustomPayloadFixtureTests.cs.
+        /// </para>
         /// </summary>
         [Fact]
-        public void GodotStyleSerialization_Robust_RefusesTheCustomFormatter()
+        public void GodotStyleSerialization_Robust_FramesTheCustomFormatter()
         {
-            var ex = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(
-                () => new CerasRobustSerializer(RobustConfigWithCustomFormatter()));
-
-            Assert.Contains("Curve3D", ex.Message, StringComparison.Ordinal);
-            Assert.Contains(nameof(Curve3DFormatter), ex.Message, StringComparison.Ordinal);
-
-            // Also refused when installed after the serializer exists: a TypeConfig is sealed lazily, so
-            // the setup-time check alone is not enough to keep a file from being written.
-            var robust = MakeRobustSerializerWithoutCustomFormatter();
-            robust.Config.ConfigType<Curve3D>().CustomFormatter = new Curve3DFormatter();
-
             var rail = new RailSegment { Curve = new Curve3D { Points = new[] { 1f, 2f, 3f } } };
-            var loadEx = Assert.Throws<Ceras.Exceptions.CerasSchemaException>(() => robust.Save(rail, 1));
-            Assert.Contains("Curve3D", loadEx.Message, StringComparison.Ordinal);
+
+            var bytes = new CerasRobustSerializer(RobustConfigWithCustomFormatter()).Save(rail, 1);
+
+            // The manifest entry for the engine type is opaque: the formatter's identity, and no member
+            // list — which is the whole difference from the generated reader it replaced.
+            var dump = Ceras.CerasRobustSerializer.DumpSchema(bytes);
+            Assert.Contains("OPAQUE", dump, StringComparison.Ordinal);
+            Assert.Contains(nameof(Curve3DFormatter), dump, StringComparison.Ordinal);
+
+            // A fresh serializer: the matching-layout path, which resolves the custom formatter itself.
+            var fresh = new CerasRobustSerializer(RobustConfigWithCustomFormatter()).Load<RailSegment>(bytes, 1);
+            Assert.NotNull(fresh.Curve);
+            Assert.Equal(new[] { 1f, 2f, 3f }, fresh.Curve!.Points);
+
         }
 
         /// <summary>

@@ -478,9 +478,24 @@ namespace Ceras.SourceGenerator {
 
 			if (type is INamedTypeSymbol named && HasAttribute(named, attrs.CerasSerializable)) {
 				if (!named.IsAbstract && named.TypeKind != TypeKind.Interface) {
-					string generatedName = MakeFormatterClassName(named);
-					string innerFormatter = $"global::Ceras.Generated.{generatedName}";
-					if (type.IsValueType) return innerFormatter;
+					// A *value type* member is bound through the formatter interface rather than through the
+					// generated formatter class, so its formatter is **resolved at runtime** like every other
+					// member's. Naming the generated class here would decide at compile time which formatter
+					// writes the member — and a formatter the application installs afterwards could not then
+					// be used at all: injection cannot put a different formatter into a field typed as the
+					// generated class, and it refuses rather than silently keeping the generated one
+					// (CerasSerializer.PrepareFormatter, "Injection mismatch"). A reference type never had
+					// that problem, because its field is a ReferenceFormatter<T>, which resolves its inner
+					// formatter at runtime.
+					//
+					// The cost is one interface dispatch per value-type member instead of a direct call to a
+					// sealed class, which is the price of a member's bytes not depending on something the
+					// schema does not describe — the same defect the raw path's reinterpret selection had (see
+					// Format/LAYOUT.md, "Which types the raw path may reinterpret"). A *primitive* member
+					// below is deliberately still bound to its concrete built-in formatter: a custom formatter
+					// for a primitive is refused outright at configuration time (TypeConfig
+					// .ThrowIfTypeIsNotConfigurable), so nothing can displace it and the direct call is free.
+					if (type.IsValueType) return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
 					if (type.IsSealed) return $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>";
 					return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
 				}
@@ -493,17 +508,20 @@ namespace Ceras.SourceGenerator {
 
 			// Collection shape emitted by the built-in CollectionFormatter: a collection subclass such as
 			// MyList<T> : List<T> (or a Queue/Stack subclass). This must be resolved before the generic
-			// ReferenceFormatter fallback so the field type matches what the runtime injects.
+			// ReferenceFormatter fallback so the field type matches what the runtime injects. A *value-type*
+			// collection is bound through the interface for the same reason a value-type member above is: a
+			// custom formatter for it is a configuration the application can make at runtime, and a field
+			// typed as the concrete collection formatter could not accept it.
 			if (IsCollectionFormatterType(type)) {
 				string? concrete = GetCollectionConcreteFormatterType(type);
 				if (concrete != null)
-					return type.IsValueType ? concrete : $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+					return type.IsValueType ? $"global::Ceras.Formatters.IFormatter<{typeFqn}>" : $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
 			}
 
 			if (IsCollectionType(type)) {
 				string? concrete = GetCollectionConcreteFormatterType(type);
 				if (concrete != null) {
-					if (type.IsValueType) return concrete;
+					if (type.IsValueType) return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
 					return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
 				}
 			}

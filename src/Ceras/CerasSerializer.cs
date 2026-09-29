@@ -724,13 +724,47 @@ namespace Ceras
 			var typeConfig = meta.TypeConfig;
 			if (typeConfig != null)
 			{
-				if (typeConfig.CustomFormatter != null) { meta.SpecificFormatter = typeConfig.CustomFormatter; FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type); PrepareFormatter(meta.SpecificFormatter); return meta.SpecificFormatter; }
+				if (typeConfig.CustomFormatter != null) { var installed = WrapOpaqueIfSelected(typeConfig.CustomFormatter, type); meta.SpecificFormatter = installed; FormatterHelper.ThrowOnMismatch(installed, type); PrepareFormatter(installed); return installed; }
 				if (typeConfig.CustomResolver != null) { var f = typeConfig.CustomResolver(this, type); meta.SpecificFormatter = f ?? throw new InvalidOperationException("Null formatter"); FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type); PrepareFormatter(meta.SpecificFormatter); return meta.SpecificFormatter; }
 			}
 			if (!meta.IsPrimitive) foreach (var r in _userResolvers) { var f = r(this, type); if (f != null) { meta.SpecificFormatter = f; FormatterHelper.ThrowOnMismatch(f, type); PrepareFormatter(f); return f; } }
 			foreach (var r in _resolvers) { var f = r.GetFormatter(type); if (f != null) { meta.SpecificFormatter = f; PrepareFormatter(f); return f; } }
 			var df = _dynamicResolver.GetFormatter(type); if (df != null) { meta.SpecificFormatter = df; PrepareFormatter(df); return df; }
 			throw new NotSupportedException("No formatter for " + type.FullName);
+		}
+
+		/// <summary>
+		/// The formatter actually used for <paramref name="type"/>, wrapped in the robust context when the
+		/// type is one this context writes through a <em>user</em> custom formatter.
+		/// <para>
+		/// The wrap is the whole mechanism behind opaque custom payloads, and it lives here because this is
+		/// the one place a formatter is chosen for a type: the generated readers and writers, the collection
+		/// and array formatters and the migration interpreter all ask for the <em>specific</em> formatter, so
+		/// wrapping it once makes a custom payload framed on every path that writes the type and read back
+		/// through the same frame — with no generated code and no collection/array special case.
+		/// </para>
+		/// <para>
+		/// Two conditions, both required, and each one is a place where the wrap would be wrong: the config
+		/// has to be a robust one (a raw/transient context describes nothing and accounts for nothing, so
+		/// its custom formatter's bytes stay exactly what they were), and the context's manifest has to hold
+		/// an opaque selection for the type (a context's own generated formatter is described by the entry the
+		/// manifest already holds, so framing it would make the file describe a block the payload is not).
+		/// The selection is recorded by <c>RobustCustomFormatterPolicy.Reconcile</c> and hashed into the
+		/// layout fingerprint, so a type's framed-ness is a fact about the file.
+		/// </para>
+		/// </summary>
+		[DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(OpaqueFramedFormatter<>))]
+		IFormatter WrapOpaqueIfSelected(IFormatter formatter, Type type)
+		{
+			if (formatter is OpaqueFramedFormatterBase) return formatter;   // already framed (a caller handed us one)
+			if (!(Config is CerasRobustConfig robust)) return formatter;
+			if (!robust.SchemaRegistry.IsOpaqueSelection(type)) return formatter;
+
+			// Activator, not a static factory: the closed type is a MakeGenericType over a runtime Type, which
+			// is the same shape as the two reference formatters above and needs the same rooting, which is why
+			// the DynamicDependency above states it.
+			return (IFormatter)Ceras.Helpers.Instantiator.Create(
+				typeof(OpaqueFramedFormatter<>).MakeGenericType(type), formatter, this);
 		}
 
 		internal TypeMetaData GetTypeMetaData(Type type) { ref var meta = ref _metaData.GetOrAddValueRef(type); return meta ?? CreateMetaData(type, false); }
