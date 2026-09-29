@@ -45,7 +45,10 @@ The settled contracts below are targets, not claims that the code already meets 
   opaque bytes and the fingerprint records formatter selection; authors own byte
   compatibility and migration. There is no automatic upgrade guarantee for arbitrary
   custom payloads. Experimental v5 implements opaque framing and refuses an undecodable
-  block by default; dropping one requires explicit configuration.
+  block by default; dropping one requires explicit configuration. **Open correctness
+  gate:** a formatter installed by `OnConfigNewType` during a save after the manifest is
+  baked can bypass pre-save reconciliation and write unframed bytes. Refuse that late
+  selection before the save succeeds; pin a real callback-time regression.
 - **Networking:** transient format, compatibility exchanged at connection setup. No
   per-message schema, layout hashes, Ceras checksums, or compatibility negotiation during
   gameplay. Ordinary buffer bounds/length checks remain. No reference tracking or runtime
