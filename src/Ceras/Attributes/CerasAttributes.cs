@@ -385,16 +385,26 @@ namespace Ceras
     }
 
     /// <summary>
-    /// Declares a previous CLR type name for this class/struct/enum so that the robust format migration
-    /// engine can map old binary data (written under the old name) to the current type.
+    /// Declares a previous CLR type name for this class/struct/enum/interface so that the robust format
+    /// migration engine can map old binary data (written under the old name) to the current type.
     /// Can be applied multiple times if the type has been renamed more than once.
     /// <para>
     /// Enums are included because an enum is a named schema entry like any other: without an alias a
     /// renamed enum cannot be resolved from an old save at all, and the load fails before any value is
     /// read. The alias is carried in the enum's schema entry, exactly as for a class.
     /// </para>
+    /// <para>
+    /// <b>Interfaces too</b>, for the same reason and because the alternative was worse: an interface is
+    /// registered in a generated manifest with the same field-less placeholder schema an abstract class
+    /// gets (the source generator's <c>AppendMinimalRegistration</c> — it has no members, so there is
+    /// nothing to generate), so an interface that is renamed or replaced has exactly the same need for an
+    /// alias as a renamed abstract base. A save names an interface in its schema section like any other
+    /// entry, and with no way to declare the old spelling there was nothing for this build to resolve it
+    /// to: the load was refused before a payload byte was read, with no declaration available that would
+    /// have fixed it.
+    /// </para>
     /// </summary>
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum, AllowMultiple = true)]
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum | AttributeTargets.Interface, AllowMultiple = true)]
     public class PreviousTypeNameAttribute : Attribute
     {
         public string Name { get; }

@@ -35,6 +35,7 @@ using Ceras.HistoricalWriter.V1Nested.Widened;
 using Ceras.HistoricalWriter.V1EnumNames;
 using Ceras.HistoricalWriter.V1Inherited;
 using Ceras.HistoricalWriter.V1InheritedNarrow;
+using Ceras.HistoricalWriter.V1Abstract;
 using Ceras.HistoricalWriter.V1Poly;
 using Ceras.HistoricalWriter.V1Pooled;
 
@@ -76,6 +77,11 @@ namespace Ceras.HistoricalWriter
         // describes — see V1InheritedMemberModel.cs.
         const string InheritedContext = "HistoricalV1Inherited";
         const string InheritedNarrowContext = "HistoricalV1InheritedNarrow";
+
+        // A base type that the current model makes *abstract* (or keeps an interface) and renames at the
+        // same time — see V1AbstractBaseModel.cs for why that reaches the manifest through a different
+        // registration than every other base here.
+        const string AbstractContext = "HistoricalV1Abstract";
 
         static int Main(string[] args)
         {
@@ -134,6 +140,7 @@ namespace Ceras.HistoricalWriter
             foreach (var fixture in ArrayShapeFixtures()) yield return fixture;
             foreach (var fixture in NestedArrayShapeFixtures()) yield return fixture;
             foreach (var fixture in InheritedMemberFixtures()) yield return fixture;
+            foreach (var fixture in AbstractBaseFixtures()) yield return fixture;
             foreach (var fixture in OpaqueFixtures()) yield return fixture;
         }
 
@@ -677,6 +684,38 @@ namespace Ceras.HistoricalWriter
                     new Weight { Grams = 7, Kind = 2 },
                 },
                 Marker = CrateSentinel,
+            }, 1));
+        }
+
+        /// <summary>
+        /// A save whose two base types are renamed in the current model, one of them turned <c>abstract</c>
+        /// on the way and the other kept as an interface — see <c>V1AbstractBaseModel.cs</c>.
+        /// <para>
+        /// No value in the payload has either base's runtime type: every value is a <c>Wraith</c>, a
+        /// <c>Golem</c> or a <c>Sentinel</c>, and the concrete type is what a polymorphic slot records. The
+        /// bases are in the file's <em>schema section</em> and nowhere in the payload, which is the whole
+        /// claim: this file can only be read by a build that can resolve two names it never sees a value
+        /// for.
+        /// </para>
+        /// <para>
+        /// The wraith is written twice (<c>Leader</c> and <c>Wave[0]</c>), so the file's second occurrence
+        /// is a back-reference and a reader that rebuilt an object per slot would pass every value
+        /// assertion below while losing the sharing.
+        /// </para>
+        /// </summary>
+        static IEnumerable<(string Name, byte[] Bytes)> AbstractBaseFixtures()
+        {
+            const uint BattleSentinel = 0xAB57AB57u;
+
+            var wraith = new Wraith { HitPoints = 0x01020304, Faction = "undead", Name = "Ayla" };
+            var golem = new Golem { HitPoints = -7, Faction = "earth", Charge = 42 };
+
+            yield return ("AbstractBaseRename.bin", NewSerializer(AbstractContext).Save(new Battle
+            {
+                Leader = wraith,
+                Wave = new List<Threat> { wraith, golem },   // the first element is Leader, as a back-reference
+                Focus = new Sentinel { Armour = 12 },
+                Marker = BattleSentinel,
             }, 1));
         }
     }

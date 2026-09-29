@@ -245,18 +245,50 @@ a shared context aborts the load of the file that has nothing to do with it.
 sentinel at the end of each crate is what makes that checkable: a member whose elements were mis-decoded
 shows up as a wrong number rather than as a load that happens to succeed.
 
-The base type is a plain class on both sides, and that is load-bearing rather than cosmetic: a generated
-manifest registers an **abstract or interface** type with a placeholder schema whose
-`previousTypeNames` is `Array.Empty<string>()` and whose `fields` is empty, so a user-declared
-`[PreviousTypeName]` on such a type never reaches the manifest. A renamed abstract base therefore cannot be
-resolved from a file, and `CerasRobustSerializer.BuildIdToType` — whose own comment says an old type this
-build does not have "stays unmapped" — hands the name to the configured `ITypeBinder`, which is contracted
-to throw rather than answer null. Changing the base to `abstract` on both sides reproduces it exactly. (A
-reported defect, not a pinned test: `tests/Ceras.Test/Tests/HistoricalInheritedMemberFixtureTests.cs`
-carries the same note on the reader-side model.)
+The base type is a plain class on both sides, and that is deliberate rather than cosmetic: a base this build
+declares **abstract** (or as an interface) reaches the manifest through a different registration — the
+generator's field-less placeholder schema, `CerasFormatterGenerator.AppendMinimalRegistration` — so it is a
+different identity question with its own file, `V1AbstractBaseModel.cs` and `AbstractBaseRename.bin`. That
+registration used to pass `previousTypeNames: Array.Empty<string>()`, which dropped a user-declared
+`[PreviousTypeName]` on an abstract or interface type; a renamed base therefore had no alias for a file to
+resolve, `CerasRobustSerializer.BuildIdToType` handed the name to the configured `ITypeBinder` — which is
+contracted to throw rather than answer null — and the load was refused before a payload byte. The alias is
+now carried there, as it always was on a generated schema, and `[PreviousTypeName]` accepts an interface.
 
 The reader-side counterpart is
 `tests/Ceras.Test/Tests/HistoricalInheritedMemberFixtureTests.cs`.
+
+## The abstract/interface base fixtures (`V1AbstractBaseModel.cs`)
+
+`AbstractBaseRename.bin` is the file for the one identity question the model above deliberately does not
+cover: a base type this build **renames and makes abstract** (`V1Abstract.Threat` → `Menace`), plus a second
+base that is an **interface** on both sides and is renamed (`V1Abstract.ITargetable` → `ITarget`). Both are
+ordinary refactors — "we finally made the base abstract", "the contract interface got a better name" — and
+both reach a context's manifest through the field-less placeholder registration, which is where the rename
+used to be dropped.
+
+Its own context (`HistoricalV1Abstract`), for the reason every other model here has one: the new types must
+not renumber any existing fixture.
+
+| Aspect | Fixture | Old (v1) | Current |
+| --- | --- | --- | --- |
+| Renamed base turned `abstract` | `AbstractBaseRename.bin` | `V1Abstract.Threat`, a plain class | `Menace`, `abstract`, via `[PreviousTypeName]` |
+| Renamed interface base | `AbstractBaseRename.bin` | `V1Abstract.ITargetable` | `ITarget`, an interface, via `[PreviousTypeName]` |
+| A base's entry the payload never instantiates | `AbstractBaseRename.bin` | entries for `Threat` and `ITargetable`, with **no value of either type** in the payload | both resolve through their aliases, before a payload byte is read |
+| Inherited member renamed **and** widened | `AbstractBaseRename.bin` | `Threat.HitPoints : int` | `Menace.Rating : long` via `[PreviousName]`, on the base |
+| Inherited member removed | `AbstractBaseRename.bin` | `Threat.Faction : string` | gone — the bytes are skipped on the way to the derived member |
+| Polymorphic slot through the abstract base | `AbstractBaseRename.bin` | `Battle.Leader` declared `Threat` | resolved to the concrete type the file recorded |
+| …through the interface | `AbstractBaseRename.bin` | `Battle.Focus` declared `ITargetable` | resolved to `Warden` |
+| Sharing across both bases | `AbstractBaseRename.bin` | `Leader` **is** `Wave[0]` | one instance; the second occurrence is a back-reference in the file |
+| Added field on an instantiated type | `AbstractBaseRename.bin` | v1 wrote no `Dread` | `Dread = 100` — the *declared* default, on both references |
+
+No value in the payload has either base's runtime type: every value is a `Wraith`, a `Golem` or a
+`Sentinel`, and a polymorphic slot records the *concrete* type. Both bases are therefore in the file's
+schema section — which records every type a context registers — and absent from its payload, so this file
+is a pure identity test: it can only be read by a build that resolves two names it never sees a value for.
+
+The reader-side counterpart is
+`tests/Ceras.Test/Tests/HistoricalAbstractBaseFixtureTests.cs`.
 
 ## Changing a fixture
 
@@ -265,7 +297,8 @@ The reader-side counterpart is
    `HistoricalV1Pooled` one, `V1EnumNamesModel.cs` for the `HistoricalV1EnumNames` one,
    `V1PolyModel.cs` for the `HistoricalV1Poly` one, `V1ArraySlotModel.cs` for the
    `HistoricalV1ArraySlot` one, `V1ArrayShapeModel.cs` / `V1ArrayShapeSameModel.cs` for the
-   declared-array-shape ones, `V1NestedArrayModel.cs` for the nested-argument ones and
+   declared-array-shape ones, `V1NestedArrayModel.cs` for the nested-argument ones,
+   `V1AbstractBaseModel.cs` for the abstract/interface-base one and
    `V1InheritedMemberModel.cs` for the inherited-member ones (two contexts). Each lives in its own context(s) on purpose: a context's manifest is
    fingerprinted as a whole, so adding a type to one of them would change the bytes of every fixture
    already written through it.
@@ -276,7 +309,8 @@ The reader-side counterpart is
    `Loadout.bin`, `HistoricalPolymorphicFixtureTests.cs` for the polymorphic ones,
    `SystemArraySlotMigrationTests.cs` for the `System.Array`-slot ones,
    `ArrayShapeChangeMigrationTests.cs` for the declared-array-shape ones,
-   `ArrayShapeNestedArgumentMigrationTests.cs` for the nested-argument ones and
+   `ArrayShapeNestedArgumentMigrationTests.cs` for the nested-argument ones,
+   `HistoricalAbstractBaseFixtureTests.cs` for the abstract/interface-base one and
    `HistoricalInheritedMemberFixtureTests.cs` for the inherited-member ones).
 3. Regenerate (command above) and review the byte diff.
 4. Run `dotnet test tests/Ceras.Test -f net10.0`.

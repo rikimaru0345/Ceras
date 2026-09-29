@@ -623,12 +623,7 @@ namespace Ceras.SourceGenerator {
 		/// </summary>
 		public static string BuildSchemaExpression(INamedTypeSymbol type, List<SerializedMember> members, AttributeBag attrs) {
 			string stableTypeName = GetStableTypeName(type, attrs.CerasSerializable);
-			var prevTypeNames = new List<string>();
-			if (attrs.PreviousTypeName != null) {
-				foreach (var attr in type.GetAttributes())
-					if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, attrs.PreviousTypeName) && attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is string ptn)
-						prevTypeNames.Add(ptn);
-			}
+			var prevTypeNames = ReadPreviousTypeNames(type, attrs.PreviousTypeName);
 			string kind = type.TypeKind == TypeKind.Enum ? "global::Ceras.Format.SchemaTypeKind.Enum" : (type.IsValueType ? "global::Ceras.Format.SchemaTypeKind.Struct" : "global::Ceras.Format.SchemaTypeKind.Class");
 			string? underlyingTypeName = type.TypeKind == TypeKind.Enum && type.EnumUnderlyingType != null ? GetRobustName(type.EnumUnderlyingType) : null;
 			int fixedSize = ComputeFixedByteSize(type, members);
@@ -711,7 +706,7 @@ namespace Ceras.SourceGenerator {
 		/// ([PreviousTypeName] / [PreviousName] arguments) and is quoted through
 		/// <see cref="TypeHelpers.QuoteLiteral"/>.
 		/// </summary>
-		static void WriteStringArray(StringBuilder sb, List<string> strings) {
+		public static void WriteStringArray(StringBuilder sb, List<string> strings) {
 			if (strings.Count == 0) { sb.Append("global::System.Array.Empty<string>()"); return; }
 			sb.Append("new string[] { ");
 			for (int i = 0; i < strings.Count; i++) {
@@ -719,6 +714,33 @@ namespace Ceras.SourceGenerator {
 				if (i < strings.Count - 1) sb.Append(", ");
 			}
 			sb.Append(" }");
+		}
+
+		/// <summary>
+		/// The <c>[PreviousTypeName]</c> aliases declared on the type itself, in source order — the one
+		/// reader of them, shared by every registration path that writes a <c>previousTypeNames</c> into a
+		/// manifest entry.
+		/// <para>
+		/// It is one method because the two kinds of registration had drifted: a <em>generated</em> schema
+		/// (<see cref="BuildSchemaExpression"/>) read them, while the <em>placeholder</em> schema an
+		/// interface or abstract type gets (<c>CerasFormatterGenerator.AppendMinimalRegistration</c>) passed
+		/// <c>Array.Empty&lt;string&gt;()</c>. The placeholder is exactly the shape a save file names for a
+		/// base type the application renamed while making it abstract or swapping it for another interface,
+		/// and the alias was the only thing that could resolve it: without one,
+		/// <c>SchemaRegistry.ClaimNames</c> never indexed a name a file could ask for, so
+		/// <c>CerasRobustSerializer.BuildIdToType</c> had to hand the name to a binder, which cannot know a
+		/// type from an older build. See
+		/// <c>tests/Ceras.Test/Tests/HistoricalAbstractBaseFixtureTests.cs</c>.
+		/// </para>
+		/// </summary>
+		public static List<string> ReadPreviousTypeNames(INamedTypeSymbol type, INamedTypeSymbol? previousTypeNameAttr) {
+			var prevTypeNames = new List<string>();
+			if (previousTypeNameAttr != null) {
+				foreach (var attr in type.GetAttributes())
+					if (SymbolEqualityComparer.Default.Equals(attr.AttributeClass, previousTypeNameAttr) && attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is string ptn)
+						prevTypeNames.Add(ptn);
+			}
+			return prevTypeNames;
 		}
 
 		/// <summary>As <see cref="WriteStringArray"/>, for the previous names of a single member.</summary>
