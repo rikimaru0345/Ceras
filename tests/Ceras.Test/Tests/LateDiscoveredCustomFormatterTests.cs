@@ -328,13 +328,15 @@ namespace Ceras.Test.Tests
         /// <summary>
         /// ...and on the other door. The load is the mirror of the save: the same reconciliation at the
         /// top, the same bake, and the same callback firing in the middle of the operation. The file here
-        /// is a legitimate one — a context that installs no formatter for the late type wrote it — and a
-        /// reader that would install one while reading it is refused for the same reason a writer is.
+        /// is a legitimate one — a context that installs no formatter for the late type and drops its one
+        /// member, so the payload's member list is empty and the manifest's member-less entry describes it
+        /// exactly (see <see cref="AWriterWhoseMemberListIsDescribedCanProduceTheFile"/>) — and a reader
+        /// that would install a formatter while reading it is refused for the same reason a writer is.
         /// </summary>
         [Fact]
         public void ALoadThatSelectsAUserFormatterForATypeItIsDiscoveringIsRefused()
         {
-            var bytes = NewRobust().Save(Model(), 1);
+            var bytes = NewRobust(AWriterWhoseMemberListIsDescribed).Save(Model(), 1);
             var reader = NewRobust(Selecting(new LateFormatterA()));
 
             var error = Assert.Throws<CerasSchemaException>(() => reader.Load<Root>(bytes, 1));
@@ -347,6 +349,38 @@ namespace Ceras.Test.Tests
             // could be left behind is state, and a reader that had half-consumed the file would fail the
             // next one differently.
             Assert.Throws<CerasSchemaException>(() => reader.Load<Root>(bytes, 1));
+        }
+
+        /// <summary>
+        /// The planted file, on its own. A robust context refuses the reflection fallback for a type whose
+        /// reflected member list is not the one its manifest entry describes, and the generator registers a
+        /// <em>member-less</em> entry for the late type (it emits no formatter for it), so the plain
+        /// "nothing configured, save the model" context of this file can no longer write a value of it at
+        /// all. Dropping the one member makes the two lists agree — an empty member list is what a
+        /// member-less entry describes — which is what a file this file's tests can be built from looks
+        /// like.
+        /// <para>
+        /// Stated as its own test because it is a fact about the door rather than about a formatter: the
+        /// same context with the member kept is refused, and the refusal names the divergence.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void AWriterWhoseMemberListIsDescribedCanProduceTheFile()
+        {
+            byte[] bytes = NewRobust(AWriterWhoseMemberListIsDescribed).Save(Model(), 1);
+
+            // The value is there, and the schema section says the type has no members — so the file
+            // describes its own payload.
+            var round = NewRobust(AWriterWhoseMemberListIsDescribed).Load<Root>(bytes, 1);
+            Assert.Equal(Model().Sentinel, round.Sentinel);
+            Assert.NotNull(round.Late);
+            Assert.Equal(0, round.Late.Id);
+
+            // With the member kept, the same context is refused: the payload would carry a member the
+            // member-less entry does not describe.
+            var error = Assert.Throws<CerasSchemaException>(() => NewRobust().Save(Model(), 1));
+            Assert.Contains(TypeIdentity.GetCanonicalName(typeof(Late)), error.Message, StringComparison.Ordinal);
+            Assert.Contains("reflection fallback", error.Message, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -370,14 +404,16 @@ namespace Ceras.Test.Tests
 
             // And the load on the same serializer refuses too, rather than reading the file this change
             // would otherwise have let it write.
-            var bytes = NewRobust().Save(model, 1);
+            var bytes = NewRobust(AWriterWhoseMemberListIsDescribed).Save(model, 1);
             Assert.Throws<CerasSchemaException>(() => serializer.Load<Root>(bytes, 1));
 
-            // A context that configures nothing for the late type is untouched by any of it.
-            var clean = NewRobust();
+            // A context that configures nothing for the late type is untouched by any of it. It drops the
+            // late type's member like the planted file above, because that is the only shape this context
+            // can write for a type whose manifest entry is a member-less one.
+            var clean = NewRobust(AWriterWhoseMemberListIsDescribed);
             var round = clean.Load<Root>(clean.Save(model, 1), 1);
             Assert.Equal(model.Sentinel, round.Sentinel);
-            Assert.Equal(model.Late.Id, round.Late.Id);
+            Assert.Equal(0, round.Late.Id);
         }
 
         // ── what must keep working ─────────────────────────────────────────────────────────────
@@ -470,6 +506,16 @@ namespace Ceras.Test.Tests
             {
                 if (tc.Type == typeof(Late)) tc.CustomFormatter = formatter;
             };
+
+        /// <summary>
+        /// Drops the late type's one member, which is the only way this context can write a value of it:
+        /// the generator registers a <em>member-less</em> entry for a type it emits no formatter for, and a
+        /// robust context refuses the reflection fallback when the member list it would write is not the one
+        /// that entry describes (Format/RobustReflectionFallbackPolicy). An empty member list is what a
+        /// member-less entry describes, so this is the file the refusals above are planted in.
+        /// </summary>
+        static Action<CerasRobustConfig> AWriterWhoseMemberListIsDescribed
+            => c => c.ConfigType<Late>().ConfigField(nameof(Late.Id)).Exclude();
 
         static int liveRentals() => CerasBufferPool.LiveRentals;
 

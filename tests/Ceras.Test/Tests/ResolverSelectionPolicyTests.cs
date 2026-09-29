@@ -36,6 +36,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using Ceras.Exceptions;
@@ -275,6 +276,18 @@ namespace Ceras.Test.Tests
                 configure?.Invoke(c);
             });
 
+        /// <summary>
+        /// Drops the payload type's one member, which is what makes a file this file can plant: the
+        /// generator registers a member-less entry for a type it emits no formatter for, and a robust
+        /// context refuses the reflection fallback when the member list it would write is not the one that
+        /// entry describes (see <c>Format/RobustReflectionFallbackPolicy</c>). An empty member list is what
+        /// a member-less entry describes, so the resulting file is one whose payload the schema section
+        /// accounts for — which is what the load-path refusals below need: the reader's own resolver
+        /// selection has to be the only thing that can go wrong.
+        /// </summary>
+        static Action<CerasRobustConfig> AFileTheMemberlessEntryDescribes
+            => c => c.ConfigType<EngineObject>().ConfigField(nameof(EngineObject.Id)).Exclude();
+
         // ── the shape that makes this reachable ──────────────────────────────────────────────
 
         /// <summary>
@@ -283,6 +296,17 @@ namespace Ceras.Test.Tests
         /// tests would be passing for the wrong reason — a generated type's formatter is installed as
         /// <c>CustomFormatter</c> by the context registration and is consulted first, so
         /// <c>CustomResolver</c> could not even be set for it.
+        /// <para>
+        /// <b>Reversed since it was written.</b> It used to assert that the fallback is what
+        /// <c>GetSpecificFormatter</c> answers for this type. It no longer is, in a robust context: the
+        /// manifest holds a <em>member-less</em> entry for a type the generator emits no formatter for
+        /// (see <see cref="ThePayloadTypeHasAMemberlessPlaceholderAndTheFallbackIsRefusedForIt"/>), and a
+        /// reflected member list is not the one that entry describes, so the selection is refused before the
+        /// fallback is built. The invariant this test exists for is unchanged — nothing installs a
+        /// <c>CustomFormatter</c> for the payload type, which is what makes the resolver doors the only ones
+        /// reachable — and the assertion now states the refusal instead of the answer it replaced, because
+        /// the answer is no longer produced.
+        /// </para>
         /// </summary>
         [Fact]
         public void ThePayloadTypeHasNoGeneratedFormatterSoTheResolverDoorsAreReachable()
@@ -292,13 +316,39 @@ namespace Ceras.Test.Tests
                 BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
                 null, new[] { typeof(Type) }, null);
 
-            var chosen = pick.Invoke(serializer, new object[] { typeof(EngineObject) });
-
             // Not a generated formatter, or a generated one named after the type: the generator emits
             // nothing for a blacklisted type, so nothing has installed `CustomFormatter` and the resolver
             // doors are the only ones that can supply this type's formatter at all.
-            Assert.Equal("ReflectionFallbackFormatter`1", chosen.GetType().Name);
             Assert.Null(serializer.Config.GetExistingTypeConfig(typeof(EngineObject), false)?.CustomFormatter);
+
+            // …and the selection that would have been made is refused, by name. (Through the reflective
+            // call the refusal arrives wrapped, so the inner exception is the one asserted on.)
+            var thrown = Assert.Throws<TargetInvocationException>(() => pick.Invoke(serializer, new object[] { typeof(EngineObject) }));
+            var error = Assert.IsType<CerasSchemaException>(thrown.InnerException);
+
+            Assert.Contains(nameof(EngineObject), error.Message, StringComparison.Ordinal);
+            Assert.Contains("reflection fallback", error.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// The shape behind that refusal, pinned on its own: the generator registers a member-less
+        /// <c>Class</c> entry for a type it emits no formatter for, and the reflection fallback derives a
+        /// one-member list from the CLR type. Nothing compared the two, so the payload was a member list
+        /// under an entry that described none — with the fingerprint of the entry, unchanged by the
+        /// formatter that wrote it. See <c>ReflectionFallbackLayoutTests</c> for the same defect measured
+        /// across two builds, and <c>Format/RobustReflectionFallbackPolicy</c> for the guard.
+        /// </summary>
+        [Fact]
+        public void ThePayloadTypeHasAMemberlessPlaceholderAndTheFallbackIsRefusedForIt()
+        {
+            var serializer = NewRobust();
+
+            Assert.True(serializer.Config.SchemaRegistry.TryGetInfo(typeof(EngineObject), out var described));
+            Assert.Equal(SchemaTypeKind.Class, described.Kind);
+            Assert.Empty(described.Fields);
+
+            var runtime = serializer.GetTypeMetaData(typeof(EngineObject)).PrimarySchema!;
+            Assert.Equal(new[] { nameof(EngineObject.Id) }, runtime.Members.Select(m => m.PersistentName));
         }
 
         // ── the defect ───────────────────────────────────────────────────────────────────────
@@ -314,14 +364,17 @@ namespace Ceras.Test.Tests
         /// <para>
         /// After the change there is no fingerprint left to compare: the save is refused before a byte
         /// of the graph is written, so the refusal <em>is</em> the assertion. The control save in the
-        /// same test is what shows the refusal is about the resolver selection and nothing else.
+        /// same test is what shows the refusal is about the resolver selection and nothing else — and it
+        /// is a root of the context's own generated types, because a save whose payload is a value of the
+        /// blacklisted type is now refused by the member-list guard no matter which door selected a
+        /// formatter for it (see <see cref="ThePayloadTypeHasAMemberlessPlaceholderAndTheFallbackIsRefusedForIt"/>).
         /// </para>
         /// </summary>
         [Fact]
         public void AResolverSelectedFormatterIsRefusedRatherThanWrittenUnframed()
         {
             var control = NewRobust();
-            byte[] reference = control.Save(Model(), 1);
+            byte[] reference = control.Save(new Safe { Text = "control", Count = 3 }, 1);
 
             var serializer = NewRobust(c => c.ConfigType<EngineObject>().CustomResolver = (s, t) => new PayloadFormatterA());
             Assert.Throws<CerasSchemaException>(() => serializer.Save(Model(), 1));
@@ -329,7 +382,7 @@ namespace Ceras.Test.Tests
             // The control still saves and reads back, so the refusal above is about the resolver
             // selection and not about the context, the model or the save itself.
             Assert.NotEmpty(reference);
-            Assert.Equal(PayloadId, control.Load<Root>(reference, 1).Payload.Id);
+            Assert.Equal(3, control.Load<Safe>(reference, 1).Count);
         }
 
         /// <summary>
@@ -399,13 +452,16 @@ namespace Ceras.Test.Tests
         /// The file is a plain save with no formatter at all, so this build's manifest holds no opaque
         /// selection for the type and the fingerprints match: the fast path is taken and the reading
         /// serializer's resolver is the only thing that can go wrong. Before the change the load succeeded
-        /// and returned the complement of the saved id.
+        /// and returned the complement of the saved id. It is planted by a context that drops the payload
+        /// type's one member, which is what makes its reflected member list — and therefore the file —
+        /// something the member-less entry describes (the same device as
+        /// <c>LateDiscoveredCustomFormatterTests.AWriterWhoseMemberListIsDescribedCanProduceTheFile</c>).
         /// </para>
         /// </summary>
         [Fact]
         public void TheLoadPathRefusesTheSameSelection()
         {
-            byte[] plain = NewRobust().Save(Model(), 1);
+            byte[] plain = NewRobust(AFileTheMemberlessEntryDescribes).Save(Model(), 1);
 
             var reader = NewRobust(c => c.ConfigType<EngineObject>().CustomResolver = (s, t) => new PayloadFormatterLookalike());
 
@@ -468,8 +524,10 @@ namespace Ceras.Test.Tests
             // A plain save, written with no formatter at all, so the reading serializer's late resolver is
             // the only thing that can go wrong. The lookalike is used because it has no tag to disagree
             // about: before the change this load succeeded and handed back a wrong id, which is the
-            // failure mode the whole file is about.
-            byte[] plain = NewRobust().Save(Model(), 1);
+            // failure mode the whole file is about. The file itself is planted by a context that drops the
+            // payload type's one member, which is what makes the member-less entry describe it (see
+            // TheLoadPathRefusesTheSameSelection).
+            byte[] plain = NewRobust(AFileTheMemberlessEntryDescribes).Save(Model(), 1);
 
             var reader = new CerasRobustSerializer(c =>
             {
@@ -515,9 +573,23 @@ namespace Ceras.Test.Tests
 
         /// <summary>
         /// A callback that <em>declines</em> — returns null, which is how every resolver says "not mine,
-        /// ask the next one" — is not a selection and is not refused. The immutable-collection resolver
-        /// declines every type it does not handle, so this is the ordinary case for any callback added
-        /// alongside it.
+        /// ask the next one" — is not a selection, and is not refused for being one. The immutable-collection
+        /// resolver declines every type it does not handle, so this is the ordinary case for any callback
+        /// added alongside it, and it has to keep being a decline rather than becoming a refusal.
+        /// <para>
+        /// <b>What it can no longer be followed by.</b> It used to end with a save that succeeded, on the
+        /// claim that "nothing was selected for the payload, so the reflection fallback wrote it and the
+        /// entry — a member-less class — describes exactly that". Measured, that claim was false: the
+        /// fallback writes <see cref="EngineObject.Id"/> and the member-less entry describes no member at
+        /// all, so the file's schema section did not describe its own payload — with the fingerprint of the
+        /// entry, unchanged by the formatter that wrote it. Nothing was selected, and the value was written
+        /// by a formatter the manifest does not account for, which is the same hole this door was closed for.
+        /// </para>
+        /// <para>
+        /// So the decline is still not a selection, and the save is still refused — by the layer that owns
+        /// the member list, naming it. The callback is shown to have been asked, so the refusal cannot be
+        /// mistaken for one that never consulted it.
+        /// </para>
         /// </summary>
         [Fact]
         public void AResolverThatReturnsNullIsADeclineNotASelection()
@@ -525,14 +597,15 @@ namespace Ceras.Test.Tests
             var declining = new DecliningResolver();
             var serializer = NewRobust(c => c.OnResolveFormatter.Add((s, t) => declining.Answer(s, t)));
 
-            byte[] bytes = serializer.Save(Model(), 1);
-            var clone = serializer.Load<Root>(bytes, 1);
+            var error = Assert.Throws<CerasSchemaException>(() => serializer.Save(Model(), 1));
 
             Assert.True(declining.Calls > 0, "the declining callback was never asked, so this proves nothing");
-            // Nothing was selected for the payload, so the reflection fallback wrote it and the entry —
-            // a member-less class — describes exactly that.
-            Assert.Equal(PayloadId, clone.Payload.Id);
-            Assert.DoesNotContain("OPAQUE", CerasRobustSerializer.DumpSchema(bytes), StringComparison.Ordinal);
+
+            // The decline led to the fallback, and the fallback's member list is what the entry does not
+            // describe. Nothing was framed, and no formatter of the callback's choosing was involved.
+            Assert.DoesNotContain("selected by", error.Message, StringComparison.Ordinal);
+            Assert.Contains("reflection fallback", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(nameof(EngineObject), error.Message, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -792,7 +865,7 @@ namespace Ceras.Test.Tests
         [Fact]
         public void ARefusedLoadLeavesNothingCachedSoASecondLoadIsRefusedToo()
         {
-            byte[] plain = NewRobust().Save(Model(), 1);
+            byte[] plain = NewRobust(AFileTheMemberlessEntryDescribes).Save(Model(), 1);
 
             var formatter = new PayloadFormatterLookalike();
             var reader = NewRobust(c => c.ConfigType<EngineObject>().CustomResolver = (s, t) => formatter);

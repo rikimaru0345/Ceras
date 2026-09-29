@@ -33,10 +33,19 @@ namespace Ceras.Test
                     stableName: "SharedString",
                     previousTypeNames: Array.Empty<string>(),
                     kind: SchemaTypeKind.Class,
+                    // The order is the one the payload is written in, not the declaration order:
+                    // `SchemaMemberComparer` sorts on the canonical name of the member's type + MemberName +
+                    // the canonical name of DeclaringType + "f"/"p", so "…StringLabel" + "Ceras.Test…" and
+                    // "…StringLabel2" + "Ceras.Test…" are compared at the *declaring type's* first
+                    // character — '2' sorts before 'C' — and Label2 comes first.
+                    // A robust context now refuses a described member list that is not the one the writer
+                    // produces (Format/RobustReflectionFallbackPolicy), so a hand-written descriptor has to
+                    // state the real order; this test is about the two regions, and the order of these two
+                    // fields is incidental to it.
                     fields: new[]
                     {
-                        new SchemaFieldInfo("Label", Array.Empty<string>(), "System.String", true),
                         new SchemaFieldInfo("Label2", Array.Empty<string>(), "System.String", true),
+                        new SchemaFieldInfo("Label", Array.Empty<string>(), "System.String", true),
                     },
                     fixedByteSize: 0);
                 config.SchemaRegistry.Register(typeof(InterningTestPotion), info);

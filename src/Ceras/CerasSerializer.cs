@@ -816,8 +816,40 @@ namespace Ceras
 				}
 			}
 			foreach (var r in _resolvers) { var f = r.GetFormatter(type); if (f != null) return PrepareAndCache(type, meta, f); }
+
+			// The last resolver, and the only one that derives a member list at run time rather than
+			// declaring one at compile time. Asked before it is even constructed - see
+			// RequireReflectionFallbackIsDescribable - so a refused selection has built nothing, resolved
+			// no member's formatter, and cached nothing.
+			RequireReflectionFallbackIsDescribable(type, meta);
 			var df = _dynamicResolver.GetFormatter(type); if (df != null) return PrepareAndCache(type, meta, df);
 			throw new NotSupportedException("No formatter for " + type.FullName);
+		}
+
+		/// <summary>
+		/// Refuses the reflection fallback for a type whose payload this context's manifest does not
+		/// describe, before the formatter exists — so before it is cached, and before the value has a byte.
+		/// Two things are asked, and neither substitutes for the other: the member list (count, ordered
+		/// stable names, each member's type) and each member's own reference marker, which is in no member
+		/// list and is therefore a separate check.
+		/// <para>
+		/// The three things that are deliberately not asked here, each because the answer belongs to a
+		/// layer that already gives a better one: a context that describes nothing (a raw/transient
+		/// serializer, which reaches the identical line of <see cref="GetSpecificFormatter(Type, TypeMetaData)"/>
+		/// with the identical formatter it always did, so its bytes cannot change), a type the manifest
+		/// does not hold at all (nothing describes the payload, and the bake and the registry already
+		/// refuse such a type by name), and the fallback being disabled (its own refusal names the type and
+		/// the setting). <see cref="Format.RobustReflectionFallbackPolicy"/> states the rule and the
+		/// alternatives.
+		/// </para>
+		/// </summary>
+		void RequireReflectionFallbackIsDescribable(Type type, TypeMetaData meta)
+		{
+			if (Config is not CerasRobustConfig robust) return;
+			if (!Config.AllowReflectionFallback) return;
+			if (IsPrimitiveType(type)) return;   // the fallback refuses a primitive itself, by name
+
+			Format.RobustReflectionFallbackPolicy.RequireSelectionIsDescribable(robust, type, meta.PrimarySchema);
 		}
 
 		/// <summary>

@@ -29,7 +29,18 @@ namespace ReproGodot
         public float[] Points = Array.Empty<float>();
     }
 
-    // A plain struct we DO want a generated formatter for
+    // A plain struct we DO want a generated formatter for.
+    //
+    // Declared, and that is the point of the declaration: the assembly blacklist above covers the whole
+    // `ReproGodot` namespace, so without `[CerasSerializable]` this type would get only the member-less
+    // placeholder entry and its member `RailSegment.Dummy` would be written by the reflection fallback —
+    // which a robust context now refuses, because the payload's member list would not be the one the
+    // manifest describes (Format/RobustReflectionFallbackPolicy). A `[CerasSerializable]` type is an
+    // explicit root and wins over the blacklist ("If the user explicitly asks for Vector3, they should get
+    // it, even if `Godot.*` is blacklisted"), so the engine *object* below keeps the member-less entry it is
+    // meant to have and the plain struct gets a formatter and a matching schema.
+    [CerasContext("Tests")]
+    [CerasSerializable]
     public struct Vector3
     {
         public float X, Y, Z;
