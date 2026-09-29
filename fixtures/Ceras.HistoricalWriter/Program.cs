@@ -36,6 +36,7 @@ using Ceras.HistoricalWriter.V1EnumNames;
 using Ceras.HistoricalWriter.V1Inherited;
 using Ceras.HistoricalWriter.V1InheritedNarrow;
 using Ceras.HistoricalWriter.V1Abstract;
+using Ceras.HistoricalWriter.V1Ctor;
 using Ceras.HistoricalWriter.V1Poly;
 using Ceras.HistoricalWriter.V1Pooled;
 using Ceras.HistoricalWriter.V1Positional;
@@ -84,6 +85,10 @@ namespace Ceras.HistoricalWriter
         // same time — see V1AbstractBaseModel.cs for why that reaches the manifest through a different
         // registration than every other base here.
         const string AbstractContext = "HistoricalV1Abstract";
+
+        // A type the current model gave a [CerasConstructor] to, whose parameters come out of the payload
+        // and whose bodies do not simply keep what they were handed — see V1CtorModel.cs.
+        const string CtorContext = "HistoricalV1Ctor";
 
         static int Main(string[] args)
         {
@@ -143,6 +148,7 @@ namespace Ceras.HistoricalWriter
             foreach (var fixture in NestedArrayShapeFixtures()) yield return fixture;
             foreach (var fixture in InheritedMemberFixtures()) yield return fixture;
             foreach (var fixture in AbstractBaseFixtures()) yield return fixture;
+            foreach (var fixture in CtorFixtures()) yield return fixture;
             foreach (var fixture in OpaqueFixtures()) yield return fixture;
             foreach (var fixture in PositionalFixtures()) yield return fixture;
         }
@@ -858,6 +864,37 @@ namespace Ceras.HistoricalWriter
                 Focus = new Sentinel { Armour = 12 },
                 Marker = BattleSentinel,
             }, 1));
+        }
+
+        /// <summary>
+        /// A type that has gained a <c>[CerasConstructor]</c> whose parameters come out of the payload and
+        /// whose bodies do not simply keep what they were handed: <c>Ledger</c>'s clamps the value it is
+        /// given, and <c>Cover</c>'s drops the reference it is given. The stored value has to win on both,
+        /// which is what the generated reader has always arranged by writing every local it read back
+        /// after the constructor.
+        /// <para>
+        /// The second file is the ledger row as a root of its own, so the claim does not depend on the
+        /// crate around it being read at all — the same reason <c>PlayerCycle.bin</c> exists.
+        /// </para>
+        /// </summary>
+        static IEnumerable<(string Name, byte[] Bytes)> CtorFixtures()
+        {
+            var serializer = NewSerializer(CtorContext);
+            const uint Sentinel = 0xC70C0C70u;
+
+            // The amount is negative on purpose: the current model's constructor clamps a negative value
+            // to zero, so the only thing that can restore it is an assignment the constructor does not make.
+            var row = new Ledger { Amount = -5, Note = "alpha", Retired = 0x0BADF00D };
+            row.Twin = row;                        // the self-cycle
+
+            yield return ("CtorLedgerBook.bin", serializer.Save(new LedgerBook
+            {
+                Main = row,
+                Wrap = new Cover { Inner = row, Count = 3 },   // Inner is the same instance as Main
+                Marker = Sentinel,
+            }, 1));
+
+            yield return ("CtorLedgerRow.bin", serializer.Save(row, 1));
         }
     }
 }

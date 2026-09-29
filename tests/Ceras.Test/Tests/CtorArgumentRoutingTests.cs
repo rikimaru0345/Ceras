@@ -1,12 +1,13 @@
-// How a value reaches a type's `[CerasConstructor]`, and how a member no constructor parameter feeds
-// reaches the instance instead.
+// How a value reaches a type's `[CerasConstructor]`, and how every member the payload carried reaches the
+// instance around it.
 //
-// The routing is `CtorArgumentValues`' whole job, and it makes two decisions in this order:
-// everything the constructor takes is collected first, the constructor runs, and only then are the
-// members it did not take assigned — so for those members a constructor that rewrites a value it was
-// *not* handed cannot change the result. That is why the leftover members are held rather than written
-// straight through. It is the streaming reader's order for the members no parameter fed, and it is not
-// the generated reader's order — see the last paragraph, and `CtorArgumentValues` for the long form.
+// The routing is `CtorArgumentValues`' whole job, and it makes two decisions in this order: everything the
+// constructor takes is collected first, the constructor runs, and only then is every member assigned — so a
+// constructor that rewrote any value, one it was handed or not, cannot change the result. That is why the
+// members are held rather than written straight through, and it is the generated reader's order as well:
+// it reads every member into a local, runs the constructor, and writes *all* of the locals back.
+// `RoutingModel` below makes the distinction observable by having its constructor clobber a value it *was*
+// handed (`Fed`) and one it was not (`Unfed`, `UnfedToo`, `Sentinel`).
 //
 // What the file pins, and why it is worth pinning separately from `CtorNullabilityMigrationTests` and
 // `TransientCtorParamTests`:
@@ -15,17 +16,15 @@
 //     model maps each of its members to a parameter, so the pending-assignment branch never ran; and
 //     `TransientCtorParamTests` does cover an unfed *parameter*, but on a same-layout roundtrip that
 //     takes the generated reader, so `CtorArgumentValues.Arguments` never ran either.
-//   * the order itself is only observable through a constructor that clobbers a value it was not
-//     handed, which is what `RoutingModel` below does.
+//   * the *fed* member case is the end-to-end half of the constructor contract and lives in
+//     `ConstructorRewriteMemberTests` and `HistoricalCtorFixtureTests`, which is where the consequence of
+//     this file's unit-level decision is observable as a value and as an identity.
 //
-// One thing deliberately **not** pinned here, because it is not the routing's property to decide: a
-// constructor that transforms the value it is handed for a member it *was* handed produces a different
-// result on the two readers today (the generated reader writes every member back after the
-// constructor, the interpreter only writes the members no parameter fed). `RoutingModel` therefore
-// assigns `Fed = fed` unchanged, so the end-to-end tests below state the pending-assignment order
-// without depending on that difference, and the parameter-versus-pending decision itself — which no
-// end-to-end assertion can distinguish, because both routes end with the save's value in the member —
-// is pinned by the unit tests instead.
+// One thing deliberately **not** pinned here: the parameter-versus-pending decision itself. No end-to-end
+// assertion can distinguish it any more, because both routes end with the save's value in the member, and
+// that is the point — the constructor is construction input, not assignment. What the unit tests below can
+// still distinguish is the *other* half: that a member a parameter fed is handed to the constructor
+// (`Arguments`) and that no member is skipped on the way back out (`ApplyPendingAssignments`).
 
 using System;
 using System.Linq;
@@ -41,7 +40,9 @@ namespace Ceras.Test
     [CerasSerializable]
     public class RoutingModel
     {
-        /// <summary>Fed by the <c>fed</c> parameter, so it goes through the constructor.</summary>
+        /// <summary>Fed by the <c>fed</c> parameter, so it goes through the constructor — which then keeps
+        /// the value verbatim, so the end-to-end test below states the pending-assignment order without
+        /// also depending on the fed member being written back. The unit tests cover that half.</summary>
         public int Fed;
         /// <summary>Fed by no parameter at all: the constructor clobbers it and the save must win.</summary>
         public int Unfed;
@@ -153,13 +154,20 @@ namespace Ceras.Test
 
             Set(values, nameof(RoutingModel.Fed), 42);
 
+            // The value reaches the constructor, which is what the slot is for and the only thing this
+            // can distinguish: `Arguments` returns what `ConstructorInfo.Invoke` will be handed.
             Assert.Equal(42, values.Arguments()[0]);
 
-            // Nothing was held back, so there is nothing to apply afterwards: the member is the
-            // constructor's business and only the constructor's.
+            // It is *also* held for afterwards, because a [CerasConstructor] is a construction input and
+            // not an assignment: the generated reader writes every member back from its local once the
+            // constructor has returned, so the save's value is the object's whatever the constructor did
+            // with the argument. A reader that left this member to the constructor would return the
+            // constructor's result here and the generated reader's result on the fast path.
             var target = new RoutingModel();
             values.ApplyPendingAssignments(target);
-            Assert.Equal(111, target.Fed);
+            Assert.Equal(42, target.Fed);
+
+            // A member nothing was routed for is not touched at all: it keeps the constructor's value.
             Assert.Equal(222, target.Unfed);
         }
 
@@ -210,7 +218,7 @@ namespace Ceras.Test
         }
 
         [Fact]
-        public void Applying_The_Pending_Assignments_Is_A_NoOp_When_Nothing_Was_Routed()
+        public void Applying_The_Pending_Assignments_Is_Repeatable_And_Writes_Every_Routed_Member()
         {
             var values = NewValues();
             Set(values, nameof(RoutingModel.Fed), 42);
@@ -219,7 +227,7 @@ namespace Ceras.Test
             values.ApplyPendingAssignments(target);
             values.ApplyPendingAssignments(target);   // twice, because a list is not consumed by writing it
 
-            Assert.Equal(111, target.Fed);
+            Assert.Equal(42, target.Fed);        // the value it was handed, not the constructor's
             Assert.Equal(222, target.Unfed);
         }
 

@@ -727,8 +727,10 @@ namespace Ceras.Format
         /// because the constructor arguments come out of the payload;</item>
         /// <item>invoke the constructor with the mapped argument values, and only for a fresh instance
         /// (a reused one keeps its state and never runs a constructor or a field initializer);</item>
-        /// <item>assign the members, including the ones the constructor also received, exactly as the
-        /// generated reader does, so a constructor that rewrites a value cannot change the result;</item>
+        /// <item>assign every member the payload carried, including the ones the constructor also
+        /// received, in payload order and exactly as the generated reader does, so a constructor that
+        /// rewrites a value cannot change the result on either reader (see
+        /// <see cref="CtorArgumentValues"/>);</item>
         /// <item>defer <c>[OnAfterDeserialize]</c> until the whole graph is populated.</item>
         /// </list>
         /// </summary>
