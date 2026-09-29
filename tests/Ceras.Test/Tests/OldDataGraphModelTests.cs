@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
 using Ceras.Format;
@@ -230,6 +231,24 @@ namespace Ceras.Test
                 new OldValue[] { new OldScalar(hand2.Int32, 9) }, hand2.Int32);
 
             Assert.Throws<ArgumentException>(() => new OldDataGraph(new OldValue[] { list }, list));
+        }
+
+        /// <summary>
+        /// A value kind the model does not declare cannot be walked, and the constructor says so instead
+        /// of accepting it. The walk is the model's only list of which kinds hold values, so a kind
+        /// missing from it would contribute no children: every value it held would then be reachable in
+        /// the graph with no index — the break of rule 1 the arena exists to prevent — and nothing
+        /// downstream would notice, because a value with no identity still looks like a value. This is
+        /// also what stops the next node kind from being added and quietly escaping validation.
+        /// </summary>
+        [Fact]
+        public void Arena_RefusesAValueKindTheValidationWalkDoesNotKnow()
+        {
+            var unknown = new UnknownValue();
+
+            var error = Assert.Throws<CerasException>(() => new OldDataGraph(new OldValue[] { unknown }, unknown));
+            Assert.Contains(nameof(UnknownValue), error.Message);
+            Assert.Contains("ValidateEveryValueIsIndexed", error.Message);
         }
 
         [Fact]
@@ -608,6 +627,159 @@ namespace Ceras.Test
             Assert.Equal(WellKnownTypes.Int32, element.TypeId);
         }
 
+        /// <summary>
+        /// A framed payload, and the four facts the file states about one: the type's identity, the
+        /// formatter's name, whether a marker stood in front of the frame, and the length the frame
+        /// declared — plus the bytes themselves, copied so the node does not alias the caller's buffer.
+        /// </summary>
+        [Fact]
+        public void OpaqueNode_KeepsTheFilesOwnRecordAndCopiesTheBlock()
+        {
+            var identity = new OldTypeIdentity(128, "Old.Ref", null, SchemaTypeKind.Opaque);
+            var bytes = new byte[] { 0xA2, 0x01, 0x00, 0x00, 0x00 };
+
+            var node = new OldOpaqueNode(identity, "Old.RefFormatter", writtenInline: true, declaredLength: bytes.Length, bytes);
+
+            Assert.Same(identity, node.Type);
+            Assert.Equal(SchemaTypeKind.Opaque, node.Type.Kind);
+            Assert.Equal("Old.RefFormatter", node.FormatterName);
+            Assert.True(node.WrittenInline);
+            Assert.Equal(5, node.DeclaredLength);
+            Assert.Equal(bytes, node.Payload.ToArray());
+
+            // The copy is the point: the caller is the builder, and its buffer is the save file.
+            Array.Fill(bytes, (byte)0xFF);
+            Assert.Equal(new byte[] { 0xA2, 0x01, 0x00, 0x00, 0x00 }, node.Payload.ToArray());
+
+            // Get-only is not the same as immutable, and the property type is the other half: a byte[], a
+            // Memory<byte> or even a ReadOnlyMemory<byte> here would be a door a caller could write the
+            // file's record through, the last one via MemoryMarshal.TryGetArray.
+            var payload = typeof(OldOpaqueNode).GetProperty(nameof(OldOpaqueNode.Payload))!;
+            Assert.Equal(typeof(IReadOnlyList<byte>), payload.PropertyType);
+            Assert.Null(payload.GetSetMethod(nonPublic: false));
+        }
+
+        /// <summary>
+        /// The payload is bytes, and bytes are the one thing a public API can hand out in a shape a caller
+        /// can write through: a <c>byte[]</c> is not read-only at all, and a
+        /// <see cref="ReadOnlyMemory{T}"/> of bytes yields its array to <c>MemoryMarshal.TryGetArray</c>.
+        /// So this is a claim about every member of the node, not about the one property — a node whose
+        /// payload were typed as a writable buffer again would have to fail here rather than pass.
+        /// </summary>
+        [Fact]
+        public void OpaqueNode_ExposesNoWritableByteBufferThroughAnyPublicMember()
+        {
+            foreach (var member in typeof(OldOpaqueNode)
+                         .GetMembers(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
+                         .Where(m => m is PropertyInfo or MethodInfo or FieldInfo))
+            {
+                foreach (var type in NamedTypesOf(member))
+                {
+                    Assert.False(IsWritableByteBuffer(type),
+                        $"{member.Name} exposes {type}, which a caller could write the file's record through.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The two ways a byte payload could be reached for writing through a list-shaped property, both
+        /// refused by the read-only view over the copy: the mutable interfaces the wrapper implements, and
+        /// a cast back to the array behind it. Neither changes the node's bytes.
+        /// </summary>
+        [Fact]
+        public void OpaqueNode_CannotBeWrittenThroughAsAMutableList()
+        {
+            var identity = new OldTypeIdentity(128, "Old.Ref", null, SchemaTypeKind.Opaque);
+            var bytes = new byte[] { 0xA2, 0x01, 0x00, 0x00, 0x00 };
+            var node = new OldOpaqueNode(identity, "Old.RefFormatter", false, bytes.Length, bytes);
+
+            var mutable = (IList<byte>)node.Payload;
+            Assert.Throws<NotSupportedException>(() => mutable[0] = 0xFF);
+            Assert.Throws<NotSupportedException>(() => mutable.Clear());
+            Assert.Throws<NotSupportedException>(() => mutable.Add(0xFF));
+
+            // And there is no array behind it to cast back to: the wrapper is the object, not the array.
+            Assert.IsType<ReadOnlyCollection<byte>>(node.Payload);
+            Assert.Throws<InvalidCastException>(() => (byte[])(object)node.Payload);
+
+            Assert.Equal(new byte[] { 0xA2, 0x01, 0x00, 0x00, 0x00 }, node.Payload.ToArray());
+        }
+
+        /// <summary>Every type a member names, one level deep, so a generic argument cannot smuggle one in.</summary>
+        static IEnumerable<Type> NamedTypesOf(MemberInfo member)
+        {
+            var declared = member switch
+            {
+                PropertyInfo p => p.PropertyType,
+                MethodInfo m   => m.ReturnType,
+                FieldInfo f    => f.FieldType,
+                _              => null,
+            };
+
+            if (declared == null) yield break;
+
+            yield return declared;
+            if (!declared.IsGenericType) yield break;
+            foreach (var argument in declared.GetGenericArguments()) yield return argument;
+        }
+
+        /// <summary>
+        /// A shape that writes: the array itself, a span or memory over it, the read-only memory that
+        /// <c>MemoryMarshal.TryGetArray</c> unwraps, a segment into it, or the mutable list interfaces.
+        /// </summary>
+        static bool IsWritableByteBuffer(Type type)
+            => type == typeof(byte[])
+            || type == typeof(Memory<byte>)
+            || type == typeof(ReadOnlyMemory<byte>)
+            || type == typeof(ArraySegment<byte>)
+            || type == typeof(IList<byte>)
+            || type == typeof(ICollection<byte>);
+
+        /// <summary>
+        /// The records a Ceras writer cannot have produced, refused at the only door there is — the
+        /// constructor. A declared length is written from the number of bytes the formatter produced, so
+        /// it is never negative and always matches the block in front of it, and a formatter's canonical
+        /// name is a CLR type name, so it is never empty.
+        /// </summary>
+        [Fact]
+        public void OpaqueNode_RefusesARecordTheWriterCouldNotHaveProduced()
+        {
+            var identity = new OldTypeIdentity(128, "Old.Ref", null, SchemaTypeKind.Opaque);
+
+            // The length is the only thing that accounts for a block, so the two are one record.
+            Assert.Throws<ArgumentException>(() => new OldOpaqueNode(identity, "Old.RefFormatter", false, 4, new byte[] { 1, 2, 3 }));
+            Assert.Throws<ArgumentException>(() => new OldOpaqueNode(identity, "Old.RefFormatter", false, 2, new byte[] { 1, 2, 3 }));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new OldOpaqueNode(identity, "Old.RefFormatter", false, -1, Array.Empty<byte>()));
+
+            // An entry with no formatter name attributes the block to nothing, so there is nothing to
+            // record. Zero, though, is a real length: a formatter is free to have written nothing.
+            var error = Assert.Throws<ArgumentException>(() => new OldOpaqueNode(identity, "", false, 0, Array.Empty<byte>()));
+            Assert.Contains("no formatter", error.Message);
+            Assert.NotNull(new OldOpaqueNode(identity, "Old.RefFormatter", false, 0, Array.Empty<byte>()));
+
+            Assert.Throws<ArgumentNullException>(() => new OldOpaqueNode(null, "Old.RefFormatter", false, 0, Array.Empty<byte>()));
+            Assert.Throws<ArgumentNullException>(() => new OldOpaqueNode(identity, null!, false, 0, Array.Empty<byte>()));
+
+            // A null payload is not an empty block: a caller that passed nothing has failed to pass one.
+            Assert.Throws<ArgumentNullException>(() => new OldOpaqueNode(identity, "Old.RefFormatter", false, 0, null!));
+        }
+
+        /// <summary>
+        /// An empty block is a value, and it is wrapped like any other — a shared empty array behind an
+        /// <c>IReadOnlyList&lt;byte&gt;</c> would be the one payload a caller could cast back to a writable
+        /// <c>byte[]</c>, so the node allocates even when there is nothing to copy.
+        /// </summary>
+        [Fact]
+        public void OpaqueNode_WrapsAnEmptyBlockRatherThanHandingOutAnArray()
+        {
+            var identity = new OldTypeIdentity(128, "Old.Ref", null, SchemaTypeKind.Opaque);
+            var node = new OldOpaqueNode(identity, "Old.RefFormatter", false, 0, Array.Empty<byte>());
+
+            Assert.Equal(0, node.DeclaredLength);
+            Assert.IsType<ReadOnlyCollection<byte>>(node.Payload);
+            Assert.Throws<InvalidCastException>(() => (byte[])(object)node.Payload);
+        }
+
         // ── Rule 3: the bindings do change ──────────────────────────────────────────────────────────
 
         [Fact]
@@ -840,6 +1012,11 @@ namespace Ceras.Test
 
         // ── helpers ───────────────────────────────────────────────────────────────────────────────
 
+        /// <summary>A value kind no node type derives from: what a new node kind looks like before the graph is taught about it.</summary>
+        sealed class UnknownValue : OldValue
+        {
+        }
+
         static IEnumerable<Type> ModelTypes() => new[]
         {
             typeof(OldTypeIdentity),
@@ -849,6 +1026,7 @@ namespace Ceras.Test
             typeof(OldTypeValueNode),
             typeof(OldObjectNode),
             typeof(OldCollectionNode),
+            typeof(OldOpaqueNode),
             typeof(OldReferenceNode),
             typeof(OldNullNode),
             typeof(OldMember),

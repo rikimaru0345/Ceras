@@ -16,8 +16,10 @@
 //     numbering is a *different* index space (only values behind a reference marker get a slot). A
 //     decoder that read a marker as an arena index would build a graph that satisfies every rule the
 //     model enforces and is wrong, which is why the cycle test states concrete indices.
-//  3. **The refusals.** The two shapes this graph has no node kind for yet, and the malformed inputs, are
-//     named precisely rather than approximated.
+//  3. **The refusals.** The shapes this graph still has no node kind for — the three structural value
+//     types, which the file records no member name for — and the malformed inputs are named precisely
+//     rather than approximated. (A framed custom payload is not one of them: it has a node kind, and
+//     Tests/OldOpaqueGraphTests covers it against the two real fixtures.)
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
@@ -59,10 +61,12 @@ namespace Ceras.Test
         // ── 1. Every structural fixture, byte-exact ─────────────────────────────────────────────
 
         /// <summary>
-        /// Every checked-in v5 fixture except the two that hold a custom formatter's framed payload, which
-        /// this graph has no node kind for and which is refused below. The generic-alias fixtures are here
-        /// too: they are the ones whose <em>current</em> model renames a closed generic, so a file they
-        /// describe is only readable by something that answers from the file.
+        /// Every checked-in v5 fixture, with no exceptions. The two that hold a custom formatter's framed
+        /// payload are in it now that the graph has a node kind for one, and their frames are the only
+        /// declared lengths in the whole set, so they are the fixtures where a stop that is a single byte
+        /// out is most likely to go unnoticed. The generic-alias fixtures are here too: they are the ones
+        /// whose <em>current</em> model renames a closed generic, so a file they describe is only readable
+        /// by something that answers from the file.
         /// </summary>
         public static IEnumerable<object[]> StructuralFixtures()
         {
@@ -76,7 +80,6 @@ namespace Ceras.Test
                                              .Select(Path.GetFileName)
                                              .OrderBy(n => n, StringComparer.Ordinal))
                 {
-                    if (name is "OpaqueFrameHolder.bin" or "OpaqueDroppedMemberHolder.bin") continue;
                     yield return new object[] { folder, name };
                 }
             }
@@ -403,27 +406,11 @@ namespace Ceras.Test
             Assert.True(graph.IndexOf(slot) >= 0);
         }
 
-        // ── 4. The two shapes the graph has no node kind for yet ──────────────────────────────
+        // ── 4. The shapes the graph still has no node kind for ─────────────────────────────────
 
-        [Theory]
-        [InlineData("OpaqueFrameHolder.bin", "Ceras.HistoricalWriter.V1Opaque.FrameHolder")]
-        [InlineData("OpaqueDroppedMemberHolder.bin", "Ceras.HistoricalWriter.V1Opaque.DroppedMemberHolder")]
-        public void A_Framed_Custom_Payload_Is_Refused_By_Type_Formatter_And_Position(string fixture, string holder)
-        {
-            // Both real opaque fixtures, and both refusals are the same one: the file records a custom
-            // formatter's block, and the graph has no node kind for it. The refusal names the file's own
-            // type, the formatter the file recorded, and where the value sits — and it is a
-            // CerasSchemaException, because the file is a perfectly good save and the graph is what
-            // cannot represent it. Recording it as a member list with no members would be precisely the
-            // lie the file's own Opaque entry replaced.
-            var error = Assert.Throws<CerasSchemaException>(
-                () => OldFileGraph.Read(HistoricalFixtureFiles.Fixture(fixture)));
-
-            Assert.Contains("Ceras.HistoricalWriter.V1Opaque.RecipeRef", error.Message);
-            Assert.Contains("Ceras.HistoricalWriter.V1Opaque.RecipeRefFormatter", error.Message);
-            Assert.Contains(holder, error.Message);
-            Assert.Contains("member 'Target'", error.Message);
-        }
+        // What is left here is the set of shapes the file records no member name for at all. A framed
+        // custom payload is not one of them any more: it has a node kind (OldOpaqueNode) that holds the
+        // bytes as the file wrote them, and the two real opaque fixtures are in the sweep above.
 
         [Theory]
         [InlineData(WellKnownTypes.Nullable, new[] { WellKnownTypes.Int32 }, "Nullable<T>", false)]
@@ -446,18 +433,6 @@ namespace Ceras.Test
             Assert.Contains(name, error.Message);
             Assert.Contains(shape, error.Message);
             Assert.Contains("no node kind", error.Message);
-        }
-
-        [Fact]
-        public void A_Framed_Opaque_Payload_Written_Inline_Is_Refused_The_Same_Way()
-        {
-            // Whether a marker stands in front of the frame is the file's own recorded flag, so the
-            // refusal does not depend on it: an inline opaque value reaches the same door one branch
-            // earlier and is refused for the same reason.
-            var entry = Opaque(300, "V1.Inline", inline: true);
-            var error = Assert.Throws<CerasSchemaException>(() => Build(new[] { entry }, Leb(300)));
-            Assert.Contains("V1.Inline", error.Message);
-            Assert.Contains("V1.InlineFormatter", error.Message);
         }
 
         // ── 5. Malformed input ────────────────────────────────────────────────────────────────
@@ -754,11 +729,6 @@ namespace Ceras.Test
         static OldTypeSchema Generic(int typeId, string name, int definitionTypeId, int[] argTypeIds)
             => new(typeId, name, Array.Empty<string>(), SchemaTypeKind.GenericInstantiation,
                 Array.Empty<OldFieldSchema>(), 0, definitionTypeId, argTypeIds);
-
-        static OldTypeSchema Opaque(int typeId, string name, bool inline)
-            => new(typeId, name, Array.Empty<string>(), SchemaTypeKind.Opaque,
-                Array.Empty<OldFieldSchema>(), 0, 0, Array.Empty<int>(), Array.Empty<OldEnumValue>(),
-                name + "Formatter", inline);
 
         // The format's own byte builders, so a test never restates an encoding.
         static byte[] Bytes(params byte[][] parts)

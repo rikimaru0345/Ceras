@@ -84,6 +84,15 @@ namespace Ceras.Format
     /// interning does not touch.
     /// </para>
     /// <para>
+    /// <b>A framed custom payload is a value, not a refusal.</b> The file already says everything that can
+    /// be said about one: which formatter wrote it, whether a marker stands in front of the frame, and
+    /// how many bytes the frame declares. That is enough to place the value in the arena and to keep the
+    /// stream aligned, so it is recorded as an <see cref="OldOpaqueNode"/> carrying exactly those facts
+    /// and the bytes themselves — copied, read-only, and never interpreted. No formatter is resolved and
+    /// none is called: whether a build can read the block back is a question about the <em>current</em>
+    /// model, and this decoder holds none.
+    /// </para>
+    /// <para>
     /// <b>One string per member and per collection, not per value.</b> A refusal has to say where the
     /// value it refused sat, and a name is the only handle a caller has on a file that is otherwise
     /// perfectly valid, so the position description is built where the decode descends — once per member
@@ -188,9 +197,8 @@ namespace Ceras.Format
         /// this decoder can read.
         /// </exception>
         /// <exception cref="CerasSchemaException">
-        /// The file records a value this graph has no node kind for yet — a custom formatter's framed
-        /// payload, or one of the structural value types — naming the type, the formatter and the
-        /// position.
+        /// The file records a value this graph has no node kind for yet — one of the structural value types
+        /// — naming the type, its shape and the position.
         /// </exception>
         public OldDataGraph Build(ref SequenceReader<byte> reader, long declaredLength)
         {
@@ -422,7 +430,7 @@ namespace Ceras.Format
             switch (PayloadGrammar.ClassifyPayload(entry))
             {
                 case PayloadShape.Opaque:
-                    throw RefuseOpaque(entry, where);
+                    return ReadOpaqueNode(entry, where, ref reader);
 
                 case PayloadShape.Array:
                 case PayloadShape.Elements:
@@ -621,6 +629,71 @@ namespace Ceras.Format
 
             return new OldObjectNode(IdentityOf(entry.TypeId), members);
         }
+
+        /// <summary>
+        /// Reads one framed custom payload: the declared length, then exactly that many bytes, recorded as
+        /// they were written and not looked at.
+        /// <para>
+        /// The frame is read through <see cref="OpaquePayload"/>, the one place its grammar is stated, so
+        /// the bounds and truncation refusals are the format's own and not a second wording of them — and
+        /// the reader is left positioned at the first byte after the block whatever this method then does
+        /// with it, which is what keeps every value after a frame decodable. The block is a window onto
+        /// the caller's save buffer, which the graph outlives, so the node copies it rather than aliasing
+        /// it; this hands over the read-only slice and lets the node do the copying, which keeps that to
+        /// one copy instead of two.
+        /// </para>
+        /// <para>
+        /// <b>What is not asked here, deliberately.</b> No formatter is resolved and none is called, and no
+        /// name is matched against this build's: the file records which formatter wrote the block, and
+        /// whether this build could read it back is a question for a build that has a current model in
+        /// hand, asked there and refused there by name. This decoder holds the bytes as the file wrote
+        /// them, which is the whole of what the file can be asked.
+        /// </para>
+        /// <para>
+        /// Whether a marker stood in front of the frame is not decided here either. It was decided before
+        /// this call, from the entry's own recorded flag
+        /// (<see cref="PayloadGrammar.FileCarriesReferenceMarker"/>), so a value written inline arrives
+        /// with no marker in front of it and one written behind a reference marker has already had its
+        /// slot reserved — the node this returns fills that reserved arena slot exactly as any other
+        /// marked payload's does.
+        /// </para>
+        /// </summary>
+        OldValue ReadOpaqueNode(OldTypeSchema entry, string? where, ref SequenceReader<byte> reader)
+        {
+            string position = DescribeOpaquePosition(entry, where);
+
+            // The section's own defect, asked before a single payload byte is read. The node refuses a
+            // nameless formatter too, because a caller building a node by hand deserves to hear about it;
+            // here it is the file's own description that is damaged, so it is corruption here and not an
+            // argument error — one sentence, because the node's own wording is the long one and this door
+            // only has to say what is wrong with the file.
+            if (entry.OpaqueFormatterName.Length == 0)
+                throw new CerasDataCorruptionException(
+                    $"Corrupt save: the schema section records no formatter name for {position}, so the block belongs to no " +
+                    "formatter and cannot be recorded. Every writer interns the canonical CLR name of the formatter that wrote the value, " +
+                    "and no formatter has an empty name, so the section is damaged or was not assembled by a Ceras Save.");
+
+            // The block is handed over as the read-only slice it already is, and the node copies out of it:
+            // one copy rather than two, and nothing on the way hands out a writable view of the file's
+            // bytes. An editor that rewrites the file after the graph was built cannot reach the value.
+            var block = OpaquePayload.ReadBlock(ref reader, position, out int declaredLength);
+
+            return new OldOpaqueNode(
+                IdentityOf(entry.TypeId, where),
+                entry.OpaqueFormatterName,
+                entry.OpaqueValueWrittenInline,
+                declaredLength,
+                block.Sequence);
+        }
+
+        /// <summary>
+        /// How a refusal about one frame names it: where the value sits, and which formatter the file
+        /// recorded as having written it. The same two facts the interpreter names, so a reader of either
+        /// refusal is told the same things about the same value.
+        /// </summary>
+        static string DescribeOpaquePosition(OldTypeSchema entry, string? where)
+            => $"the value the save records as '{entry.StableName}' (a custom formatter's payload, written by '{entry.OpaqueFormatterName}')"
+             + (where == null ? ", which is the save's root" : $", at {where}");
 
         OldValue ReadEnumNode(OldTypeSchema entry, ref SequenceReader<byte> reader)
         {
@@ -859,18 +932,12 @@ namespace Ceras.Format
                 "name.");
 
 
-        // ── The two shapes this graph has no node kind for yet ───────────────────────────────
+        // ── The shapes this graph still has no node kind for ─────────────────────────────────
 
-        CerasSchemaException RefuseOpaque(OldTypeSchema entry, string? where)
-            => new CerasSchemaException(
-                $"Cannot build an old-data graph for the value the save records as '{entry.StableName}': the file records it as a custom " +
-                $"formatter's opaque block, written by '{entry.OpaqueFormatterName}', and the graph has no node kind for a framed custom " +
-                $"payload yet. {At(where)}. A custom formatter owns its own bytes, so the block cannot be recorded as a member list — that " +
-                "is exactly the lie the file's own " + nameof(SchemaTypeKind.Opaque) + " entry replaced, and with it recorded a reader " +
-                "walks fields the payload does not contain. The declared length in front of the block says how many bytes there are, " +
-                "never what they mean, so the value cannot be reconstructed from the file alone either: a custom payload is framed so that " +
-                "a later build can still step over it, not so that it can be read.");
-
+        // A framed custom payload is not among them any more: it has a node kind of its own
+        // (OldOpaqueNode) and is read above. The three shapes left are the ones the file records no name
+        // for at all, which is a different problem — there is nothing in the file to turn into a member
+        // list, and nothing in it to hold the bytes either.
         CerasSchemaException RefuseStructuralValueType(OldTypeSchema entry, string? where, string shape, string payload)
             => new CerasSchemaException(
                 $"Cannot build an old-data graph for the value the save records as '{entry.StableName}': the file describes it as " +
