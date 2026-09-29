@@ -602,6 +602,16 @@ namespace Ceras.Format
 		/// and refused once the manifest is baked, because a frozen schema section and a frozen
 		/// fingerprint cannot describe a value whose formatter changed under them.
 		/// </para>
+		/// <para>
+		/// The refusal is asked for wherever the answer is needed and no earlier, which for a formatter the
+		/// application installs late is the moment Ceras chooses it for the type
+		/// (<c>CerasSerializer.WrapOpaqueIfSelected</c>, through
+		/// <see cref="RobustCustomFormatterPolicy.ReconcileAtSelection"/>). That is the first point at which
+		/// a selection made after the bake exists at all, and it is before the value has a byte: a save
+		/// refused here returns nothing, and a load refused here has read none of that value. Waiting for the
+		/// next reconciliation instead would let the operation that made the selection write its payload
+		/// unframed, which is the whole state the opaque entry exists to make impossible.
+		/// </para>
 		/// </summary>
 		internal void ApplyOpaqueSelection(Type type, string formatterName, bool writtenInline)
 		{
@@ -617,12 +627,21 @@ namespace Ceras.Format
 
 				if (IsSealed)
 					throw new Ceras.Exceptions.CerasSchemaException(
-						$"Cannot change the custom formatter for '{TypeIdentity.GetCanonicalName(type)}' now: this context's manifest was already " +
-						"sealed and baked by an earlier Save/Load. The schema section a save carries and the layout fingerprint that chooses the " +
-						"reader are both computed once, from the manifest as it stood at that moment, so a formatter selected after it cannot be " +
-						"described by either. Configure the custom formatter before the first Save/Load - in the serializer's configure callback, or " +
-						"for a type Ceras only discovers at runtime from OnConfigNewType, which is the one door that still takes an assignment after the " +
-						"serializer was constructed - and rebuild.");
+						$"Cannot write '{TypeIdentity.GetCanonicalName(type)}' through the custom formatter '{formatterName}': this context's manifest was " +
+						"already sealed and baked by an earlier Save/Load, and the schema section a save carries and the layout fingerprint that chooses " +
+						"the reader are both computed once, from the manifest as it stood at that moment. A formatter selected after that is described by " +
+						"neither: the entry would still advertise the members the generated formatter writes, the payload would carry no declared length, " +
+						"and a later build would match the fingerprint and read those bytes as members.\n" +
+						"A formatter configured after the bake is, in practice, one configured for the type Ceras was still discovering: OnConfigNewType " +
+						"fires from inside the operation, so its assignment lands after the reconciliation at the top of it - and that reconciliation is " +
+						"the last chance to describe the payload, because the bytes do not exist yet.\n" +
+						"Install the formatter before the serializer exists: in its 'configure' callback, or - for a type Ceras meets at runtime - from " +
+						"OnConfigNewType, for a type the context's manifest holds an entry for up front. A type the generator writes no formatter for (an " +
+						"engine object, or one excluded with CerasGeneratorBlacklist) is exactly such a type: the manifest holds a member-less entry for " +
+						"it, nothing configures it before the first save, and its formatter is therefore always selected inside the operation. Give the " +
+						"value a [CerasSerializable] type of its own to carry it, or store it in a form the format describes (an id or a structural value " +
+						"your loading code resolves), and keep the custom encoding for a raw context (CerasFastSerializer), where a custom formatter's " +
+						"bytes are exactly what they always were. See RobustCustomFormatterPolicy.");
 
 				_opaqueSelections[type] = new OpaqueSelection(formatterName, writtenInline);
 				if (_byType.TryGetValue(type, out var entry))

@@ -758,13 +758,36 @@ namespace Ceras
 		/// The selection is recorded by <c>RobustCustomFormatterPolicy.Reconcile</c> and hashed into the
 		/// layout fingerprint, so a type's framed-ness is a fact about the file.
 		/// </para>
+		/// <para>
+		/// <b>And "the manifest has to hold" is asked, not assumed.</b> A type Ceras discovers while it is
+		/// already writing — one with no <c>TypeConfig</c> until this very moment — can be given a user
+		/// custom formatter from <c>OnConfigNewType</c>, which is the one door that still takes such an
+		/// assignment after the config was sealed, and which fires from inside the operation, after the
+		/// reconciliation at its top and after the manifest was sealed and baked. Nothing the manifest holds
+		/// has changed, so the answer to the first question ("no opaque selection") is not where to notice
+		/// that; the assignment is. <c>RobustCustomFormatterPolicy.ReconcileAtSelection</c> is therefore
+		/// asked here, and it is the same scan and the same identity check the reconciliation at the top of
+		/// an operation runs: a formatter that is the context's own is cleared and nothing is wrapped, a user
+		/// payload the manifest can still record is recorded and wrapped on this same pass, and one the
+		/// manifest can no longer record is refused — here, while the value is still only a decision, and
+		/// before a single byte of it is written. The answer is asked again after the call, because that is
+		/// what decides the wrap.
+		/// </para>
 		/// </summary>
 		[DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, typeof(OpaqueFramedFormatter<>))]
 		IFormatter WrapOpaqueIfSelected(IFormatter formatter, Type type)
 		{
 			if (formatter is OpaqueFramedFormatterBase) return formatter;   // already framed (a caller handed us one)
 			if (!(Config is CerasRobustConfig robust)) return formatter;
-			if (!robust.SchemaRegistry.IsOpaqueSelection(type)) return formatter;
+			if (!robust.SchemaRegistry.IsOpaqueSelection(type))
+			{
+				// Not recorded. Either this context's own formatter — which the manifest describes already
+				// and which must therefore not be framed — or an assignment the last reconciliation could
+				// not have seen. Only the policy decides which, and it refuses a selection the manifest can
+				// no longer record rather than letting that payload reach a file as unframed bytes.
+				RobustCustomFormatterPolicy.ReconcileAtSelection(robust);
+				if (!robust.SchemaRegistry.IsOpaqueSelection(type)) return formatter;   // the context's own
+			}
 
 			// Activator, not a static factory: the closed type is a MakeGenericType over a runtime Type, which
 			// is the same shape as the two reference formatters above and needs the same rooting, which is why
