@@ -112,12 +112,14 @@ namespace Ceras.Test
             // 1. Verify discovery worked
             Assert.NotNull(config.ConfigType<NoPartialNeeded>().CustomFormatter);
 
-            // 2. Round-trip test
+            // 2. Round-trip test. Save/Load, not the raw Serialize/Deserialize pair this used to use:
+            // a robust context installs the string/Type formatters its format declares, and those need
+            // the context a Save establishes, so a bare `Serialize` is now refused rather than writing
+            // a payload the format does not describe (see Tests/RobustInternalConstructorTests).
             var original = new NoPartialNeeded("OriginalName");
             original.Child.Name = "OriginalChild";
 
-            var data = ceras.Serialize(original);
-            var clone = ceras.Deserialize<NoPartialNeeded>(data);
+            var clone = ceras.Load<NoPartialNeeded>(ceras.Save(original, 1), 1);
 
             // 3. Assert values
             Assert.Equal("OriginalName", clone.Name);
@@ -142,12 +144,12 @@ namespace Ceras.Test
             original.ChildProp.Name = "ModifiedProp";
             original.ChildCtor.Name = "ModifiedCtor";
 
-            var data = ceras.Serialize(original);
-            
+            var data = ceras.Save(original, 1);
+
             // Create a fresh instance for deserialization to simulate a real scenario
             // where the ctor has already run and we want to populate the existing objects.
             var clone = new GetterOnlyRoot();
-            ceras.Deserialize(ref clone, data);
+            ceras.Load(ref clone, data, 1);
 
             // 3. Assert population worked
             Assert.Equal("ModifiedField", clone.ChildField.Name);
@@ -185,8 +187,8 @@ namespace Ceras.Test
                 Record = new DiscoveryRecord(123, "RecordItem")
             };
 
-            var data = ceras.Serialize(original);
-            var clone = ceras.Deserialize<DiscoveryRoot>(data);
+            var data = ceras.Save(original, 1);
+            var clone = ceras.Load<DiscoveryRoot>(data, 1);
 
             // 3. Assert equality
             Assert.NotNull(clone.Child);
@@ -217,11 +219,12 @@ namespace Ceras.Test
             var bannedMember = tc.Members.First(m => m.Member.Name == "Banned");
             Assert.False(bannedMember.ComputeFinalInclusionFast());
 
-            // Round-trip check
+            // Round-trip check. Save/Load rather than the raw pair: the excluded member means the
+            // payload holds no value of that type at all, which is exactly what a file's schema has
+            // to agree with, and only Save writes one.
             var ceras = new CerasRobustSerializer(config);
             var original = new DiscoveryRoot { Banned = new BannedType { Secret = 999 } };
-            var data = ceras.Serialize(original);
-            var clone = ceras.Deserialize<DiscoveryRoot>(data);
+            var clone = ceras.Load<DiscoveryRoot>(ceras.Save(original, 1), 1);
 
             Assert.Null(clone.Banned);
         }
