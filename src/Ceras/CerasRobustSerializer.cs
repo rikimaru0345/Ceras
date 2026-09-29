@@ -600,14 +600,16 @@ namespace Ceras
             // RobustCustomFormatterPolicy).
             RobustCustomFormatterPolicy.Reconcile(_config);
 
-            // Validate magic/version and the full section-offset envelope before any offset is used to
-            // index or allocate (see ProtocolValidationTests).
+            // The envelope, asked first: the magic and the format version say how the rest of the header
+            // is to be read at all, and the section offsets are bounded before any of them is used to
+            // index or allocate (see ProtocolValidationTests). "First" is the order these checks run in,
+            // not the reach of the checksum - all of their bytes are covered by the CRC below like every
+            // other byte's, and a block that clears them and then fails that CRC is still refused as
+            // corrupted. Validating them here is what keeps the refusal actionable: a version this build
+            // does not read is refused as such, because a reader that cannot read the format has no
+            // standing to go on and interpret the rest of the block.
             RobustHeader.ValidateMagicAndVersion(data, FormatVersion);
             RobustHeader.Validate(data);
-
-            uint robustVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(RobustHeader.GameVersionOffset));
-            if (robustVersion > currentRobustVersion)
-                throw new Ceras.Exceptions.CerasRobustVersionException($"Attempted to load data from a newer application version ({robustVersion}) than the current version ({currentRobustVersion}).", robustVersion, currentRobustVersion);
 
             // Integrity first. The CRC covers the whole block, so it has to be verified before any field it
             // protects is interpreted: a corrupted build-timestamp byte must be reported as corruption
@@ -620,6 +622,16 @@ namespace Ceras
                 throw new Ceras.Exceptions.CerasDataCorruptionException(
                     $"CRC mismatch: the saved data is corrupted or truncated (stored 0x{storedCrc:X8}, computed 0x{computedCrc:X8}). " +
                     "The header fields cannot be trusted until the checksum matches.");
+
+            // The app version is one of those protected fields, and its verdict is a comparison against
+            // this build, so it belongs here rather than above the checksum: read before the CRC, a single
+            // corrupted byte at this offset produced "load data from a newer application version" and sent
+            // the caller to update an application for a file no newer application ever wrote. Same rule,
+            // same reason and same order as the build timestamp below (Format/LAYOUT.md, "Load order and
+            // what is rejected"), and the file-only reader has always had it.
+            uint robustVersion = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(RobustHeader.GameVersionOffset));
+            if (robustVersion > currentRobustVersion)
+                throw new Ceras.Exceptions.CerasRobustVersionException($"Attempted to load data from a newer application version ({robustVersion}) than the current version ({currentRobustVersion}).", robustVersion, currentRobustVersion);
 
             RobustHeader.Read(data, out long buildTimestamp, out byte compressionByte,
                 out long schemaStringOffsetL, out long dataSectionOffset, out long stringTableOffset, out ulong schemaFingerprint);
