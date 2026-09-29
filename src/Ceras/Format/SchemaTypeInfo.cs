@@ -8,6 +8,26 @@ namespace Ceras.Format
         Struct               = 1,
         Class                = 2,
         GenericInstantiation = 3,
+
+        /// <summary>
+        /// A value whose bytes a <b>user custom formatter</b> owns: an opaque block, declared as a
+        /// 4-byte length followed by exactly that many bytes.
+        /// <para>
+        /// An entry of this kind describes <b>no member list</b> — that is the whole point of it. The
+        /// generated schema of a type the custom formatter overrides is not what the payload holds, so
+        /// recording those members is exactly the lie this kind replaces: with them recorded, a
+        /// migration reader would walk fields the bytes do not contain. The formatter's identity is
+        /// recorded instead (<see cref="SchemaTypeInfo.OpaqueFormatterName"/>), because which formatter
+        /// produced the bytes is part of the layout and belongs in the fingerprint.
+        /// </para>
+        /// <para>
+        /// Written by <c>SchemaSection.Write</c>, read by <c>SchemaSection.Read</c>, skipped and read by
+        /// the migration interpreter through <c>OpaquePayload</c> (the length) and the current build's
+        /// formatter for the type (the bytes). See <c>Format/LAYOUT.md</c>, "A user custom formatter's
+        /// payload is an opaque block".
+        /// </para>
+        /// </summary>
+        Opaque               = 4,
     }
 
     /// <summary>
@@ -49,6 +69,39 @@ namespace Ceras.Format
         /// </summary>
         public int FixedByteSize { get; }
 
+        /// <summary>
+        /// For <see cref="SchemaTypeKind.Opaque"/>: the stable name of the user custom formatter that
+        /// wrote this type's values — the canonical name of the formatter's CLR type
+        /// (<c>OpaquePayload.FormatterToken</c>). Empty for every other kind.
+        /// <para>
+        /// This is the one field of a manifest entry that describes <b>which formatter</b> produced the
+        /// bytes rather than what they contain, and it exists because formatter selection is part of the
+        /// layout: it is written into the file's schema section, and
+        /// <see cref="SchemaRegistry.ComputeFingerprint"/> hashes it, so a build that swaps a type's
+        /// custom formatter sees a different fingerprint and takes the migration path instead of the
+        /// generated one. Two builds using the <em>same</em> formatter class with different behaviour
+        /// are indistinguishable here — see <c>Format/LAYOUT.md</c>, "What the formatter name does not
+        /// distinguish".
+        /// </para>
+        /// </summary>
+        public string OpaqueFormatterName { get; }
+
+        /// <summary>
+        /// For <see cref="SchemaTypeKind.Opaque"/>: whether the value is written <b>inline</b> (a value
+        /// type: no reference marker in front of the frame) rather than behind a reference marker (a
+        /// reference type). False for every other kind.
+        /// <para>
+        /// Recorded rather than re-derived from the current CLR type, because the skip path has to be
+        /// able to account for a value whose type this build no longer has: whether a marker stands in
+        /// front of the frame is a fact about the writer, and the file is the only place that fact
+        /// survives. It is a property of the <em>type</em> and not of the position, because every
+        /// writer that emits a value of a reference type emits a marker for it — the collection and
+        /// array formatters inject <c>GetReferenceFormatterRequired(TItem)</c>, so a class element is
+        /// marked and registered like any other class value.
+        /// </para>
+        /// </summary>
+        public bool OpaqueValueWrittenInline { get; }
+
         public SchemaTypeInfo(
             string                stableName,
             string[]              previousTypeNames,
@@ -57,7 +110,9 @@ namespace Ceras.Format
             int                   fixedByteSize,
             SchemaEnumValueInfo[] enumValues         = null!,
             string                underlyingTypeName = null!,
-            string[]              argTypeNames       = null!)
+            string[]              argTypeNames       = null!,
+            string                opaqueFormatterName = null!,
+            bool                  opaqueValueWrittenInline = false)
         {
             StableName         = stableName         ?? throw new ArgumentNullException(nameof(stableName));
             PreviousTypeNames  = previousTypeNames   ?? Array.Empty<string>();
@@ -67,6 +122,8 @@ namespace Ceras.Format
             UnderlyingTypeName = underlyingTypeName  ?? string.Empty;
             ArgTypeNames       = argTypeNames        ?? Array.Empty<string>();
             FixedByteSize      = fixedByteSize;
+            OpaqueFormatterName = opaqueFormatterName ?? string.Empty;
+            OpaqueValueWrittenInline = opaqueValueWrittenInline;
         }
     }
 

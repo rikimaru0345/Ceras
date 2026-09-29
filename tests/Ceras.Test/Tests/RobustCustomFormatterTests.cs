@@ -1,52 +1,63 @@
+// A user custom formatter on both paths, for a type the context's manifest describes.
+//
+// The raw half is unchanged from the beginning. The robust half used to be a refusal: a custom formatter
+// writes opaque bytes, and neither the file's schema section nor the layout fingerprint said so. It is
+// now accepted, because the format says it: the manifest entry for a custom-formatted type is
+// <c>Opaque</c> — no member list, the formatter's identity — and the payload is a declared length in front
+// of the formatter's own bytes. The behaviour in detail is in Tests/OpaqueCustomPayloadTests.cs (the
+// format's own contract) and Tests/OpaqueCustomPayloadFixtureTests.cs (a real old file read by this
+// build); this file keeps the original, smallest shape of the case on both paths.
 using System;
 using System.Buffers;
-using System.Reflection;
 using Ceras;
-using Ceras.Exceptions;
 using Ceras.Formatters;
 using Ceras.Generated;
 using Xunit;
 
 namespace Ceras.Test.Tests {
-	// A user custom formatter is no longer honoured in a robust context: its bytes are opaque to the
-	// file's schema section and invisible to the layout fingerprint, so a later build cannot skip them
-	// and silently returns wrong data (see RobustCustomFormatterPolicy). The model and the formatter
-	// below are the shape that used to reproduce it, kept so the rejection is pinned against the exact
-	// case — and so the raw path keeps the coverage that the custom formatter is still honoured where
-	// it is supported.
 	public partial class RobustCustomFormatterTests {
 		[Fact]
-		public void Robust_Rejects_CustomFormatter_And_Raw_Still_Honors_It() {
-			// Robust: refused, naming the type, the formatter and the way out.
-			var rejection = Assert.Throws<CerasSchemaException>(() => new CerasRobustSerializer(config =>
-			{
-				config.ConfigType<MyCustomStruct>().CustomFormatter = new MyCustomStructFormatter();
-				config.UseGeneratedFormatters("Tests");
-			}));
-
-			Assert.Contains("MyCustomStruct", rejection.Message, StringComparison.Ordinal);
-			Assert.Contains(nameof(MyCustomStructFormatter), rejection.Message, StringComparison.Ordinal);
-			Assert.Contains("temporary", rejection.Message, StringComparison.OrdinalIgnoreCase);
-
-			// Raw/transient: unchanged, the custom formatter is installed and used.
+		public void Robust_Frames_A_CustomFormatter_And_Raw_Still_Honors_It() {
+			// Robust: the formatter's own encoding survives the round trip. The generated formatter would
+			// write the one field as a string table index and come back with exactly the same text, so the
+			// encoding is deliberately *not* the field's — a value that comes back with the prefix is proof
+			// that the custom formatter ran, and that its bytes were framed rather than merely tolerated.
 			MyCustomStructFormatter.WasSerializedCalled = false;
 			MyCustomStructFormatter.WasDeserializedCalled = false;
 
-			var original = new ClassWithCustomStruct {
+			var model = new ClassWithCustomStruct {
 				Id = 42,
 				MyStruct = new MyCustomStruct { MagicValue = "CustomSerialized" }
 			};
 
-			var raw = new CerasFastSerializer(config =>
-			{
+			var robust = new CerasRobustSerializer(config => {
+				config.UseGeneratedFormatters("Tests");
+				config.ConfigType<MyCustomStruct>().CustomFormatter = new MyCustomStructFormatter();
+			});
+
+			var bytes = robust.Save(model, 1);
+			var robustClone = robust.Load<ClassWithCustomStruct>(bytes, 1);
+
+			Assert.Equal(42, robustClone.Id);
+			Assert.Equal("custom:CustomSerialized", robustClone.MyStruct.MagicValue);
+			Assert.True(MyCustomStructFormatter.WasSerializedCalled, "Custom Serialize was not called");
+			Assert.True(MyCustomStructFormatter.WasDeserializedCalled, "Custom Deserialize was not called");
+
+			// Raw/transient: unchanged, the custom formatter is installed and used, and its bytes are
+			// exactly what it wrote — no frame, because a raw context describes nothing and so has nothing
+			// to account for.
+			MyCustomStructFormatter.WasSerializedCalled = false;
+			MyCustomStructFormatter.WasDeserializedCalled = false;
+
+			var raw = new CerasFastSerializer(config => {
 				config.ConfigType<MyCustomStruct>().CustomFormatter = new MyCustomStructFormatter();
 				config.UseGeneratedFormatters("Tests");
 			});
 
-			var loaded = raw.Deserialize<ClassWithCustomStruct>(raw.Serialize(original));
+			var rawClone = raw.Deserialize<ClassWithCustomStruct>(raw.Serialize(model));
 
-			Assert.Equal(42, loaded.Id);
-			Assert.Equal("CustomSerialized", loaded.MyStruct.MagicValue);
+			Assert.Equal(42, rawClone.Id);
+			Assert.Equal("custom:CustomSerialized", rawClone.MyStruct.MagicValue);
 			Assert.True(MyCustomStructFormatter.WasSerializedCalled, "Custom Serialize was not called");
 			Assert.True(MyCustomStructFormatter.WasDeserializedCalled, "Custom Deserialize was not called");
 		}
@@ -68,7 +79,7 @@ namespace Ceras.Test.Tests {
 
 			public override void Serialize(IBufferWriter<byte> writer, MyCustomStruct value) {
 				WasSerializedCalled = true;
-				SerializerBinary.WriteString(writer, value.MagicValue);
+				SerializerBinary.WriteString(writer, "custom:" + (value.MagicValue ?? ""));
 			}
 
 			public override void Deserialize(ref SequenceReader<byte> reader, ref MyCustomStruct value) {

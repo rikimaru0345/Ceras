@@ -21,9 +21,26 @@ namespace Ceras.Format
         public int DefinitionTypeId { get; }
         public int[] ArgTypeIds { get; }
 
+        /// <summary>
+        /// For <see cref="SchemaTypeKind.Opaque"/>: the name the file recorded for the custom formatter
+        /// that wrote this type's values, which is the canonical name of that formatter's CLR type. The
+        /// migration reader compares it with the formatter this build would use, because a different
+        /// formatter's bytes are a different payload (see <c>Format/LAYOUT.md</c>).
+        /// </summary>
+        public string OpaqueFormatterName { get; }
+
+        /// <summary>
+        /// For <see cref="SchemaTypeKind.Opaque"/>: the file's own record of whether a reference marker
+        /// stands in front of the frame. Read from the file, never re-derived from the current CLR
+        /// type, for the same reason the rest of the payload grammar is: only the file knows how it was
+        /// written.
+        /// </summary>
+        public bool OpaqueValueWrittenInline { get; }
+
         internal OldTypeSchema(int typeId, string stableName, string[] previousNames,
             SchemaTypeKind kind, OldFieldSchema[] fields, int fixedByteSize,
-            int definitionTypeId = 0, int[] argTypeIds = null!, OldEnumValue[] enumValues = null!)
+            int definitionTypeId = 0, int[] argTypeIds = null!, OldEnumValue[] enumValues = null!,
+            string opaqueFormatterName = "", bool opaqueValueWrittenInline = false)
         {
             TypeId        = typeId;
             StableName    = stableName ?? "";
@@ -34,6 +51,8 @@ namespace Ceras.Format
             DefinitionTypeId = definitionTypeId;
             ArgTypeIds    = argTypeIds ?? Array.Empty<int>();
             EnumValues    = enumValues ?? Array.Empty<OldEnumValue>();
+            OpaqueFormatterName = opaqueFormatterName ?? "";
+            OpaqueValueWrittenInline = opaqueValueWrittenInline;
         }
     }
 
@@ -92,6 +111,12 @@ namespace Ceras.Format
                     ResolveIdForDiscovery(info.UnderlyingTypeName, typeToId, discoveryQueue, registry, info.StableName, "enum underlying type");
                     if (info.EnumValues != null)
                         foreach (var ev in info.EnumValues) internTable.GetIndex(ev.Name);
+                }
+                else if (info.Kind == SchemaTypeKind.Opaque)
+                {
+                    // The formatter's identity is a schema name like any other: it has to be in the
+                    // table before the entry that indexes it is written.
+                    internTable.GetIndex(info.OpaqueFormatterName);
                 }
                 else if (info.Kind == SchemaTypeKind.GenericInstantiation)
                 {
@@ -179,6 +204,17 @@ namespace Ceras.Format
                                 WriteLeb128(entryWriter, (uint)ResolveId(info.ArgTypeNames[i], typeToId, queue, registry, info.StableName, $"generic argument {i}"));
                         
                         goto case SchemaTypeKind.Class;
+
+                    case SchemaTypeKind.Opaque:
+                        // The whole entry, and it is deliberately that small: a formatter name (so a
+                        // reader can tell whose bytes these are) and one flag (so a skipper can tell
+                        // whether a reference marker stands in front of the frame). There is no member
+                        // list and no fixed size — the payload is a length-prefixed block, so its width
+                        // is declared per value, in the payload, by the writer.
+                        WriteInternedString(entryWriter, info.OpaqueFormatterName, internTable);
+                        entryWriter.GetSpan(1)[0] = (byte)(info.OpaqueValueWrittenInline ? 1 : 0);
+                        entryWriter.Advance(1);
+                        break;
 
                     case SchemaTypeKind.Struct:
                     case SchemaTypeKind.Class:
@@ -472,6 +508,26 @@ namespace Ceras.Format
                         }
                         schema = new OldTypeSchema(typeId, stableName, prevNames, kind, null!, 0, underlyingId, null!, vals);
                         break;
+
+                    case SchemaTypeKind.Opaque:
+                    {
+                        // The mirror of the encoder's Opaque case, and the only two facts the entry
+                        // carries. A truncated or unrecognised flag byte is corruption here for the
+                        // same reason the field flags are: the section is the file's own description, and
+                        // a reader that guessed which of the two it was looking at would account for the
+                        // wrong number of bytes.
+                        string formatterName = ReadInternedString(ref reader, stringTable);
+                        if (!reader.TryRead(out byte opaqueFlags))
+                            throw new Ceras.Exceptions.CerasDataCorruptionException(
+                                "Corrupt schema section: unexpected end while reading an opaque payload's flags.");
+                        if ((opaqueFlags & ~1) != 0)
+                            throw new Ceras.Exceptions.CerasDataCorruptionException(
+                                $"Corrupt schema section: entry {i}, the opaque payload entry '{stableName}' has unknown flag bits 0x{opaqueFlags:X2}. " +
+                                "Only bit 0 (the value is written inline, with no reference marker in front of it) is defined.");
+                        schema = new OldTypeSchema(typeId, stableName, prevNames, kind, null!, 0, 0, null!, null!,
+                            formatterName, (opaqueFlags & 1) != 0);
+                        break;
+                    }
 
                     case SchemaTypeKind.Struct:
                     case SchemaTypeKind.Class:

@@ -3,7 +3,7 @@
 This documents the layout contract that generated writers/readers, the schema encoder, and the
 migration interpreter must share. It is little-endian only; fixed-width primitives are the default.
 
-## Envelope (two-region format, version 4)
+## Envelope (two-region format, version 5)
 
 ```
 header | schema bytes | schema string table | data section | payload string table
@@ -15,7 +15,7 @@ The header is a fixed 56-byte little-endian record written by one explicit codec
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 4 | magic `CERA` |
-| 4 | 1 | format version (currently 4) |
+| 4 | 1 | format version (currently 5) |
 | 5 | 1 | payload string-table compression flags |
 | 6 | 2 | reserved |
 | 8 | 4 | game/app version (`robustVersion`) |
@@ -59,24 +59,19 @@ The header is a fixed 56-byte little-endian record written by one explicit codec
   build (when the current build timestamp is known) before decoding the payload.
 - The fingerprint also covers the **format version**, so identical declared layouts under two
   incompatible format versions cannot match each other's fast path.
-- **A user custom formatter is not part of this contract and is refused in a robust context**
-  (`Ceras.Format.RobustCustomFormatterPolicy`). The schema section describes *values*, and the
-  fingerprint is derived from it; neither records which formatter produced the bytes, so a custom
-  formatter's opaque payload is invisible to both. A later build that removes, reorders or retypes a
-  member of the overridden type then cannot skip the value, and a build that kept the member still sees
-  a *matching* fingerprint and takes the generated reader — silently wrong data, not an error. The
-  check runs at context setup and again before every `Save`/`Load` (a type config seals lazily, so a
-  formatter can be installed after the serializer was constructed). Only formatters that write
-  describable bytes pass: the internal `RobustStringFormatter`/`RobustTypeFormatter`, and the ones the
-  source generator installed for the context's manifest — identified by the provenance of that
-  installation, not by their namespace or type name. Raw/transient contexts are unaffected.
-  This is temporary and is lifted when the format carries explicit opaque-schema and
-  formatter-selection metadata; until then a robust save contains no opaque custom payload.
-- **Version 4 rejects every version 3 file**, including well-formed ones. A v3 file could hold a custom
-  formatter's opaque bytes under a schema that described generated fields, and it can be
-  indistinguishable from a good file by fingerprint — so the experimental format advances rather than
-  keeping a promise it cannot keep. The two-region envelope itself is unchanged by the bump; the
-  checked-in historical fixtures were regenerated for it.
+- The fingerprint also covers **formatter selection** for every value a user custom formatter wrote:
+  the entry's kind, the formatter's name and whether a reference marker stands in front of the frame.
+  See [A user custom formatter's payload is an opaque block](#a-user-custom-formatters-payload-is-an-opaque-block).
+  That section states what the fingerprint does and does not buy.
+- **Version 5 rejects every version 3 and version 4 file**, including well-formed ones. Either could
+  hold a custom formatter's opaque bytes under a schema that described generated fields, and such a file
+  can be indistinguishable from a good one by fingerprint — so the experimental format advances rather
+  than keeping a promise it cannot keep. The two-region envelope itself is unchanged by the bump, and so is
+  the encoding of every existing schema kind: a v4 file has no `Opaque` entry, no frame and no formatter
+  name in its section, so nothing it contains is described differently. The checked-in historical fixtures
+  were regenerated for it, and every one of their diffs is exactly the nine bytes this paragraph predicts:
+  offset 4 (the version), 48..55 (the layout fingerprint, which hashes the version, and the CRC32 over the
+  block). No schema byte and no payload byte moved.
 
 ## Serialization contexts
 
@@ -141,6 +136,22 @@ on cold paths, and memoized per name.
   are aliases used only by migration). An enum member is identified the same way: its entry is recorded
   under its wire name, so the same attribute renames a member without a rename alias.
 - Members are written in the deterministic order; the schema records the order explicitly.
+- **Which formatter writes a member is resolved at runtime, never baked in at compile time.** A reference
+  member's field is a `ReferenceFormatter<T>`, which resolves its inner formatter when it is injected; a
+  value-type member's field is an `IFormatter<T>`. A *primitive* member is the one exception and is bound to
+  its concrete built-in formatter (`Int32Formatter` and friends), which is sound because
+  `TypeConfig.ThrowIfTypeIsNotConfigurable` refuses a custom formatter for a primitive outright — the
+  built-in encoding is chosen before any user configuration is consulted, so nothing can displace it.
+  The value-type case used to name the *generated* formatter class, which decided at compile time which
+  formatter wrote the member: a formatter the application installed afterwards could not be used at all
+  (injection cannot put a different formatter into a field typed as the generated class, and it refuses
+  rather than silently keeping the generated one). That is the same class of defect as the raw path's
+  reinterpret selection below — a payload that depends on something the schema does not record — and
+  fixing it is what makes [a user custom formatter's
+  payload](#a-user-custom-formatters-payload-is-an-opaque-block) possible for a value type, which is the
+  shape a `struct` value (a time, a coordinate, a duration) always takes. Measured cost: none that this
+  tree's benchmark can see (a 10-member `struct` graph saves and loads within run-to-run noise of the
+  concrete binding), and no byte of any existing save changed.
 
 ### The order a closed generic's schema records
 
@@ -672,14 +683,16 @@ consulted.
 
 ## Schema types
 
-`SchemaTypeInfo` kinds: `Enum`, `Struct`, `Class`, `GenericInstantiation`. `GenericInstantiation`
-records the definition type (`UnderlyingTypeName`) and ordered argument types (`ArgTypeNames`), which
-lets the interpreter describe value/reference representation without requiring the old CLR type to
-exist. A descriptor whose definition is one the format lays out has to record **exactly** that
-definition's argument count — a `GenericInstantiation` of `List` with no arguments describes no payload
-at all, and is refused at the registration; see
+`SchemaTypeInfo` kinds: `Enum`, `Struct`, `Class`, `GenericInstantiation`, `Opaque`.
+`GenericInstantiation` records the definition type (`UnderlyingTypeName`) and ordered argument types
+(`ArgTypeNames`), which lets the interpreter describe value/reference representation without requiring
+the old CLR type to exist. A descriptor whose definition is one the format lays out has to record
+**exactly** that definition's argument count — a `GenericInstantiation` of `List` with no arguments
+describes no payload at all, and is refused at the registration; see
 [the structural invariant](#the-structural-invariant-a-collection-description-has-to-carry-its-arguments).
-Custom formatters own their bytes and are never described as an ordinary generated member schema.
+
+An `Opaque` entry is [a user custom formatter's payload](#a-user-custom-formatters-payload-is-an-opaque-block):
+it records the formatter's name and whether the value is written inline, and **no member list**.
 
 An `Enum` entry records its underlying type id and one name→value entry per declared member. The name
 is the member's stable wire name — `[CerasStableName]`, or the C# member name when the attribute is
@@ -693,6 +706,202 @@ member above `long.MaxValue` is representable; the recorded underlying type id s
 read back, which is why the entry needs no separate signedness flag. The raw bits are also what the
 migration map is keyed by, so a renamed member keeps its value across an unsigned range. A dump shows
 the magnitude for an unsigned underlying type and a two's-complement negative value for a signed one.
+
+## A user custom formatter's payload is an opaque block
+
+A type the application writes through a **user custom formatter** is described by a manifest entry of
+kind `Opaque` and a payload that is a **declared length followed by that many bytes**:
+
+```
+OpaqueBlock := int32 length (little-endian, fixed 4 bytes) | length bytes of the formatter's own output
+```
+
+and the schema section's entry for that type carries exactly two things:
+
+```
+Opaque entry := kind=4 | internedFormatterName (4-byte schema-string-table index) | flags (1 byte)
+                flags bit 0: 1 = the value is written inline (no reference marker in front of the block)
+```
+
+Everything the entry could otherwise say, it deliberately does not: **no member list, no enum values, no
+arguments, no fixed byte size.** That is the whole point. A custom formatter owns its bytes, so the
+generated members of the type it overrides are not what the payload holds, and recording them is the lie
+this entry replaces — with them recorded, a migration reader walks fields that are not there and
+desynchronises every value after it.
+
+**A reference-typed value keeps its reference marker.** The bytes of a class value with a custom
+formatter are `marker, length, payload`, exactly as a generated class value is `marker, members`, and
+the object-cache slot is reserved in the same place: the marker is the writer's own reference wrapper's
+doing, not part of the frame. A value type's bytes are `length, payload` with no marker. That decision
+is a property of the **type**, not of the position, and it is recorded in the entry because a reader
+that no longer has the type has nothing else to go on: the collection and array formatters inject
+`GetReferenceFormatterRequired(TItem)`, so a class *element* is marked and registered like any other
+class value, and a `Nullable`/tuple item or a struct is inline wherever it appears.
+
+The frame is what makes a custom payload **version-tolerant at all**. A later build that removed the
+member, or the type, can still advance by the declared length and leave the stream exactly where the
+next value begins — which is the thing the previous format could not do, and the reason a user custom
+formatter was refused in a robust context at all.
+
+### Which formatter, and what the name does not distinguish
+
+The name is the canonical name of the formatter's **CLR type** (`TypeIdentity.GetCanonicalName`), the
+same identity rule every manifest name follows: no assembly version, no culture, no public key token, so
+two builds of one application agree on it. It is in the schema section and in the layout fingerprint, so
+all four of these are different layouts and all four take the migration path rather than the generated
+one:
+
+| build | what changed | fingerprint |
+|---|---|---|
+| A → B | the type gained a custom formatter | the entry's kind changed (`Class` → `Opaque`) and its content with it |
+| A → B | the type lost it | the reverse |
+| A → B | one custom formatter was replaced by another | the name changed; the kind did not |
+| A → B | the type became a value type, or the reverse | the inline flag changed |
+
+**What the name does not distinguish** is two builds using the *same* formatter class with different
+behaviour — a formatter that reads a configuration flag, or one whose encoding depends on state the
+application controls. Nothing in the schema section or the fingerprint can see that, and the frame's
+declared length catches only the *size* half of it (a formatter that reads a different number of bytes
+than the block declares is refused as corruption). This is the same class of limit as the
+`SchemaRegistry.Register` forge below: the manifest is trustworthy to the extent its author is. A caller
+who needs the fingerprint to distinguish two configurations of one formatter class has to make them two
+classes.
+
+### Recognising a formatter, and the forge that remains
+
+Ceras recognises the context's **own** generated formatters by **identity**, not by name, by namespace,
+or by any flag a caller can set: the generator emits a static `Schema` field on every formatter class and
+registers that very instance for the type, so the manifest entry and the installed formatter's own
+declaration are the same object. A formatter that declares that field is *held to it* — a declaration
+that is not the instance the manifest holds is refused, because a schema that contradicts the bytes
+cannot be made truthful by any framing. Only a formatter that declares no such field is a user custom
+formatter, and only those are recorded as `Opaque`. A user class declared in `Ceras.Generated` with a
+generated-looking name is therefore simply a user custom formatter, and is framed like one.
+
+`SchemaRegistry.Register` is public, so a caller can register a schema of its own and thereby satisfy
+the identity check with a hand-written formatter and a hand-written (possibly untrue) schema. That forge
+is pre-existing, is **not** widened by this mechanism (a forged registration is not an opaque selection,
+so it neither gains the frame nor loses anything), and is documented rather than closed. Closing it
+means verifying a schema against the type's real members.
+
+### Where a custom payload is written, and read
+
+The wrap is installed as the **specific formatter** for the type (`CerasSerializer.WrapOpaqueIfSelected`),
+which is what every writer and reader of a type resolves. A custom payload is therefore framed on every
+path that writes the type — a root, a member, a collection element, a dictionary key or value, a tuple
+item, a polymorphic slot — and read back through the same frame, with no generated code and no
+collection/array special case. Two conditions, both required: the config is a robust one, and the
+manifest holds an opaque selection for the type (recorded by `RobustCustomFormatterPolicy.Reconcile` at
+context setup and again before every `Save`/`Load`, because a type config seals lazily).
+
+A **raw/transient** context is unaffected: nothing is described there and nothing has to be accounted
+for, so its custom formatter's bytes are exactly what they always were.
+
+### What is still refused
+
+Three shapes, all of them places where the format has nowhere to record the selection:
+
+| refused | why | where |
+|---|---|---|
+| a custom formatter for a type the **reserved table** answers by name — a scalar, `string`, `Type`, `System.Array`, `System.Object` | a reserved name is a fixed one-byte id with no room for formatter-selection metadata, and `SchemaSection.ResolveId` consults that table before the manifest. A *closed* built-in collection is **not** one of these: the reserved table deliberately does not answer a closed canonical name, because such a type is a manifest entry of its own, so an opaque entry carries the selection and the formatter is honoured | `SchemaRegistry.RequireOpaqueSelectionsHaveARecordableIdentity`, at setup and before every `Save`/`Load` |
+| a custom formatter for a type **outside the context's manifest** after the bake | there is no entry to record the selection in, and a value of it cannot be described in a save at all. Asked *after* the bake rather than before it, because a bake is what registers a shape nothing declared (a closed collection reached as a member) — a selection that looks undescribable before the bake can be perfectly describable after it | `SchemaRegistry.RequireOpaqueSelectionsAreDescribable`, inside the bake and before any of the frozen region is published |
+| a formatter that declares the generator's static `Schema` field but **is not** the instance the manifest holds for the type | it is a generated formatter whose declared schema contradicts the entry; a schema that does not describe the bytes is the defect itself | `RobustCustomFormatterPolicy.Classify`, at setup and before every `Save`/`Load` |
+
+A *primitive*'s formatter is refused earlier and by a different rule:
+`TypeConfig.ThrowIfTypeIsNotConfigurable` refuses it at assignment, because the built-in encoding is chosen
+before any user configuration is consulted, so such a formatter would be silently ignored. `string` and
+`Type` are the two exceptions there, and a robust context owns both of them itself
+(`RobustStringFormatter` / `RobustTypeFormatter`).
+
+A formatter selection may also not be changed after the seal: the schema section and the fingerprint are
+both computed once, from the manifest as it stood at that moment, so a formatter selected afterwards
+cannot be described by either. In an ordinary graph the type config's own seal gets there first, with
+`ConfigurationSealedException`; the registry's refusal is the layer that owns the frozen region.
+
+### **Not expressible: rebasing a value against load time.**
+
+A custom formatter sees the value and the buffer, and nothing else — in particular it is not told when
+the load happens, and the loader does not hand a "now" to anyone. So a value that must be stored
+*relative to the moment of the save and come back relative to the moment of the load* — "expires in 5 s",
+a cooldown, a deadline — is **not** expressible as an `IFormatter<T>`, and never was, in a raw context or
+a robust one. A formatter can only read the clock itself, which makes the stored number a function of
+when the file happened to be written rather than of what the value means. That is a **post-load pass**
+over the loaded graph, or a value that is stored as a duration and re-anchored by application code, and
+nothing in this format can decide for you: the frame says how many bytes a value occupies, never what
+they mean.
+
+### Migration: consume, or authorize losing it
+
+One question decides every case, and it is asked from both directions so that read and skip cannot
+disagree about a value (`SchemaTraversalEngine.CustomPayloadVerdict`): on the **read** direction, is this
+build's formatter for the current type the **same formatter the file recorded**? Compared by name, because
+a file and a build are two processes. That is what makes a formatter's identity part of the format: a
+payload written by one formatter and read by another is a different payload, and no framing can say
+whether the two agree.
+
+| the verdict | read direction | skip direction |
+|---|---|---|
+| the same formatter | read through the frame, exactly as the generated reader would | nothing is *delivered* here, so the match does not help: the value is lost, and is dropped only when `CerasRobustConfig.AllowDroppingCustomPayloads` says so |
+| not readable, and `CerasRobustConfig.AllowDroppingCustomPayloads` is set | the frame is skipped, the load continues, and the slot keeps its declared default | the frame is skipped, the load continues, and the member is reported through `MigrationContext.SkippedFields` like any other skipped one |
+| not readable, and it is not set | **refused** with a `CerasSchemaException` naming the type, the position, the formatter the file recorded and what this build has instead | **refused**, the same way |
+
+The first row is the one worth reading twice. On the read side a matching formatter is the whole answer,
+but the skip direction exists for a value that **nothing will receive** — a member the model no longer
+has, an element of one, a type value naming a type this build does not have — and there is nowhere to put
+a value even if it could be decoded. So the skip direction does not consult the formatter at all: it asks
+only whether the caller authorized the loss, and that is the entire difference between the two
+directions.
+
+Three consequences worth stating separately:
+
+- **A member the application has since removed is the case the frame exists for, and it is still gated.**
+  The bytes are accounted for byte-exactly, by the declared length and nothing else — so the skip can
+  never desynchronize the rest of the save — but the value is *lost*, and losing a value a custom
+  formatter owns needs the caller's permission. The default asks; one setting answers for every position.
+  This is deliberately *narrower* than the standing skip-path asymmetry, which never refuses a **described**
+  value: deleting a member of an ordinary described type is still a plain skip, because the file's schema
+  says what that value was and the application can reason about losing it from the member name. For a
+  custom payload the file records only that *a formatter* wrote some bytes, which is not enough to reason
+  about the loss, so the default is to ask rather than to assume.
+- **A dropped value is a default, not an invented one.** A reference slot gets the instance the reader
+  allocated and registered for it, whose members keep their defaults — the same thing a field added since
+  the save gets. What it is not is a value the current formatter produced. The *observable* of a drop is
+  therefore that default; a **removed** member additionally appears in `MigrationContext.SkippedFields`,
+  because the member really was skipped, while a **retained** one does not (it was not skipped, it was
+  filled with nothing). There is no separate "dropped custom payload" report, and adding one is a public
+  API decision rather than a format one; the loud refusal is the default, and reaching the drop at all
+  means the caller asked for it.
+- **A renamed or moved formatter class is a format change.** The name the file recorded has to be the name
+  this build has, so keeping a formatter's full name stable is part of maintaining its payloads'
+  compatibility. The refusal says so, by naming both formatters.
+
+An unframed value cannot occur in a version 5 file: the writer frames every custom payload it writes, and
+a version 4 or 3 file is rejected outright. So the "fail loudly" case the contract names is the refusal
+above, and it names the type and the member.
+
+### What "not readable" can be, and why the refusal words it
+
+The refusal names what *this build* has, and there are three answers, not one — because "this build cannot
+read that block" has three causes with three different fixes, and a caller who is told the wrong one is
+sent to do work that cannot help:
+
+| this build has | said as | the fix |
+|---|---|---|
+| the formatter the file recorded | *(no refusal — the value is read through the frame)* | — |
+| a **different** custom formatter for the type | "the custom formatter 'X'" | change the encoding, or keep the old name |
+| the type, and **no** custom formatter for it | "no custom formatter for 'T'" | install a formatter for `T` |
+| **no such type** | "no such type at all" | bring the type back (it was removed or renamed) |
+
+A fourth refusal exists and is *earlier*: while the load resolves the file's schema section, a recorded
+name that resolves to no CLR type is refused there, by `CerasRobustSerializer.BuildIdToType`. That is a
+resolution problem, not a payload problem, and it is why the "no such type" row above is reachable mainly
+for a *nested* position — a removed member, a dropped collection element — rather than for a name the
+load has already looked up. Which of the two the caller sees depends on how the type name failed to
+resolve: `ITypeBinder` documents both shapes, and a binder that **throws** (the default
+`SimpleTypeBinder` does) produces the earlier resolution refusal, while a binder that **returns null** is
+normalized to "no such type" and lets the load reach the payload verdict
+(`SchemaRegistry.ResolveThroughBinder`, `SchemaTraversalEngine.ResolveFullName`). Both answers are
+correct for the binder that produced them.
 
 ## Load order and what is rejected
 
@@ -806,7 +1015,23 @@ the magnitude for an unsigned underlying type and a two's-complement negative va
      the payload does not contain (`[Exclude]`, `[NonSerialized]`) is not this rule's business, and a
      custom `IFormatter<T>` for the declaring type is still accepted, because Ceras then hands it the
      type whole and never inspects the buffer;
-   - a file written **before** the format could describe collection and tuple shapes structurally
+   - a **custom formatter's payload** the current build cannot read is refused, and dropped only when
+     `CerasRobustConfig.AllowDroppingCustomPayloads` says so — see
+     [A user custom formatter's payload is an opaque block](#a-user-custom-formatters-payload-is-an-opaque-block).
+     The refusal is `CerasSchemaException` and names the type, the position, the formatter the file
+     recorded and what this build has instead; the drop is reported through `MigrationContext.SkippedFields`.
+     Both the read and the skip direction ask the same question, so a value in a member the application has
+     since removed is refused on the same terms: the declared length accounts for its bytes exactly, which
+     is what keeps the rest of the save aligned, but the value itself is lost and losing it is the
+     caller's decision;
+   - an **unframed block where this build expects a frame** is refused as
+     `CerasDataCorruptionException` naming the declared length and what the formatter actually
+     consumed, on the fast path and in the interpreter alike. That is the case where a value written
+     some other way — a generated member list, a payload from a different formatter — meets a framed
+     position. The opposite direction, a framed block where the reader expects a described value, is
+     the fingerprint's job and not the frame's: a build whose manifest describes a value differently
+     than the file that claims to match it is a lying header, which is the pre-existing forge below;
+   - a **file written before the format could describe collection and tuple shapes structurally**
      records such a value as a class with no members while its payload is a count plus elements.
      Reading it would desynchronize the rest of the save silently, so it is rejected with an
      actionable `CerasSchemaException`. **Such saves are not migratable**; load them with the build
@@ -856,8 +1081,21 @@ the layout.
 - Explicit compact-encoding overrides (for example zigzag varints), and recording the *choices* in
   the fingerprint rather than relying on a manual `FormatVersion` bump. Today the collection-count
   and reference-marker biases are fixed constants that the fingerprint does not cover directly.
-- Custom-formatter context isolation guarantees. A custom formatter's bytes are opaque here, so a
-  save containing one has no automatic upgrade guarantee.
+- **What the custom-payload mechanism above deliberately does not do**, stated here so it is not read as
+  an oversight:
+  - **It does not make a custom payload *migratable*.** The frame is a length; a value whose formatter has
+    been replaced, or removed, is refused (or dropped when authorized). There is no conversion and no
+    partial read, because a length says nothing about contents.
+  - **It does not distinguish two builds of one formatter class.** The fingerprint covers the
+    formatter's *type*, not its configuration; a formatter whose behaviour depends on application state
+    is invisible to it, and only a size change is caught (by the frame boundary check).
+  - **It does not cover a value rebased against load time**, which is not expressible as a formatter at
+    all — see the section above.
+  - **It does not close the `SchemaRegistry.Register` forge**, which is pre-existing and independent.
+  - **It does not make the generated reader verify the file's schema section.** A matching fingerprint
+    is still the whole claim on the fast path (no schema is parsed there), and a header that lies about
+    it is a forge; what the fast path *can* check without parsing the section is the frame boundary of
+    every value this build expects to be a frame, and it does.
 - An inspectable old-data graph. The interpreter still streams: it reads an old value and assigns it
   to the current member, so application migration code cannot examine the old graph as data.
   Reparenting a type, inlining/removed types and lossy conversions are consequently refused rather

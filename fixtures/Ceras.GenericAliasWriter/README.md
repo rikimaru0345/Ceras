@@ -25,6 +25,13 @@ version only — a file written by an older experimental version is refused by n
 migrated. So a merge that lands on a different format version has to re-run the command (the output is
 deterministic, so the diff is only the version and whatever else that version changed).
 
+They are currently at **version 5**. The 4 → 5 bump made a user custom formatter describable again
+(`Format/LAYOUT.md`, "A user custom formatter's payload is an opaque block"), and these files moved by
+exactly the nine bytes that bump predicts: the version byte, the high half of the layout fingerprint
+(which hashes the format version), and the CRC32 over the block. These fixtures declare no custom
+formatter, so the new `Opaque` entry kind has nothing to say about them and **no schema or payload byte
+changed**.
+
 ## Regenerating (only when intentionally updating a fixture)
 
 ```sh

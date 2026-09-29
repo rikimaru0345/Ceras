@@ -52,7 +52,9 @@ namespace Ceras.Test.Fingerprint
             string[] argTypeNames = null,
             SchemaEnumValueInfo[] enumValues = null,
             string stableName = "Ceras.Test.Fingerprint.Probe",
-            SchemaFieldInfo[] fields = null)
+            SchemaFieldInfo[] fields = null,
+            string opaqueFormatterName = null,
+            bool opaqueInline = false)
         {
             return new SchemaTypeInfo(
                 stableName: stableName,
@@ -65,7 +67,9 @@ namespace Ceras.Test.Fingerprint
                 fixedByteSize: fixedByteSize,
                 enumValues: enumValues,
                 underlyingTypeName: underlyingTypeName,
-                argTypeNames: argTypeNames);
+                argTypeNames: argTypeNames,
+                opaqueFormatterName: opaqueFormatterName,
+                opaqueValueWrittenInline: opaqueInline);
         }
 
         static ulong Fingerprint(SchemaTypeInfo info)
@@ -126,6 +130,42 @@ namespace Ceras.Test.Fingerprint
             var a = MakeInfo(false, kind: SchemaTypeKind.GenericInstantiation, underlyingTypeName: "System.Collections.Generic.List`1", argTypeNames: new[] { "System.Int32" });
             var b = MakeInfo(false, kind: SchemaTypeKind.GenericInstantiation, underlyingTypeName: "System.Collections.Generic.List`1", argTypeNames: new[] { "System.String" });
             Assert.NotEqual(Fingerprint(a), Fingerprint(b));
+        }
+
+        /// <summary>
+        /// Formatter selection is part of the layout, so it is part of the fingerprint. Two entries that
+        /// differ only in <em>which</em> user formatter wrote the value - the same kind, the same name, no
+        /// members either way - must not fingerprint the same, or a build that swapped a formatter would
+        /// see a matching fingerprint and take the generated reader over a payload it does not read.
+        /// </summary>
+        [Fact]
+        public void Fingerprint_Changes_When_TheCustomFormatter_Changes()
+        {
+            var first = MakeInfo(false, kind: SchemaTypeKind.Opaque, stableName: "Ceras.Test.Fingerprint.Opaque",
+                opaqueFormatterName: "Game.RecipeFormatter", opaqueInline: false);
+            var second = MakeInfo(false, kind: SchemaTypeKind.Opaque, stableName: "Ceras.Test.Fingerprint.Opaque",
+                opaqueFormatterName: "Game.OtherRecipeFormatter", opaqueInline: false);
+            var moved = MakeInfo(false, kind: SchemaTypeKind.Opaque, stableName: "Ceras.Test.Fingerprint.Opaque",
+                opaqueFormatterName: "Game.RecipeFormatter", opaqueInline: true);
+
+            Assert.NotEqual(Fingerprint(first), Fingerprint(second));   // a different formatter
+            Assert.NotEqual(Fingerprint(first), Fingerprint(moved));     // the same formatter, a different framing
+            Assert.Equal(Fingerprint(first), Fingerprint(first));       // and the same one twice
+        }
+
+        /// <summary>
+        /// The control for the one above: an opaque entry and a *described* one for the same type are
+        /// different layouts too, which is what a build that added or removed a custom formatter does.
+        /// </summary>
+        [Fact]
+        public void Fingerprint_Changes_When_A_Type_Becomes_Opaque()
+        {
+            var described = MakeInfo(false, stableName: "Ceras.Test.Fingerprint.BecomesOpaque",
+                fields: new[] { new SchemaFieldInfo("Value", Array.Empty<string>(), "System.Int32", true) });
+            var opaque = MakeInfo(false, kind: SchemaTypeKind.Opaque, stableName: "Ceras.Test.Fingerprint.BecomesOpaque",
+                fields: Array.Empty<SchemaFieldInfo>(), opaqueFormatterName: "Game.Formatter");
+
+            Assert.NotEqual(Fingerprint(described), Fingerprint(opaque));
         }
 
         [Fact]

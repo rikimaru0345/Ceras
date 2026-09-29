@@ -27,12 +27,54 @@ namespace Ceras
 		internal readonly RobustConfig _robustConfig = new RobustConfig();
 
 		/// <summary>
-		/// How many formatter assignments the last <c>RobustCustomFormatterPolicy</c> scan already
-		/// covered, so a context that configures no user custom formatter — the only kind a robust
-		/// context accepts — pays one integer comparison per <c>Save</c>/<c>Load</c> instead of a walk of
+		/// How many formatter assignments the last <c>RobustCustomFormatterPolicy</c> reconciliation
+		/// already covered, so a context that configures no user custom formatter — the overwhelmingly
+		/// common case — pays one integer comparison per <c>Save</c>/<c>Load</c> instead of a walk of
 		/// every configured type. See <see cref="CerasConfig.FormatterAssignmentCount"/>.
 		/// </summary>
 		internal int VerifiedFormatterAssignmentCount { get; set; } = -1;
+
+		/// <summary>
+		/// Whether a migration may <b>drop</b> a value the file recorded as a custom formatter's opaque
+		/// payload when this build has no formatter that can read it. Default <c>false</c>.
+		/// <para>
+		/// A custom payload's frame is a declared length and nothing more: it says how many bytes there
+		/// are, never what they mean. So a value this build cannot decode has exactly two honest
+		/// outcomes — refuse the load, or drop the value and say so. Which of the two is right is the
+		/// application's decision, not Ceras': a value behind an id the application can resolve from
+		/// elsewhere is worth keeping, and one that was a cache or a derived value is not. Ceras refuses
+		/// by default, because a dropped payload is data loss that the load would otherwise report as
+		/// success.
+		/// </para>
+		/// <para>
+		/// This covers <b>every</b> position a framed payload can be met at, and one of them is easy to
+		/// misread as an exception: a member the application has since <em>removed</em> is not free.
+		/// There is nowhere to put that value either, so it is refused on the same terms as one this build
+		/// cannot decode — the declared length accounts for its bytes exactly, which is what keeps the rest
+		/// of the save aligned, but the value is lost and losing it is the caller's decision. The contrast
+		/// is with an ordinary <b>described</b> type in the next paragraph, not with a kept member here.
+		/// </para>
+		/// <para>
+		/// What this does <em>not</em> cover: a member of an ordinary <b>described</b> type the application
+		/// has since removed. That is still a plain skip, reported through
+		/// <see cref="MigrationContext.SkippedFields"/> and never refused — the file's schema says what the
+		/// value was, so the loss is something the application can reason about. A custom payload is
+		/// narrower on purpose: the file records only that <em>a formatter</em> wrote some bytes, so losing
+		/// it is asked about rather than assumed.
+		/// </para>
+		/// <para>
+		/// Set it before the first <c>Load</c>, like every other setting on this config.
+		/// </para>
+		/// </summary>
+		public bool AllowDroppingCustomPayloads
+		{
+			get => _robustConfig.AllowDroppingCustomPayloads;
+			set
+			{
+				ThrowIfSealed();
+				_robustConfig.AllowDroppingCustomPayloads = value;
+			}
+		}
 
 		/// <summary>
 		/// Declares a root shape this context may serialize, for the shapes no generated manifest can
@@ -244,11 +286,13 @@ namespace Ceras
 		internal override void Seal()
 		{
 			base.Seal();
-			// A user custom formatter writes bytes the schema section cannot describe, and the layout
-			// fingerprint cannot see that it was selected. Reject it as early as possible — at context
-			// setup, before a save can exist — instead of only at the first Save/Load
+			// Bring the manifest into agreement with the formatters this context has, as early as possible
+			// — at context setup, before a save can exist — instead of only at the first Save/Load. A user
+			// custom formatter is supported here: it makes the type's manifest entry opaque and its payload
+			// a framed block, and it is hashed into the layout fingerprint. What is refused is the
+			// remainder, where the format has nowhere to record the selection
 			// (RobustCustomFormatterPolicy).
-			RobustCustomFormatterPolicy.VerifyNoUserCustomFormatters(this);
+			RobustCustomFormatterPolicy.Reconcile(this);
 
 			// The manifest resolves a name only for what it holds and for what Type.GetType knows; the
 			// configured binder is the one way outside that, and the seal is where it becomes known to the
@@ -273,5 +317,12 @@ namespace Ceras
 	{
 		public StringTableCompression StringTableCompression = StringTableCompression.Deflate;
 		public readonly SchemaRegistry SchemaRegistry = new SchemaRegistry();
+
+		/// <summary>
+		/// See <see cref="CerasRobustConfig.AllowDroppingCustomPayloads"/>. On the internal holder rather
+		/// than on the public config class because the public property is what a caller sets, and this is
+		/// what the migration interpreter reads.
+		/// </summary>
+		public bool AllowDroppingCustomPayloads;
 	}
 }

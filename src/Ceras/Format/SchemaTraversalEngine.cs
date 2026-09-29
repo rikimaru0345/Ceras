@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using Ceras;
 using Ceras.Helpers;
+using Ceras.Formatters;
 
 namespace Ceras.Format
 {
@@ -66,6 +67,11 @@ namespace Ceras.Format
         _registry        = config.SchemaRegistry;
             _maxCollectionSize = config.SizeLimits.MaxCollectionSize;
 
+            // Whether a migration may drop a custom payload it cannot read. Read once per load, because it
+            // is a sealed setting (CerasRobustConfig.AllowDroppingCustomPayloads) and so cannot change under
+            // one, and asked at every position that meets such a value.
+            _allowDroppingCustomPayloads = config.AllowDroppingCustomPayloads;
+
             // The decoder for the Type *value* a polymorphic value carries. It resolves a manifest id
             // through the same map every other id in this engine resolves through, so a renamed type used
             // as a nested argument reaches its current type the way every other migration does.
@@ -92,7 +98,7 @@ namespace Ceras.Format
             // whose shape both directions can read identically, and neither can be handed a malformed one to
             // disagree about. The exception is a Type-value entry, which is synthesized long after the
             // section was parsed; TypeValueShapes holds the invariant for those, before its payload starts.
-            _plans = plans ?? MigrationPlanBuilder.BuildAll(_file.ByName, _registry);
+            _plans = plans ?? MigrationPlanBuilder.BuildAll(_file.ByName, _registry, _allowDroppingCustomPayloads);
 
             // Pre-build the callback invokers. The migration context is identical for every instance
             // of a type, so it is constructed once per plan rather than once per object.
@@ -431,6 +437,16 @@ namespace Ceras.Format
                 case SchemaTypeKind.Enum:
                     return false;
 
+                case SchemaTypeKind.Opaque:
+                    // The file's own record, not the current CLR type. Whether a marker stands in front of
+                    // a custom payload's frame is what the writer did, and the file is the only place that
+                    // survives it — a type this build no longer has is exactly the case the skip path has to
+                    // account for, so re-deciding it here from `currentType` would desynchronise it. (It is
+                    // also a property of the type and not of the position, because every writer that emits
+                    // a value of a reference type emits a marker for it: the collection and array formatters
+                    // inject GetReferenceFormatterRequired(TItem).)
+                    return !old.OpaqueValueWrittenInline;
+
                 case SchemaTypeKind.GenericInstantiation:
                     // A closed generic maps to a value type (a KeyValuePair, a tuple, a Nullable): written
                     // inline. A collection, an array or anything mapped to a reference type goes through the
@@ -668,11 +684,8 @@ namespace Ceras.Format
 
                 FireBeforeCallback(structObj, plan);
 
-                if (TryReadCustomFormatter(currentType, ref structObj, ref reader))
-                {
-                    FireAfterCallbackInline(structObj, plan);
-                    return structObj;
-                }
+                if (oldSchema.Kind == SchemaTypeKind.Opaque)
+                    return ReadOpaqueInstance(oldSchema, currentType, structObj, plan, ref reader, inline: true);
 
                 ReadAndApplyFields(oldSchema, plan, structObj, ref reader);
                 FireAfterCallbackInline(structObj, plan);
@@ -719,10 +732,13 @@ namespace Ceras.Format
 
             FireBeforeCallback(obj, plan);
 
-            if (TryReadCustomFormatter(currentType, ref obj, ref reader))
+            if (oldSchema.Kind == SchemaTypeKind.Opaque)
             {
-                EnqueueAfterCallback(obj, plan);
-                return obj;
+                // The instance above is allocated and registered but the payload replaces it wholesale: a
+                // custom formatter owns the whole value, so no member of it is read and no [CerasConstructor]
+                // parameter is fed from it. The seeded instance is what a reference formatter would hand the
+                // formatter as "the current value", and the frame's read writes the result through the box.
+                return ReadOpaqueInstance(oldSchema, currentType, obj, plan, ref reader, inline: false);
             }
 
             if (ctorArgs != null)
@@ -825,11 +841,8 @@ namespace Ceras.Format
 
                 FireBeforeCallback(structObj, plan);
 
-                if (TryReadCustomFormatter(currentType, ref structObj, ref reader))
-                {
-                    FireAfterCallbackInline(structObj, plan);
-                    return structObj;
-                }
+                if (oldSchema.Kind == SchemaTypeKind.Opaque)
+                    return ReadOpaqueInstance(oldSchema, currentType, structObj, plan, ref reader, inline: true);
 
                 ReadAndApplyFields(oldSchema, plan, structObj, ref reader);
                 FireAfterCallbackInline(structObj, plan);
@@ -1136,6 +1149,9 @@ namespace Ceras.Format
             /// <summary>Not one of the described structural shapes.</summary>
             Unknown,
 
+            /// <summary>A user custom formatter's payload: a declared length and then that many bytes.</summary>
+            Opaque,
+
             Array,
             KeyValuePair,
             Nullable,
@@ -1151,6 +1167,12 @@ namespace Ceras.Format
         /// <summary>Classifies a file's generic instantiation. Reads no payload.</summary>
         static PayloadShape ClassifyPayload(OldTypeSchema old)
         {
+            // An opaque entry is not a generic instantiation at all — it has no definition id and no
+            // arguments — so it is classified by its kind. Asked first, because the whole point of the
+            // payload-shape dispatch is that read and skip share one classifier, and an opaque value's
+            // grammar is a declared length, which no definition id in the table describes.
+            if (old.Kind == SchemaTypeKind.Opaque) return PayloadShape.Opaque;
+
             int definition = old.DefinitionTypeId;
 
             if (definition == WellKnownTypes.Array) return PayloadShape.Array;
@@ -1499,6 +1521,109 @@ namespace Ceras.Format
         }
 
         /// <summary>
+        /// Accounts for one custom formatter's opaque block: a declared length and then that many bytes.
+        /// <para>
+        /// This is the whole reason the frame exists. The value belongs to a formatter, so nothing here
+        /// can interpret it — but the file's own declared length says exactly how many bytes to advance,
+        /// which is all a <em>skip</em> needs. So a member the application has since removed, or a value
+        /// of a type this build no longer has, still leaves the stream aligned for everything after it.
+        /// </para>
+        /// <para>
+        /// Whether the load may proceed is a separate question, and on this path it has exactly one
+        /// answer left: the value is not being delivered to anything. Every caller here is a skip — a
+        /// member the model has since removed, an element of one, a type value naming a type this build
+        /// does not have — so "this build has the formatter the file recorded" cannot rescue the value,
+        /// because there is nowhere to put it even if it could be decoded. The settled contract says a
+        /// custom payload that cannot be consumed during a migration fails loudly unless the caller
+        /// authorized losing it, and a removed member is the case the frame exists for, so it is gated
+        /// like every other undeliverable value rather than being the one silent skip.
+        /// </para>
+        /// </summary>
+        void SkipOpaqueBlock(OldTypeSchema oldSchema, ref SequenceReader<byte> reader)
+        {
+            if (!MayDropCustomPayloads)
+                throw UndeliverableOpaquePayload(oldSchema, "this value", readFailed: false);
+
+            OpaquePayload.SkipBlock(ref reader, DescribeOpaquePosition(oldSchema));
+        }
+
+        enum OpaqueValueVerdict
+        {
+            /// <summary>This build can read the value: the current type has the formatter the file recorded.</summary>
+            Readable,
+
+            /// <summary>The value is lost, and the caller authorized that.</summary>
+            Dropped,
+
+            /// <summary>The value is lost and nobody authorized it: refused.</summary>
+            Refused,
+        }
+
+        /// <summary>
+        /// The one question asked about a framed custom payload, from both directions so that read and skip
+        /// cannot disagree. Readable only when this build's formatter for the current type is <em>the same
+        /// formatter the file recorded</em> — compared by name, because a file and a build are two
+        /// processes — and that is what makes a formatter's identity part of the format: a payload written
+        /// by one formatter and read by another is a different payload, and no framing can say whether the
+        /// two agree. Every other answer loses the value, and losing it is the caller's decision.
+        /// <para>
+        /// The read direction asks about a value that is being <em>delivered</em> somewhere — into a
+        /// member, a collection slot, a dictionary value, a tuple item, a constructor argument. The skip
+        /// direction passes <c>delivered: false</c> and cannot answer otherwise: its whole purpose is a
+        /// value nothing receives, so a matching formatter changes nothing about it, because there is
+        /// nowhere to put the value even if it could be decoded. That asymmetry is the only difference
+        /// between the two directions, and it is stated here rather than left to each call site so the two
+        /// cannot drift apart.
+        /// </para>
+        /// </summary>
+        OpaqueValueVerdict CustomPayloadVerdict(OldTypeSchema oldSchema, bool delivered = true)
+        {
+            if (delivered)
+            {
+                var currentType = CurrentTypeOf(oldSchema, null);
+                if (currentType != null
+                    && _registry.TryGetOpaqueSelection(currentType, out var selection)
+                    && selection.FormatterName == oldSchema.OpaqueFormatterName)
+                    return OpaqueValueVerdict.Readable;
+            }
+
+            return MayDropCustomPayloads ? OpaqueValueVerdict.Dropped : OpaqueValueVerdict.Refused;
+        }
+
+        /// <summary>
+        /// Why a framed custom payload is refused when the obstacle is not the formatter: nothing will
+        /// receive the value, or the value could not be read through the formatter this build does have.
+        /// <para>
+        /// These are the two cases <see cref="UnreadableOpaquePayload"/> cannot word, because its subject is
+        /// a formatter that is not the one the file recorded — and here the recorded formatter is exactly
+        /// the one this build has. Saying "this build has the custom formatter 'X'" when the file also
+        /// recorded 'X' reads as a non sequitur, so the reason is the shape instead: a member that is gone,
+        /// or a type this build cannot construct an instance of.
+        /// </para>
+        /// </summary>
+        Exception UndeliverableOpaquePayload(OldTypeSchema oldSchema, string position, bool readFailed)
+        {
+            string reason = readFailed
+                ? "this build has the very formatter the save recorded, but the value could not be read through it"
+                : "no member of this build's model receives it";
+
+            return new Ceras.Exceptions.CerasSchemaException(
+                $"Cannot load {position}: the save records it as an opaque block written by '{oldSchema.OpaqueFormatterName}', and {reason}. " +
+                "The block's declared length accounts for those bytes exactly, so everything after them would still be found — but the " +
+                "value itself is lost, and a value a custom formatter owns is not lost on Ceras' initiative: the save records only that a " +
+                "formatter wrote some bytes, which is not enough to reason about what is being given up. " +
+                $"Either keep the member, or set {nameof(CerasRobustConfig)}.{nameof(CerasRobustConfig.AllowDroppingCustomPayloads)} before " +
+                $"the first Load: the block is then skipped by its declared length, the load continues, and a member that is gone from the " +
+                $"model is reported through {nameof(MigrationContext)}.{nameof(MigrationContext.SkippedFields)}. A removed member of an " +
+                "ordinary *described* type is a plain skip and is never refused, because the file's schema says what that value was; an " +
+                "opaque block says only that a formatter wrote it.");
+        }
+
+        /// <summary>How an opaque payload's position is named, in the refusals and in the frame's own errors.</summary>
+        string DescribeOpaquePosition(OldTypeSchema oldSchema)
+            => $"the value the save records as '{oldSchema.StableName}' (a custom formatter's payload, written by '{oldSchema.OpaqueFormatterName}')";
+
+        /// <summary>
         /// Accounts for a described user type, one kind at a time. The fixed-size short-circuit is
         /// <em>not</em> repeated here: <see cref="WalkValue"/> is this method's only caller and has already
         /// applied it, which is the point of having one entry point.
@@ -1512,6 +1637,16 @@ namespace Ceras.Format
                 case SchemaTypeKind.Struct: foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, ref reader); break;
                 case SchemaTypeKind.Class: SkipPolymorphicValue(typeId, ref reader); break;
                 case SchemaTypeKind.Enum: SkipEnumValue(oldSchema, ref reader); break;
+                case SchemaTypeKind.Opaque:
+                {
+                    // The same two shared decisions the reader makes, in the same order, decided by the
+                    // file's own record: is there a marker, and is the frame behind it.
+                    if (CarriesReferenceMarker(oldSchema, null))
+                        SkipPolymorphicValue(typeId, ref reader);
+                    else
+                        SkipOpaqueBlock(oldSchema, ref reader);
+                    break;
+                }
                 case SchemaTypeKind.GenericInstantiation:
                 {
                     // The same two shared decisions the reader makes, in the same order: is there a marker,
@@ -1538,6 +1673,10 @@ namespace Ceras.Format
         {
             switch (ClassifyPayload(oldSchema))
             {
+                case PayloadShape.Opaque:
+                    SkipOpaqueBlock(oldSchema, ref reader);
+                    return;
+
                 case PayloadShape.Nullable:
                     if (SerializerBinary.ReadByte(ref reader) != 0)
                     {
@@ -1623,8 +1762,12 @@ namespace Ceras.Format
 
             if (_file.TryGetById(typeId, out var oldSchema))
             {
+                // One classifier for every kind, so a value can never be read one way and skipped the
+                // other. An opaque entry has no members at all, which is exactly why it needs its own
+                // branch here: walking an empty member list would consume nothing and desynchronize
+                // every value after it.
                 if (oldSchema.Kind == SchemaTypeKind.Enum) SkipEnumValue(oldSchema, ref reader);
-                else if (oldSchema.Kind == SchemaTypeKind.GenericInstantiation) SkipUnmarkedPayload(oldSchema, ref reader);
+                else if (oldSchema.Kind == SchemaTypeKind.Opaque || oldSchema.Kind == SchemaTypeKind.GenericInstantiation) SkipUnmarkedPayload(oldSchema, ref reader);
                 else foreach (var f in oldSchema.Fields) SkipValue(f.TypeId, ref reader);
             }
             else
@@ -1981,8 +2124,105 @@ namespace Ceras.Format
         }
 
         /// <summary>
-        /// Drives a formatter that writes opaque bytes — one the context's schema does not describe —
-        /// through its untyped entry point, and reports whether it took the value.
+        /// The value of one framed custom payload: read through this build's formatter, or dropped when
+        /// this build has none and the caller authorized losing it. Never guessed, and never silently
+        /// defaulted — the frame says how many bytes there are, never what they mean, so a value that
+        /// cannot be decoded is either a refusal naming the type and the position, or an explicitly
+        /// authorized loss reported through <see cref="MigrationContext.SkippedFields"/>.
+        /// <para>
+        /// The <paramref name="inline"/> argument says whether the value was written with no reference
+        /// marker in front of the frame. It is the file's own record, not a re-derivation: the marker
+        /// moves if it is re-derived wrongly, and everything after the value would decode from the wrong
+        /// offset. A frame written inline where a marker stands in front of it (a struct that became a
+        /// class, or the reverse) is refused here rather than read.
+        /// </para>
+        /// </summary>
+        object? ReadOpaqueInstance(OldTypeSchema oldSchema, Type? currentType, object? seeded,
+            TypeMigrationPlan? plan, ref SequenceReader<byte> reader, bool inline)
+        {
+            // The one thing a reader cannot discover by looking: whether a marker stands in front of the
+            // frame. The caller has already consumed it (ReadUserType) or decided there is none
+            // (ReadUserTypeDirect), and the file's record is what says which — so a disagreement between
+            // the two is a payload this reader cannot start at, not one it may guess at.
+            if (inline != oldSchema.OpaqueValueWrittenInline)
+            {
+                throw new Ceras.Exceptions.CerasSchemaException(
+                    $"Cannot read the value the save records as '{oldSchema.StableName}': the file says the custom formatter's payload is " +
+                    $"{(oldSchema.OpaqueValueWrittenInline ? "written inline" : "written behind a reference marker")}, but this reader is " +
+                    $"{(inline ? "reading it inline" : "reading it behind a reference marker")}. A reference marker moves the first byte of the " +
+                    "value, so there is no offset at which this file's payload can be read the way this build reads the position. Which " +
+                    "build wrote it decides this, and only the file's own record says that. Keep the type a value type (or a reference " +
+                    "type) on both sides, or load the save with the build that wrote it.");
+            }
+
+            // The verdict comes *first*, and it is the same one the skip path asks: readable only when
+            // this build's formatter for the type is the one the file recorded. Asking it afterwards would
+            // read a payload the file attributes to a different formatter before deciding that reading it
+            // is not allowed — which is the one thing a length-prefixed block cannot protect against, since
+            // a length says nothing about what the bytes mean.
+            var verdict = CustomPayloadVerdict(oldSchema);
+            if (verdict == OpaqueValueVerdict.Readable && TryReadOpaquePayload(oldSchema, currentType, ref seeded, ref reader))
+            {
+                FireAfterCallbackInline(seeded, plan);
+                return seeded;
+            }
+
+            // The settled contract is that a custom payload has no automatic upgrade promise, so a value
+            // that is not delivered into the model is a typed refusal unless the caller authorized the loss
+            // — and the only thing the authorization changes is whether the frame is skipped or refused.
+            if (verdict == OpaqueValueVerdict.Refused)
+                throw UnreadableOpaquePayload(oldSchema, currentType, "this member");
+
+            // The verdict said this build has the formatter the file recorded, and the read still did not
+            // take the value: the slot is filled with the default and nothing is said. A readable-looking
+            // member whose payload is quietly dropped is the one silent loss this contract does not allow,
+            // so it is refused like the rest — and the refusal says the shape, not the formatter, because
+            // the formatter is not the problem.
+            if (!MayDropCustomPayloads)
+                throw UndeliverableOpaquePayload(oldSchema, "this member", readFailed: true);
+
+            OpaquePayload.SkipBlock(ref reader, DescribeOpaquePosition(oldSchema) + ", dropped");
+            FireAfterCallbackInline(seeded, plan);
+            return seeded;
+        }
+
+        /// <summary>
+        /// Whether the caller authorized dropping a custom payload this build cannot read. Read from the
+        /// config rather than carried on the plan, because a nested position (a collection element, a
+        /// dictionary value, a tuple item) has no plan of its own and reaches the same decision.
+        /// </summary>
+        bool MayDropCustomPayloads => _allowDroppingCustomPayloads;
+        readonly bool _allowDroppingCustomPayloads;
+
+        /// <summary>The shared wording for "this file records a custom payload and this build cannot read it".</summary>
+        Exception UnreadableOpaquePayload(OldTypeSchema oldSchema, Type? currentType, string position)
+            => OpaquePayload.DescribeUnreadable(
+                position,
+                oldSchema.OpaqueFormatterName,
+                OpaquePayload.DescribeCurrentFormatter(currentType, CurrentFormatterNameOf(currentType)),
+                mayDrop: MayDropCustomPayloads);
+
+        /// <summary>
+        /// The formatter this build would use for <paramref name="currentType"/>, or null when it has no
+        /// custom formatter (the other half of "this build cannot read the value").
+        /// </summary>
+        string? CurrentFormatterNameOf(Type? currentType)
+            => currentType != null && _registry.TryGetOpaqueSelection(currentType, out var selection)
+                ? selection.FormatterName
+                : null;
+
+        /// <summary>
+        /// Reads a value the file records as a custom formatter's opaque payload, through <em>this</em>
+        /// build's formatter for that type, and reports whether it took the value.
+        /// <para>
+        /// The formatter asked for is the one the serializer resolved for the type, not
+        /// <c>TypeConfig.CustomFormatter</c>, because in a robust context the resolved formatter for an
+        /// opaque type is the <see cref="Formatters.OpaqueFramedFormatter{T}"/> that wraps the user's — the
+        /// frame is written and read in one place, so the two directions cannot describe the block
+        /// differently. A type whose resolved formatter is <em>not</em> a framed one has no custom
+        /// formatter in this build, which is the <c>false</c> answer: the caller then refuses (or drops,
+        /// when the caller authorized it).
+        /// </para>
         /// <para>
         /// Both halves of the "box trick" are checked rather than assumed. The box is a
         /// <c>StrongBox&lt;T&gt;</c> made here and the field it writes through is found by name, so
@@ -1992,44 +2232,39 @@ namespace Ceras.Format
         /// custom formatter this build cannot call — naming both and the way out.
         /// </para>
         /// </summary>
-        bool TryReadCustomFormatter(Type? type, ref object? obj, ref SequenceReader<byte> reader)
+        bool TryReadOpaquePayload(OldTypeSchema oldSchema, Type? type, ref object? obj, ref SequenceReader<byte> reader)
         {
             if (type == null) return false;
-            var config = _serializer.Config.GetTypeConfigForClosedType(type, false);
-            if (config == null) return false;
 
-            var formatter = config.CustomFormatter;
-            if (formatter == null) return false;
+            // An abstract type or an interface has no instance of its own to construct, so the resolved
+            // formatter for it is not a value formatter at all; a file never records one as opaque
+            // either, because a polymorphic slot is written as the concrete runtime type. Treated as "no
+            // formatter here" rather than as a failure to resolve one, so the caller's refusal names the
+            // real reason.
+            if (type.IsAbstract() || type.IsInterface || type.ContainsGenericParameters)
+                return false;
 
-            // Only a formatter that writes opaque bytes — one the context's schema does not describe —
-            // may be driven from here. The robust internal formatters are already handled by ReadValue,
-            // and a source-generated formatter relies on the normal object cache and format
-            // expectations that differ from the robust schema traversal stream structure. That
-            // distinction is by identity, not by the formatter's namespace: a user class declared in
-            // Ceras.Generated would otherwise be mistaken for generated and read as structural fields it
-            // never wrote. (A robust context has already refused every formatter that is not the
-            // manifest's own, so in practice this returns false for all of them; it is kept as this
-            // boundary's own statement of which formatters may be driven from here.)
-            if (RobustCustomFormatterPolicy.DescribesSchemaBytes(formatter, config, _registry)) return false;
+            var framed = _serializer.GetSpecificFormatter(type) as OpaqueFramedFormatterBase;
+            if (framed == null) return false;
 
-            // Use the "Box trick" to call DeserializeUntyped.
-            // This works for any formatter that follows the DeserializeUntyped pattern
-            // (including FormatterBase<T> and our manual ones).
+            // Use the "Box trick" to call DeserializeUntyped, which is the framed formatter's own entry
+            // point: it reads the declared length, drives the user's formatter, and checks that the
+            // formatter consumed exactly the block.
             var typeName = TypeIdentity.GetCanonicalNameOrUnknown(type);
             var boxType = typeof(StrongBox<>).MakeGenericType(type);
             object box = Activator.CreateInstance(boxType, obj)
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
-                    $"Cannot read the value the save file records as '{typeName}' through its custom formatter " +
-                    $"'{formatter.GetType().Name}': the {boxType.Name} Ceras uses to call DeserializeUntyped could not be created, so " +
-                    "there is nothing to hand the formatter. This is a defect in the formatter or in Ceras, not in the save.");
+                    $"Cannot read the value the save file records as '{typeName}' through its custom formatter: the {boxType.Name} Ceras uses " +
+                    "to call DeserializeUntyped could not be created, so there is nothing to hand the formatter. This is a defect in the " +
+                    "formatter or in Ceras, not in the save.");
 
             FieldInfo field = boxType.GetField("Value")
                 ?? throw new Ceras.Exceptions.CerasSchemaException(
-                    $"Cannot read the value the save file records as '{typeName}' through its custom formatter " +
-                    $"'{formatter.GetType().Name}': '{boxType}' has no public 'Value' field to write the result through, and that field is " +
-                    "the one member this boundary reads back. This is a defect in the formatter or in Ceras, not in the save.");
+                    $"Cannot read the value the save file records as '{typeName}' through its custom formatter: '{boxType}' has no public 'Value' " +
+                    "field to write the result through, and that field is the one member this boundary reads back. This is a defect in the " +
+                    "formatter or in Ceras, not in the save.");
 
-            formatter.DeserializeUntyped(ref reader, box, field);
+            framed.ReadFrame(ref reader, box, field);
 
             obj = field.GetValue(box);
             return true;

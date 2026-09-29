@@ -29,6 +29,7 @@ using Ceras.HistoricalWriter.V1Nested.FromObject;
 using Ceras.HistoricalWriter.V1Nested.ListToArray;
 using Ceras.HistoricalWriter.V1Nested.RemovedArg;
 using Ceras.HistoricalWriter.V1Nested.Same;
+using Ceras.HistoricalWriter.V1Opaque;
 using Ceras.HistoricalWriter.V1Nested.ToObject;
 using Ceras.HistoricalWriter.V1Nested.Widened;
 using Ceras.HistoricalWriter.V1EnumNames;
@@ -43,6 +44,7 @@ namespace Ceras.HistoricalWriter
         const string PooledContext = "HistoricalV1Pooled";
         const string EnumNamesContext = "HistoricalV1EnumNames";
         const string PolyContext = "HistoricalV1Poly";
+        const string OpaqueContext = "HistoricalV1Opaque";
         const string ArraySlotContext = "HistoricalV1ArraySlot";
 
         // One context per rejected direction, plus one for the shapes that must keep loading — see
@@ -99,6 +101,20 @@ namespace Ceras.HistoricalWriter
             c.SetUnknownBuildTimestamp();
         });
 
+        /// <summary>
+        /// The opaque context is the only one whose serializer carries a user custom formatter, because it
+        /// is the only model whose values one owns. Everything else is a generated manifest, so the
+        /// difference is visible in the fixture bytes: these files are the only ones whose schema section
+        /// holds an <c>Opaque</c> entry, and the only ones whose payload contains a declared length in
+        /// front of a value.
+        /// </summary>
+        static CerasRobustSerializer NewOpaqueSerializer() => new CerasRobustSerializer(c =>
+        {
+            c.UseGeneratedFormatters(OpaqueContext);
+            c.SetUnknownBuildTimestamp();
+            c.ConfigType<RecipeRef>().CustomFormatter = new RecipeRefFormatter();
+        });
+
         static IEnumerable<(string Name, byte[] Bytes)> Fixtures()
         {
             foreach (var fixture in SaveGameFixtures()) yield return fixture;
@@ -108,6 +124,34 @@ namespace Ceras.HistoricalWriter
             foreach (var fixture in ArraySlotFixtures()) yield return fixture;
             foreach (var fixture in ArrayShapeFixtures()) yield return fixture;
             foreach (var fixture in NestedArrayShapeFixtures()) yield return fixture;
+            foreach (var fixture in OpaqueFixtures()) yield return fixture;
+        }
+
+        /// <summary>
+        /// Two files over one model, in the two shapes a later build has to cope with.
+        /// <list type="bullet">
+        /// <item><c>OpaqueFrameHolder</c> keeps its custom-formatted member, so the current build reads
+        /// the frame through the same formatter — the case that works, and the reason the format changed;</item>
+        /// <item><c>OpaqueDroppedMemberHolder</c> loses it, so the frame's declared length is the only
+        /// thing that can account for those bytes. A sentinel before the member in both, so a skip that is
+        /// off by anything at all shows up as a wrong number.</item>
+        /// </list>
+        /// </summary>
+        static IEnumerable<(string Name, byte[] Bytes)> OpaqueFixtures()
+        {
+            var serializer = NewOpaqueSerializer();
+
+            yield return ("OpaqueFrameHolder.bin", serializer.Save(new FrameHolder
+            {
+                ASentinel = 0x0BADF00D,
+                Target = new RecipeRef { RecipeId = RecipeRefFormatter.FirstRecipeId },
+            }, 1));
+
+            yield return ("OpaqueDroppedMemberHolder.bin", serializer.Save(new DroppedMemberHolder
+            {
+                ASentinel = 0x0BADF00E,
+                Target = new RecipeRef { RecipeId = RecipeRefFormatter.FirstRecipeId + 1 },
+            }, 1));
         }
 
         static IEnumerable<(string Name, byte[] Bytes)> SaveGameFixtures()

@@ -147,16 +147,17 @@ namespace Ceras
 
             // An older version is a *known* file that this build deliberately no longer reads, so it gets
             // the reason rather than a bare mismatch: the experimental format carried no upgrade promise,
-            // and v3 in particular could hold a user custom formatter's opaque bytes under a schema (and a
-            // matching layout fingerprint) that described generated fields, which is exactly the state
-            // that cannot be told apart from a good file.
+            // and versions 3 and 4 in particular could hold a user custom formatter's opaque bytes under
+            // a schema (and a matching layout fingerprint) that described generated fields, which is
+            // exactly the state that cannot be told apart from a good file.
             if (version < expectedFormatVersion)
                 throw new Ceras.Exceptions.CerasVersionMismatchException(
                     $"Unsupported robust format version {version}: this build reads version {expectedFormatVersion} only. " +
                     $"Format version {version} is an older experimental version and is no longer accepted; experimental saves are not " +
-                    "upgradeable and must be recreated. Version 3 is rejected in particular because it could be written with a user " +
-                    "custom formatter, whose opaque bytes were invisible to both the file's schema section and the layout fingerprint, " +
-                    "so such a file cannot be validated. See RobustCustomFormatterPolicy.",
+                    "upgradeable and must be recreated. Versions 3 and 4 are rejected in particular because they could be written with a " +
+                    "user custom formatter, whose opaque bytes were invisible to both the file's schema section and the layout fingerprint, " +
+                    "so such a file cannot be validated. Version 5 describes a custom payload instead - a declared length, an opaque manifest " +
+                    "entry and the formatter's identity in the fingerprint. See RobustCustomFormatterPolicy.",
                     version, expectedFormatVersion);
 
             throw new Ceras.Exceptions.CerasVersionMismatchException(
@@ -171,13 +172,20 @@ namespace Ceras
 
     public sealed class CerasRobustSerializer : CerasSerializer
     {
-        // v4: a robust context no longer accepts a user custom formatter (see
-        // RobustCustomFormatterPolicy). v3 could be written with one — the schema section still
-        // described the *generated* fields while the payload held opaque custom bytes, and the layout
-        // fingerprint matched anyway, so such a file could not be distinguished from a good one. The
-        // experimental format therefore advances rather than keeping a false promise: every v3 file is
-        // rejected, including the ones that happen to be fine.
-        public const int FormatVersion = 4;
+        // v5: a robust context accepts a user custom formatter again, because the format now describes
+        // what one writes. A custom-formatted type's manifest entry is SchemaTypeKind.Opaque — no
+        // member list, the formatter's identity, and whether a reference marker stands in front of the
+        // frame — the payload is a declared length followed by the formatter's own bytes, and the
+        // formatter's identity is hashed into the layout fingerprint, so swapping a formatter changes
+        // the layout instead of matching it (see RobustCustomFormatterPolicy and Format/LAYOUT.md).
+        //
+        // v4 rejected every such formatter, so a v4 file contains no opaque custom payload at all; it
+        // also has no Opaque entry, no frame and no formatter name in its schema section. The
+        // experimental format therefore advances rather than keeping a promise it cannot keep, and the
+        // checked-in historical fixtures were regenerated for it: each diff is the version byte, the
+        // high half of the layout fingerprint (which hashes the format version) and the CRC32 — no
+        // schema or payload byte changed.
+        public const int FormatVersion = 5;
 
         internal readonly CerasRobustConfig _config;
 
@@ -326,11 +334,12 @@ namespace Ceras
         {
             var registry = _config.SchemaRegistry;
 
-            // Re-run the context check: a type config is sealed lazily, so a user custom formatter can
-            // still be installed after the serializer was constructed (the setup-time check in
-            // CerasRobustConfig.Seal only sees what was configured before it). Nothing with opaque bytes
-            // may enter a robust file.
-            RobustCustomFormatterPolicy.VerifyNoUserCustomFormatters(_config);
+            // Re-run the reconciliation: a type config is sealed lazily, so a custom formatter can still
+            // be installed after the serializer was constructed (the setup-time check in
+            // CerasRobustConfig.Seal only sees what was configured before it). The manifest has to
+            // describe every value this save writes, and which formatter wrote a type's value is now
+            // part of that description and of the layout fingerprint.
+            RobustCustomFormatterPolicy.Reconcile(_config);
 
             // Declare the root (normally via the generated manifest) and seal. A context has one
             // finite manifest: a root shape no manifest can describe (an array, a built-in closed
@@ -533,9 +542,10 @@ namespace Ceras
 
             var registry = _config.SchemaRegistry;
 
-            // Same gate as Save: a formatter installed after construction must not be able to decode
-            // this file either (see RobustCustomFormatterPolicy).
-            RobustCustomFormatterPolicy.VerifyNoUserCustomFormatters(_config);
+            // Same gate as Save: a formatter installed after construction has to be reconciled with the
+            // manifest before this file is read, because the manifest is what describes the values in it
+            // (see RobustCustomFormatterPolicy).
+            RobustCustomFormatterPolicy.Reconcile(_config);
 
             // Validate magic/version and the full section-offset envelope before any offset is used to
             // index or allocate (see ProtocolValidationTests).
@@ -650,7 +660,7 @@ namespace Ceras
             // after the root type id would only mean that a load which cannot succeed had already started
             // interpreting one, and could already have fired an [OnBeforeDeserialize] callback against a
             // half-read graph.
-            var slowPlans = MigrationPlanBuilder.BuildAll(fileSchemas, registry);
+            var slowPlans = MigrationPlanBuilder.BuildAll(fileSchemas, registry, _config.AllowDroppingCustomPayloads);
 
             int storedSlowRootId = (int)SchemaSection.ReadLeb128(ref reader); // root type id
             ValidateStoredRootType(storedSlowRootId, typeof(T), slowIdToType, registry, fingerprintMatched: false);
@@ -957,6 +967,8 @@ namespace Ceras
             public (string StableName, string TypeName, bool IsMono)[] Fields;
             public string DefinitionName;
             public string[] ArgTypeNames;
+            public string OpaqueFormatterName;
+            public bool OpaqueWrittenInline;
 
             public NormalizedTypeSchema(int id, SchemaTypeInfo info)
             {
@@ -968,6 +980,8 @@ namespace Ceras
                 Fields = info.Fields?.Select(f => (f.StableName, f.TypeName, f.IsMonomorphic)).ToArray() ?? Array.Empty<(string, string, bool)>();
                 DefinitionName = info.UnderlyingTypeName;
                 ArgTypeNames = info.ArgTypeNames ?? Array.Empty<string>();
+                OpaqueFormatterName = info.OpaqueFormatterName;
+                OpaqueWrittenInline = info.OpaqueValueWrittenInline;
             }
 
             public NormalizedTypeSchema(OldTypeSchema fs, Func<int, string> resolve)
@@ -980,6 +994,8 @@ namespace Ceras
                 Fields = fs.Fields?.Select(f => (f.StableName, resolve(f.TypeId), f.IsMonomorphic)).ToArray() ?? Array.Empty<(string, string, bool)>();
                 DefinitionName = resolve(fs.DefinitionTypeId);
                 ArgTypeNames = fs.ArgTypeIds?.Select(resolve).ToArray() ?? Array.Empty<string>();
+                OpaqueFormatterName = fs.OpaqueFormatterName;
+                OpaqueWrittenInline = fs.OpaqueValueWrittenInline;
             }
         }
 
@@ -1000,6 +1016,15 @@ namespace Ceras
 
                 case SchemaTypeKind.GenericInstantiation:
                     sb.AppendLine($"GENERIC  [{s.TypeId}]  {s.StableName}  def={s.DefinitionName}  args=[{string.Join(", ", s.ArgTypeNames ?? Array.Empty<string>())}]");
+                    break;
+
+                case SchemaTypeKind.Opaque:
+                    // The two facts the entry carries, printed as the two facts they are: who wrote these
+                    // bytes, and whether a reference marker stands in front of the frame. A dump that
+                    // showed the generated member list here would be showing the very thing the entry
+                    // deliberately does not describe.
+                    sb.AppendLine($"OPAQUE  [{s.TypeId}]  {s.StableName}  formatter={s.OpaqueFormatterName}  " +
+                                  $"{(s.OpaqueWrittenInline ? "inline" : "behind a reference marker")}  (declared length + block)");
                     break;
 
                 default:
