@@ -239,16 +239,23 @@ namespace Ceras.Benchmarks
             Action encodePooledChat = () => { pooledOffset = 0; fast.Serialize(chat, ref pooledBuffer, ref pooledOffset); };
             Add(rows, "Network encode pooled (write only)", 200000, encodePooledMove, $"{moveBytes.Length} B, no result array");
             Add(rows, "Network encode pooled chat", 200000, encodePooledChat, $"{chatBytes.Length} B, no result array");
-            CerasBufferPool.Return(pooledBuffer);
 
             // The same encode at two field counts, so the per-field cost and the fixed cost of an
             // operation are both visible. Subtracting these two rows gives the per-field cost; the
             // 1-field row is what a message costs before any field is written.
+            //
+            // These two rows use their own buffer, not `pooledBuffer`. That one was returned above,
+            // and the two rows below it are measured after that return - so encoding through it
+            // would be a use-after-return, writing into a buffer the pool had already promised to
+            // somebody else. (Nothing caught it: a returned array is a perfectly good array, and the
+            // pool had not yet handed it to anyone, so both rows measured something and the numbers
+            // looked fine. CerasBufferPool now refuses a buffer that is not an outstanding rental,
+            // which is what turned this into a failure instead of a silently wrong measurement.)
             var wide1 = new Wide1 { F0 = 1 };
             var wide81 = BenchData.MakeWide81();
-            Action encodeWide1 = () => { pooledOffset = 0; fast.Serialize(wide1, ref pooledBuffer, ref pooledOffset); };
-            Action encodeWide81 = () => { pooledOffset = 0; fast.Serialize(wide81, ref pooledBuffer, ref pooledOffset); };
             var wideBuffer = CerasBufferPool.Rent(64 * 1024);
+            Action encodeWide1 = () => { pooledOffset = 0; fast.Serialize(wide1, ref wideBuffer, ref pooledOffset); };
+            Action encodeWide81 = () => { pooledOffset = 0; fast.Serialize(wide81, ref wideBuffer, ref pooledOffset); };
             fast.Serialize(wide1, ref wideBuffer, ref pooledOffset);
             pooledOffset = 0;
             Add(rows, "Network encode pooled 1 field", 200000, encodeWide1, "fixed cost of an operation, ~no fields");
@@ -256,6 +263,7 @@ namespace Ceras.Benchmarks
             if (Environment.GetEnvironmentVariable("CERAS_FIXED") == "1") { Console.WriteLine("=== FIXED COST PROBE ==="); FixedCostProbe.Run(); }
             if (Environment.GetEnvironmentVariable("CERAS_SPIKE") == "1") { Console.WriteLine("=== DEVIRT SPIKE ==="); DevirtSpike.Run(); }
             CerasBufferPool.Return(wideBuffer);
+            CerasBufferPool.Return(pooledBuffer);
 
             // ------------------------------------------------------------------
             // Cold setup vs steady state, and the game's per-operation construction.

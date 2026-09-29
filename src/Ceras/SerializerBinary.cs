@@ -878,6 +878,13 @@ namespace Ceras
         /// otherwise-successful write. Both outcomes are avoided by requiring the caller to say
         /// which case this is. It defaults to false, so a new call site is safe by default.
         /// </para>
+        /// <para>
+        /// When it is true the claim is <em>checked</em>, not taken on trust. Growth is the only
+        /// moment a pooled-flagged array is handed to the pool, so it is the only moment a false
+        /// claim could do anything - and it is checked before anything is rented or copied, so a
+        /// caller who mislabelled their own array fails with that array untouched and nothing left
+        /// outstanding, rather than having it adopted by the pool on the way past.
+        /// </para>
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void EnsureCapacity(ref byte[] buffer, int offset, int size, bool replacedBufferIsPooled = false)
@@ -890,6 +897,15 @@ namespace Ceras
         internal static void ExpandBuffer(ref byte[] buffer, int newSize, bool replacedBufferIsPooled)
         {
             if (newSize > MaximumArraySize || newSize < 0) throw new InvalidOperationException("Buffer too large");
+
+            // Before the rental and the copy, not after: a refused growth has to leave the caller's
+            // array exactly as it found it and the pool exactly as balanced as it was. Renting first
+            // and throwing second would leak the array just rented, and returning first and throwing
+            // second would take the caller's array away from them on the very path that is refusing
+            // to touch it.
+            if (replacedBufferIsPooled)
+                CerasBufferPool.RequireRental(buffer, nameof(buffer));
+
             int currentSize = buffer.Length;
             int targetSize = Math.Max(0x4000, currentSize * 2);
             while (targetSize < newSize) targetSize *= 2;

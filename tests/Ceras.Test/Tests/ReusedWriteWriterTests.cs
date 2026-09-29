@@ -171,12 +171,21 @@ namespace Ceras.Test
         /// regardless of what the writer does, and the test would pass for the wrong reason. It is
         /// written in a separate frame so the only possible remaining reference is the writer's.
         /// </para>
+        /// <para>
+        /// It goes through <c>SerializeStatic</c> rather than the pooled <c>Serialize(obj, ref
+        /// buffer, ref offset)</c>, and that is not incidental. Both reach the same per-depth spare
+        /// writer - the subject of this test - but only <c>SerializeStatic</c> declares the buffer
+        /// caller-owned (<c>bufferIsPooled: false</c>), which is the only thing that makes a
+        /// <see cref="WeakReference"/> to it meaningful. A caller-owned array on the pooled entry is
+        /// now refused outright, so that combination is no longer reachable from a test - or from a
+        /// caller - and the property this pins is checked on the path that still supports it.
+        /// </para>
         /// </summary>
         [Fact]
         public void ASpareWriterDoesNotKeepTheLastBufferAlive()
         {
             var ceras = new CerasFastSerializer();
-            var reference = WriteToACallerBuffer(ceras, new Inner { A = 1, B = 2 });
+            var reference = WriteToACallerBuffer(ceras, typeof(StaticHolder));
 
             for (int i = 0; i < 4; i++)
             {
@@ -188,12 +197,31 @@ namespace Ceras.Test
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        static WeakReference WriteToACallerBuffer(CerasSerializer ceras, Inner value)
+        static WeakReference WriteToACallerBuffer(CerasSerializer ceras, Type type)
         {
             var buffer = new byte[1024];
             int offset = 0;
-            Assert.Equal(8, ceras.Serialize(value, ref buffer, ref offset));
+            int written = ceras.SerializeStatic(type, ref buffer, ref offset);
+
+            // Not "> 0" alone: the property under test is that the *writer* does not keep the
+            // buffer, which is only meaningful if the writer really wrote into this one. A static
+            // type with no members would return 0 and leave the assertion below vacuous.
+            Assert.Equal(offset, written);
+            Assert.True(written > 0, $"SerializeStatic wrote nothing for {type}, so no writer held the buffer");
+            Assert.Equal(1024, buffer.Length);   // it was big enough, so nothing replaced it
+
             return new WeakReference(buffer);
+        }
+
+        /// <summary>Carries a static member, so <c>SerializeStatic</c> actually writes into the buffer.
+        /// The field is written to and read back by the serializer rather than by the test, which is
+        /// the point: <c>SerializeStatic</c> writes a static type's members, and a type with none
+        /// would make the call write nothing and the test would pass without exercising the writer.
+        /// </summary>
+        [CerasSerializable]
+        static class StaticHolder
+        {
+            public static int Value = 1;
         }
     }
 }
