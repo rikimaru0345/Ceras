@@ -172,13 +172,18 @@ namespace Ceras.Test
         [Fact]
         public void Formatter_StillWorks_WithVersionTolerant()
         {
-            // The formatter itself must still produce correct output after the schema changes
+            // The formatter itself must still produce correct output after the schema changes.
+            // Save/Load, not the raw Serialize/Deserialize pair this used to use: a robust context
+            // installs the string/Type formatters its format declares, and the string member below
+            // needs the payload string table a Save builds (see Tests/RobustInternalConstructorTests).
+            // The registry is still the subject; the config below is a second one, configured the
+            // same way as the one this class inspects.
             var config = new CerasRobustConfig();
             RobustFormatters.UseRobustFormatters(config, "Tests");
             var ceras = new CerasRobustSerializer(config);
 
             var original = new Weapon { AttackPower = 50, Name = "Excalibur", Weight = 3.2f };
-            var clone    = ceras.Deserialize<Weapon>(ceras.Serialize(original));
+            var clone    = ceras.Load<Weapon>(ceras.Save(original, 1), 1);
 
             Assert.Equal(original.AttackPower, clone.AttackPower);
             Assert.Equal(original.Name,        clone.Name);

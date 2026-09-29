@@ -252,7 +252,7 @@ namespace Ceras
             _config = (CerasRobustConfig)base.Config;
         }
 
-        internal CerasRobustSerializer(CerasRobustConfig config) : base(config)
+        internal CerasRobustSerializer(CerasRobustConfig config) : base(InitializeSuppliedConfig(config))
         {
             _config = config;
             // No assembly is discovered here, and that is a decision rather than an omission. The
@@ -309,6 +309,55 @@ namespace Ceras
             var typeConfig = config.ConfigType<Type>();
             if (!(typeConfig.CustomFormatter is RobustTypeFormatter))
                 typeConfig.CustomFormatter = new RobustTypeFormatter(config.SchemaRegistry, config.TypeBinder);
+        }
+
+        /// <summary>
+        /// The robust string and Type formatters for a config the <em>caller</em> built and handed
+        /// over, which is the other half of <see cref="MakeConfig"/>: without them
+        /// <see cref="CerasSerializer"/>'s constructor falls back to <c>StringFormatter</c> (a varint
+        /// length prefix) and <c>TypeFormatter</c> (a binder-produced name), and a <c>Save</c> through
+        /// this door then writes a file whose payload does not match the grammar the format declares
+        /// for those positions - a 4-byte string-table index that is really a length prefix, with an
+        /// empty payload string table. The save succeeds, and the file only fails to read later, by
+        /// which time it exists (Format/LAYOUT.md, "Primitive encodings").
+        /// <para>
+        /// It has to run on the base-constructor argument list, for the same reason the assembly walk
+        /// does there: <see cref="CerasSerializer"/>'s constructor seals the config and resolves -
+        /// and caches - the <c>string</c> and <see cref="Type"/> formatters before it returns, so
+        /// anything not installed by then is too late.
+        /// </para>
+        /// <para>
+        /// The order inside is reversed relative to <see cref="MakeConfig"/>, and has to be. There the
+        /// formatters go in <em>before</em> the configuration callback, so a formatter the callback
+        /// assigns wins. Here the caller has already configured everything, so "a configured
+        /// formatter wins" means leaving what is there alone: overwriting a caller's own formatter
+        /// would silently discard the configuration they wrote, and - because
+        /// <see cref="UseConfiguredTypeBinder"/>'s own contract already says an installed Type
+        /// formatter is either the context's own or the caller's - it would leave a config that no
+        /// longer says what its owner said. What refuses the combination instead is
+        /// <see cref="RobustCustomFormatterPolicy"/>, run by <see cref="CerasRobustConfig.Seal"/>
+        /// from inside the base constructor a statement later, which is the same refusal the public
+        /// path produces for the same configuration.
+        /// </para>
+        /// </summary>
+        static CerasRobustConfig InitializeSuppliedConfig(CerasRobustConfig config)
+        {
+            // GetExistingTypeConfig, not ConfigType<T>(): the question is what the caller already
+            // configured, and asking it must not create the entry the answer is about. The generic
+            // overload below is still the one that creates it, so the TypeConfig<string>/TypeConfig<Type>
+            // instantiations this path needs are rooted exactly as the public path roots them (AOT).
+            if (config.GetExistingTypeConfig(typeof(string), isStatic: false)?.CustomFormatter == null)
+                config.ConfigType<string>().CustomFormatter = new RobustStringFormatter();
+
+            if (config.GetExistingTypeConfig(typeof(Type), isStatic: false)?.CustomFormatter == null)
+                config.ConfigType<Type>().CustomFormatter = new RobustTypeFormatter(config.SchemaRegistry, config.TypeBinder);
+
+            // The binder a caller assigned is already what the Type formatter above was built with, so
+            // this is belt and braces rather than the fix the public path needs (where the callback had
+            // not run yet at construction time). It is the same statement, and it keeps the invariant
+            // in one place: the installed RobustTypeFormatter is bound to this context's TypeBinder.
+            UseConfiguredTypeBinder(config);
+            return config;
         }
 
         /// <summary>
