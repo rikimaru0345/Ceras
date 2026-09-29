@@ -184,14 +184,21 @@ namespace Ceras.Formatters {
 
 			ref var entry = ref _dispatchers.GetOrAddValueRef(type);
 			if (entry != null) return entry;
-			entry = new DispatcherEntry(type);
-			if (entry.IsType) return entry;
+
+			// Built locally and published only once it is whole. Publishing it first would leave an entry
+			// with no dispatchers behind if anything below threw — and the next operation would then find
+			// that entry, treat it as complete, and call a null dispatcher. Resolving the formatter is one
+			// of the things below, and it can throw for reasons that have nothing to do with this formatter
+			// (a robust context refusing a resolver selection is one), so "built" and "published" have to
+			// be separate steps for a failure here to leave nothing behind.
+			var built = new DispatcherEntry(type);
+			if (built.IsType) { entry = built; return built; }   // a Type value needs no specific formatter
 
 			var formatter = _ceras.GetSpecificFormatter(type);
 			if (formatter == null) throw new InvalidOperationException($"Could not find specific formatter for type '{type.FullName}'");
 
-			entry.SerializeDispatcher = CreateSpecificSerializerDispatcher(type, formatter);
-			entry.DeserializeDispatcher = CreateSpecificDeserializerDispatcher(type, formatter);
+			built.SerializeDispatcher = CreateSpecificSerializerDispatcher(type, formatter);
+			built.DeserializeDispatcher = CreateSpecificDeserializerDispatcher(type, formatter);
 
 			// Which construction builds a fresh instance:
 			//   * a construction the application selected for this type is always honored. It exists
@@ -208,11 +215,13 @@ namespace Ceras.Formatters {
 			// so there is no constructor to call here and the dispatcher fills the instance in. The call
 			// sites cast the result to T (a reference type), where null is a legal value, so the
 			// null-forgiving operator is used rather than pretending Func<object> cannot return null.
-			entry.Constructor = _ceras.IsFormatterConstructedInstance(type) && !typeConfig.IsConstructionExplicit
+			built.Constructor = _ceras.IsFormatterConstructedInstance(type) && !typeConfig.IsConstructionExplicit
 				? () => null!
 				: typeConfig.TypeConstruction.GetRefFormatterConstructor();
 
-			return entry;
+			// Every field above is assigned; only now is this a dispatcher rather than a shell.
+			entry = built;
+			return built;
 		}
 
 		

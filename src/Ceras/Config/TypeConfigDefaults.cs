@@ -277,7 +277,11 @@ namespace Ceras
         static void ForceSerialization(TypeConfig typeConfig)
         {
             typeConfig.SetDefaultTypeConstruction(TypeConstruction.ByUninitialized());
-            typeConfig.CustomResolver = ForceDynamicResolver;
+            // The cached instance, not the method group: a robust context recognises this resolver by
+            // reference (RobustResolverPolicy), and a method group allocates a fresh delegate every time
+            // it is converted, so handing the group out here would install an instance nothing holds a
+            // reference to and the approval would never match.
+            typeConfig.CustomResolver = ForcedDynamicResolver;
         }
 
 
@@ -293,5 +297,21 @@ namespace Ceras
             return r.GetFormatter(type)!;
 #pragma warning restore CS0618
         }
+
+        /// <summary>
+        /// The one delegate instance <see cref="ForceSerialization"/> installs as a
+        /// <see cref="TypeConfig.CustomResolver"/> for the types it forces into reflection-based
+        /// serialization, and the one <c>RobustResolverPolicy</c> compares against — so what a robust
+        /// context approves is this exact delegate, installed by this library, and not any delegate an
+        /// application builds over the same method.
+        /// <para>
+        /// The approval is scoped to this resolver rather than to the formatter it answers with
+        /// (<c>ReflectionFallbackFormatter&lt;T&gt;</c>), because that formatter is closed over an
+        /// arbitrary type and is constructible by reflection despite being <c>internal sealed</c>: a
+        /// formatter-type exemption would approve a caller's instance of it just as readily. See
+        /// <c>Format/RobustResolverPolicy</c>.
+        /// </para>
+        /// </summary>
+        internal static readonly FormatterResolverCallback ForcedDynamicResolver = ForceDynamicResolver;
     }
 }
