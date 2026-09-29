@@ -511,19 +511,19 @@ namespace Ceras.SourceGenerator {
 			// ReferenceFormatter fallback so the field type matches what the runtime injects. A *value-type*
 			// collection is bound through the interface for the same reason a value-type member above is: a
 			// custom formatter for it is a configuration the application can make at runtime, and a field
-			// typed as the concrete collection formatter could not accept it.
+			// typed as the concrete collection formatter could not accept it. A *sealed* reference
+			// collection names ReferenceFormatter_KnownSealedType for the same reason a sealed class member
+			// above does — see CollectionFieldType.
 			if (IsCollectionFormatterType(type)) {
 				string? concrete = GetCollectionConcreteFormatterType(type);
 				if (concrete != null)
-					return type.IsValueType ? $"global::Ceras.Formatters.IFormatter<{typeFqn}>" : $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
+					return CollectionFieldType(type, typeFqn);
 			}
 
 			if (IsCollectionType(type)) {
 				string? concrete = GetCollectionConcreteFormatterType(type);
-				if (concrete != null) {
-					if (type.IsValueType) return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
-					return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
-				}
+				if (concrete != null)
+					return CollectionFieldType(type, typeFqn);
 			}
 
 			if (!type.IsValueType && !isMonomorphic) return $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
@@ -533,6 +533,36 @@ namespace Ceras.SourceGenerator {
 			}
 			return $"global::Ceras.Formatters.IFormatter<{typeFqn}>";
 		}
+
+		/// <summary>
+		/// The field type for a <em>collection</em> member. Deliberately not the concrete
+		/// <c>CollectionFormatter</c> the element type resolves to: a custom formatter for a collection is
+		/// a runtime configuration, and a field typed to the concrete class could not accept it. What the
+		/// field names instead is the reference wrapper <c>PrepareFormatter</c> is about to be handed for
+		/// the member, so the two have to agree — including on <em>which</em> wrapper that is.
+		/// <para>
+		/// <c>CerasSerializer.GetReferenceFormatter</c> creates
+		/// <c>ReferenceFormatter_KnownSealedType&lt;T&gt;</c> for a sealed reference type and
+		/// <c>ReferenceFormatter&lt;T&gt;</c> for every other one, and the two are siblings rather than one
+		/// deriving from the other. A field typed to the wrong one therefore cannot be filled at all:
+		/// injection has nothing assignable to put in it and no specific formatter to fall back to, and
+		/// ends in "Injection mismatch" before the member has a byte. A sealed collection — every
+		/// <c>Immutable*</c> collection, and any user type declared <c>sealed</c> that implements
+		/// <c>ICollection&lt;&gt;</c> — is exactly the case the monomorphic check
+		/// <see cref="GetConcreteFormatterType"/> already makes for a sealed class member, and the
+		/// collection branches used to omit it.
+		/// </para>
+		/// <para>
+		/// This answers from the <em>declared</em> type, which is all either wrapper is built on: a
+		/// <c>sealed</c> declaration means the slot can only ever hold that one type.
+		/// </para>
+		/// </summary>
+		static string CollectionFieldType(ITypeSymbol type, string typeFqn)
+			=> type.IsValueType
+				? $"global::Ceras.Formatters.IFormatter<{typeFqn}>"
+				: type.IsSealed
+					? $"global::Ceras.Formatters.ReferenceFormatter_KnownSealedType<{typeFqn}>"
+					: $"global::Ceras.Formatters.ReferenceFormatter<{typeFqn}>";
 
 		/// <summary>
 		/// The concrete <c>CollectionFormatter&lt;TCollection, TItem&gt;</c> field type for a collection
