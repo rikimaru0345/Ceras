@@ -61,8 +61,11 @@ namespace Ceras.Test
         [Fact]
         public void TwoSerializersDoNotShareFormatters()
         {
-            var marked = new CerasFastSerializer();
-            marked.Config.ConfigType<Thing>().SetFormatter(new MarkedFormatter());
+            // Installed in the 'configure' callback, which is where a formatter belongs: a serializer
+            // seals its config when it is constructed, and a change made after that is refused rather
+            // than quietly accepted (PostSealMutationTests). Each serializer gets its own config, so
+            // each gets its own formatter instance.
+            var marked = new CerasFastSerializer(c => c.ConfigType<Thing>().SetFormatter(new MarkedFormatter()));
 
             var plain = new CerasFastSerializer();
 
@@ -102,10 +105,8 @@ namespace Ceras.Test
             const byte MarkerA = 0xA1, MarkerB = 0xB2;
             const int Iterations = 200_000;
 
-            var cerasA = new CerasFastSerializer();
-            cerasA.Config.ConfigType<Payload>().SetFormatter(new PayloadFormatter(MarkerA));
-            var cerasB = new CerasFastSerializer();
-            cerasB.Config.ConfigType<Payload>().SetFormatter(new PayloadFormatter(MarkerB));
+            var cerasA = new CerasFastSerializer(c => c.ConfigType<Payload>().SetFormatter(new PayloadFormatter(MarkerA)));
+            var cerasB = new CerasFastSerializer(c => c.ConfigType<Payload>().SetFormatter(new PayloadFormatter(MarkerB)));
 
             var payload = new Payload { Value = 1 };
             var start = new ManualResetEventSlim();

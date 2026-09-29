@@ -250,8 +250,14 @@ namespace Ceras.Test.Tests.FixedBuffer
             // type can be written, because the member resolves to that formatter.
             CountingFixedBufferFormatter.Calls = 0;
 
-            var raw = Raw_Reflected();
-            raw.Config.ConfigType<FixedBufferStruct>().CustomFormatter = new CountingFixedBufferFormatter();
+            // Installed through the config rather than through serializer.Config: a serializer seals
+            // its config when it is constructed, and a change made after that is refused rather than
+            // half-applied (PostSealMutationTests).
+            var raw = new CerasFastSerializer(c =>
+            {
+                c.AllowReflectionFallback = true;
+                c.ConfigType<FixedBufferStruct>().CustomFormatter = new CountingFixedBufferFormatter();
+            });
 
             Assert.IsType<CountingFixedBufferFormatter>(raw.GetSpecificFormatter(typeof(FixedBufferStruct)));
 
