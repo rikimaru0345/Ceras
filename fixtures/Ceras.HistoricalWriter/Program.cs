@@ -38,6 +38,7 @@ using Ceras.HistoricalWriter.V1InheritedNarrow;
 using Ceras.HistoricalWriter.V1Abstract;
 using Ceras.HistoricalWriter.V1Poly;
 using Ceras.HistoricalWriter.V1Pooled;
+using Ceras.HistoricalWriter.V1Positional;
 
 namespace Ceras.HistoricalWriter
 {
@@ -49,6 +50,7 @@ namespace Ceras.HistoricalWriter
         const string PolyContext = "HistoricalV1Poly";
         const string OpaqueContext = "HistoricalV1Opaque";
         const string ArraySlotContext = "HistoricalV1ArraySlot";
+        const string PositionalContext = "HistoricalV1Positional";
 
         // One context per rejected direction, plus one for the shapes that must keep loading — see
         // V1ArrayShapeModel.cs for why a rejected type needs a context of its own.
@@ -142,6 +144,145 @@ namespace Ceras.HistoricalWriter
             foreach (var fixture in InheritedMemberFixtures()) yield return fixture;
             foreach (var fixture in AbstractBaseFixtures()) yield return fixture;
             foreach (var fixture in OpaqueFixtures()) yield return fixture;
+            foreach (var fixture in PositionalFixtures()) yield return fixture;
+        }
+
+        /// <summary>
+        /// A serializer for the positional context, and one whose root is the positional value itself.
+        /// The root shape is declared per call because the <c>Rest</c> fixture's type is a closed
+        /// <c>ValueTuple</c>, which is not a declared type in the model at all.
+        /// </summary>
+        static CerasRobustSerializer NewPositionalSerializer(Type rootShape = null)
+            => new(c =>
+            {
+                c.UseGeneratedFormatters(PositionalContext);
+                c.SetUnknownBuildTimestamp();
+                if (rootShape != null) c.DeclareRoot(rootShape);
+            });
+
+        /// <summary>
+        /// The three structural value types the format describes without member names: a
+        /// <c>Nullable&lt;T&gt;</c>, a <c>KeyValuePair&lt;K,V&gt;</c> and the <c>Tuple</c> /
+        /// <c>ValueTuple</c> families. The file records no name for a nullable's value, a pair's key and
+        /// value, or a tuple's items, so a graph that has to describe them faithfully can only record
+        /// positions — which is exactly what these fixtures are for. They are in a context of their own
+        /// so the ids of every fixture already checked in cannot move, and every crate ends in a
+        /// fixed-width <c>uint</c> sentinel so a positional read that is off by a byte is a wrong number
+        /// rather than a load that happens to succeed.
+        /// </summary>
+        static IEnumerable<(string Name, byte[] Bytes)> PositionalFixtures()
+        {
+            // A nullable is a presence byte and then, only when it is there, the value. The value is
+            // written with the *specific* formatter, so it carries no reference marker of its own — and
+            // since `Nullable<T>` constrains T to a struct, what can be there is a scalar's fixed width,
+            // an enum's underlying bits or a whole member list. That is why PresentCoord below is a
+            // member list rather than a fixed width the reader could step over.
+            //
+            // PresentList and AbsentList are *not* nullables and are in the same crate on purpose: C#
+            // cannot express `Nullable<List<int>>` at all (`List<int>?` is `List<int>` with an
+            // annotation and no runtime representation), so a null there is the null reference marker.
+            // Putting both kinds of null in one file is what makes the two tellable apart by something
+            // other than a comment.
+            var nullable = NewPositionalSerializer();
+            yield return ("PositionalNullable.bin", nullable.Save(new NullableCrate
+            {
+                Absent = null,
+                Present = 7,
+                AbsentSpan = null,
+                PresentSpan = new Span { X = 3, Y = 4 },
+                AbsentList = null,
+                PresentList = new List<int> { 5, 6 },
+                Elements = new List<int?> { 8, null, 9 },
+                Named = new Dictionary<string, int?> { ["a"] = 10, ["b"] = null },
+                Sentinel = 0xA5A5A5A5,
+            }, 1));
+
+            // A pair is a key and then a value, with no count in front of them, and *both* positions go
+            // through the writer's reference formatter — so a class key and a collection value each take
+            // their own reference marker. The null string key is string-table index 0: an indexed value
+            // with a null payload, not a recorded null.
+            var pair = NewPositionalSerializer();
+            yield return ("PositionalKeyValuePair.bin", pair.Save(new PairCrate
+            {
+                Pair = new KeyValuePair<string, int>("k", 11),
+                ClassKey = new KeyValuePair<Anchor, List<int>>(new Anchor { Value = 12 }, new List<int> { 13 }),
+                Nested = new KeyValuePair<int?, int?>(14, null),
+                Pairs = new List<KeyValuePair<string, int>>
+                {
+                    new KeyValuePair<string, int>("x", 15),
+                    new KeyValuePair<string, int>(null, 16),
+                },
+                Sentinel = 0x5A5A5A5A,
+            }, 1));
+
+            // The family split. A ValueTuple is a struct: inline, no marker, no cache slot. A Tuple is a
+            // class: behind a marker, registered, and therefore shareable — SharedAgain is the *same*
+            // instance as TuplePair, so its second occurrence has to come back as a back-reference.
+            var tuple = NewPositionalSerializer();
+            var shared = new Tuple<int, string>(42, "shared");
+            yield return ("PositionalTuple.bin", tuple.Save(new TupleCrate
+            {
+                ValueTuplePair = new ValueTuple<int, string>(1, "vt"),
+                TuplePair = shared,
+                Tuples = new List<Tuple<int, string>> { shared, new Tuple<int, string>(2, "other") },
+                SharedAgain = shared,
+                Sentinel = 0xC3C3C3C3,
+            }, 1));
+
+            // The control for the sharing above: a struct is written in full every time and is never
+            // registered, so two equal ValueTuples are two distinct values with two distinct indices.
+            var repeat = NewPositionalSerializer();
+            yield return ("PositionalValueTupleRepeat.bin", repeat.Save(new ValueTupleRepeatCrate
+            {
+                First = new ValueTuple<int, int>(11, 12),
+                Second = new ValueTuple<int, int>(11, 12),
+                Sentinel = 0x3C3C3C3C,
+            }, 1));
+
+            // A two-node cycle closing through a pair's key and through a tuple's item. Both positions
+            // are reference-typed, so the writer registers them and writes the second occurrence as a
+            // back-reference. A cycle through a *nullable* is impossible and is not pinned here: a
+            // Nullable<T> is a struct and takes no slot at all.
+            var nodeSerializer = NewPositionalSerializer();
+            var a = new Node { Sentinel = 1 };
+            var b = new Node { Sentinel = 2, Pair = new KeyValuePair<Node, int>(a, 20), Tup = new Tuple<Node, int>(a, 21) };
+            a.Pair = new KeyValuePair<Node, int>(b, 10);
+            a.Tup = new Tuple<Node, int>(b, 11);
+            yield return ("PositionalCycle.bin", nodeSerializer.Save(a, 1));
+
+            // A polymorphic slot, so the same two tuple families are reached through the Type-value
+            // grammar and interned as a synthesized identity rather than read from the section's entry.
+            var poly = NewPositionalSerializer();
+            yield return ("PositionalPolyValueTuple.bin", poly.Save(new PosPolyCrate
+            {
+                Slot = new ValueTuple<int, string>(21, "pv"),
+                Sentinel = 0x1A1A1A1A,
+            }, 1));
+            yield return ("PositionalPolyTuple.bin", poly.Save(new PosPolyCrate
+            {
+                Slot = new Tuple<int, string>(22, "pt"),
+                Sentinel = 0x2B2B2B2B,
+            }, 1));
+
+            // The `Rest` case, as a root. The CLR spells a tuple of more than seven elements as a
+            // *seven*-argument type whose seventh item is itself a tuple (the C# compiler nests the tail
+            // rather than emitting an eight-argument ValueTuple), and the format's reserved id table
+            // stops at arity seven — so there is no eighth argument and no separate Rest node: the tail
+            // is simply item 6, holding a tuple of its own.
+            //
+            // It is a root by choice, to reach a case the member door cannot: a root value has no member list
+            // around it, so the positional payload *is* the root and the decoder's root-position path
+            // runs over a positional shape rather than only over its member and element paths. A
+            // declared member of this type bakes fine — the canonical-name lookup answers a name the
+            // CLR's parser refuses with a miss rather than treating it as fatal, so a closed generic
+            // with three or more arguments resolves. (Before that change the member door really was
+            // closed: the bake handed such a name straight to `Type.GetType`, which throws rather than
+            // declining, and the root was the only door left.)
+            var tailType = typeof(ValueTuple<int, int, int, int, int, int, ValueTuple<int, int>>);
+            var tail = NewPositionalSerializer(tailType);
+            yield return ("PositionalTupleWithTail.bin", tail.Save(
+                new ValueTuple<int, int, int, int, int, int, ValueTuple<int, int>>(31, 32, 33, 34, 35, 36,
+                    new ValueTuple<int, int>(37, 38)), 1));
         }
 
         /// <summary>

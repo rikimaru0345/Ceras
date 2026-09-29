@@ -16,10 +16,12 @@
 //     numbering is a *different* index space (only values behind a reference marker get a slot). A
 //     decoder that read a marker as an arena index would build a graph that satisfies every rule the
 //     model enforces and is wrong, which is why the cycle test states concrete indices.
-//  3. **The refusals.** The shapes this graph still has no node kind for — the three structural value
-//     types, which the file records no member name for — and the malformed inputs are named precisely
-//     rather than approximated. (A framed custom payload is not one of them: it has a node kind, and
-//     Tests/OldOpaqueGraphTests covers it against the two real fixtures.)
+//  3. **The refusals.** What is left to refuse is a file whose own description cannot be read, and the
+//     malformed inputs, named precisely rather than approximated. Every shape the format can describe has
+//     a node kind now, so nothing is refused for want of one: a framed custom payload is an
+//     `OldOpaqueNode` (Tests/OldOpaqueGraphTests) and the three shapes recorded in positions rather than
+//     under names are an `OldNullableNode` and an `OldPositionalNode` (Tests/OldPositionalGraphTests,
+//     against eight real v5 fixtures).
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
@@ -406,34 +408,13 @@ namespace Ceras.Test
             Assert.True(graph.IndexOf(slot) >= 0);
         }
 
-        // ── 4. The shapes the graph still has no node kind for ─────────────────────────────────
+        // ── 4. Shapes recorded in positions rather than under names ──────────────────────────────
 
-        // What is left here is the set of shapes the file records no member name for at all. A framed
-        // custom payload is not one of them any more: it has a node kind (OldOpaqueNode) that holds the
-        // bytes as the file wrote them, and the two real opaque fixtures are in the sweep above.
-
-        [Theory]
-        [InlineData(WellKnownTypes.Nullable, new[] { WellKnownTypes.Int32 }, "Nullable<T>", false)]
-        [InlineData(WellKnownTypes.KeyValuePair, new[] { WellKnownTypes.String, WellKnownTypes.Int32 }, "KeyValuePair<K,V>", false)]
-        [InlineData(WellKnownTypes.Tuple2, new[] { WellKnownTypes.Int32, WellKnownTypes.String }, "a tuple", true)]
-        [InlineData(WellKnownTypes.VTuple2, new[] { WellKnownTypes.Int32, WellKnownTypes.String }, "a tuple", false)]
-        public void A_Structural_Value_Type_Is_Refused_By_Name_And_Not_Approximated(int definition, int[] args, string shape, bool behindAMarker)
-        {
-            // These are written inline (the value-type ones) or behind a reference marker (the `Tuple`
-            // class), and the file records no member name for any of them, so there is nothing to turn
-            // them into but an invented member list. They are refused, and the refusal says which shape it
-            // is and where it sat.
-            string name = "V1." + definition;
-            var entry = Generic(300, name, definition, args);
-            var bytes = behindAMarker
-                ? Bytes(Leb(300), Bias(Protocol.RefNewValueSameType, Protocol.RefBias))
-                : Leb(300);
-
-            var error = Assert.Throws<CerasSchemaException>(() => Build(new[] { entry }, bytes));
-            Assert.Contains(name, error.Message);
-            Assert.Contains(shape, error.Message);
-            Assert.Contains("no node kind", error.Message);
-        }
+        // Nothing is in this section any more. Every shape `PayloadGrammar.ClassifyPayload` can answer
+        // has a node kind: a framed custom payload is an OldOpaqueNode (Tests/OldOpaqueGraphTests), and
+        // the three the file records no name for at all are an OldNullableNode and an OldPositionalNode
+        // (Tests/OldPositionalGraphTests, against eight real fixtures). What is left to refuse is a
+        // file whose own *description* cannot be read, which is what the next section is.
 
         // ── 5. Malformed input ────────────────────────────────────────────────────────────────
 
@@ -489,6 +470,40 @@ namespace Ceras.Test
             Assert.Contains("4242", error.Message);
             Assert.Contains("member 'Slot'", error.Message);
             Assert.Contains("V1.Holder", error.Message);
+        }
+
+        // The positional shapes are read now, so what is left to refuse about them is a *description*
+        // that cannot be read — and the door for that is the structural invariant, asked before a
+        // payload byte is interpreted, exactly as it is for a collection. These three say the positional
+        // readers go through it rather than past it.
+
+        [Theory]
+        [InlineData(WellKnownTypes.Nullable)]
+        [InlineData(WellKnownTypes.KeyValuePair)]
+        [InlineData(WellKnownTypes.Tuple2)]
+        [InlineData(WellKnownTypes.VTuple2)]
+        public void A_Positional_Shape_With_No_Argument_Is_Refused_Before_Its_Payload(int definition)
+        {
+            // A pair or a tuple with no argument records no position for anything, and a nullable with no
+            // argument records no type for the value its presence byte promises. Either way the shape
+            // describes no payload, so nothing is read: the two bytes after the root id are still there.
+            var entry = Generic(300, "V1.NoArgument", definition, Array.Empty<int>());
+            Assert.Throws<CerasDataCorruptionException>(() => Build(new[] { entry }, Leb(300)));
+        }
+
+        [Theory]
+        [InlineData(WellKnownTypes.Nullable)]
+        [InlineData(WellKnownTypes.KeyValuePair)]
+        [InlineData(WellKnownTypes.Tuple2)]
+        [InlineData(WellKnownTypes.VTuple2)]
+        public void A_Positional_Shape_With_An_Argument_Nothing_Describes_Is_Refused_Before_Its_Payload(int definition)
+        {
+            // The third clause of the invariant, for the positional door: the argument says what a
+            // position holds, so an argument nothing describes is a position with no readable value in it.
+            // The refusal is before the presence byte and before the count-free positions, so the bytes
+            // after the root id are untouched.
+            var entry = Generic(300, "V1.UnknownArgument", definition, new[] { 4242 });
+            Assert.Throws<CerasDataCorruptionException>(() => Build(new[] { entry }, Leb(300)));
         }
 
         [Fact]
@@ -643,15 +658,44 @@ namespace Ceras.Test
         }
 
         [Fact]
-        public void A_Nullable_Root_Is_Refused_By_A_Real_Writers_Bytes()
+        public void A_Nullable_Root_Is_A_Positional_Node_Written_By_A_Real_Writer()
         {
-            // The refusal above is not only for hand-built sections: this build's own writer produces the
-            // file, and the file is a perfectly ordinary v5 save that the graph cannot represent yet.
-            var bytes = Writer(c => c.DeclareRoot<int?>()).Save((int?)7, 1);
-            var error = Assert.Throws<CerasSchemaException>(() => OldFileGraph.Read(bytes));
+            // The same-build control for the eight historical fixtures: this build's own writer produces
+            // the file and this decoder reads it back, so the two are checked against each other on the
+            // grammar rather than against a blob nobody can regenerate. It is a root rather than a member
+            // because that is the one position where the nullable *is* the root value.
+            var graph = OldFileGraph.Read(Writer(c => c.DeclareRoot<int?>()).Save((int?)7, 1));
 
-            Assert.Contains("System.Nullable`1<System.Int32>", error.Message);
-            Assert.Contains("Nullable<T>", error.Message);
+            var nullable = Assert.IsType<OldNullableNode>(graph.Root);
+            Assert.Equal("System.Nullable`1<System.Int32>", nullable.Type.StableName);
+            Assert.Equal(7, ((OldScalar)nullable.Value).Value);
+            Assert.True(graph.IndexOf(nullable) >= 0);
+
+            // The same root with no value: one byte, and a recorded null that takes no index. The graph's
+            // own exact-consumption check is what says the stop is right.
+            var absent = OldFileGraph.Read(Writer(c => c.DeclareRoot<int?>()).Save((int?)null, 1));
+            Assert.Equal(OldNullReason.NullablePresenceByte, Assert.IsType<OldNullNode>(absent.Root).Reason);
+            Assert.Equal(0, absent.NodeCount);
+        }
+
+        [Fact]
+        public void A_ValueTuple_Root_And_A_Tuple_Root_Take_The_Positional_Path_They_Record()
+        {
+            // The family split at the root, where there is no member list to hide behind: a `ValueTuple`
+            // is written inline and a `Tuple` behind a marker, from the same two-item values. Both come
+            // back as one positional node with two positions, and they differ in whether a later
+            // occurrence of the same instance could be a reference — which a root has only once.
+            var valueTuple = OldFileGraph.Read(
+                Writer(c => c.DeclareRoot<ValueTuple<int, string>>()).Save(new ValueTuple<int, string>(1, "solo"), 1));
+            var vt = Assert.IsType<OldPositionalNode>(valueTuple.Root);
+            Assert.Equal(WellKnownTypes.VTuple2, vt.Type.DefinitionTypeId);
+            Assert.Equal(new object[] { 1, "solo" }, vt.Items.Cast<OldScalar>().Select(s => s.Value).ToArray());
+
+            var tuple = OldFileGraph.Read(
+                Writer(c => c.DeclareRoot<Tuple<int, string>>()).Save(new Tuple<int, string>(2, "pair"), 1));
+            var t = Assert.IsType<OldPositionalNode>(tuple.Root);
+            Assert.Equal(WellKnownTypes.Tuple2, t.Type.DefinitionTypeId);
+            Assert.Equal(new object[] { 2, "pair" }, t.Items.Cast<OldScalar>().Select(s => s.Value).ToArray());
         }
 
         // ── helpers ───────────────────────────────────────────────────────────────────────────
