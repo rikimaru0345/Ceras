@@ -185,6 +185,9 @@ same-version roundtrip.
   `Load`'s slow path. Never copy the
   current reader's `FullNameMarker` lookup that uses a current registry id against
   the file's id table — those id spaces are independent; resolve by file identity.
+  `MigrationPlanBuilder.Coerce` and `CtorArgumentValues` are now shared helpers for
+  the current reader and future materializer. Resolve the identified constructor
+  write-back parity bug before relying on constructor results from both readers.
   `OldOpaqueNode` now retains v5 framed payloads. Add honest positional nodes for
   nullable, key/value pair and tuple values before claiming broader graph coverage.
   **Done isolation gate:** a CRC-valid file with a poisoned schema section still loads
