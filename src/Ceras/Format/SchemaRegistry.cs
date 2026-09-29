@@ -72,8 +72,9 @@ namespace Ceras.Format
         // The types this context writes through a *user* custom formatter, and therefore whose payload is
         // an opaque block rather than a member list. Reconciled from the config's formatter assignments
         // by RobustCustomFormatterPolicy.Reconcile — at context setup and again before every Save/Load,
-        // because a type config seals lazily and a formatter can be installed after the serializer was
-        // constructed. See Format/LAYOUT.md, "A user custom formatter's payload is an opaque block".
+        // because a serializer seals its config when it is constructed, so the only formatter that can
+        // still be installed after that is the one OnConfigNewType puts on the type it is handed. See
+        // Format/LAYOUT.md, "A user custom formatter's payload is an opaque block".
         readonly Dictionary<Type, OpaqueSelection> _opaqueSelections = new();
 
 		// The configured type binder, installed once at context setup (CerasRobustConfig.Seal). It is the
@@ -619,8 +620,9 @@ namespace Ceras.Format
 						$"Cannot change the custom formatter for '{TypeIdentity.GetCanonicalName(type)}' now: this context's manifest was already " +
 						"sealed and baked by an earlier Save/Load. The schema section a save carries and the layout fingerprint that chooses the " +
 						"reader are both computed once, from the manifest as it stood at that moment, so a formatter selected after it cannot be " +
-						"described by either. Configure the custom formatter before the first Save/Load (in the serializer's configure callback, or " +
-						"in OnConfigNewType), and rebuild.");
+						"described by either. Configure the custom formatter before the first Save/Load - in the serializer's configure callback, or " +
+						"for a type Ceras only discovers at runtime from OnConfigNewType, which is the one door that still takes an assignment after the " +
+						"serializer was constructed - and rebuild.");
 
 				_opaqueSelections[type] = new OpaqueSelection(formatterName, writtenInline);
 				if (_byType.TryGetValue(type, out var entry))

@@ -47,8 +47,16 @@ namespace Ceras.Format
     /// <para>
     /// What is <em>not</em> refused any more: an overridden type that also has a generated formatter (the
     /// sharpest form of the old argument — its entry becomes opaque, so the schema stops advertising members
-    /// the payload does not contain), a value type as well as a class, and a formatter installed after the
-    /// serializer was constructed but before the first save.
+    /// the payload does not contain), a value type as well as a class, and a formatter installed for a type
+    /// Ceras discovers after the serializer was constructed, from <c>OnConfigNewType</c>.
+    /// </para>
+    /// <para>
+    /// That last one is deliberately narrow, and it is the whole of what a post-construction install can
+    /// be. A serializer seals its config when it is constructed, so every direct assignment to a type
+    /// configuration is refused from that point on; <c>OnConfigNewType</c> is the one door left, opened for
+    /// one type and closed again when it returns. A selection made through it is honoured only while the
+    /// manifest has not been sealed and baked by an earlier Save/Load: afterwards the registry refuses to
+    /// record it, and a type joining a baked manifest is refused too (<see cref="SchemaRegistry.Register"/>).
     /// </para>
     /// <para>
     /// <b>The residual limit, unchanged and not widened.</b> <see cref="SchemaRegistry.Register"/> is
@@ -78,14 +86,18 @@ namespace Ceras.Format
         /// <summary>
         /// Brings the manifest into agreement with the formatters this config actually has, and refuses
         /// the selections the format cannot record. Called at context setup and again before every
-        /// Save/Load: a type config is sealed lazily (on the type's first use), so a formatter can still
-        /// be installed after the serializer was constructed but before the first save.
+        /// Save/Load. A serializer seals its config when it is constructed, so a direct assignment after
+        /// that is refused rather than half-applied; the one thing that can still add a formatter after
+        /// the setup-time check is <c>OnConfigNewType</c>, which configures precisely the type it is
+        /// handed and only while it runs — and only while the manifest has not been sealed and baked by an
+        /// earlier Save/Load, because a selection made after that can be described by neither the schema
+        /// section nor the fingerprint.
         /// <para>
         /// The scan is O(configured types) and runs before every Save/Load, so it is skipped while
         /// nothing has been assigned since the last <em>successful</em> check — a robust context cannot
         /// gain or lose a formatter without going through the <see cref="TypeConfig.CustomFormatter"/>
-        /// setter, which bumps the counter, so a late change can never be missed. The counter is only
-        /// advanced once the scan has passed, so a context that has already been caught keeps failing.
+        /// setter, which bumps the counter, so that door cannot slip past the check either. The counter is
+        /// only advanced once the scan has passed, so a context that has already been caught keeps failing.
         /// </para>
         /// </summary>
         public static void Reconcile(CerasRobustConfig config)

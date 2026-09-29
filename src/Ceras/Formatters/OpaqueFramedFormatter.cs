@@ -29,9 +29,14 @@ namespace Ceras.Formatters
 	{
 		/// <summary>
 		/// The user custom formatter whose bytes the frame wraps. Not injected and not resolved: it is
-		/// the instance the serializer picked for the framed type at the moment the wrap was decided
-		/// (<c>CerasSerializer.WrapOpaqueIfSelected</c>), and a formatter installed after that point
-		/// belongs to the next save, not to this one.
+		/// the instance the serializer picked for the framed type when that type's specific formatter was
+		/// resolved (<c>CerasSerializer.WrapOpaqueIfSelected</c>), and it is final for the life of the
+		/// serializer. A formatter can only be installed through <see cref="TypeConfig.CustomFormatter"/>,
+		/// a serializer seals its config when it is constructed, and the one door that survives that seal
+		/// (<c>OnConfigNewType</c>) fires only for a type that has no configuration yet — which is a type
+		/// whose specific formatter has not been resolved either. A formatter installed through that door is
+		/// therefore picked up by the very resolution above rather than by some later save, and a frame that
+		/// has been built is never left wrapped around a formatter that has since been replaced.
 		/// </summary>
 		protected readonly IFormatter Inner;
 

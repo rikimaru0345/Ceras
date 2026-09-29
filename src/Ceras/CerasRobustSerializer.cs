@@ -334,11 +334,14 @@ namespace Ceras
         {
             var registry = _config.SchemaRegistry;
 
-            // Re-run the reconciliation: a type config is sealed lazily, so a custom formatter can still
-            // be installed after the serializer was constructed (the setup-time check in
-            // CerasRobustConfig.Seal only sees what was configured before it). The manifest has to
-            // describe every value this save writes, and which formatter wrote a type's value is now
-            // part of that description and of the layout fingerprint.
+            // Re-run the reconciliation. A serializer seals its config when it is constructed, so every
+            // direct assignment afterwards is refused rather than half-applied and the setup-time check
+            // in CerasRobustConfig.Seal does not miss a formatter the application wanted to install. What
+            // it cannot have seen is the one post-seal door, OnConfigNewType, which still configures
+            // precisely the type it is handed and only while it runs. The manifest has to describe every
+            // value this save writes, and which formatter wrote a type's value is part of that description
+            // and of the layout fingerprint - so a selection that arrives too late for the manifest to
+            // record is refused here rather than applied (SchemaRegistry.ApplyOpaqueSelection).
             RobustCustomFormatterPolicy.Reconcile(_config);
 
             // Declare the root (normally via the generated manifest) and seal. A context has one
@@ -542,9 +545,10 @@ namespace Ceras
 
             var registry = _config.SchemaRegistry;
 
-            // Same gate as Save: a formatter installed after construction has to be reconciled with the
-            // manifest before this file is read, because the manifest is what describes the values in it
-            // (see RobustCustomFormatterPolicy).
+            // Same gate as Save: a formatter OnConfigNewType installed for the type it was handed after
+            // the serializer was constructed has to be reconciled with the manifest before this file is
+            // read, because the manifest is what describes the values in it (see
+            // RobustCustomFormatterPolicy).
             RobustCustomFormatterPolicy.Reconcile(_config);
 
             // Validate magic/version and the full section-offset envelope before any offset is used to

@@ -792,7 +792,11 @@ path that writes the type — a root, a member, a collection element, a dictiona
 item, a polymorphic slot — and read back through the same frame, with no generated code and no
 collection/array special case. Two conditions, both required: the config is a robust one, and the
 manifest holds an opaque selection for the type (recorded by `RobustCustomFormatterPolicy.Reconcile` at
-context setup and again before every `Save`/`Load`, because a type config seals lazily).
+context setup and again before every `Save`/`Load`). The re-run exists because a serializer seals its
+config when it is constructed — so a direct assignment afterwards is *refused*, not ignored — while
+`OnConfigNewType` is the one door that still installs a formatter, for precisely the type the callback is
+handed and only while it runs. A selection made through that door is honoured only until the manifest is
+sealed and baked by an earlier `Save`/`Load`; see [What is still refused](#what-is-still-refused) below.
 
 A **raw/transient** context is unaffected: nothing is described there and nothing has to be accounted
 for, so its custom formatter's bytes are exactly what they always were.
@@ -813,10 +817,17 @@ before any user configuration is consulted, so such a formatter would be silentl
 `Type` are the two exceptions there, and a robust context owns both of them itself
 (`RobustStringFormatter` / `RobustTypeFormatter`).
 
-A formatter selection may also not be changed after the seal: the schema section and the fingerprint are
-both computed once, from the manifest as it stood at that moment, so a formatter selected afterwards
-cannot be described by either. In an ordinary graph the type config's own seal gets there first, with
-`ConfigurationSealedException`; the registry's refusal is the layer that owns the frozen region.
+A formatter selection may also not be changed once the manifest has been sealed and baked: the schema
+section and the fingerprint are both computed once, from the manifest as it stood at that moment, so a
+formatter selected afterwards cannot be described by either. **Which layer refuses depends on what the
+context already knows about the type, and the two are not interchangeable.** A type configured before the
+serializer was constructed has a type configuration that closes the moment the serializer exists, so the
+change is refused there (`ConfigurationSealedException`) and the registry is never reached. The one type
+that can still be given a formatter afterwards is the one `OnConfigNewType` is handed — that window is
+opened and closed around the call, for that one type — and there the registry's refusal is the one that
+fires. A type that has not joined the manifest cannot be given an entry after the seal either
+(`SchemaRegistry.Register`), so one that first appears late can be given neither a formatter nor a place in
+the manifest.
 
 ### **Not expressible: rebasing a value against load time.**
 

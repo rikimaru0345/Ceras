@@ -63,7 +63,11 @@ namespace Ceras
 		/// it is asked about rather than assumed.
 		/// </para>
 		/// <para>
-		/// Set it before the first <c>Load</c>, like every other setting on this config.
+		/// Set it in the serializer's 'configure' callback, or on the config object before you hand it to
+		/// one, like every other setting on this config: a serializer seals the config when it is
+		/// constructed, so a change made after that is refused rather than applied for some loads and
+		/// ignored for others. The decision is read once, per load, so "before the first Load" is not late
+		/// enough — it has to be earlier than that.
 		/// </para>
 		/// </summary>
 		public bool AllowDroppingCustomPayloads
@@ -88,6 +92,13 @@ namespace Ceras
 		/// same registration. Both are order-independent: the shapes are folded in at the first seal in
 		/// canonical-name order, so two serializers that declare the same roots in different order produce
 		/// the same ids, fingerprint and bytes.
+		/// </para>
+		/// <para>
+		/// The deadline here is the manifest's rather than the config's, and that is deliberate. A serializer
+		/// seals its config when it is constructed — every setting on this class is refused from then on —
+		/// but the manifest it writes seals later, at the first <c>Save</c>/<c>Load</c>, so this is the one
+		/// declaration that keeps working after a serializer already exists. Once <em>that</em> has happened it
+		/// is refused as well: the manifest is a single frozen set for the context's whole lifetime.
 		/// </para>
 		/// </summary>
 		public CerasRobustConfig DeclareRoot(Type rootType)
