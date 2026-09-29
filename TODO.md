@@ -160,9 +160,10 @@ same-version roundtrip.
 - Connect the old-data graph node model (`OldDataGraph.cs`, plus generic
   `IdentityCache<T>`) to the production migration path, expose the populated graph to
   application migration code, then materialize current objects without historical CLR
-  types. `OldFileGraph` now builds a file-faithful graph for 50 checked-in structural v5
-  fixtures, preserving first-occurrence indices and cycles; opaque and positional
-  composite shapes refuse until their node kinds exist. Production `Load` still uses
+  types. `OldFileGraph` now builds a file-faithful graph for all 52 checked-in v5
+  fixtures, preserving first-occurrence indices and cycles; opaque frames are retained
+  as immutable byte records, while positional composite shapes still refuse until
+  their node kinds exist. Production `Load` still uses
   the streaming reader and does not construct the graph. Pin matching-layout allocations
   and ensure this work cannot put graph construction on the generated-reader path.
   **Done interim fail-loud gate:** the streaming reader distinguishes explicitly
@@ -177,8 +178,8 @@ same-version roundtrip.
   `Load`'s slow path. Never copy the
   current reader's `FullNameMarker` lookup that uses a current registry id against
   the file's id table — those id spaces are independent; resolve by file identity.
-  Add an `OldOpaqueNode` for v5 framed payloads, and honest positional nodes for
-  nullable, key/value pair and tuple values, before claiming broader graph coverage.
+  `OldOpaqueNode` now retains v5 framed payloads. Add honest positional nodes for
+  nullable, key/value pair and tuple values before claiming broader graph coverage.
   Pin zero graph builds and zero schema parses on
   the fingerprint-matched generated path with exact counters, plus a representative
   allocation check; do not let migration cost leak into matching-layout loads.
