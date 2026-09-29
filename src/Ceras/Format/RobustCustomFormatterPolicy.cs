@@ -234,6 +234,43 @@ namespace Ceras.Format
         }
 
         /// <summary>
+        /// Whether this formatter is <b>the context's own</b> for <paramref name="type"/> — the half of
+        /// <see cref="Classify"/> that decides a formatter's bytes are already described, and is exposed
+        /// because the two resolver doors ask the same question at the same moment
+        /// (<see cref="RobustResolverPolicy"/>). It is exactly the identity rule a configured formatter is
+        /// held to: the generator's static <c>Schema</c> field, holding the very instance this context's
+        /// manifest holds for the type. A formatter that declares no such field is not the context's own,
+        /// and neither is one whose declaration disagrees with the entry.
+        /// <para>
+        /// False is the answer for every hand-written formatter, including one that declares a
+        /// generated-looking field or is declared in <c>Ceras.Generated</c> under a generated-looking
+        /// name — neither makes it this context's formatter. That is what lets the same rule serve both
+        /// doors without either becoming a naming convention.
+        /// </para>
+        /// </summary>
+        public static bool IsContextOwnFormatter(IFormatter formatter, Type type, SchemaRegistry registry)
+        {
+            if (formatter == null) throw new ArgumentNullException(nameof(formatter));
+            if (type == null) throw new ArgumentNullException(nameof(type));
+            if (registry == null) throw new ArgumentNullException(nameof(registry));
+
+            // The library's own schema-aware string/Type formatters, on type alone: they are
+            // `internal sealed`, so nothing outside Ceras can be one, and they have to qualify this way
+            // because `string` and `System.Type` are well-known fixed ids rather than manifest entries,
+            // so there is no manifest entry to match them against.
+            if (formatter is RobustStringFormatter || formatter is RobustTypeFormatter)
+                return true;
+
+            if (!TryGetDeclaredSchema(formatter.GetType(), out var declared))
+                return false;   // a hand-written formatter declares no schema, by construction
+
+            if (!registry.TryGetInfo(type, out var registered))
+                return false;   // nothing for that declaration to be identical to
+
+            return ReferenceEquals(declared, registered);
+        }
+
+        /// <summary>
         /// What a configured formatter is, for this context. Three answers, and the middle one is the
         /// identity check: a formatter that declares the generator's <c>Schema</c> field <em>is</em> a
         /// generated formatter and is held to the instance the manifest holds, not taken on trust.

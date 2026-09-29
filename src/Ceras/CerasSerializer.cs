@@ -712,6 +712,43 @@ namespace Ceras
 		}
 
 		internal IFormatter GetSpecificFormatter(Type type) => GetSpecificFormatter(type, GetTypeMetaData(type));
+		/// <summary>
+		/// Prepares <paramref name="formatter"/> and caches it as this type's specific formatter, clearing
+		/// the cache again if preparation fails.
+		/// <para>
+		/// The cache is written <em>before</em> <see cref="PrepareFormatter"/> and not after it, and that
+		/// ordering is load-bearing rather than incidental: preparation resolves the formatters this one
+		/// declares as fields, including a field typed to its own class, so a cache that was not yet
+		/// written would make that lookup resolve this type afresh and prepare it again, forever.
+		/// </para>
+		/// <para>
+		/// The cost of getting the order right is that a preparation which throws leaves a half-prepared
+		/// formatter cached, and every later lookup returns it without preparing or checking it again —
+		/// so the next save or load on the same serializer fails somewhere inside that formatter instead of
+		/// at the decision that caused it. Preparing a formatter resolves formatters for its own member
+		/// types, so one of those can refuse (a resolver selection in a robust context does exactly that),
+		/// which is how a refused operation leaves the serializer holding a formatter with a null injected
+		/// field. Clearing the entry on the way out is what makes a refusal leave nothing behind: the next
+		/// operation reaches the same decision and is refused the same way.
+		/// </para>
+		/// </summary>
+		IFormatter PrepareAndCache(Type type, TypeMetaData meta, IFormatter formatter)
+		{
+			meta.SpecificFormatter = formatter;
+			try
+			{
+				PrepareFormatter(formatter);
+			}
+			catch
+			{
+				// Only this entry: whatever preparation got as far as resolving is legitimately cached and
+				// was resolved normally.
+				meta.SpecificFormatter = null;
+				throw;
+			}
+			return formatter;
+		}
+
 		IFormatter GetSpecificFormatter(Type type, TypeMetaData meta)
 		{
 			if (meta.SpecificFormatter != null) return meta.SpecificFormatter;
@@ -730,13 +767,81 @@ namespace Ceras
 			var typeConfig = meta.TypeConfig;
 			if (typeConfig != null)
 			{
-				if (typeConfig.CustomFormatter != null) { var installed = WrapOpaqueIfSelected(typeConfig.CustomFormatter, type); meta.SpecificFormatter = installed; FormatterHelper.ThrowOnMismatch(installed, type); PrepareFormatter(installed); return installed; }
-				if (typeConfig.CustomResolver != null) { var f = typeConfig.CustomResolver(this, type); meta.SpecificFormatter = f ?? throw new InvalidOperationException("Null formatter"); FormatterHelper.ThrowOnMismatch(meta.SpecificFormatter, type); PrepareFormatter(meta.SpecificFormatter); return meta.SpecificFormatter; }
+				if (typeConfig.CustomFormatter != null) { var installed = WrapOpaqueIfSelected(typeConfig.CustomFormatter, type); FormatterHelper.ThrowOnMismatch(installed, type); return PrepareAndCache(type, meta, installed); }
+				if (typeConfig.CustomResolver != null)
+				{
+					var f = typeConfig.CustomResolver(this, type);
+
+					// A resolver that returns nothing has not selected a formatter; unchanged behaviour, and
+					// asked before the guard so the two cannot be confused for one another.
+					if (f == null) throw new InvalidOperationException("Null formatter");
+
+					// Before this formatter is used for a byte, and — the part that is load-bearing — before
+					// it is cached. A resolved formatter is returned from the cache by every later lookup
+					// without consulting anything, so a refusal raised after the cache was written would
+					// leave the refused formatter sitting in it: the next save on the same serializer would
+					// take that cache, skip this guard entirely, and write the very payload this one
+					// refused. Nothing is cached until the selection has been accepted.
+					//
+					// Asked here, and not one line earlier, because this is the first moment the answer
+					// exists at all: a resolver is called from inside the operation, after the
+					// reconciliation at its top and after the manifest was sealed and baked, so there is
+					// nowhere left to record the selection even in principle. Only a robust context asks; a
+					// raw one describes nothing and has nothing to refuse.
+					RequireResolverSelectionIsDescribable(f, type, RobustResolverPolicy.Door.CustomResolver, typeConfig.CustomResolver);
+
+					FormatterHelper.ThrowOnMismatch(f, type);
+					return PrepareAndCache(type, meta, f);
+				}
 			}
-			if (!meta.IsPrimitive) foreach (var r in _userResolvers) { var f = r(this, type); if (f != null) { meta.SpecificFormatter = f; FormatterHelper.ThrowOnMismatch(f, type); PrepareFormatter(f); return f; } }
-			foreach (var r in _resolvers) { var f = r.GetFormatter(type); if (f != null) { meta.SpecificFormatter = f; PrepareFormatter(f); return f; } }
-			var df = _dynamicResolver.GetFormatter(type); if (df != null) { meta.SpecificFormatter = df; PrepareFormatter(df); return df; }
+			if (!meta.IsPrimitive)
+			{
+				// The index is the callback's position in the configured list, and the refusal names it, so a
+				// caller with several entries can tell which one selected the formatter.
+				for (int i = 0; i < _userResolvers.Length; i++)
+				{
+					var f = _userResolvers[i](this, type);
+					if (f == null) continue;
+
+					// The same guard as the CustomResolver door above, and for the same two reasons: nothing
+					// about this callback's answer is recorded anywhere in the file, and the cache below is
+					// written only once the selection has been accepted — a refusal must leave nothing a
+					// later lookup would return without asking again. This loop is also how the built-in
+					// resolvers Ceras installs itself (UseImmutableFormatters) deliver their formatters,
+					// which is why the exemption is asked here rather than assumed absent.
+					RequireResolverSelectionIsDescribable(f, type, RobustResolverPolicy.Door.OnResolveFormatter(i), _userResolvers[i]);
+
+					FormatterHelper.ThrowOnMismatch(f, type);
+					return PrepareAndCache(type, meta, f);
+				}
+			}
+			foreach (var r in _resolvers) { var f = r.GetFormatter(type); if (f != null) return PrepareAndCache(type, meta, f); }
+			var df = _dynamicResolver.GetFormatter(type); if (df != null) return PrepareAndCache(type, meta, df);
 			throw new NotSupportedException("No formatter for " + type.FullName);
+		}
+
+		/// <summary>
+		/// Refuses a formatter a <em>resolver</em> selected, unless this context can already describe the
+		/// bytes it would write — and asks nothing of a raw/transient context, which describes nothing and
+		/// so has nothing to record and nothing to refuse.
+		/// <para>
+		/// This is the resolver counterpart of <see cref="WrapOpaqueIfSelected"/> and it is asked at the
+		/// same moment: the one place a formatter is chosen for a type, before the value has a byte. The
+		/// difference is the outcome. A configured <see cref="TypeConfig.CustomFormatter"/> can be framed
+		/// and recorded, so it is honoured; a resolver's answer cannot be, because the manifest is sealed
+		/// and baked by the time the resolver has been asked — so it is refused rather than written
+		/// invisible. <see cref="Format.RobustResolverPolicy"/> states the rule and what is exempt.
+		/// </para>
+		/// <para>
+		/// The raw case is the zero-change guarantee, and it is the whole of it: the check is behind
+		/// <c>Config is CerasRobustConfig</c>, so a raw context reaches the identical line with the
+		/// identical formatter it always did.
+		/// </para>
+		/// </summary>
+		void RequireResolverSelectionIsDescribable(IFormatter formatter, Type type, RobustResolverPolicy.Door door, FormatterResolverCallback resolver)
+		{
+			if (Config is CerasRobustConfig robust)
+				RobustResolverPolicy.RequireSelectionIsDescribable(robust, formatter, type, door, resolver);
 		}
 
 		/// <summary>
