@@ -249,9 +249,10 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
   raw-serialization tests now use real `Save`/`Load`. The post-seal mutation doors
   (`OnResolveFormatter`, `ConfigType*`, `MapParameters`, the live member list) are
   closed and regression-tested.
-- Guard the public pooled `Serialize` overload against caller-owned buffers: it currently
-  treats a replacement buffer as pooled, so a mistaken ownership flag can offer a caller's
-  array to another renter. Keep the ownership contract explicit and pin the failure path.
+- **Done:** pooled writes now verify outstanding rental ownership at entry, before
+  growth and on return. Caller-owned arrays and double returns refuse rather than
+  allowing a foreign array to enter the shared pool; the warmed pooled write loop
+  remains allocation-free. Keep checking this contract in network benchmarks.
 - Update README/tutorials/samples/format docs with verified contracts and remove
   obsolete runtime-generation, universal-type, Unity/AOT and diagnostic claims.
 - Review concrete formatter selection and unsupported-type diagnostics against
