@@ -8,6 +8,8 @@
 //                                     *closed* canonical names a file actually contains.
 //   * GenericMemberOrderTests       - the member order a closed schema records, which is fixed by the
 //                                     definition's one shared writer rather than by the closure.
+//                                     `MemberOrderUnificationTests` owns the sort key the two writers
+//                                     share, and the fixtures' bytes move when that key does.
 //
 // The two v1 generics they each need are shaped so the two questions do not interfere: the renamed
 // generics in v1 have a single member (so their member order cannot disagree with itself), and the
@@ -93,10 +95,12 @@ namespace Ceras.Test.GenericAliasFixtures
     }
 
     /// <summary>
-    /// v1's <c>Legacy.Wrap`1</c>: the generic whose member order depends on its type argument, and the
-    /// only one whose v1 twin has more than one member. Closed over <see cref="Coord"/> - a name that
-    /// sorts before <c>System.Int32</c> - the <em>closed</em> members would sort <c>Value</c> before
-    /// <c>Tag</c>, while the definition's one shared writer emits <c>Tag</c> first.
+    /// v1's <c>Legacy.Wrap`1</c>: the generic whose member order is fixed by its definition rather than
+    /// by the closure, and the only one whose v1 twin has more than one member. A member declared as a
+    /// type parameter sorts under its <em>position</em> (<c>!0</c>), which is below every real type
+    /// name, so the definition's one shared writer emits <c>Value</c> before <c>Tag</c> for every
+    /// argument — including <c>Wrap&lt;string&gt;</c>, where the substituted order would be the other
+    /// way round and no single writer could satisfy both.
     /// </summary>
     [CerasContext("GenericAliasV2")]
     [CerasSerializable]

@@ -30,9 +30,28 @@ namespace Ceras.SourceGenerator {
 			genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
 			miscellaneousOptions: SymbolDisplayMiscellaneousOptions.ExpandNullable);
 
-		public static readonly SymbolDisplayFormat SortKeyFormat = new(
-			typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
-			genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters);
+		/// <summary>
+		/// The order a type's members are written in: <see cref="GetRobustName"/> of the member's type,
+		/// then its own name, then the canonical name of its declaring type, then <c>"f"</c> or <c>"p"</c>
+		/// for a field or a property. Ordinal — and the same total order the runtime's
+		/// <c>Ceras.Helpers.SchemaMemberComparer</c> computes, which is the point: one spelling, one
+		/// order, so the generated writer and the reflection fallback write the same bytes.
+		/// <para>
+		/// It has to be the *canonical* name rather than a Roslyn display string, because the two
+		/// spellings of one type sort differently — <c>(int, string)</c> against
+		/// <c>ValueTuple`2[[int, …]]</c>, <c>int?</c> against <c>Nullable`1[[int, …]]</c>,
+		/// <c>Outer.Inner</c> against <c>Outer+Inner</c> — and the runtime has no display string to
+		/// use. <c>SchemaMemberComparer</c> says the same thing from its side.
+		/// </para>
+		/// <para>
+		/// Each member's <em>own</em> declaring type, not the type being formatted, so an inherited
+		/// member sorts the same on both sides. A member's wire name ([CerasStableName],
+		/// [PreviousName]) is not in the key: the order follows the CLR name, so renaming a member on
+		/// the wire does not move it.
+		/// </para>
+		/// </summary>
+		public static string MemberSortKey(SerializedMember m)
+			=> GetRobustName(m.Type) + m.Name + GetRobustName(m.DeclaringType) + (m.IsField ? "f" : "p");
 
 		public static string MakeFormatterClassName(INamedTypeSymbol type)
 			=> SanitizeIdentifier(type.ToDisplayString(FullyQualifiedNoGlobal)) + "Formatter";
