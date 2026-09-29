@@ -212,6 +212,15 @@ namespace Ceras.Format
         /// The name the file used, verbatim, whether or not this build still has a type by that name.
         /// Never the current type's name: a value that resolved to a renamed type keeps the old spelling
         /// here, which is what makes the file's record auditable.
+        /// <para>
+        /// <b>The one exception, and it is deliberate.</b> An identity a decoder synthesizes for a shape
+        /// the file recorded as a <c>Type</c> <em>value</em> has no spelling to keep: the writer wrote a
+        /// recursive tag structure, not a name. Such an identity carries the shape's synthesized
+        /// diagnostic name (see <see cref="TypeValueShapes"/>) rather than a type name, so a report that
+        /// prints one prints the structure it was built from instead of a name that would have to be
+        /// invented. Every identity the file's own schema section describes — a type, a closed
+        /// instantiation, a well-known shape, an enum — carries the file's own spelling with no exception.
+        /// </para>
         /// </summary>
         public string StableName { get; }
 
