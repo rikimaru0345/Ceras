@@ -61,7 +61,11 @@ Ordinary CI never builds or runs this project; it only reads the checked-in file
 | Root other than the save | `PlayerCycle.bin`, `Inventory.bin` | `Player` / `Inventory` as the root | each loaded on its own |
 | Construction through a factory/pool | `RelicVault.bin`, `Relic.bin` | v1's `Relic.AncientName` / `Charm.Sigil` | removed; `Charge` `int` → `long`; a **self-cycle** through the pooled type |
 | Sealed type first met through a polymorphic slot | `Relic.bin` | `Relic.Owner : object` holding the `Charm` | the same instance is built once and shared with `RelicVault.Token` |
-| Three contexts, independent id spaces | all | `HistoricalV1`, `HistoricalV1Pooled`, `HistoricalV1EnumNames` | each model is a context of its own, so its ids cannot shift another context's fixtures |
+| A `[CerasConstructor]` that rewrites what it is handed | `CtorLedgerBook.bin`, `CtorLedgerRow.bin` | v1's `Ledger` had no constructor; `Amount = -5` | a clamping constructor — the file's value is what the object ends up with, on both readers |
+| A constructor that drops a *reference* argument | `CtorLedgerBook.bin` | `Cover.Inner` **is** `Main`, and `Main.Twin` is `Main` | the shared instance and its cycle survive the constructor |
+| Independent id spaces | all | one context per model, `HistoricalV1`, `HistoricalV1Pooled`, `HistoricalV1Ctor`, `HistoricalV1Positional`, … | each model is a context of its own, so its ids cannot shift another context's fixtures |
+
+The constructor-argument and positional families each have their own section below, with the full tables.
 
 Each model has its own serialization context (`HistoricalV1`, `HistoricalV1Pooled`,
 `HistoricalV1EnumNames`), because a context has one finite manifest: adding types to one of them would
@@ -351,6 +355,48 @@ name straight to `Type.GetType`, which *throws* rather than declining for a name
 three or more entries — and the root was the only door left. That was a writer-side limitation, reported
 rather than worked around here, and it is now gone.
 
+## The constructor-argument fixtures (`V1CtorModel.cs`)
+
+A type that has gained a `[CerasConstructor]` whose parameters come out of the payload, in its own context
+(`HistoricalV1Ctor`). The rule these files exist for is that a `[CerasConstructor]` is a **construction
+input, not an assignment**: the generated reader reads every member into a local, runs the constructor, and
+then writes *all* of the locals back ("if it was a constructor parameter, it's already set (for classes).
+But for consistency and to handle readonly fields… we write it anyway"), so a constructor that normalizes,
+clamps, drops or reorders what it was handed cannot change the result. The migration interpreter used to
+hold back the members a parameter fed, which made the same save load into two different objects depending on
+which reader read it.
+
+`Ledger`'s constructor **clamps** and `Cover`'s **drops** its argument, and the drop is the case a value
+comparison cannot make: `Cover.Inner` is a *reference* the file shares with `LedgerBook.Main`, so the only
+evidence that the stored value was put back is that the shared instance came back as the shared instance,
+with the self-cycle through it intact. A reader that left the drop standing returned a load that reported
+success with the graph's sharing broken.
+
+The file has to be a real cross-version one, so the current model changes the schema in a way the
+**fingerprint** notices: `Retired` is removed and `Label` is added. A rename alone would not have been
+enough — the layout fingerprint hashes the member list and each member's name and type, but *not* its
+`previousNames`, so a renamed member on its own fingerprints the same and would have taken the generated
+reader. Its own context for the reason every other family here has one: a context's manifest is fingerprinted
+and id-numbered as a whole, so a type added to a shared context would change the bytes of every fixture
+already written through it. `HistoricalV1Ctor` is independent of `HistoricalV1Positional` above, so neither
+family's fixtures can move the other's ids.
+
+| Aspect | Fixture | Old (v1) | Current |
+| --- | --- | --- | --- |
+| Constructor that normalizes its argument | `CtorLedgerBook.bin`, `CtorLedgerRow.bin` | `Ledger.Amount = -5`, and v1's `Ledger` had **no** constructor at all | `Ledger(int amount)` clamps a negative value to `0` — the file's `-5` is what the object ends up with |
+| Constructor that drops a *reference* argument | `CtorLedgerBook.bin` | `Cover.Inner` **is** `LedgerBook.Main` | `Cover(Ledger inner)` sets `Inner = null`; the shared instance is assigned back after the constructor returns |
+| Constructor that rewrites a member it was *not* handed | `CtorLedgerBook.bin` | `Cover.Count = 3` | `Cover`'s constructor sets `Count = -1` — the file's `3` is what the object ends up with |
+| Member renamed | both | `Ledger.Note` | `Memo` via `[PreviousName]`, *behind* the removed member |
+| Member removed | both | `Ledger.Retired : int` | gone — its four bytes are skipped, and `Memo` behind them is the witness |
+| Member added | both | v1 wrote no `Label` | `Label = "current"` — assigned by nothing, so it keeps the construction's value |
+| Sharing across the constructor | `CtorLedgerBook.bin` | one ledger row in `Main`, in `Wrap.Inner`, and as its own `Twin` | one instance, all three references, cycle intact |
+| The same, as a root | `CtorLedgerRow.bin` | the row on its own | the claim does not depend on the crate being read — the reason `PlayerCycle.bin` exists |
+
+The reader-side counterpart is `tests/Ceras.Test/Tests/HistoricalCtorFixtureTests.cs`. The member shapes a
+v1 file cannot carry — a `readonly` field, a get-only and an init-only auto-property, a private field behind
+a private constructor — are the same-layout cross-check in
+`tests/Ceras.Test/Tests/ConstructorRewriteMemberTests.cs`.
+
 ## Changing a fixture
 
 1. Change the old model: `V1Model.cs` for the `HistoricalV1` context, `V1OpaqueModel.cs` for the
@@ -360,6 +406,7 @@ rather than worked around here, and it is now gone.
    `HistoricalV1ArraySlot` one, `V1ArrayShapeModel.cs` / `V1ArrayShapeSameModel.cs` for the
    declared-array-shape ones, `V1NestedArrayModel.cs` for the nested-argument ones,
    `V1AbstractBaseModel.cs` for the abstract/interface-base one,
+   `V1CtorModel.cs` for the constructor-argument one,
    `V1PositionalModel.cs` for the `HistoricalV1Positional` one and
    `V1InheritedMemberModel.cs` for the inherited-member ones (two contexts). Each lives in its own context(s) on purpose: a context's manifest is
    fingerprinted as a whole, so adding a type to one of them would change the bytes of every fixture
@@ -373,6 +420,7 @@ rather than worked around here, and it is now gone.
    `ArrayShapeChangeMigrationTests.cs` for the declared-array-shape ones,
    `ArrayShapeNestedArgumentMigrationTests.cs` for the nested-argument ones,
    `HistoricalAbstractBaseFixtureTests.cs` for the abstract/interface-base one,
+   `HistoricalCtorFixtureTests.cs` for the constructor-argument one,
    `OldPositionalGraphTests.cs` for the positional ones and
    `HistoricalInheritedMemberFixtureTests.cs` for the inherited-member ones).
 3. Regenerate (command above) and review the byte diff.
