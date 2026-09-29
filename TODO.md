@@ -156,10 +156,13 @@ historical writer assembly: pin migration coverage with real historical-writer f
 both readers, and never infer cross-version compatibility from a fingerprint flip or a
 same-version roundtrip.
 
-- Connect the implemented old-data graph node model (`OldDataGraph.cs`, plus generic
-  `IdentityCache<T>`) to a file-faithful decoder, expose the populated graph to application
-  migration code, then materialize current objects without historical CLR types. The
-  model exists; no runtime reader constructs it yet. Pin matching-layout allocations
+- Connect the old-data graph node model (`OldDataGraph.cs`, plus generic
+  `IdentityCache<T>`) to the production migration path, expose the populated graph to
+  application migration code, then materialize current objects without historical CLR
+  types. `OldFileGraph` now builds a file-faithful graph for 50 checked-in structural v5
+  fixtures, preserving first-occurrence indices and cycles; opaque and positional
+  composite shapes refuse until their node kinds exist. Production `Load` still uses
+  the streaming reader and does not construct the graph. Pin matching-layout allocations
   and ensure this work cannot put graph construction on the generated-reader path.
   **Done interim fail-loud gate:** the streaming reader distinguishes explicitly
   skipped first occurrences from temporarily-null cycle slots and refuses later
@@ -169,12 +172,13 @@ same-version roundtrip.
   the now-extracted `PayloadGrammar` decisions shared with `SchemaTraversalEngine`; an arena
   index for every value and a separate writer-cache-slot → arena-index mapping so
   reserve-before-fill handles cycles and removed members. Land the shared grammar
-  extraction (landed, with historical-byte tests) and builder tests before redirecting
+  extraction and structural builder tests (landed) before redirecting
   `Load`'s slow path. Never copy the
   current reader's `FullNameMarker` lookup that uses a current registry id against
   the file's id table — those id spaces are independent; resolve by file identity.
-  Keep the v5 opaque-frame integration behind the v5 merge, since the current graph
-  model has no opaque node kind yet. Pin zero graph builds and zero schema parses on
+  Add an `OldOpaqueNode` for v5 framed payloads, and honest positional nodes for
+  nullable, key/value pair and tuple values, before claiming broader graph coverage.
+  Pin zero graph builds and zero schema parses on
   the fingerprint-matched generated path with exact counters, plus a representative
   allocation check; do not let migration cost leak into matching-layout loads.
 - Preserve references whose first occurrence is in a removed field and later use is
