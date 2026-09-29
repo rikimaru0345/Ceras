@@ -59,6 +59,19 @@ namespace Ceras.Format
     /// record it, and a type joining a baked manifest is refused too (<see cref="SchemaRegistry.Register"/>).
     /// </para>
     /// <para>
+    /// <b>And it is refused there and then, not at the next operation.</b> The door fires from inside the
+    /// Save or Load, so a selection made through it lands after the reconciliation at the top of that
+    /// operation and after the bake — and that reconciliation is the only place the question was being
+    /// asked. Nothing noticed until the <em>next</em> Save/Load, by which time the first one had already
+    /// written the payload: unframed, under a schema section that described ordinary members, with a
+    /// layout fingerprint identical to the one the file would have had with no custom formatter at all.
+    /// The question is therefore asked a second time, at the moment the formatter is chosen for the type
+    /// (<see cref="ReconcileAtSelection"/>, called from <c>CerasSerializer.WrapOpaqueIfSelected</c>), which
+    /// is before a single byte of that value exists — and the same scan, the same identity check and the
+    /// same refusals answer it. A late install that <em>is</em> the context's own is still honoured and
+    /// still framed by nothing, because the identity check is what it always was.
+    /// </para>
+    /// <para>
     /// <b>The residual limit, unchanged and not widened.</b> <see cref="SchemaRegistry.Register"/> is
     /// public, so a caller can register a schema of its own and thereby satisfy the identity check with a
     /// hand-written formatter and a hand-written (possibly untrue) schema: that formatter is then the
@@ -107,6 +120,43 @@ namespace Ceras.Format
             if (config.VerifiedFormatterAssignmentCount == config.FormatterAssignmentCount)
                 return;
 
+            Scan(config);
+        }
+
+        /// <summary>
+        /// The same reconciliation, asked at the moment a configured formatter is chosen for a type —
+        /// <c>CerasSerializer.WrapOpaqueIfSelected</c> — because a save or load can reach a type the
+        /// reconciliation at the top of it could not: one with no <c>TypeConfig</c> yet, and so a
+        /// configuration the scan above has never looked at. <c>OnConfigNewType</c> is what creates that
+        /// configuration, it fires from inside the operation, and it is the one door that still takes a
+        /// <see cref="TypeConfig.CustomFormatter"/> assignment after the config was sealed.
+        /// <para>
+        /// The counter is the same gate, and it is exact rather than conservative: a configured formatter
+        /// is only ever installed through that setter, which bumps the counter, so a type that reaches
+        /// the choice with a formatter the last successful scan did not see is a counter that has moved
+        /// since. The scan then classifies that formatter exactly as it classifies every other, and either
+        /// the manifest records the selection (nothing to wrap yet, and the wrap is asked again by the
+        /// caller) or it is the context's own (nothing to record) — and a selection the manifest can no
+        /// longer record is refused, by <see cref="SchemaRegistry.ApplyOpaqueSelection"/>, before a single
+        /// payload byte of the type is written.
+        /// </para>
+        /// <para>
+        /// Nothing is asked of a context that configures no formatter and discovered none late: the gate
+        /// is one integer comparison, which is the same cost the pre-Save/Load call pays.
+        /// </para>
+        /// </summary>
+        public static void ReconcileAtSelection(CerasRobustConfig config)
+        {
+            if (config == null) throw new ArgumentNullException(nameof(config));
+
+            if (config.VerifiedFormatterAssignmentCount == config.FormatterAssignmentCount)
+                return;
+
+            Scan(config);
+        }
+
+        static void Scan(CerasRobustConfig config)
+        {
             List<string>? offenders = null;
 
             foreach (var typeConfig in config.EnumerateConfiguredTypes())
