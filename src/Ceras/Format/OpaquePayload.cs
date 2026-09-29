@@ -172,10 +172,12 @@ namespace Ceras.Format
             else
             {
                 sb.AppendLine(
-                    "To load this file anyway, set CerasRobustConfig.AllowDroppingCustomPayloads before the first Load: the block is then skipped");
+                    "To load this file anyway, set CerasRobustConfig.AllowDroppingCustomPayloads when you build the serializer (in its 'configure'");
                 sb.AppendLine(
-                    "by its declared length, the load continues, and the value is lost. A reference slot keeps the instance the reader allocated for");
-                sb.AppendLine("it, so its members keep their defaults, and a member the file records is reported in MigrationContext.SkippedFields");
+                    "callback, or on the config object before you hand it to one - the config is sealed as the serializer is constructed, so it cannot be changed");
+                sb.AppendLine(
+                    "afterwards): the block is then skipped by its declared length, the load continues, and the value is lost. A reference slot keeps the instance the");
+                sb.AppendLine("reader allocated for it, so its members keep their defaults, and a member the file records is reported in MigrationContext.SkippedFields");
                 sb.AppendLine("when the model no longer has it.");
             }
             sb.AppendLine();

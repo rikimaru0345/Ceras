@@ -250,8 +250,10 @@ namespace Ceras
 
 		// Counts every CustomFormatter assignment, so a whole-config check can be skipped while nothing has
 		// changed. The check itself is O(configured types) and runs before each Save/Load, which is not a
-		// cost worth paying for a context that configures no custom formatter at all — the common case,
-		// and the only one a robust context allows through.
+		// cost worth paying for a context that configures no custom formatter at all — the common case, and
+		// one a robust context is under no obligation to take. The counter is bumped by the setter whether
+		// the context is open or is inside its OnConfigNewType callback, because that callback is the one
+		// door through which a formatter can still be installed after the config was sealed.
 		int _formatterAssignmentCount;
 		internal int FormatterAssignmentCount => _formatterAssignmentCount;
 		internal void NoteFormatterAssignment() => _formatterAssignmentCount++;
