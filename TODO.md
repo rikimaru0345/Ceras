@@ -167,7 +167,7 @@ same-version roundtrip.
 - Connect the old-data graph node model (`OldDataGraph.cs`, plus generic
   `IdentityCache<T>`) to the production migration path, expose the populated graph to
   application migration code, then materialize current objects without historical CLR
-  types. `OldFileGraph` now builds a file-faithful graph for all 52 checked-in v5
+  types. `OldFileGraph` now builds a file-faithful graph for all 54 checked-in v5
   fixtures, preserving first-occurrence indices and cycles; opaque frames are retained
   as immutable byte records, while positional composite shapes still refuse until
   their node kinds exist. Production `Load` still uses
