@@ -290,6 +290,67 @@ is a pure identity test: it can only be read by a build that resolves two names 
 The reader-side counterpart is
 `tests/Ceras.Test/Tests/HistoricalAbstractBaseFixtureTests.cs`.
 
+## The positional fixtures (`V1PositionalModel.cs`)
+
+The three structural value types the format describes **positionally** rather than by member name: a
+`Nullable<T>`, a `KeyValuePair<K,V>` and the `Tuple`/`ValueTuple` families. The file records no name for
+a nullable's value, a pair's key or value, or a tuple's items, so a graph that has to describe these
+faithfully can only record positions. One context, `HistoricalV1Positional`, for the reason every other
+family here gets its own: a context's manifest is fingerprinted as a whole.
+
+| Aspect | Fixture |
+| --- | --- |
+| `Nullable<T>`: a presence byte, then the value only when it is there | `PositionalNullable.bin` |
+| …over a primitive vs. over a struct (a whole member list, not a fixed width) | `PositionalNullable.bin` |
+| A nullable as a collection element and as a dictionary value | `PositionalNullable.bin` |
+| A null `List<int>` that is *not* a `Nullable<List<int>>` | `PositionalNullable.bin` |
+| `KeyValuePair<K,V>`: a key and then a value, with no count in front of them | `PositionalKeyValuePair.bin` |
+| …with *both* positions reference-typed, so each takes its own reference marker | `PositionalKeyValuePair.bin` |
+| A null string key: string-table index 0 — an indexed null value, not a recorded null | `PositionalKeyValuePair.bin` |
+| The family split: `ValueTuple` is a struct (inline, no slot), `Tuple` is a class (a slot) | `PositionalTuple.bin` |
+| Sharing of a `Tuple` across a member and a collection element | `PositionalTuple.bin` |
+| The control for that sharing: two *equal* `ValueTuple`s stay two distinct values | `PositionalValueTupleRepeat.bin` |
+| A two-node cycle closing through a pair's key and through a tuple's item | `PositionalCycle.bin` |
+| Both tuple families reached through a polymorphic slot | `PositionalPolyValueTuple.bin`, `PositionalPolyTuple.bin` |
+| A tuple of eight, which the CLR spells as a seven-argument `ValueTuple` whose seventh item is a tuple | `PositionalTupleWithTail.bin` |
+
+Every crate ends in a fixed-width `uint` sentinel written *after* the positional members, so a positional
+read that is even one byte out shows up as a wrong number rather than as a load that happens to succeed.
+Two properties of this family are worth stating explicitly, because they are what the file is for:
+
+* **Member order here is the generator's, not the author's.** Nothing in these models pins a member
+  order, so the bytes move whenever the writer's sort key changes. These eight fixtures were regenerated
+  when `554a036` ("Unify generated and reflection member ordering by canonical type names") changed the
+  sort key from a Roslyn display string to the canonical type name, which reorders every crate in this
+  context — reverting only that key reproduces the previous bytes exactly. That is the honest reason
+  they changed: the crate types sort by canonical name, and `List<int>`, `Span?` and `int?` sort
+  differently under the two spellings. No other fixture in this directory moved, under either spelling.
+* **The old-data graph does not depend on that order.** The reader-side counterpart,
+  `tests/Ceras.Test/Tests/OldPositionalGraphTests.cs`, decodes these files through the graph builder,
+  which reads each position in the order the file's own schema section records, so the same test suite
+  passes against either member order. The fixtures still had to be regenerated: they are golden bytes
+  of the real writer, and the real writer now writes the canonical order.
+
+A cycle through a `Nullable<T>` is impossible and is not pinned: a `Nullable<T>` is a struct and takes no
+slot at all.
+
+`PositionalTupleWithTail.bin` is written through the **root** door, and the reason is coverage rather
+than necessity. A tuple of more than seven elements is spelled by the CLR as a *seven*-argument type whose
+seventh argument is itself a tuple, and the format's reserved id table stops at arity seven — so the tail
+is not an eighth argument, it is item 6 holding a tuple of its own. Writing it as the root value puts that
+value at the one position with no member list around it: the positional payload *is* the root, so the
+decoder's root-position path is exercised over a positional shape rather than only its member and
+element paths. `OldPositionalGraphTests.ATupleTailIsOneMorePositionAndNotAnEighthArgument` is the reader
+side of that.
+
+A declared **member** of the same type bakes fine, and did once the canonical-name lookup stopped
+treating a name the CLR's parser refuses as a fatal error: `SchemaRegistry.ResolveClrName` answers such a
+name with a miss so the canonical-name parser gets its turn, and a closed generic with three or more
+arguments resolves that way. Before that change the member door really was closed — the bake handed the
+name straight to `Type.GetType`, which *throws* rather than declining for a name whose argument list has
+three or more entries — and the root was the only door left. That was a writer-side limitation, reported
+rather than worked around here, and it is now gone.
+
 ## Changing a fixture
 
 1. Change the old model: `V1Model.cs` for the `HistoricalV1` context, `V1OpaqueModel.cs` for the
@@ -298,7 +359,8 @@ The reader-side counterpart is
    `V1PolyModel.cs` for the `HistoricalV1Poly` one, `V1ArraySlotModel.cs` for the
    `HistoricalV1ArraySlot` one, `V1ArrayShapeModel.cs` / `V1ArrayShapeSameModel.cs` for the
    declared-array-shape ones, `V1NestedArrayModel.cs` for the nested-argument ones,
-   `V1AbstractBaseModel.cs` for the abstract/interface-base one and
+   `V1AbstractBaseModel.cs` for the abstract/interface-base one,
+   `V1PositionalModel.cs` for the `HistoricalV1Positional` one and
    `V1InheritedMemberModel.cs` for the inherited-member ones (two contexts). Each lives in its own context(s) on purpose: a context's manifest is
    fingerprinted as a whole, so adding a type to one of them would change the bytes of every fixture
    already written through it.
@@ -310,7 +372,8 @@ The reader-side counterpart is
    `SystemArraySlotMigrationTests.cs` for the `System.Array`-slot ones,
    `ArrayShapeChangeMigrationTests.cs` for the declared-array-shape ones,
    `ArrayShapeNestedArgumentMigrationTests.cs` for the nested-argument ones,
-   `HistoricalAbstractBaseFixtureTests.cs` for the abstract/interface-base one and
+   `HistoricalAbstractBaseFixtureTests.cs` for the abstract/interface-base one,
+   `OldPositionalGraphTests.cs` for the positional ones and
    `HistoricalInheritedMemberFixtureTests.cs` for the inherited-member ones).
 3. Regenerate (command above) and review the byte diff.
 4. Run `dotnet test tests/Ceras.Test -f net10.0`.

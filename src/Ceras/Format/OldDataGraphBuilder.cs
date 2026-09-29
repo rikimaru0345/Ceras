@@ -93,13 +93,27 @@ namespace Ceras.Format
     /// model, and this decoder holds none.
     /// </para>
     /// <para>
+    /// <b>A position the file recorded no name for is a position, not a member list.</b> A
+    /// <c>Nullable&lt;T&gt;</c>, a <c>KeyValuePair&lt;K,V&gt;</c> and the <c>Tuple</c>/<c>ValueTuple</c>
+    /// families are the three shapes the format describes structurally and writes as values in a row with
+    /// no names beside them. They are read as an <see cref="OldNullableNode"/> and an
+    /// <see cref="OldPositionalNode"/> — identities and indexed values, never an invented
+    /// <c>OldMember</c> — because a member list would put names into the file's own record that the
+    /// writer never wrote. What each position holds is the file's own argument identity for it, and the
+    /// two positions those shapes use are *different* from each other and both are the writer's choice:
+    /// a nullable's value is written with the specific formatter and so carries no marker, while a pair's
+    /// key, a pair's value and a tuple's items all go through the reference formatter and do.
+    /// </para>
+    /// <para>
     /// <b>One string per member and per collection, not per value.</b> A refusal has to say where the
     /// value it refused sat, and a name is the only handle a caller has on a file that is otherwise
     /// perfectly valid, so the position description is built where the decode descends — once per member
     /// and once per collection, and reused by every element of that collection. It is built on the happy
     /// path too, which is a real cost on a graph with a great many members; it was traded for a
     /// refusal that names the member and the type that declares it, and it is the first thing to revisit
-    /// if this decoder ever runs where allocation matters.
+    /// if this decoder ever runs where allocation matters. The positional shapes are the one exception,
+    /// because their positions are not interchangeable: a refusal inside item 2 of a tuple that says
+    /// "an element of the tuple" would name a place the file cannot describe.
     /// </para>
     /// </summary>
     sealed class OldDataGraphBuilder
@@ -197,8 +211,10 @@ namespace Ceras.Format
         /// this decoder can read.
         /// </exception>
         /// <exception cref="CerasSchemaException">
-        /// The file records a value this graph has no node kind for yet — one of the structural value types
-        /// — naming the type, its shape and the position.
+        /// The file records a value this graph has no node kind for yet — naming the type, its
+        /// shape and the position. Every shape the format can describe has a node kind, so this
+        /// exception now reports a file whose <em>description</em> cannot be read rather than a gap in
+        /// the model.
         /// </exception>
         public OldDataGraph Build(ref SequenceReader<byte> reader, long declaredLength)
         {
@@ -440,14 +456,11 @@ namespace Ceras.Format
                     return ReadEntries(entry, where, ref reader);
 
                 case PayloadShape.Nullable:
-                    throw RefuseStructuralValueType(entry, where, "a Nullable<T>", "a presence byte and then the value when it is there");
+                    return ReadNullableNode(entry, where, ref reader);
 
                 case PayloadShape.KeyValuePair:
-                    throw RefuseStructuralValueType(entry, where, "a KeyValuePair<K,V>", "a key and then a value, with no count in front of them");
-
                 case PayloadShape.Tuple:
-                    throw RefuseStructuralValueType(entry, where, "a tuple",
-                        "its items in order, with no count in front of them");
+                    return ReadPositionalNode(entry, where, ref reader);
 
                 default:
                     // Two different payloads land here and are written the same way — a user generic's
@@ -695,6 +708,120 @@ namespace Ceras.Format
             => $"the value the save records as '{entry.StableName}' (a custom formatter's payload, written by '{entry.OpaqueFormatterName}')"
              + (where == null ? ", which is the save's root" : $", at {where}");
 
+        /// <summary>
+        /// Reads one <c>Nullable&lt;T&gt;</c>: a presence byte, and the value only when the byte said it
+        /// was there.
+        /// <para>
+        /// The byte is <em>anything but zero</em> that means present, not the byte 1 — the writer's own
+        /// <c>NullableFormatter&lt;T&gt;</c> tests <c>!= 0</c> on both sides, so a decoder that required
+        /// exactly 1 would read a file its writer can produce as a null.
+        /// </para>
+        /// <para>
+        /// The value is read at <see cref="ValuePosition.Member"/>, and that is the whole of what decides
+        /// its position: <c>NullableFormatter&lt;T&gt;</c> holds the type's <em>specific</em> formatter, not
+        /// its reference formatter, so no reference marker stands in front of the value whatever its type
+        /// is — a fixed width for a scalar, the underlying bits for an enum, a member list for a struct.
+        /// A decoder that read it at any other position would consume a byte of somebody else's payload
+        /// and desynchronize the rest of the save.
+        /// </para>
+        /// <para>
+        /// <b>The inner <c>T</c> is always a value type.</b> <c>Nullable&lt;T&gt;</c> carries the CLR's
+        /// <c>where T : struct</c> constraint, so there is no position here in which a collection or a class
+        /// can appear as the nullable's own argument — a section naming one describes a type no runtime
+        /// can construct, and a real writer never bakes it. What a nullable <em>struct</em> can hold is a
+        /// different question and is answered by reading that struct's own members through
+        /// <see cref="ReadObjectNode"/>, where each member is a value in its own right and a reference-typed
+        /// one carries its own marker. So this position is "no marker in front of the value" because of the
+        /// formatter the writer used, not because the value can never be one that would otherwise need a
+        /// marker of its own.
+        /// </para>
+        /// <para>
+        /// A presence byte of 0 is not a node. It records a fact about the value rather than an identity
+        /// for it, so it is an <see cref="OldNullNode"/> carrying
+        /// <see cref="OldNullReason.NullablePresenceByte"/>, and <see cref="Publish"/> hands it straight
+        /// back without giving it an arena index — which is what keeps it out of the arena a second time.
+        /// </para>
+        /// </summary>
+        OldValue ReadNullableNode(OldTypeSchema entry, string? where, ref SequenceReader<byte> reader)
+        {
+            // The file's own section is asked before the byte is read, so a nullable whose argument
+            // identity nothing describes is refused rather than half-consumed. RequireDescribable has
+            // already run for every described instantiation; this is the same door for the caller that
+            // hands this class a view the section parser never saw.
+            RequireDescribable(entry, where);
+
+            int innerId = PayloadGrammar.ArgId(entry, 0)!.Value;
+            int present = SerializerBinary.ReadByte(ref reader);
+
+            if (present == 0) return new OldNullNode(OldNullReason.NullablePresenceByte);
+
+            var identity = IdentityOf(entry.TypeId, where);
+            var value    = ReadValue(innerId, ValuePosition.Member, where, ref reader);
+            return new OldNullableNode(identity, value);
+        }
+
+        /// <summary>
+        /// Reads one <c>KeyValuePair&lt;K,V&gt;</c> or one <c>Tuple</c>/<c>ValueTuple</c>: its recorded
+        /// arguments, one after another, with no count in front of them.
+        /// <para>
+        /// Every position is <see cref="ValuePosition.Indirect"/>, and that is measured rather than
+        /// assumed: <c>KeyValuePairFormatter&lt;K,V&gt;</c> holds <c>GetReferenceFormatter&lt;K&gt;</c> and
+        /// <c>GetReferenceFormatter&lt;V&gt;</c>, and the fourteen tuple formatters inject plain
+        /// <c>IFormatter&lt;TN&gt;</c> fields with no <c>[CerasNoReference]</c> — which
+        /// <c>CerasSerializer.PrepareFormatter</c> fills with the <em>reference</em> formatter. So a class
+        /// in any of these positions takes a reference marker and an object-cache slot, exactly as a
+        /// collection element or a dictionary value does. That is what makes these the one place a cycle
+        /// can close through a value the file recorded no name for, and it is why each item is read
+        /// through the same <see cref="ReadValue"/> every other reference position is.
+        /// </para>
+        /// <para>
+        /// <b>Whether this value itself sits behind a marker is not decided here.</b> It was decided
+        /// before this call, from the file's own definition id through
+        /// <see cref="PayloadGrammar.FileCarriesReferenceMarker"/>: a <c>Tuple</c> is a class and arrives
+        /// with its object-cache slot already reserved, so the node this returns fills that reserved arena
+        /// index and a cycle through one of its items resolves to it; a <c>ValueTuple</c> is a struct and
+        /// arrives inline with no slot at all, so every occurrence of it in the file is written out in
+        /// full and each is a value of its own. The same split is why the two families share a node kind:
+        /// it is a fact about how a value was written, not about what it holds.
+        /// </para>
+        /// <para>
+        /// The argument identities are the positions, so the item list is built against them and the node
+        /// checks the two counts agree. One description per position rather than one per value, because a
+        /// refusal inside item 2 has to be able to say which item — the same trade a collection makes for
+        /// the opposite reason, that its elements are all in the same place.
+        /// </para>
+        /// </summary>
+        OldValue ReadPositionalNode(OldTypeSchema entry, string? where, ref SequenceReader<byte> reader)
+        {
+            RequireDescribable(entry, where);
+
+            var identity = IdentityOf(entry.TypeId, where);
+            var argumentIds = entry.ArgTypeIds;
+            string shape = DescribePositionalShape(entry);
+
+            var items = new List<OldValue>(argumentIds.Length);
+            for (int i = 0; i < argumentIds.Length; i++)
+            {
+                items.Add(ReadValue(
+                    argumentIds[i],
+                    ValuePosition.Indirect,
+                    $"position {i} of {shape}, in the value the save records as '{entry.StableName}'",
+                    ref reader));
+            }
+
+            return new OldPositionalNode(identity, items);
+        }
+
+        /// <summary>
+        /// How a positional value is named in a message: the two shapes have different words in the format
+        /// and the file's own definition id says which one this is, so the name is derived from the file
+        /// rather than passed in from the caller.
+        /// </summary>
+        static string DescribePositionalShape(OldTypeSchema entry)
+            => entry.DefinitionTypeId == WellKnownTypes.KeyValuePair
+                ? "a KeyValuePair<K,V>"
+                : "a tuple";
+
         OldValue ReadEnumNode(OldTypeSchema entry, ref SequenceReader<byte> reader)
         {
             // The entry's definition id is an enum's *underlying* type id, and 0 is not an id a payload
@@ -934,19 +1061,13 @@ namespace Ceras.Format
 
         // ── The shapes this graph still has no node kind for ─────────────────────────────────
 
-        // A framed custom payload is not among them any more: it has a node kind of its own
-        // (OldOpaqueNode) and is read above. The three shapes left are the ones the file records no name
-        // for at all, which is a different problem — there is nothing in the file to turn into a member
-        // list, and nothing in it to hold the bytes either.
-        CerasSchemaException RefuseStructuralValueType(OldTypeSchema entry, string? where, string shape, string payload)
-            => new CerasSchemaException(
-                $"Cannot build an old-data graph for the value the save records as '{entry.StableName}': the file describes it as " +
-                $"{shape}, whose payload is {payload}, and the graph has no node kind for that shape yet. {At(where)}. It is deliberately " +
-                "not recorded as a member list, because the file records no member name for any of it — a tuple's items and a Nullable's " +
-                "value are positions, not names — and inventing one would put a member list into the file's own record that the writer " +
-                "never wrote. And it is not folded into the value it holds, because a null and a present value are two different recorded " +
-                "facts: for a Nullable the presence byte is the only thing that says which one the file recorded.");
-
+        // None, and this is the whole list. A framed custom payload has a node kind of its own
+        // (OldOpaqueNode), and so do the three shapes the file records no name for at all: a nullable is
+        // an OldNullableNode and a pair or a tuple is an OldPositionalNode, each read above. Every
+        // PayloadShape ClassifyPayload can answer is therefore either read or refused for a reason that
+        // is about *this file's* description rather than about a missing kind — which is the property
+        // worth stating, because a new kind has to be added here and to ValidateEveryValueIsIndexed's
+        // switch together or the graph refuses its own values at construction.
         static string At(string? where) => where ?? "It is the save's root value.";
     }
 }

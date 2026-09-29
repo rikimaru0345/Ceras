@@ -75,6 +75,18 @@ namespace Ceras.Test
             public OldDataGraph Build(OldValue root = null) => new(_nodes, root);
         }
 
+        /// <summary>
+        /// Two shared identities for a hand-built positional node, since each test that needs one would
+        /// otherwise write a second spelling of the same file record. Distinct objects from the
+        /// <see cref="Hand"/> instances on purpose: a test that puts two of these in one graph can still
+        /// tell them apart by reference, which is rule 1 doing its job.
+        /// </summary>
+        static OldTypeIdentity HandInt32()
+            => new(WellKnownTypes.Int32, "System.Int32", null, SchemaTypeKind.Struct);
+
+        static OldTypeIdentity HandStr()
+            => new(WellKnownTypes.String, "System.String", null, SchemaTypeKind.Struct);
+
         /// <summary>A closed well-known instantiation, the way the file records <c>List&lt;int&gt;</c>.</summary>
         static OldTypeIdentity Closed(string stableName, int definitionTypeId, params OldTypeIdentity[] arguments)
             => new(definitionTypeId, stableName, null, SchemaTypeKind.GenericInstantiation, definitionTypeId, arguments);
@@ -1010,6 +1022,171 @@ namespace Ceras.Test
             Assert.Equal(WellKnownTypes.Int32, dictionary.ArgumentTypeIds[1].TypeId);
         }
 
+        // ── The positional kinds: positions, and the model's rules over them ──────────────────────
+
+        [Fact]
+        public void PositionalNode_HoldsPositionsAndInventsNoNameForAnyOfThem()
+        {
+            // The whole claim the kind exists for, checked over the *declared surface* rather than over
+            // one instance: the file records no name for a pair's key and value or a tuple's items, so
+            // the model must not have one either. `Key`, `Value`, `Item1` and `Rest` are the names a
+            // developer would reach for and the four this node kind deliberately does not declare — a
+            // named position is a name the writer never wrote, which is the same invention an
+            // `OldMember` list would be.
+            var declared = typeof(OldPositionalNode)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                .Select(p => p.Name)
+                .OrderBy(n => n, StringComparer.Ordinal)
+                .ToArray();
+
+            Assert.Equal(new[] { "Items", "Type" }, declared);
+
+            foreach (var invented in new[] { "Key", "Value", "Items2", "Rest", "Item1", "Fields" })
+                Assert.DoesNotContain(invented, declared);
+        }
+
+        [Fact]
+        public void PositionalNode_RefusesAValueCountThatDisagreesWithTheFilesPositions()
+        {
+            // A pair or a tuple's values *are* its arguments: one for one, in the same order. The count
+            // is what says a value sits in each position, so a list that disagrees with the identity's
+            // argument count describes positions the file never recorded — and a reader handed it would
+            // have no type for the extra or the missing one.
+            var twoPositions = Closed("System.Collections.Generic.KeyValuePair`2<System.String,System.Int32>",
+                WellKnownTypes.KeyValuePair, HandStr(), HandInt32());
+            var a = new OldScalar(HandInt32(), 1);
+
+            Assert.Throws<ArgumentException>(() => new OldPositionalNode(twoPositions, Array.Empty<OldValue>()));
+            Assert.Throws<ArgumentException>(() => new OldPositionalNode(twoPositions, new OldValue[] { a }));
+            Assert.Throws<ArgumentException>(() => new OldPositionalNode(twoPositions, new OldValue[] { a, a, a }));
+
+            // The agreed count is accepted, which is the control: the refusal is about the disagreement.
+            var pair = new OldPositionalNode(twoPositions, new OldValue[] { a, a });
+            Assert.Equal(2, pair.Items.Count);
+            Assert.Equal(2, pair.Type.ArgumentTypeIds.Count);
+        }
+
+        [Fact]
+        public void PositionalNode_CopiesItsValuesSoTheBuildersOwnListCannotRewriteTheFile()
+        {
+            // Get-only is not the same as immutable, and the one collection this node holds is the one a
+            // builder keeps a reference to while it fills the node. So the stored list is a copy behind a
+            // read-only view — the same rule every other "file record" collection in this model follows,
+            // and the reason `Items` is not an `IList`.
+            var identity = Closed("System.ValueTuple`2<System.Int32,System.Int32>",
+                WellKnownTypes.VTuple2, HandInt32(), HandInt32());
+
+            var builderItems = new List<OldValue> { new OldScalar(HandInt32(), 1), new OldScalar(HandInt32(), 2) };
+            var node = new OldPositionalNode(identity, builderItems);
+
+            builderItems.Add(new OldScalar(HandInt32(), 3));
+            builderItems.Clear();
+
+            Assert.Equal(2, node.Items.Count);
+            Assert.Equal(1, ((OldScalar)node.Items[0]).Value);
+            Assert.Equal(2, ((OldScalar)node.Items[1]).Value);
+            Assert.Throws<NotSupportedException>(() => ((IList<OldValue>)node.Items).Add(node));
+        }
+
+        [Fact]
+        public void ANullableNode_HoldsAPresentValueAndNothingElse()
+        {
+            // The present case only. A nullable whose presence byte was 0 is an `OldNullNode` with reason
+            // `NullablePresenceByte` — a fact about a value rather than an identity for one — so this
+            // node's `Value` is never null, and a caller cannot build one that says "absent" by leaving
+            // a hole where the value goes.
+            var identity = new OldTypeIdentity(300, "System.Nullable`1<System.Int32>", null,
+                SchemaTypeKind.GenericInstantiation, WellKnownTypes.Nullable, new[] { HandInt32() });
+
+            Assert.Throws<ArgumentNullException>(() => new OldNullableNode(null!, new OldScalar(HandInt32(), 1)));
+            Assert.Throws<ArgumentNullException>(() => new OldNullableNode(identity, null!));
+
+            var node = new OldNullableNode(identity, new OldScalar(HandInt32(), 7));
+            Assert.Equal(7, ((OldScalar)node.Value).Value);
+
+            // The two are different kinds, so a reader cannot confuse them by shape: the absent one is a
+            // null and this one is not, whatever the value it holds.
+            Assert.IsNotType<OldNullableNode>(new OldNullNode(OldNullReason.NullablePresenceByte));
+        }
+
+        [Fact]
+        public void ThePositionalKinds_TakeAnArenaIndexAndAreCheckedForOne()
+        {
+            // Rule 1 over the two new kinds, and it is checked here rather than only on the fixtures: a
+            // value in a position is a value slot in every other respect, so a positional node that
+            // reached the graph without an index would be reachable with no identity — the exact break
+            // `ValidateEveryValueIsIndexed` exists to catch, and the reason its switch names every kind.
+            var nullableIdentity = new OldTypeIdentity(300, "System.Nullable`1<System.Int32>", null,
+                SchemaTypeKind.GenericInstantiation, WellKnownTypes.Nullable, new[] { HandInt32() });
+            var pairIdentity = Closed("System.Collections.Generic.KeyValuePair`2<System.Int32,System.Int32>",
+                WellKnownTypes.KeyValuePair, HandInt32(), HandInt32());
+
+            // A nullable whose value has no index of its own: the value is reachable from the graph and
+            // has no identity, so the graph must not be constructible.
+            var unindexedValue = new OldScalar(HandInt32(), 7);
+            var orphan = new OldNullableNode(nullableIdentity, unindexedValue);
+            var error = Assert.Throws<ArgumentException>(() => new OldDataGraph(new OldValue[] { orphan }, orphan));
+            Assert.Contains("index", error.Message, StringComparison.OrdinalIgnoreCase);
+
+            // The same for a position.
+            var orphanPosition = new OldPositionalNode(pairIdentity,
+                new OldValue[] { unindexedValue, new OldScalar(HandInt32(), 8) });
+            Assert.Throws<ArgumentException>(() => new OldDataGraph(new OldValue[] { orphanPosition }, orphanPosition));
+
+            // With every value indexed, both build — and each takes an index of its own.
+            var hand = new Hand();
+            var inner = hand.Int(7);
+            var nullable = hand.Append(new OldNullableNode(nullableIdentity, inner));
+            var positionValue = hand.Int(8);
+            var secondPosition = hand.Int(8);
+            var positional = hand.Append(new OldPositionalNode(pairIdentity,
+                new OldValue[] { positionValue, secondPosition }));
+
+            var graph = hand.Build(nullable);
+            Assert.True(graph.IndexOf(nullable) >= 0);
+            Assert.True(graph.IndexOf(positional) >= 0);
+            Assert.NotEqual(graph.IndexOf(nullable), graph.IndexOf(positional));
+            Assert.True(graph.IndexOf(inner) < graph.IndexOf(nullable));
+        }
+
+        [Fact]
+        public void EveryNodeKindIsNamedInTheGraphsOwnWalk()
+        {
+            // The model's list of which kinds hold values, asserted by *use* rather than by reading the
+            // switch: a node kind nobody taught `ValidateEveryValueIsIndexed` about is a kind whose
+            // values were never checked for an index, and the graph would refuse it at construction with
+            // a message naming this very obligation. So constructing a graph with one of each kind as the
+            // root is the check, and the exhaustive `default` arm is what makes a kind added next month
+            // fail here rather than pass silently.
+            var hand = new Hand();
+            var inner = hand.Int(1);
+
+            var nullableIdentity = new OldTypeIdentity(300, "System.Nullable`1<System.Int32>", null,
+                SchemaTypeKind.GenericInstantiation, WellKnownTypes.Nullable, new[] { HandInt32() });
+            var pairIdentity = Closed("System.Collections.Generic.KeyValuePair`2<System.Int32,System.Int32>",
+                WellKnownTypes.KeyValuePair, HandInt32(), HandInt32());
+
+            foreach (var kind in new OldValue[]
+                     {
+                         hand.Append(new OldNullableNode(nullableIdentity, inner)),
+                         hand.Append(new OldPositionalNode(pairIdentity, new OldValue[] { inner, inner })),
+                         hand.Append(new OldObjectNode(Old("Old.Player"), new List<OldMember>())),
+                         hand.Append(new OldCollectionNode(
+                             Closed("System.Collections.Generic.List`1<System.Int32>", WellKnownTypes.List, HandInt32()),
+                             0, Array.Empty<OldValue>(), HandInt32())),
+                         hand.Append(new OldScalar(HandInt32(), 2)),
+                         hand.Append(new OldEnumValueNode(
+                             new OldTypeIdentity(301, "Old.Direction", null, SchemaTypeKind.Enum, WellKnownTypes.Int32),
+                             1, WellKnownTypes.Int32)),
+                         hand.Append(new OldTypeValueNode(Old("Old.Gone"), null)),
+                         hand.Ref(0),
+                     })
+            {
+                // Every kind is a value of the arena, so the walk reaches it and has to know what to do.
+                Assert.NotNull(hand.Build(kind).Node(hand.Build(kind).IndexOf(kind)));
+            }
+        }
+
         // ── helpers ───────────────────────────────────────────────────────────────────────────────
 
         /// <summary>A value kind no node type derives from: what a new node kind looks like before the graph is taught about it.</summary>
@@ -1027,6 +1204,8 @@ namespace Ceras.Test
             typeof(OldObjectNode),
             typeof(OldCollectionNode),
             typeof(OldOpaqueNode),
+            typeof(OldNullableNode),
+            typeof(OldPositionalNode),
             typeof(OldReferenceNode),
             typeof(OldNullNode),
             typeof(OldMember),

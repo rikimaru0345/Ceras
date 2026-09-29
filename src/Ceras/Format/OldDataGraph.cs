@@ -143,8 +143,9 @@ namespace Ceras.Format
     /// <summary>
     /// Base of every value in an <see cref="OldDataGraph"/>. A value is one of: a recorded null
     /// (<see cref="OldNullNode"/>), a scalar, an enum, a recorded <c>Type</c> value, an object, a
-    /// collection, a framed custom payload (<see cref="OldOpaqueNode"/>), or a back-reference to an
-    /// earlier value.
+    /// collection, a framed custom payload (<see cref="OldOpaqueNode"/>), a value held in a position the
+    /// file recorded no name for (<see cref="OldNullableNode"/> and <see cref="OldPositionalNode"/>), or
+    /// a back-reference to an earlier value.
     /// <para>
     /// Enforces rule 3 (the file's record is immutable) by having no settable member at all, and carries
     /// rule 1 (a value's identity is its arena index) by being a reference type: the arena keys values by
@@ -679,6 +680,164 @@ namespace Ceras.Format
             Values    = OldDataGraphFrozen.FreezeOrNull(values);
             KeyType   = keyType;
             ValueType = valueType;
+        }
+    }
+
+    /// <summary>
+    /// A <c>Nullable&lt;T&gt;</c> whose presence byte was 1: the file's closed identity, and the value it
+    /// holds.
+    /// <para>
+    /// The two halves of a nullable are the reason this is a node kind and not a field on something else.
+    /// The file writes a presence byte and then, only when it is there, the value — and the value is
+    /// written by the *specific* formatter of <c>T</c>, so it carries <em>no reference marker whatever its
+    /// type is</em>: a nullable scalar is a fixed width, an enum is its underlying bits, and a nullable
+    /// struct is a whole member list. Nothing above the nullable can see that, so the graph has to say
+    /// it, and it says it here by holding the value as a node in its own right rather than by folding
+    /// it into this one.
+    /// </para>
+    /// <para>
+    /// <b><c>T</c> is always a value type, so the value here is never a collection or a class.</b> That is
+    /// the CLR's own <c>where T : struct</c> constraint on <c>Nullable&lt;T&gt;</c>, and the format cannot
+    /// record anything else: a section that named a reference type as a nullable's argument would describe
+    /// a <c>Nullable</c> no runtime can construct. What a nullable <em>struct</em> may hold is different,
+    /// and is why the position still has to be decided rather than assumed — its own <em>members</em> are
+    /// written by that struct's formatter and may be a collection or a class, each behind its own marker
+    /// or count as its own type requires. The constraint is on the nullable's own type argument, not on
+    /// anything reachable through it.
+    /// </para>
+    /// <para>
+    /// <b>A nullable that is not there is not this node.</b> A presence byte of 0 records a fact about
+    /// the value, not an identity for it, so it is an <see cref="OldNullNode"/> with reason
+    /// <see cref="OldNullReason.NullablePresenceByte"/> and takes no arena index — the same treatment a
+    /// null reference marker gets, and for the same reason: nothing the writer wrote can be a
+    /// back-reference to it. This node therefore only ever exists for the present case, which is what
+    /// makes its <see cref="Value"/> non-null by construction rather than by a promise.
+    /// </para>
+    /// <para>
+    /// Enforces rule 3 (both members get-only: a re-decoded nullable is a different value and a different
+    /// node, never a mutation of this one) and rule 1 (it is a reference type, so two nullables that
+    /// would compare equal are two nodes with two indices).
+    /// </para>
+    /// </summary>
+    public sealed class OldNullableNode : OldValue
+    {
+        /// <summary>
+        /// The file's closed identity, e.g. <c>System.Nullable`1&lt;System.Int32&gt;</c>. Its own
+        /// <see cref="OldTypeIdentity.ArgumentTypeIds"/> says what the inner value is, so the position of
+        /// that value needs no identity of its own. Immutable (rule 3).
+        /// </summary>
+        public OldTypeIdentity Type { get; }
+
+        /// <summary>
+        /// The value the presence byte said was there, read by its own declared type and with no reference
+        /// marker in front of it. Never null and never a recorded null in the position the builder writes
+        /// it: an <see cref="OldNullNode"/> here would mean the file wrote a reference marker for a value
+        /// its own nullable never wrote one for.
+        /// </summary>
+        public OldValue Value { get; }
+
+        /// <summary>Records one present nullable and the value it holds.</summary>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="type"/> is null, or <paramref name="value"/> is null. A nullable that is not
+        /// there is an <see cref="OldNullNode"/>, not this node with a missing value.
+        /// </exception>
+        public OldNullableNode(OldTypeIdentity type, OldValue value)
+        {
+            Type             = type ?? throw new ArgumentNullException(nameof(type));
+            Value            = value ?? throw new ArgumentNullException(nameof(value));
+        }
+    }
+
+    /// <summary>
+    /// A <c>KeyValuePair&lt;K,V&gt;</c> or a <c>Tuple</c>/<c>ValueTuple</c>: the values it holds, in order,
+    /// with no name attached to any of them.
+    /// <para>
+    /// <b>Positions, and nothing else.</b> The file records a member name for an object's fields and a
+    /// dictionary's entries are read as two lists, but for these shapes it records none at all: a pair's
+    /// key and value and a tuple's items are written one after another with no count in front of them and
+    /// no name beside them. So <see cref="Items"/> is indexed and nothing is named — not <c>Key</c> and
+    /// <c>Value</c>, not <c>Item1</c>, not <c>Rest</c>. Which shape this was is already in
+    /// <see cref="Type"/>: <see cref="OldTypeIdentity.DefinitionTypeId"/> is
+    /// <see cref="WellKnownTypes.KeyValuePair"/> or one of the tuple definition ids, and
+    /// <see cref="OldTypeIdentity.ArgumentTypeIds"/> says what each position holds. A named position would
+    /// be a name the writer never wrote, which is the same lie an invented member list would be.
+    /// </para>
+    /// <para>
+    /// <b>One kind for three shapes</b>, because it is three shapes of one grammar: "N values in order,
+    /// with no count in front of them". A pair is that with N = 2, a tuple with N between 1 and 7. What
+    /// separates them from each other — whether the value is written behind a reference marker, and so
+    /// whether it takes an object-cache slot and can be shared — is decided by the file's own definition
+    /// id through <see cref="PayloadGrammar.FileCarriesReferenceMarker"/> before a node is built, and is
+    /// not a fact this node has to carry.
+    /// </para>
+    /// <para>
+    /// <b>There is no <c>Rest</c>.</b> The CLR spells a tuple of more than seven elements as a
+    /// <em>seven</em>-argument type whose seventh argument is itself a tuple, and the format's reserved id
+    /// table stops at arity seven, so no writer can emit an eighth argument for this node to hold. A tail
+    /// is item 6 holding a tuple of its own, and is recorded as exactly that.
+    /// </para>
+    /// <para>
+    /// <b>Both positions are reference positions.</b> A pair's key and value and a tuple's items are all
+    /// written through the writer's <em>reference</em> formatter, so a class in any of them takes a
+    /// reference marker and an object-cache slot. That is what makes these the one place a cycle can
+    /// close through a value the file recorded no name for: a member-less position that can still point
+    /// back at an earlier value. It is why <see cref="Items"/> holds ordinary nodes — including
+    /// <see cref="OldReferenceNode"/>s — and not values of its own.
+    /// </para>
+    /// <para>
+    /// Enforces rule 3 (both members get-only, and <see cref="Items"/> is a copy behind a read-only view,
+    /// so a builder that keeps mutating its own list cannot rewrite the file's record) and rule 1 (it is a
+    /// reference type, so two equal pairs or tuples are two nodes with two indices — the file wrote both
+    /// out in full and the writer never registered either).
+    /// </para>
+    /// </summary>
+    public sealed class OldPositionalNode : OldValue
+    {
+        /// <summary>
+        /// The file's closed identity — <c>System.Collections.Generic.KeyValuePair`2&lt;K,V&gt;</c> or a
+        /// <c>System.Tuple`N</c>/<c>System.ValueTuple`N</c> — and through it the shape and what each
+        /// position holds. Immutable (rule 3).
+        /// </summary>
+        public OldTypeIdentity Type { get; }
+
+        /// <summary>
+        /// The values, in the file's order. Position <c>i</c> holds what
+        /// <see cref="OldTypeIdentity.ArgumentTypeIds"/>'s entry <c>i</c> says it is, and the constructor
+        /// refuses a list whose length disagrees with it — the two are one fact, and a value with no type
+        /// beside it is a position nothing in the file describes.
+        /// </summary>
+        public IReadOnlyList<OldValue> Items { get; }
+
+        /// <summary>
+        /// Records one pair or tuple and the values the file wrote into its positions.
+        /// </summary>
+        /// <param name="type">The file's closed identity; its argument identities are the positions.</param>
+        /// <param name="items">The values, in the file's order. Copied.</param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="type"/> is null, or <paramref name="items"/> is null.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// <paramref name="items"/> holds a different number of values than
+        /// <paramref name="type"/> records argument identities for. A pair or a tuple has exactly as many
+        /// positions as its type has arguments, and the count is what says a value sits in each of them;
+        /// a disagreement is a record the file never wrote.
+        /// </exception>
+        public OldPositionalNode(OldTypeIdentity type, IReadOnlyList<OldValue> items)
+        {
+            if (type == null) throw new ArgumentNullException(nameof(type));
+            if (items == null) throw new ArgumentNullException(nameof(items));
+
+            int positions = type.ArgumentTypeIds.Count;
+            if (items.Count != positions)
+                throw new ArgumentException(
+                    $"The file records {positions} argument identit{(positions == 1 ? "y" : "ies")} for " +
+                    $"'{type.StableName}' but {items.Count} value{(items.Count == 1 ? " was" : "s were")} supplied for " +
+                    $"its positions. A pair or a tuple's values are its arguments, one for one and in the same order, so the two " +
+                    "counts are one fact.",
+                    nameof(items));
+
+            Type   = type;
+            Items  = OldDataGraphFrozen.Freeze(items);
         }
     }
 
@@ -1237,6 +1396,24 @@ namespace Ceras.Format
                             {
                                 RequireBindable(value, "a collection's entry");
                                 if (visited.Add(value)) pending.Push(value);
+                            }
+                            break;
+
+                        // The two positional kinds, which hold values in positions the file recorded no
+                        // name for. They are descended into exactly as a member list is, because a
+                        // position is a value slot in every other respect: a class in one of them is a
+                        // node with an index of its own, and a back-reference into one resolves to the
+                        // value it names.
+                        case OldNullableNode nullable:
+                            RequireBindable(nullable.Value, "a nullable's value");
+                            if (visited.Add(nullable.Value)) pending.Push(nullable.Value);
+                            break;
+
+                        case OldPositionalNode positional:
+                            foreach (var item in positional.Items)
+                            {
+                                RequireBindable(item, "a positional value");
+                                if (visited.Add(item)) pending.Push(item);
                             }
                             break;
 
