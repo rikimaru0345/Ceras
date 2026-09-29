@@ -310,33 +310,6 @@ namespace Ceras.SourceGenerator
             var finalTypes = results.Keys.ToImmutableArray();
             var finalTypesSet = new HashSet<INamedTypeSymbol>(finalTypes, SymbolEqualityComparer.Default);
 
-            // Canonical identity guard: two distinct types must never share a stable type name,
-            // otherwise schema/migration resolution is ambiguous (CERAS019; see
-            // GeneratorDiagnosticsTests).
-            var stableNameOwners = new Dictionary<string, INamedTypeSymbol>(StringComparer.Ordinal);
-            foreach (var type in finalTypes)
-            {
-                if (IsOpenType(type)) continue;
-                if (IsWellKnownType(type, attrBag) || MemberExplorer.IsCollectionType(type)) continue;
-                string stable = RobustCodeEmitter.GetStableTypeName(type, cerasSerializableAttr);
-                if (stableNameOwners.TryGetValue(stable, out var prev))
-                {
-                    if (!SymbolEqualityComparer.Default.Equals(prev, type))
-                    {
-                        context.ReportDiagnostic(Diagnostic.Create(
-                            Diag.DuplicateStableTypeName,
-                            type.Locations.FirstOrDefault(),
-                            prev.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
-                            type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
-                            stable));
-                    }
-                }
-                else
-                {
-                    stableNameOwners[stable] = type;
-                }
-            }
-
             // Report discovery paths for auto-included types
             foreach (var r in results.Values)
             {
@@ -552,6 +525,22 @@ namespace Ceras.SourceGenerator
                 list.Sort((a, b) => string.Compare(GetRobustName(a), GetRobustName(b), StringComparison.Ordinal));
                 contextMinimalTypes[kv.Key] = list;
             }
+
+            // Canonical identity guard (CERAS019): within one context, a name belongs to exactly one
+            // manifest entry, whatever produced it — a [CerasSerializable] stable name, a
+            // [PreviousTypeName] alias, or the canonical name the manifest derives from the CLR type. The
+            // runtime enforces the same invariant (SchemaRegistry.ClaimNames) when the context is
+            // registered, which is the first Save/Load of a manifest that has already built.
+            //
+            // Asked here, over the exact set of names this context's generated manifest will hand the
+            // registry, because every one of them is written in this compilation's own attributes — so
+            // the compiler is the cheaper place for it and the author sees it at the declaration. The
+            // check is per context rather than over the union of all of them: a name two contexts both
+            // use is two different manifests with two registries, which are never asked about each other.
+            // It runs here, after the registration sets are built, because those sets are exactly what
+            // the manifest registers; ManifestNames states the model and what it does not contain.
+            ManifestNames.ReportDuplicateClaims(
+                context, contextTypes, contextMinimalTypes, declaredStructuralRoots, generatedFormatterTypes, attrBag);
 
             // 1. Generate the 'UseRobustFormatters' file: one registration entry point per context.
             //    Deliberately does NOT emit `using Ceras.Generated;`: this file is compiled as part of
@@ -800,11 +789,11 @@ namespace Ceras.SourceGenerator
             // discovered during the bake (which would make the assigned ids depend on member order).
             // Declaring such a shape as a root is what makes it serializable at all: a Save/Load whose
             // root is not part of the manifest is rejected.
-            foreach (var type in declaredStructuralRoots
-                .Where(t => !generatedFormatterTypes.Contains(t))
-                .GroupBy(t => t, SymbolEqualityComparer.Default)
-                .Select(g => g.First())
-                .OrderBy(t => GetRobustName(t), StringComparer.Ordinal))
+            //
+            // The set comes from ManifestNames.StructuralRootRegistrations, which the name-claim check
+            // (CERAS019) reads too — one definition of "what this context declares", so the check cannot
+            // describe a manifest that is not the one emitted here.
+            foreach (var type in ManifestNames.StructuralRootRegistrations(declaredStructuralRoots, generatedFormatterTypes))
             {
                 string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 body.AppendLine($"                    if (robustConfig != null) robustConfig.SchemaRegistry.DeclareRoot(typeof({typeFqn}));");
@@ -835,10 +824,9 @@ namespace Ceras.SourceGenerator
             // pre-registration the bake cannot resolve their type ids.
             foreach (var type in ordered)
             {
-                if (type.TypeKind != TypeKind.Interface && !type.IsAbstract) continue;
-                if (type.IsSealed) continue; // static classes (abstract+sealed) have no instances
-                if (IsWellKnownType(type, attrBag)) continue;
-                if (type.TypeParameters.Length > 0) continue; // open generics: closed instantiations are handled at runtime
+                // Static classes (abstract+sealed) have no instances; open generics leave their closed
+                // instantiations to the runtime. One predicate, shared with the name-claim check.
+                if (!ManifestNames.EmitsMinimalPlaceholderSchema(type, attrBag)) continue;
 
                 AppendMinimalRegistration(body, type, isStruct: false);
                 usesRobustConfig = true;

@@ -29,9 +29,11 @@
 //     generic's members are written by the definition's shared formatter while the file's schema used to
 //     record the order the *closure's* substituted members sort in. That is fixed in the generator and
 //     pinned by GenericMemberOrderTests;
-//   * that a root which is a *different* closure is still rejected by name, and that an alias two
-//     definitions claim is refused where the second of them is registered rather than resolved by
-//     registration order.
+//   * that a root which is a *different* closure is still rejected by name, and — through a real generated
+//     context — that an open alias several closures of *one* family share is legal. The refusal of one
+//     open name claimed by two *different* families is no longer here: it is a compile error now
+//     (CERAS019, GeneratorNameClaimTests), and the runtime half of it is pinned on a hand-written
+//     descriptor in TypeNameUniquenessTests.
 using System;
 using System.Collections.Generic;
 using Ceras;
@@ -290,22 +292,19 @@ namespace Ceras.Test.GenericAliasFixtures
             Assert.Equal(GenericAliasFixture.Tail, back.Tail);
         }
 
-        [Fact]
-        public void An_Alias_Two_Different_Definitions_Claim_Is_Rejected_At_Registration()
-        {
-            // Structural matching is what makes an open alias a *name for a family*, and that only works
-            // while the family is one definition. Two unrelated generics claiming the same open name would
-            // otherwise be resolved by registration order - a silent mis-binding, on a save that is
-            // otherwise fine, visible only as a wrong value much later. A name a manifest entry answers
-            // for is claimed where the entry is registered, so that is where it is refused: the claim is
-            // the first thing the two declarations below share, and it is made before any schema byte
-            // exists, so the context never gets as far as a half-built manifest.
-            var ex = Assert.Throws<CerasSchemaException>(() =>
-                new CerasRobustSerializer(c => c.UseGeneratedFormatters("GenericAliasAmbiguous")));
-
-            Assert.Contains("Legacy.Box`1", ex.Message);
-            Assert.Contains("Ceras.Test.GenericAliasAmbiguity.First`1<System.Int32>", ex.Message);
-            Assert.Contains("Ceras.Test.GenericAliasAmbiguity.Second`1<System.String>", ex.Message);
-        }
+        // The refusal of one open name claimed by two *different* families used to be pinned here, by
+        // building the "GenericAliasAmbiguous" context and asserting the CerasSchemaException its first
+        // Save/Load raised. That context no longer exists: the generator now refuses the declaration
+        // itself, as CERAS019, long before any of this assembly is loaded — so the runtime path this
+        // exercised is no longer reachable *through a generated manifest*, and the test would have
+        // asserted a build that cannot be produced.
+        //
+        // Both halves of the rule are pinned at the door that is still open. The compile-time half, for
+        // two families, is GeneratorNameClaimTests.An_Open_Alias_Two_Different_Definitions_Claim_Is_A_
+        // Compile_Error; the runtime half, on the hand-written descriptor that describes a historical
+        // file's shape, is TypeNameUniquenessTests.A_Stable_Name_Cannot_Claim_An_Open_Alias_Another_
+        // Family_Holds — the same pair of families, the same open name, refused at Register. The one legal
+        // overlap (several closures of *one* family sharing an open alias) is still exercised through a
+        // real generated context above, which is the only place it can be.
     }
 }

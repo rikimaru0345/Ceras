@@ -135,39 +135,17 @@ namespace Ceras.Test.GenericAliasFixtures
     }
 }
 
-namespace Ceras.Test.GenericAliasAmbiguity
-{
-    // A context of its own, because what follows is a *declaration* error that has to be reported: the two
-    // types can only coexist in a manifest that is never successfully built.
-    //
-    // Both claim the same open alias. That is not a cosmetic overlap. An alias is what a save file is
-    // matched against, so "Legacy.Box`1" would answer for two unrelated definitions and the closure a file
-    // named would be bound to whichever registered first - silently, on a save that is otherwise perfectly
-    // valid. Registering the second one refuses it instead, naming both types.
-    [CerasContext("GenericAliasAmbiguous")]
-    [CerasSerializable]
-    [PreviousTypeName("Legacy.Box`1")]
-    public class First<T>
-    {
-        public T Value;
-    }
-
-    [CerasContext("GenericAliasAmbiguous")]
-    [CerasSerializable]
-    [PreviousTypeName("Legacy.Box`1")]
-    public class Second<T>
-    {
-        public T Value;
-    }
-
-    [CerasContext("GenericAliasAmbiguous")]
-    [CerasSerializable]
-    public class AmbiguousRoot
-    {
-        public First<int> A;
-        public Second<string> B;
-    }
-}
+// Two *different* generic families claiming one open alias used to be declared here, in a context of
+// their own, with a test asserting the runtime refusal. Both are gone, and the reason is the point: the
+// generator now refuses that declaration itself (CERAS019 — see
+// GeneratorNameClaimTests.An_Open_Alias_Two_Different_Definitions_Claim_Is_A_Compile_Error), so no
+// context carrying it can be built at all.
+//
+// The runtime half of the rule is still pinned, on the door that is still open: a hand-written
+// descriptor, which is how a historical file's shape is described by hand. See
+// TypeNameUniquenessTests.A_Stable_Name_Cannot_Claim_An_Open_Alias_Another_Family_Holds (the open alias
+// of one family claimed by another) and .Several_Closures_Of_One_Family_May_Share_An_Open_Alias (the one
+// legal overlap).
 
 namespace Ceras.Test
 {

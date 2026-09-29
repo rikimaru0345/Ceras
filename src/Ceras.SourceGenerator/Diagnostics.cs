@@ -140,10 +140,15 @@ namespace Ceras.SourceGenerator
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
 
-        public static readonly DiagnosticDescriptor DuplicateStableTypeName = new(
+        // The one claim of SchemaRegistry.ClaimNames the generator can decide without a binder: two
+        // entries of the same context claiming one name, whatever produced it (a [CerasSerializable] stable
+        // name, a [PreviousTypeName] alias, a derived canonical name) and in whatever order. The runtime
+        // refuses the same manifest when the context is registered, which is the first Save/Load — see
+        // ManifestNames for which claims the check models and which the runtime's other two rules own.
+        public static readonly DiagnosticDescriptor DuplicateManifestName = new(
             id: "CERAS019",
-            title: "Duplicate stable type name",
-            messageFormat: "Types '{0}' and '{1}' both use the stable type name '{2}'. Give them distinct stable names with [CerasStableName] or [CerasSerializable(\"name\")]",
+            title: "Duplicate type name in one context",
+            messageFormat: "The name '{0}' is claimed by two types in the serialization context '{1}': '{2}' claims it as its {3}, and '{4}' as its {5}. A manifest name identifies exactly one type — a save file is matched to this build by it, so two claims would bind that file to whichever was registered first, silently. Rename one of the two types, or declare the [PreviousTypeName] alias on only one of them, then rebuild.",
             category: "Ceras.SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
