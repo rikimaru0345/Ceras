@@ -45,10 +45,12 @@ The settled contracts below are targets, not claims that the code already meets 
   opaque bytes and the fingerprint records formatter selection; authors own byte
   compatibility and migration. There is no automatic upgrade guarantee for arbitrary
   custom payloads. Experimental v5 implements opaque framing and refuses an undecodable
-  block by default; dropping one requires explicit configuration. **Open correctness
-  gate:** a formatter installed by `OnConfigNewType` during a save after the manifest is
-  baked can bypass pre-save reconciliation and write unframed bytes. Refuse that late
-  selection before the save succeeds; pin a real callback-time regression.
+  block by default; dropping one requires explicit configuration. A custom formatter
+  installed by `OnConfigNewType` after the bake is now refused at selection time, before
+  it can write unframed bytes. **Open correctness gate:** `TypeConfig.CustomResolver`
+  and `OnResolveFormatter` callbacks can still select a user formatter whose bytes are
+  not described by the robust schema or fingerprint; refuse unsupported resolver
+  selections before they can write a save, preserving context-owned/library resolvers.
 - **Networking:** transient format, compatibility exchanged at connection setup. No
   per-message schema, layout hashes, Ceras checksums, or compatibility negotiation during
   gameplay. Ordinary buffer bounds/length checks remain. No reference tracking or runtime
