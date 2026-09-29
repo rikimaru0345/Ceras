@@ -47,10 +47,11 @@ The settled contracts below are targets, not claims that the code already meets 
   custom payloads. Experimental v5 implements opaque framing and refuses an undecodable
   block by default; dropping one requires explicit configuration. A custom formatter
   installed by `OnConfigNewType` after the bake is now refused at selection time, before
-  it can write unframed bytes. **Open correctness gate:** `TypeConfig.CustomResolver`
-  and `OnResolveFormatter` callbacks can still select a user formatter whose bytes are
-  not described by the robust schema or fingerprint; refuse unsupported resolver
-  selections before they can write a save, preserving context-owned/library resolvers.
+   it can write unframed bytes. **Done:** robust `TypeConfig.CustomResolver` and
+   `OnResolveFormatter` selections now refuse unsupported user formatters before
+   caching or writing them; context-owned and narrowly approved library selections
+   still work, and raw contexts are unchanged. Repeat-operation tests ensure a
+   refusal cannot leave a cached unframed formatter or partial dispatcher behind.
 - **Networking:** transient format, compatibility exchanged at connection setup. No
   per-message schema, layout hashes, Ceras checksums, or compatibility negotiation during
   gameplay. Ordinary buffer bounds/length checks remain. No reference tracking or runtime
