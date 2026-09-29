@@ -1,8 +1,8 @@
 # Ceras API cleanup
 
-Reconciled 2026-09-28 against `agents/cleanup-reconcile` (a6ee80d). Of the ten items this list
-used to carry: five are verifiably done, one cannot be done (see *Decisions*), and the other four
-have narrowed to the three items below. Anything larger belongs in `TODO.md`, not here.
+Reconciled after the experimental v5 and post-seal guard merges. The remaining work is
+the internal constructor mismatch and two cosmetic leftovers. Anything larger belongs
+in `TODO.md`, not here.
 
 ## Open work
 
@@ -17,7 +17,7 @@ The internal constructor does not, so `CerasSerializer`'s constructor falls back
 for `IFormatter<string>` rather than naming one (`RobustCodeEmitter.cs:483`), so they take
 whatever the constructor installed.
 
-`Save` on such a serializer therefore succeeds and writes a v4 file whose payload does not
+`Save` on such a serializer therefore succeeds and writes a v5 file whose payload does not
 match the grammar the format declares for those positions — a 4-byte string-table index, not a
 length prefix (`Format/LAYOUT.md:161`, `:176`) — with an empty payload string table. The read then
 fails with
@@ -41,42 +41,7 @@ Either give the internal constructor the same initialization and convert those f
 `Save`/`Load` or to a `CerasFastSerializer`, or delete the constructor and route every caller
 through the public one.
 
-### 2. Configuration that is still accepted after `Seal()`
-
-Covered today: `CerasConfig.ThrowIfSealed` on `TypeBinder`, `RespectNonSerializedAttribute`,
-`ObjectCacheComparer`, `AllowReflectionFallback`, `WarnOnStructWithAutoProperties`;
-`CerasRawConfig.UseReinterpretFormatter`; `CerasRobustConfig.BuildTimestamp`,
-`StringTableCompression`, `SetUnknownBuildTimestamp`; `SizeLimits` and `AdvancedConfig` each seal
-themselves; `TypeConfig.ThrowIfSealed` on `TypeConstruction`, `CustomResolver`, `CustomFormatter`
-and, through it, `MemberConfig.PersistentName`, `WriteBackOrder` and `SerializationOverride`.
-
-Not covered, and what actually happens:
-
-- **`CerasConfig.OnResolveFormatter`** (`CerasConfig.cs:224`) hands out the live
-  `List<FormatterResolverCallback>`. `CerasSerializer` snapshots it once, after sealing
-  (`CerasSerializer.cs:152`), so an entry added afterwards is silently ignored forever.
-- **`CerasConfig.ConfigType` / `ConfigStaticType` / `ConfigType<T>()`** (`CerasConfig.cs:182`,
-  `:187`, `:192`) create a new, unsealed `TypeConfig` after the config is sealed. Configuring a
-  type the serializer has not resolved yet still takes effect — a `TypeConfig` seals on first
-  schema build, not at config-seal time (`CerasSerializer.cs:752`) — while configuring one it has
-  already resolved is silently ignored (pinned for `string` by `ConfigSealingTests.cs:228`).
-- **`TypeConfig<T>.MapParameters`** (`TypeConfig.cs:546`) writes `ParameterMap` with no seal check.
-  The only reader is `TypeConstruction.VerifyParameterMapping`, reached from
-  `TypeConfig.VerifyConstructionMethod` (`TypeConfig.cs:299`), which itself is called only from
-  `ReflectionFallbackFormatter.cs:43` — so a late mapping is applied or dropped depending on when
-  the reflection formatter happens to be built.
-- **`TypeConfig.UnsafeGetAllMembersIncludingCompilerGenerated()`** (`TypeConfig.cs:250`) returns the
-  live member list typed as `IEnumerable<MemberConfig>`. A caller can cast it to `List<>` and
-  mutate member configuration after the seal, which defeats every check above. It is marked
-  "Don't use this", but it is public.
-
-Deliberate, do not "fix": `CerasRobustConfig.DeclareRoot*` (`SerializerConfig.cs:51`) does not
-seal-check the config, because the manifest seals later — at the first `Save`/`Load`, not at
-construction — and `SchemaRegistry.DeclareRoot` throws `CerasSchemaException` then
-(`SchemaRegistry.cs:246`; the reasoning is at `SerializerConfig.cs:180`). `OnConfigNewType`
-(`CerasConfig.cs:203`) is exempt on purpose; the seal message says so (`TypeConfig.cs:416`).
-
-### 3. Two cosmetic leftovers in the robust serializer
+### 2. Two cosmetic leftovers in the robust serializer
 
 No format impact, no behaviour change; both are in diagnostic/codec code.
 
@@ -100,6 +65,12 @@ exist, and a comment at `TypeHelpers.cs:724`.
 
 ## Decisions, kept so they are not reversed by accident
 
+- **Post-seal configuration guards are done.** Retained resolver/member-list references
+  refuse mutations, known type configs stay inspectable but not mutable, creating a
+  configuration for a new type after seal refuses, and `MapParameters` seal-checks.
+  `OnConfigNewType` opens only the discovered type during its callback. `DeclareRoot*`
+  remains legal until the manifest is baked at the first `Save`/`Load`; the registry
+  refuses declarations after that.
 - **`CerasSerializer` stays public.** Generated formatters in a consumer's assembly declare a
   `global::Ceras.CerasSerializer` field and call `ConsumeCurrentObjectFresh()`,
   `SetCurrentObject(object)` and `EnqueueDeserializeCallback(...)` on it

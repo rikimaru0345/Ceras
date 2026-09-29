@@ -1,11 +1,12 @@
 # Ceras implementation roadmap
 
-Remaining work, reconciled with the 2026-09-27 review. Completed implementation history
+Remaining work, reconciled after the experimental v5 merge. Completed implementation history
 belongs in git, tests, and the format/API documentation, not this checklist.
 
 **Priority 0's original gates are closed, not a claim of full save compatibility.**
-Finish the v5 opaque-formatter change and verify it against the game, then make the
-layout model authoritative and connect the old-data graph to the migration reader.
+The v5 opaque-formatter change is merged; replace the game's disposable v4 fixture
+tests deliberately, then make the layout model authoritative and connect the old-data
+graph to the migration reader.
 Do not prioritize NativeAOT, speculative tuning, or networking ahead of game saves.
 The settled contracts below are targets, not claims that the code already meets them.
 
@@ -43,7 +44,8 @@ The settled contracts below are targets, not claims that the code already meets 
 - **Custom formatters:** permitted only when the robust schema describes their framed
   opaque bytes and the fingerprint records formatter selection; authors own byte
   compatibility and migration. There is no automatic upgrade guarantee for arbitrary
-  custom payloads. This is being implemented as experimental v5, not yet merged.
+  custom payloads. Experimental v5 implements opaque framing and refuses an undecodable
+  block by default; dropping one requires explicit configuration.
 - **Networking:** transient format, compatibility exchanged at connection setup. No
   per-message schema, layout hashes, Ceras checksums, or compatibility negotiation during
   gameplay. Ordinary buffer bounds/length checks remain. No reference tracking or runtime
@@ -70,9 +72,9 @@ context after seal or parse the schema on a matching-layout load.
   file schema during Milestone 1, before the old-data graph, so an old file can be
   decoded without consulting a missing historical CLR type. This deliberately changes
   the experimental format and requires reviewed fixture/fingerprint updates; first
-  extract byte-preserving shared rules and pin existing payload bytes. The v4 temporary
-  guard refuses user custom formatters in robust contexts (raw contexts still permit
-  them), but `SchemaRegistry.Register` can still deliberately register a lying schema,
+  extract byte-preserving shared rules and pin existing payload bytes. V5 frames user
+  custom formatter payloads in robust contexts; `SchemaRegistry.Register` can still
+  deliberately register a lying schema,
   and reinterpret/reflection/resolver formatters may write bytes that no schema
   describes. Verify writer selection against the authoritative layout; the
   manifest-coupled guard is not an unforgeable proof of schema truth. Record array
@@ -87,28 +89,29 @@ context after seal or parse the schema on a matching-layout load.
   backed by differential bytes tests.
 - Make formatter resolution context-specific, including primitive/member fast paths
   and concrete formatter injection. Test distinct save/network encodings and ID
-  formatters for the same CLR type. Restore robust custom formatters behind explicit
-  opaque schema and formatter-selection fingerprint metadata after the P0 temporary
-  rejection. Custom payloads have no automatic upgrade promise; an unframed value
-  that cannot be consumed during migration must fail loudly.
+  formatters for the same CLR type. **Done in experimental v5:** robust custom
+  formatters use explicit opaque schema, a length-framed payload and formatter-selection
+  fingerprint metadata. Custom payloads have no automatic upgrade promise; an
+  undecodable value must fail loudly unless its loss is explicitly authorized.
   **This is the highest-value item on the whole roadmap, and the reason is a real
   consumer, not a hypothetical.** The game's earlier `wave-robustsave` branch had four
   custom formatters in a robust context and could not save
-  *or* load at all: `RobustCustomFormatterPolicy` refuses the type at construction, and
-  `Save()` and `Load()` both build the serializer, so the save feature did not work in
-  that build. Its tracker records the policy as a one-day-old commit against a path that
+  *or* load at all under the former v4 rejection policy. Its tracker records that policy
+  as a one-day-old commit against a path that
   had worked for months, and confirms nothing has shipped and no savegame exists to
   load — so the compatibility promise has no real cost to keep here. Two of the four
   were load-bearing and removing them was a *semantic* change, not a free win:
   - a recipe reference became a fresh copy rather than a registry-identical reference,
     so `ReferenceEquals` breaks and the file carries the whole recipe table per factory.
     This is precisely the "context-specific recipe/item ID lookup" this project settled
-    on, and it is **unreachable in a robust context today**;
+    on; v5 now supports the requisite framed formatter, but the game's production save
+    currently uses generated recipe IDs instead;
   - a relative-time value (`value - now`, so "expires in 5 s" survives a load) became an
     absolute double, so an old save's `RevealedUntil = 40.5` is stale the instant it
     loads. Note the general lesson, which outlives this consumer: **rebasing a value
-    against load time is not expressible as an `IFormatter<T>` in a robust context, and
-    never was** — it needs a post-load pass over the loaded graph, not a custom writer.
+    against load time is now expressible through a robust custom formatter, but requires
+    a stable formatter identity and application-owned payload compatibility** — a
+    post-load pass over the loaded graph remains the alternative.
   The game works around this today by storing recipe IDs and game time as generated
   state instead of using custom formatters. **Current
   game checkout is `/games/godot-factory-test` on `main`, not the removed
@@ -124,8 +127,8 @@ context after seal or parse the schema on a matching-layout load.
    collisions per generated context, including minimal registrations and declared
    structural roots; the runtime still guards hand-written descriptors and bake-time
    derived names. Its replacement compile-time and runtime tests pass independently.
-- Re-run `samples/GodotIntegration` under headless Godot after the v5 merge (it has
-  a self-checking success sentinel). Exercise the active `/games/godot-factory-test`
+- **Done:** `samples/GodotIntegration` imports and runs under headless Godot 4.7.2
+  after v5, printing `CERAS_GODOT_INTEGRATION_OK`. Exercise the active `/games/godot-factory-test`
   logic save suite after every format change, including recipe registry identity,
   paused-time semantics and older fixtures. Editor assembly reload and exported-game
   execution are **not automated**; neither project has an export preset. Build an
