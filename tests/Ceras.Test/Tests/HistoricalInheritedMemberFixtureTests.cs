@@ -61,18 +61,14 @@ namespace Ceras.Test.HistoricalInheritedFixtures
     /// (<c>Power</c> to <c>Rating</c>) and widened (<c>int</c> to <c>long</c>) at the same time. v1's
     /// <c>Armour</c> is gone, so the four bytes it wrote have to be skipped.
     /// <para>
-    /// A plain class, like v1's, and not <c>abstract</c> — which is a limitation of the format rather than
-    /// a choice. A generated manifest registers an <b>abstract or interface</b> type with a placeholder
-    /// schema whose <c>previousTypeNames</c> is <c>Array.Empty&lt;string&gt;()</c> and whose
-    /// <c>fields</c> is empty (the source generator's <c>AppendMinimalRegistration</c>), so a user-declared
-    /// <c>[PreviousTypeName]</c> on such a type is dropped on the way into the manifest. A file that
-    /// describes a renamed abstract base then has no name this build can resolve, and
-    /// <c>CerasRobustSerializer.BuildIdToType</c> hands the name to the configured <c>ITypeBinder</c>,
-    /// whose contract is to <i>throw</i> rather than answer null — so the load is refused with
-    /// "Error resolving type with stable name '…': Cannot find type …" instead of leaving the entry
-    /// unmapped the way its own comment says a removed type should be. This is a real defect, reported
-    /// rather than pinned here: a test that asserted the refusal would make the defect look like a
-    /// contract, and the two causes live in production code this change does not touch.
+    /// A plain class, like v1's, and not <c>abstract</c> — which keeps this fixture about the
+    /// <em>inherited member</em> and nothing else. A base this build declares <b>abstract</b>, or as an
+    /// interface, reaches the manifest through a different registration (the generator's field-less
+    /// placeholder schema), and a <c>[PreviousTypeName]</c> on such a type used to be dropped on the way
+    /// in, which left the base's own entry with no name this build could resolve and refused the load
+    /// before a payload byte. That is fixed, and it is pinned where it belongs — on a file of its own, in
+    /// <c>HistoricalAbstractBaseFixtureTests</c>. This fixture stays a plain class so the two claims cannot
+    /// be mistaken for one another.
     /// </para>
     /// </summary>
     [PreviousTypeName("Ceras.HistoricalWriter.V1Inherited.Unit")]

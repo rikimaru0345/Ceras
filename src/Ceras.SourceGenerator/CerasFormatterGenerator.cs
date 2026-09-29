@@ -821,14 +821,17 @@ namespace Ceras.SourceGenerator
             // minimal schemas. These types have no generated formatters but may appear as fields or as
             // generic type arguments in serialized collections (e.g. List<ILogicalEntity>) or as members
             // served by a user-provided custom formatter (e.g. a blacklisted engine object). Without
-            // pre-registration the bake cannot resolve their type ids.
+            // pre-registration the bake cannot resolve their type ids. They keep their [PreviousTypeName]
+            // aliases (see AppendMinimalRegistration): a context's schema section records every registered
+            // type, so a save names them even though no value of an interface or abstract type is ever
+            // written.
             foreach (var type in ordered)
             {
                 // Static classes (abstract+sealed) have no instances; open generics leave their closed
                 // instantiations to the runtime. One predicate, shared with the name-claim check.
                 if (!ManifestNames.EmitsMinimalPlaceholderSchema(type, attrBag)) continue;
 
-                AppendMinimalRegistration(body, type, isStruct: false);
+                AppendMinimalRegistration(body, type, isStruct: false, attrBag.PreviousTypeName);
                 usesRobustConfig = true;
             }
 
@@ -838,7 +841,7 @@ namespace Ceras.SourceGenerator
             // field can reference their type id without relying on runtime auto-registration.
             foreach (var type in minimalTypes)
             {
-                AppendMinimalRegistration(body, type, isStruct: type.IsValueType);
+                AppendMinimalRegistration(body, type, isStruct: type.IsValueType, attrBag.PreviousTypeName);
                 usesRobustConfig = true;
             }
 
@@ -880,10 +883,33 @@ namespace Ceras.SourceGenerator
 
         /// <summary>
         /// Emits a minimal, field-less <see cref="SchemaTypeInfo"/> registration for a type that has no
-        /// generated formatter. The type's bytes are produced by a custom/reflection formatter, so the
-        /// schema entry exists only to assign a deterministic type id and stable name for the bake.
+        /// generated formatter. The entry exists so a deterministic type id and a stable name reach the bake
+        /// for a type whose bytes some other formatter writes — a discovered interface or abstract class no
+        /// formatter can be generated for, or a blacklisted/engine/external type a member references.
+        /// <para>
+        /// <b>The rename aliases are carried here too</b>, and that is the whole point of this registration.
+        /// A generated schema has always recorded the author's <c>[PreviousTypeName]</c> values
+        /// (<see cref="RobustCodeEmitter.BuildSchemaExpression"/>); the placeholder used to pass
+        /// <c>Array.Empty&lt;string&gt;()</c>, which is the *identity* half of a type's description rather
+        /// than the *bytes* half. Nothing is lost on the write side by a field-less entry — no value of an
+        /// abstract type or an interface is ever written — but a context's schema section records
+        /// <em>every</em> registered type, so an old save names this one, and a name the current build does
+        /// not answer for leaves the load with two bad options: refuse it, or let
+        /// <c>CerasRobustSerializer.BuildIdToType</c> ask a <c>ITypeBinder</c> for a type from an older
+        /// build, which by contract throws. Making a base class abstract while renaming it — or replacing a
+        /// contract interface with a better-named one — are ordinary refactors that both land here, so the
+        /// alias is what has to travel with them. See
+        /// <c>tests/Ceras.Test/Tests/HistoricalAbstractBaseFixtureTests.cs</c>.
+        /// </para>
+        /// <para>
+        /// The aliases do not reach the layout fingerprint (which hashes the stable name, the kind and the
+        /// members, never the aliases), so a context that has always declared them for its generated types
+        /// is byte-identical to one that starts doing so here: the schema section gains the strings and the
+        /// per-entry alias count, and nothing a matching-layout load reads moves.
+        /// </para>
         /// </summary>
-        static void AppendMinimalRegistration(StringBuilder body, INamedTypeSymbol type, bool isStruct)
+        static void AppendMinimalRegistration(StringBuilder body, INamedTypeSymbol type, bool isStruct,
+            INamedTypeSymbol? previousTypeNameAttr)
         {
             string typeFqn = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             string stableName = GetRobustName(type);
@@ -895,7 +921,9 @@ namespace Ceras.SourceGenerator
             body.AppendLine($"                        robustConfig.SchemaRegistry.Register(typeof({typeFqn}),");
             body.AppendLine($"                            new global::Ceras.Format.SchemaTypeInfo(");
             body.AppendLine($"                                stableName: {QuoteLiteral(stableName)},");
-            body.AppendLine($"                                previousTypeNames: global::System.Array.Empty<string>(),");
+            body.Append($"                                previousTypeNames: ");
+            RobustCodeEmitter.WriteStringArray(body, RobustCodeEmitter.ReadPreviousTypeNames(type, previousTypeNameAttr));
+            body.AppendLine($",");
             body.AppendLine($"                                kind: {kindExpr},");
             body.AppendLine($"                                fields: global::System.Array.Empty<global::Ceras.Format.SchemaFieldInfo>(),");
             body.AppendLine($"                                fixedByteSize: 0));");
