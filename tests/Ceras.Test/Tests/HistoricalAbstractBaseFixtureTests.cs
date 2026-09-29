@@ -123,6 +123,7 @@ namespace Ceras.Test.HistoricalAbstractBaseFixtures
     /// </summary>
     [PreviousTypeName("Ceras.HistoricalWriter.V1Abstract.ITargetable")]
     [CerasContext("HistoricalAbstractCurrent")]
+    [CerasSerializable]
     public interface ITarget
     {
     }

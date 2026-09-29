@@ -77,6 +77,7 @@ namespace Ceras.HistoricalWriter.V1Abstract
     /// types that implement it, which is exactly why a rename of it has to be carried by the identity alone.
     /// </summary>
     [CerasContext("HistoricalV1Abstract")]
+    [CerasSerializable]
     public interface ITargetable
     {
     }
