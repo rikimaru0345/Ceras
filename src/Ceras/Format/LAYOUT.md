@@ -978,11 +978,25 @@ correct for the binder that produced them.
 
 ## Load order and what is rejected
 
-1. Magic and format version, then the section-offset envelope.
+1. Magic and format version, then the section-offset envelope. These three are the **envelope**: they
+   say how the rest of the header is to be read at all, so they are validated *before* the checksum.
+   That is the order the checks run in, not the reach of the checksum: the magic, the version byte and
+   all three offsets are inside the range the CRC32 is computed over like every other byte, so a
+   corrupted one of them is still a corrupt file (the version byte excepted — it is reported as a
+   version, because a reader that cannot read the format has no standing to go on and interpret the
+   rest of the block), and a block that clears these three and then fails the checksum is still
+   refused as corrupted. Validating them first is what keeps the refusals actionable rather than
+   merely correct: a version this build does not read is refused with the reason — an older
+   experimental version has to be recreated — instead of as a complaint about the rest of the header.
+   The offsets are bounded here, and used for nothing yet.
 2. **CRC32 over the whole block.** Integrity is checked before any field it protects is interpreted,
    so a corrupted build-timestamp byte is reported as corruption rather than as "produced by a newer
-   build", and a corrupted flags byte as corruption rather than as an unknown compression flag.
-3. Semantic header fields: compression flag, producer build timestamp, layout fingerprint.
+   build", a corrupted flags byte as corruption rather than as an unknown compression flag, and a
+   corrupted application-version byte as corruption rather than as "written by a newer application".
+3. Semantic header fields: application version, compression flag, producer build timestamp, layout
+   fingerprint. Each is a *comparison against this build* rather than a fact about the format, which
+   is exactly why a corrupted one has to be reported as corruption and not as the verdict it would
+   have produced.
 4. Matching fingerprint → generated readers (no schema parsing). Mismatched → the migration
    interpreter, which refuses rather than guessing:
    - a retyped field with no defined conversion (e.g. `double` → `decimal`) throws
