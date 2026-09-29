@@ -243,15 +243,13 @@ Perform local cleanup alongside related fixes; no runtime IL/expression generati
   internal `CerasRobustSerializer(CerasRobustConfig)` constructor: unlike the public
   path it skips robust formatter initialization, so internal callers can write
   length-prefixed strings against a schema expecting table indices.
-- `CLEANUP_TODO.md` is reconciled and is now the detail for three concrete items;
-  do not re-litigate the list itself. `CerasSerializer` stays public while generated
-  formatters call its public members. Give the internal
-  `CerasRobustSerializer(CerasRobustConfig)` constructor the same robust formatter
-  setup the public path has — it can otherwise write length-prefixed strings against a
-  schema expecting table indices — and convert the tests that depend on the gap. Then
-  close the configuration surfaces that still accept a write after `Seal()`:
-  `OnResolveFormatter`, `ConfigType*`, `TypeConfig<T>.MapParameters`, and
-  `UnsafeGetAllMembersIncludingCompilerGenerated`.
+- `CLEANUP_TODO.md` now details the remaining internal-constructor mismatch and two
+  cosmetic leftovers. `CerasSerializer` stays public while generated formatters call
+  its public members. Give `CerasRobustSerializer(CerasRobustConfig)` the same robust
+  formatter setup as the public path — it can otherwise write length-prefixed strings
+  against a schema expecting table indices — and convert the tests that depend on the
+  gap. The post-seal mutation doors (`OnResolveFormatter`, `ConfigType*`,
+  `MapParameters`, the live member list) are closed and regression-tested.
 - Guard the public pooled `Serialize` overload against caller-owned buffers: it currently
   treats a replacement buffer as pooled, so a mistaken ownership flag can offer a caller's
   array to another renter. Keep the ownership contract explicit and pin the failure path.
