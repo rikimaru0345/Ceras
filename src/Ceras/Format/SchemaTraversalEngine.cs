@@ -1068,7 +1068,7 @@ namespace Ceras.Format
 			for (int i = 0; i < count; i++)
 			{
                 var val = ReadValue(oldElemTypeId.Value, elementType, ref reader);
-                arr.SetValue(Coerce(val, coerce, elementType), i);
+                arr.SetValue(MigrationPlanBuilder.Coerce(val, coerce, elementType), i);
             }
             return arr;
         }
@@ -1292,7 +1292,7 @@ namespace Ceras.Format
                 var val = oldElemId.HasValue
                     ? ReadValue(oldElemId.Value, elementType, ref reader)
                     : SkipAndReturnDefault(elementType, ref reader);
-                add(fill.Target, Coerce(val, coerce, elementType));
+                add(fill.Target, MigrationPlanBuilder.Coerce(val, coerce, elementType));
             }
             return fill.Result;
         }
@@ -1319,7 +1319,7 @@ namespace Ceras.Format
             {
                 var k = oldKeyId.HasValue ? ReadValue(oldKeyId.Value, keyType, ref reader) : SkipAndReturnDefault(keyType, ref reader);
                 var v = oldValId.HasValue ? ReadValue(oldValId.Value, valType, ref reader) : SkipAndReturnDefault(valType, ref reader);
-                add(fill.Target, Coerce(k, kCoerce, keyType), Coerce(v, vCoerce, valType));
+                add(fill.Target, MigrationPlanBuilder.Coerce(k, kCoerce, keyType), MigrationPlanBuilder.Coerce(v, vCoerce, valType));
             }
             return fill.Result;
         }
@@ -1339,7 +1339,7 @@ namespace Ceras.Format
             for (int i = 0; i < count; i++)
             {
                 var val = oldElemId.HasValue ? ReadValue(oldElemId.Value, elementType, ref reader) : SkipAndReturnDefault(elementType, ref reader);
-                add(fill.Target, Coerce(val, coerce, elementType));
+                add(fill.Target, MigrationPlanBuilder.Coerce(val, coerce, elementType));
             }
             return fill.Result;
         }
@@ -1359,7 +1359,7 @@ namespace Ceras.Format
             for (int i = 0; i < count; i++)
             {
                 var val = oldElemId.HasValue ? ReadValue(oldElemId.Value, elementType, ref reader) : SkipAndReturnDefault(elementType, ref reader);
-                enqueue(fill.Target, Coerce(val, coerce, elementType));
+                enqueue(fill.Target, MigrationPlanBuilder.Coerce(val, coerce, elementType));
             }
             return fill.Result;
         }
@@ -1371,7 +1371,7 @@ namespace Ceras.Format
             for (int i = 0; i < count; i++)
             {
                 var val = oldElemId.HasValue ? ReadValue(oldElemId.Value, elementType, ref reader) : SkipAndReturnDefault(elementType, ref reader);
-                values[i] = Coerce(val, coerce, elementType);
+                values[i] = MigrationPlanBuilder.Coerce(val, coerce, elementType);
             }
 
             var fill = _factory.CreateCollection(currentType, typeof(Stack<>), elementType == null ? null : new[] { elementType },
@@ -1811,76 +1811,6 @@ namespace Ceras.Format
         }
 
         /// <summary>
-        /// The values a type's <c>[CerasConstructor]</c> is invoked with, filled from the payload while it
-        /// is read, plus the members the constructor does not take, which are assigned to the instance
-        /// afterwards.
-        /// <para>
-        /// The plan, the buffer and the pending assignments travel as one object because they are one
-        /// decision: either the instance is constructed out of the payload or it is not. A reader that
-        /// could be handed the plan without the buffer it fills would have to re-decide that per member,
-        /// and a null-forgiving operator would stand in for the answer.
-        /// </para>
-        /// </summary>
-        sealed class CtorArgumentValues
-        {
-            public CtorArgumentPlan Plan { get; }
-
-            // One entry per parameter. Null until the member that feeds it has been read, and null after
-            // that too when the file legitimately stored a null for a parameter that has one.
-            readonly object?[] _values;
-
-            // The members no parameter feeds, applied after the constructor has run so a constructor that
-            // rewrites a value cannot change the result — the generated reader's order. Created on the
-            // first one, because the usual case is that every member feeds a parameter and none is left.
-            List<(FieldInfo Field, object? Value)>? _pendingAssignments;
-
-            public CtorArgumentValues(CtorArgumentPlan plan)
-            {
-                Plan = plan;
-                _values = new object?[plan.Parameters.Length];
-            }
-
-            /// <summary>
-            /// Routes one member's value: to the parameter it feeds, or to the post-construction
-            /// assignments. A value that no parameter can take is refused here, by
-            /// <see cref="CtorArgumentPlan.AcceptMemberValue"/>, rather than at the reflection call.
-            /// </summary>
-            public void Set(FieldInfo field, OldFieldSchema storedField, object? value)
-            {
-                int slot = Plan.SlotForField(field);
-                if (slot >= 0)
-                {
-                    _values[slot] = Plan.AcceptMemberValue(slot, value, storedField);
-                    return;
-                }
-
-                (_pendingAssignments ??= new List<(FieldInfo Field, object? Value)>()).Add((field, value));
-            }
-
-            /// <summary>
-            /// The arguments to invoke the constructor with: a parameter no serialized member feeds is
-            /// transient construction input and gets its own declared default, exactly like the
-            /// generated reader passes <c>default(T)</c>.
-            /// </summary>
-            public object?[] Arguments()
-            {
-                for (int i = 0; i < _values.Length; i++)
-                    if (!Plan.IsMapped(i)) _values[i] = Plan.DefaultFor(i);
-
-                return _values;
-            }
-
-            /// <summary>Assigns the members the constructor did not take.</summary>
-            public void ApplyPendingAssignments(object target)
-            {
-                if (_pendingAssignments == null) return;
-
-                foreach (var (field, value) in _pendingAssignments)
-                    field.SetValue(target, value);
-            }
-        }
-
-        /// <summary>
         /// Reads the fields of <paramref name="oldSchema"/> in payload order and applies them to
         /// <paramref name="target"/>.
         /// <para>
@@ -1954,7 +1884,7 @@ namespace Ceras.Format
                         value = ReadValue(mapping.OldField.TypeId, mapping.NewField.FieldType, ref reader, existing);
                     }
 
-                    var coerced = Coerce(value, mapping.Coercion, mapping.NewField.FieldType);
+                    var coerced = MigrationPlanBuilder.Coerce(value, mapping.Coercion, mapping.NewField.FieldType);
 
                     if (ctorValues != null)
                     {
@@ -1973,20 +1903,6 @@ namespace Ceras.Format
             var m = new FieldMapping[old.Fields.Length];
             for (int i = 0; i < old.Fields.Length; i++) m[i] = new FieldMapping { OldField = old.Fields[i] };
             return m;
-        }
-
-        static object? Coerce(object? value, CoercionKind kind, Type? targetType)
-        {
-            if (kind == CoercionKind.None) return value;
-            return kind switch
-            {
-                CoercionKind.Int32ToInt64 => value is int i ? (object)(long)i : value,
-                CoercionKind.Int16ToInt32 => value is short s ? (object)(int)s : value,
-                CoercionKind.Int32ToSingle => value is int i2 ? (object)(float)i2 : value,
-                CoercionKind.Int32ToDouble => value is int i3 ? (object)(double)i3 : value,
-                CoercionKind.SingleToDouble => value is float f ? (object)(double)f : value,
-                _ => value,
-            };
         }
 
         string ReadStringFromTable(ref SequenceReader<byte> reader) => StringTable.ReadString(ref reader, _stringTable);
