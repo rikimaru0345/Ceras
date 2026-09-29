@@ -21,7 +21,7 @@ namespace Ceras.Format
         // Queue<>/Stack<> are the documented exception: QueueFormatter/StackFormatter write their count
         // through the injected IFormatter<int>, i.e. the plain fixed 4-byte little-endian int, so they are
         // unbiased and have no null marker. The two rules are encoded per shape in
-        // SchemaTraversalEngine.ReadCollectionCount, which decides from the file's definition id.
+        // PayloadGrammar.ReadCollectionCount, which decides from the file's definition id.
         public const int CollectionBias = 1;
         public const int CollectionNull = -1;
     }
