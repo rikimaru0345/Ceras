@@ -4,9 +4,9 @@ Remaining work, reconciled after the experimental v5 merge. Completed implementa
 belongs in git, tests, and the format/API documentation, not this checklist.
 
 **Priority 0's original gates are closed, not a claim of full save compatibility.**
-The v5 opaque-formatter change is merged; replace the game's disposable v4 fixture
-tests deliberately, then make the layout model authoritative and connect the old-data
-graph to the migration reader.
+The v5 opaque-formatter change and the game's deliberate v5 fixture replacement are
+merged. Make the layout model authoritative and connect the old-data graph to the
+migration reader.
 Do not prioritize NativeAOT, speculative tuning, or networking ahead of game saves.
 The settled contracts below are targets, not claims that the code already meets them.
 
@@ -123,11 +123,14 @@ context after seal or parse the schema on a matching-layout load.
   `/games/wt-robustsave` worktree.** It now stores recipe IDs and restores registry
   references in `Game.Rebuild`, and serializes its game clock as generated state; its
   logic tests assert recipe identity, paused time, and loaded-world simulation. It
-  checks in two older experimental robust saves (`populated-world-v1.bin` and
-  `-v2.bin`) as migration fixtures. **Owner decision:** all existing saves are
-  disposable; the v5 break does not need a v4 reader. After v5 lands, remove or replace
-  those fixtures and update the game's tests deliberately, rather than treating their
-  failure as a Ceras regression. Do not overwrite them accidentally in a scratch run.
+   retains two real robust-v4 saves solely to assert clear version refusal, a current-v5
+   save for the generated path, and a real older-game-schema v5 save for the migration
+   reader. The latter has 17 added members and no removed members; both recipes retain
+   registry identity. The Debug-only `PipeSegment.isInitialized` diagnostic is excluded
+   from the save graph, so the full game logic suite passes in Debug and Release against
+   the same fixtures (657/657 each on game `main` at integration). All pre-v5 saves are
+   disposable; no v4 decoder is required. Regenerate checked-in fixtures only deliberately
+   from their real writers.
  - **Done:** `CERAS019` now diagnoses stable-name and `[PreviousTypeName]` alias
    collisions per generated context, including minimal registrations and declared
    structural roots; the runtime still guards hand-written descriptors and bake-time
