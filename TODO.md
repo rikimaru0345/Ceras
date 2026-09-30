@@ -207,13 +207,21 @@ same-version roundtrip.
   v5 fixtures pin construction, member rewrites, sharing and cycles. When two old
   fields alias onto one current field, the migration reader still assigns in file
   order rather than the generated reader's current-member order; make that mapping
-  unambiguous before treating the two as equivalent in that case.
+  unambiguous before treating the two as equivalent in that case. **Approved:**
+  refuse two old fields mapping to one current field, or distinct current fields
+  claiming one stable/previous name; do not choose by traversal precedence.
   `OldOpaqueNode` now retains v5 framed payloads. Nullable, key/value pair and tuple
   values now have file-faithful positional nodes; production materialization remains open.
   **Approved transition policy:** implement and prove the graph reader internally
   before exposing application migration hooks. A retained value that cannot be
   materialized faithfully must refuse, not reproduce the streaming reader's
   consume-and-return-null behavior merely for differential parity.
+  **Done internal stage A:** `GraphMigrationBinder` validates the whole graph's
+  correspondence and current wire-name/destination ambiguity before changing
+  any projection. Removed members retain their recorded values and arena indices.
+  Production `Load` is untouched; object construction/materialization is next.
+  Share the binder's current-member identity enumeration with the plan builder
+  once the retained-unknown gate lands, rather than maintain two attribute walks.
   **Done isolation gate:** a CRC-valid file with a poisoned schema section still loads
   when its fingerprint matches, while the file-only graph reader and mismatched reader
   refuse the same bytes. This proves the matched reader does not parse/build from the
@@ -276,10 +284,15 @@ fail-loud migration first. The example `ReadFromStream` length prefix is not
 bounded before allocating a receive buffer; no network-facing API may inherit
 that behavior. Bound graph depth and frame size before claiming safety for
 peer-supplied messages, independently of the gameplay-loop allocation baseline.
-The approved example-frame policy is a 1 MiB default cap with an explicit-cap
-overload; implementation is in progress. Do not apply a blanket
+**Done:** example stream reads enforce a 1 MiB default cap with an explicit-cap
+overload, checking uint length and varint overflow before allocation. This bounds
+receive buffers, not graph depth, content allocations or total work.
+Do not apply a blanket
 `count > remaining bytes` floor to collections: zero-byte value-type elements
-are valid. Enforce configured limits, and use only proven grammar-specific
+are valid. **Done:** queue, stack and immutable-array formatters now enforce
+configured `MaxCollectionSize` before allocation, with zero allocation on the
+valid-count guard path; defaults and count encodings are unchanged.
+Enforce configured limits, and use only proven grammar-specific
 minimum widths for any additional truncation-before-allocation check.
 
 - Generate a finite-manifest network path without reference tables/proxies, identity
