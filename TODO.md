@@ -149,6 +149,11 @@ context after seal or parse the schema on a matching-layout load.
   `[PreviousTypeName]` aliases, exercised by a genuine older-schema v5 fixture.
   Binder-wide missing-type tolerance remains blocked: it can silently replace a
   retained collection element with its default; decide skips at plan stage.
+  **Approved policy (implementation in progress):** permit missing historical
+  types only in removed-only positions; refuse retained unresolved members,
+  structural arguments and polymorphic runtime values, including unresolved old
+  enum types. No blanket loss opt-out. Keep opaque payloads under their existing
+  explicit policy and retain the skipped-first-occurrence reference refusal.
   **Done, narrow:** generated formatter fields for sealed collection members
   now match the runtime's sealed reference wrapper. Migration construction of
   immutable collections and sealed non-collection generic members are separate
@@ -205,6 +210,10 @@ same-version roundtrip.
   unambiguous before treating the two as equivalent in that case.
   `OldOpaqueNode` now retains v5 framed payloads. Nullable, key/value pair and tuple
   values now have file-faithful positional nodes; production materialization remains open.
+  **Approved transition policy:** implement and prove the graph reader internally
+  before exposing application migration hooks. A retained value that cannot be
+  materialized faithfully must refuse, not reproduce the streaming reader's
+  consume-and-return-null behavior merely for differential parity.
   **Done isolation gate:** a CRC-valid file with a poisoned schema section still loads
   when its fingerprint matches, while the file-only graph reader and mismatched reader
   refuse the same bytes. This proves the matched reader does not parse/build from the
@@ -267,6 +276,11 @@ fail-loud migration first. The example `ReadFromStream` length prefix is not
 bounded before allocating a receive buffer; no network-facing API may inherit
 that behavior. Bound graph depth and frame size before claiming safety for
 peer-supplied messages, independently of the gameplay-loop allocation baseline.
+The approved example-frame policy is a 1 MiB default cap with an explicit-cap
+overload; implementation is in progress. Do not apply a blanket
+`count > remaining bytes` floor to collections: zero-byte value-type elements
+are valid. Enforce configured limits, and use only proven grammar-specific
+minimum widths for any additional truncation-before-allocation check.
 
 - Generate a finite-manifest network path without reference tables/proxies, identity
   preservation, cycle detection, per-message schema/hash/checksum or negotiation.
