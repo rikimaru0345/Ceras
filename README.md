@@ -318,6 +318,16 @@ battle-tested networking system.
   > "learned type" cache, and the requirement is **the same build of your types** on both ends
   > rather than matching settings. See the sample for the details.
 
+  > **Framing is bounded — the buffer, not the contents.** A frame is a varint length prefix followed
+  > by that many payload bytes, so the prefix arrives first and its value is chosen by the other end.
+  > `ReadFromStream` compares that length against a ceiling *before* it allocates the receive buffer:
+  > 1 MiB by default, or whatever you pass as `maxPayloadBytes`. An over-ceiling, over-long or truncated
+  > frame is refused as a `CerasDataCorruptionException` rather than read.
+  >
+  > That bound is about the buffer only. A frame inside the ceiling is still deserialized, and nothing
+  > here bounds the graph depth, collection size or reference machinery inside it — so this is **not** a
+  > claim that untrusted payloads are safe to deserialize. See [TODO.md](TODO.md) Milestone 4.
+
 - **More:**
 The above are just examples. Some shapes are out of scope however they are used — see
 [When should I not use this?](#when-should-i-not-use-this).

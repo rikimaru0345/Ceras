@@ -9,6 +9,14 @@ namespace NetworkExample
 
     class Client
     {
+        /// <summary>
+        /// Largest message this end will accept, in bytes. It bounds one thing: how large a receive
+        /// buffer the other end's length prefix can make this one allocate before it has read anything.
+        /// (The library's default is 1 MiB.) A frame that fits is still deserialized, so the object it
+        /// describes is a separate question - see the network mode in TODO.md.
+        /// </summary>
+        const int MaxMessageBytes = 256 * 1024;
+
         TcpClient _client;
         NetworkStream _netStream;
         CerasFastSerializer _sendCeras;
@@ -81,8 +89,14 @@ namespace NetworkExample
                 {
                     while (true)
                     {
-                        // Read until we received the next message from the server
-                        var obj = await _receiveCeras.ReadFromStream(_netStream);
+                        // Read until we received the next message from the server.
+                        //
+                        // The cap is not optional decoration. A frame is a length prefix followed by that
+                        // many payload bytes, and the prefix arrives first, so its value is chosen by the
+                        // *other* end: without a ceiling, five bytes on the wire ask the reader for two
+                        // gigabytes. ReadFromStream applies a 1 MiB default; say what your protocol
+                        // actually allows, and pick a value both ends agree on.
+                        var obj = await _receiveCeras.ReadFromStream(_netStream, MaxMessageBytes);
                         HandleMessage(obj);
                     }
                 }
