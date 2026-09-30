@@ -12,6 +12,17 @@
     {
         IFormatter<TItem> _itemFormatter;
 
+        /// <summary>
+        /// Injected by <c>CerasSerializer.PrepareFormatter</c>, which matches on the field type, so the
+        /// constructor cannot set it.
+        /// <para>
+        /// <see cref="CollectionByProxyFormatter{TCollection,TItem,TProxyCollection}"/>, the base of every
+        /// other formatter in this file, bounds its count from the same injected instance.
+        /// <c>ImmutableArray</c> was the one shape here that did not.
+        /// </para>
+        /// </summary>
+        SizeLimits _sizeLimits;
+
         public ImmutableArrayFormatter()
         {
             CerasSerializer.AddFormatterConstructedType(typeof(ImmutableArray<TItem>));
@@ -32,12 +43,18 @@
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref ImmutableArray<TItem> value)
         {
+            // The biased count with a null marker, as the built-in collection formatter writes it. -1 is an
+            // ImmutableArray whose IsDefault is true: a legal value, read here before the guard, so the guard
+            // only ever sees a real length.
             int length = SerializerBinary.ReadUInt32Bias(ref reader, 1);
             if (length == -1)
             {
                 value = default;
                 return;
             }
+            // Before the builder, which reserves a backing array of that length up front.
+            CollectionCountLimit.Require(length, CollectionCountLimit.MaxCount(_sizeLimits),
+                typeof(ImmutableArray<TItem>), countHasNoNullMarker: false);
             var builder = ImmutableArray.CreateBuilder<TItem>(length);
             var itemFormatter = _itemFormatter; // Cache into local to prevent ram fetches
             for (int i = 0; i < length; i++)
