@@ -314,7 +314,7 @@ namespace Ceras.Test
             // Unchanged, and still holding nothing: the binder had no plan for this identity and had
             // nothing to say, which is the correct outcome rather than a skipped one.
             Assert.All(bare, o => Assert.Empty(o.Members));
-            Assert.All(bare, o => Assert.Equal(0, o.RecordedMembers.Count));
+            Assert.All(bare, o => Assert.Empty(o.RecordedMembers));
         }
 
         /// <summary>
