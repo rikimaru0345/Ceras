@@ -12,6 +12,15 @@ namespace NetworkExample
 
     class ServerClient
     {
+        /// <summary>
+        /// Largest message this end will accept, in bytes. The length prefix is peer-supplied data - it is
+        /// what decides the size of the receive buffer - so it is checked against this before anything is
+        /// read, and a frame larger than it is refused rather than allocated. The library's default is
+        /// 1 MiB; a value both ends agree on is better still. A frame that fits is still deserialized, so
+        /// what it describes is a separate question - see the network mode in TODO.md.
+        /// </summary>
+        const int MaxMessageBytes = 256 * 1024;
+
         readonly TcpClient _tcpClient;
         readonly NetworkStream _netStream;
         readonly CerasFastSerializer _sendCeras;
@@ -46,7 +55,9 @@ namespace NetworkExample
                     // Eventually when the client disconnects we'll just get an exception and end the thread...
                     while (true)
                     {
-                        var obj = await _receiveCeras.ReadFromStream(_netStream);
+                        // Bounded: a frame larger than MaxMessageBytes is refused on its length prefix,
+                        // before a receive buffer is allocated for it.
+                        var obj = await _receiveCeras.ReadFromStream(_netStream, MaxMessageBytes);
                         HandleMessage(obj);
                     }
                 }
