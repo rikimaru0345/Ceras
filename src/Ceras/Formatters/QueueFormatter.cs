@@ -9,6 +9,12 @@ namespace Ceras.Formatters
         IFormatter<int> _intFormatter = default!;
         IFormatter<TItem> _itemFormatter = default!;
 
+        /// <summary>
+        /// Injected by <c>CerasSerializer.PrepareFormatter</c>, which matches on the field type, so the
+        /// constructor cannot set it.
+        /// </summary>
+        SizeLimits _sizeLimits = default!;
+
         public QueueFormatter()
         {
             CerasSerializer.AddFormatterConstructedType(typeof(Queue<TItem>));
@@ -23,9 +29,15 @@ namespace Ceras.Formatters
 
         public override void Deserialize(ref SequenceReader<byte> reader, ref Queue<TItem> value)
         {
+            // The count is the injected Int32Formatter: a fixed 4-byte little-endian element count with no
+            // null marker, so every negative int in it is corrupt data rather than a null queue. Refused
+            // before the allocation below.
             int count = 0;
             _intFormatter.Deserialize(ref reader, ref count);
+            CollectionCountLimit.Require(count, CollectionCountLimit.MaxCount(_sizeLimits), typeof(Queue<TItem>), countHasNoNullMarker: true);
 
+            // A fresh queue rather than a refill of the one it was handed: this formatter's existing design,
+            // unchanged here. The guard above precedes both the reservation and the assignment.
             value = new Queue<TItem>(count);
             for (int i = 0; i < count; i++)
             {
